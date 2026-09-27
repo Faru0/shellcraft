@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shellcraft"
+version = "0.1.0"
+description = "A modular, pipe-friendly Python shell with Rich output and an embedded MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "prompt_toolkit>=3.0.40",
+    "rich>=13.7",
+    "mcp>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+shellcraft = "core.cli:main"
+
+[tool.setuptools]
+packages = ["core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

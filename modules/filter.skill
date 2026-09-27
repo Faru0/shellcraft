@@ -1,0 +1,48 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Filter text line by line with a regular expression (grep-style) and return the matching lines."
+
+when_to_use = """
+Use after obtaining text (e.g. from `fetch`) when you need only the relevant lines: log lines
+with a keyword, CSV rows matching a value, or a count of occurrences. Prefer this over reading a
+whole large document yourself. Put the text to search in `stdin`; this tool never reads files."""
+
+usage = "filter [-i] [-v] [-c] [-n] [-F] [-m N] PATTERN"
+
+[[args]]
+name = "PATTERN"
+description = "Python regular expression (required, the last positional argument)."
+
+[[args]]
+name = "-i"
+description = "Case-insensitive."
+
+[[args]]
+name = "-v"
+description = "Invert: return lines that do NOT match."
+
+[[args]]
+name = "-c"
+description = "Return only the count of matching lines."
+
+[[args]]
+name = "-n"
+description = "Prefix lines with their 1-based line number as 'N:line'."
+
+[[args]]
+name = "-F"
+description = "Treat PATTERN as a literal string (no regex metacharacters)."
+
+[[args]]
+name = "-m N"
+description = "Stop after N matches."
+
+examples = [
+  'args=["-i", "error"], stdin="<log text>"',
+  'args=["-c", "^GET "], stdin="<access log>"',
+  'args=["-v", "-F", "#"], stdin="<config file text>"',
+]
+
+notes = """
+An empty result means no line matched (not an error). An invalid regex returns a tool error;
+retry with -F for literal text."""
