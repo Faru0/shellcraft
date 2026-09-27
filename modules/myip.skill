@@ -1,0 +1,52 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Get the public IP address of the ShellCraft host, or geolocate any IPv4/IPv6 address (country, city, ASN, network owner, timezone) via ipconfig.io."
+
+when_to_use = """
+Use when you need:
+- the host's public/external IP address (call with no args);
+- where an IP address is located, or which company/network (ASN) owns it: for example IPs from
+  logs, firewall alerts or DNS answers;
+- whether a TCP port on the host's public IP is reachable from the internet (--port).
+Do not use it for private/LAN addresses (10.x, 192.168.x, 172.16-31.x, fc00::/7); they have no
+public geolocation."""
+
+usage = "myip [IP...] [-i | -j | -f FIELD | -p PORT] [--timeout SECONDS]"
+
+[[args]]
+name = "IP..."
+description = "Zero or more IPv4/IPv6 addresses. If omitted, IPs are read from `stdin` (one per line); if stdin is also empty, the host's own IP is used."
+
+[[args]]
+name = "-i / --info"
+description = "Aligned 'key  value' detail record (default when IPs are given)."
+
+[[args]]
+name = "-j / --json"
+description = "JSON record (a JSON array for several IPs). Best choice when you will parse the result."
+
+[[args]]
+name = "-f / --field FIELD"
+description = "One field: ip, hostname, country, country_iso, country_eu, region_name, region_code, city, zip_code, latitude, longitude, coordinates, metro_code, time_zone, asn, asn_org, ip_decimal. Several IPs give 'ip<TAB>value' lines."
+
+[[args]]
+name = "-p / --port N"
+description = "Check whether TCP port N on the host's own public IP is reachable from the internet. Cannot be combined with an IP."
+
+[[args]]
+name = "--timeout SECONDS"
+description = "Network timeout (default 10)."
+
+examples = [
+  'args=[]  -> the host public IP, e.g. "203.0.113.42"',
+  'args=["-j"]  -> full JSON record for the host',
+  'args=["8.8.8.8", "-j"]  -> {"ip": "8.8.8.8", "country": "United States", "asn": "AS15169", "asn_org": "Google LLC", ...}',
+  'args=["-f", "country_iso"], stdin="1.1.1.1\n8.8.8.8"  -> "1.1.1.1\tAU\n8.8.8.8\tUS"',
+  'args=["-p", "443"]  -> "203.0.113.42:443 reachable from the internet"',
+]
+
+notes = """
+Country and ASN are reliable; city/region/coordinates are best-effort and often absent (anycast
+addresses such as 1.1.1.1 have none). Absent fields are omitted, not null. An invalid address
+returns a tool error like 'could not parse IP: x'. Results reflect the host running ShellCraft,
+not the AI client. The API is free and unauthenticated: avoid lookup loops over large IP lists."""
