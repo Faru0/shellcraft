@@ -24,14 +24,14 @@ Items marked **(verified)** were reproduced during the assessment.
 
 - [ ] **Invalid custom theme color crashes startup** *(verified)*: a bad hex such as `"prompt": "not-a-color"` in `config.json` raises `ValueError: Wrong color format` from `UI()`. Fix: validate in `all_themes()`, warn, and fall back to the base preset's color. — `core/themes.py`
 - [ ] **`2> file` is silently misparsed** *(verified)*: `a 2> err.txt` becomes arg `"2"` plus a *stdout* redirect to `err.txt`, which overwrites the file with the wrong stream. `<`, `;` and `&&` also pass through as plain args. Fix: reject them with a clear `ParseError` until they are implemented (see Features). — `core/parser.py`
-- [ ] **Nonzero exit from a system command always aborts the pipeline** *(verified)*: `echo abc | grep zzz` shows a "failed" panel, but for grep a status of 1 just means no match. Fix: treat `returncode == 1` with empty stderr as an empty result, or add a configurable ok-codes policy. — `core/pipeline.py::_run_system`
+- [ ] **Nonzero exit from a system command always aborts the pipeline** *(verified; only when `system_commands` is on; the built-in `grep` already treats no match as empty output)*: `echo abc | grep zzz` shows a "failed" panel, but for grep a status of 1 just means no match. Fix: treat `returncode == 1` with empty stderr as an empty result, or add a configurable ok-codes policy. — `core/pipeline.py::_run_system`
 - [ ] **A non-editable `pip install .` ships no modules**: `pyproject.toml` packages only `core`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. — `pyproject.toml`, `core/cli.py`
 - [ ] **Pager search `n` gets stuck on the last screen**: when a match is inside the final page, `top` is clamped to `max_top`, so the next `n` finds the same line again. Matches are also not highlighted. Fix: track `match_index` separately from `top` and highlight the match. — `core/output.py::page`
-- [ ] **Interactive system programs misbehave** (`vim`, `top`, `ssh`, `python`): their stdin and stdout are pipes. Fix: when a system command is the only segment and has no redirect, run it attached to the terminal (no capture, no spinner). — `core/pipeline.py`
+- [ ] **Interactive system programs misbehave** (`vim`, `top`, `ssh`, `python`), *only when `system_commands` is on*: their stdin and stdout are pipes. Fix: when a system command is the only segment and has no redirect, run it attached to the terminal (no capture, no spinner). — `core/pipeline.py`
 
 ## 🔒 Security — P0
 
-- [ ] **MCP `fetch` reads arbitrary host files** *(verified: `/etc/hostname`)* **and arbitrary URLs (SSRF)**. Add:
+- [ ] **MCP `fetch` reads arbitrary host files** *(verified: `/etc/hostname`)* **and arbitrary URLs (SSRF)**. The read-only builtins `cat`, `grep`, `head`, `tail` and `ls` in `shellcraft_pipeline` can read any file too, so the `--root` sandbox must cover them as well. Add:
   - `--root DIR`, which confines file reads for MCP
   - blocking of loopback, private and link-local targets, with an optional URL allowlist
   - a max response size
@@ -48,7 +48,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **`show()` renders twice** (a capture pass, then a print pass) and loads huge outputs fully into Rich. Reuse the captured ANSI, and cap or stream very large outputs into the pager. — `core/output.py`
 - [ ] **System command stderr is dropped on success**, so warnings are lost. Print it dimmed. — `core/pipeline.py`
 - [ ] **Captured system output loses colors**: set `FORCE_COLOR` / `CLICOLOR_FORCE` when the output will be displayed and not redirected. — `core/pipeline.py`
-- [ ] **Windows: the prompt's `~` shortening is case-sensitive.** Use `os.path.normcase`. Also, `echo` in `_WINDOWS_CMD_BUILTINS` is unreachable because the builtin wins. — `core/shell.py`, `core/pipeline.py`
+- [ ] **Windows: the prompt's `~` shortening is case-sensitive.** Use `os.path.normcase`. — `core/shell.py`
 - [ ] **`cd` inside a pipeline changes the real cwd** (`cd x | pwd`), unlike POSIX subshells. Disallow it outside a single-segment line, or document it. — `core/builtins.py`
 - [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
@@ -89,7 +89,8 @@ Items marked **(verified)** were reproduced during the assessment.
   - `$VAR` / `%VAR%` expansion with `export`
   - glob expansion (`*.log`)
   - `~user`
-- [ ] **Builtins**: `alias` / `unalias`, `history`, `which` / `type`, `tee`, `source`, `env`, `sleep`, `time`.
+- [x] **Ported builtins, first batch**: `ls`, `cat`, `grep`, `echo`, `tee`, `head`, `tail`, `wc`, `sort`, `uniq`, `date`, `mkdir`, `cp`, `mv`, `rm`, plus the `settings` command with OS commands off by default.
+- [ ] **More builtins**: `find`, `touch`, `which` / `type`, `tree`, `cut`, `tr`, `env`, `alias` / `unalias`, `history`, `source`, `sleep`, `time`.
 - [ ] **Startup rc file** `~/.shellcraft/rc` (aliases, env, theme).
 - [ ] **Input-line syntax highlighting** with a prompt_toolkit lexer: known commands green, unknown ones red, operators in the accent color. Also:
   - a bottom toolbar (cwd, git branch, last command duration)
@@ -99,7 +100,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Structured data mode**: JSON-lines between modules, with `select`, `where`, `sort-by` and a `table` renderer, for Nushell-style pipelines.
 - [ ] **Background jobs** (`cmd &`, `jobs`, `fg`) and per-command timing.
 - [ ] **`ask "..."` builtin**: a Claude-powered assistant that uses the loaded modules as tools and their `.skill` files as guidance.
-- [ ] **More modules**: portable `ls` (Rich table), `sort`, `uniq`, `head` / `tail`, `json` (pretty-print/query), `hash`, `dns`, `weather`.
+- [ ] **More modules**: `json` (pretty-print/query), `hash`, `dns`, `weather`.
 
 ## 🧪 Tests / CI / docs — P1
 

@@ -11,6 +11,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
+from core import settings
 from core.config import save_config
 from core.context import CommandError, ShellExit
 from core.themes import all_themes
@@ -19,20 +20,27 @@ if TYPE_CHECKING:
     from core.context import ShellContext
 
 
+CATEGORIES = ("shell", "text", "files", "info")
+
+
 @dataclass(frozen=True)
 class Builtin:
     fn: Callable[[ShellContext, list[str], str], Any]
     summary: str
     usage: str
     stateful: bool = False  # changes shell state; disabled for MCP pipelines
+    writes: bool = False  # changes the filesystem; disabled for MCP pipelines
+    category: str = "shell"
+    doc: str | None = None  # Markdown manual shown by `man`
 
 
 BUILTINS: dict[str, Builtin] = {}
 
 
-def builtin(name: str, summary: str, usage: str, stateful: bool = False):
+def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
+            category: str = "shell", doc: str | None = None):
     def register(fn):
-        BUILTINS[name] = Builtin(fn, summary, usage, stateful)
+        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc)
         return fn
     return register
 
@@ -65,11 +73,6 @@ def _pwd(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return os.getcwd() + "\n"
 
 
-@builtin("echo", "Print arguments to the output stream", "echo [TEXT...]")
-def _echo(ctx: ShellContext, args: list[str], stdin: str) -> str:
-    return " ".join(args) + "\n"
-
-
 @builtin("exit", "Leave ShellCraft", "exit [CODE]", stateful=True)
 def _exit(ctx: ShellContext, args: list[str], stdin: str) -> str:
     try:
@@ -93,8 +96,10 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     table.add_column("command", style="sc.path", no_wrap=True)
     table.add_column("kind", style="sc.muted")
     table.add_column("description")
-    for name in sorted(BUILTINS):
-        table.add_row(name, "builtin", BUILTINS[name].summary)
+    for category in CATEGORIES:
+        names = sorted(n for n, b in BUILTINS.items() if b.category == category)
+        for i, name in enumerate(names):
+            table.add_row(name, category, BUILTINS[name].summary, end_section=i == len(names) - 1)
     for name in ctx.registry.names():
         table.add_row(name, "module", ctx.registry.get(name).summary)
     tips = Text.assemble(
@@ -117,7 +122,8 @@ def _man(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         doc = spec.doc_md
     elif name in BUILTINS:
         b = BUILTINS[name]
-        doc = f"# {name}\n\n{b.summary}.\n\n## Usage\n\n```\n{b.usage}\n```\n\n*ShellCraft built-in command.*\n"
+        doc = b.doc or f"# {name}\n\n{b.summary}.\n\n## Usage\n\n```\n{b.usage}\n```\n"
+        doc += "\n*ShellCraft built-in command.*\n"
     else:
         raise CommandError(f"man: no manual entry for {name}")
     return Markdown(doc) if ctx.ui else doc
@@ -178,4 +184,87 @@ def _reload(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     msg = Text.assemble(("✓ ", "sc.success"), f"loaded {len(ctx.registry)} module(s)")
     for w in ctx.registry.warnings:
         msg.append(f"\n⚠ {w}", style="sc.warning")
+    return msg
+
+
+SETTINGS_DOC = """# settings
+
+Show and change ShellCraft's on/off settings. Changes apply immediately and are saved to
+`~/.shellcraft/config.json`.
+
+## Usage
+
+```
+settings                      # table of all settings
+settings KEY on|off|toggle    # change one
+settings reset KEY            # back to the default
+```
+
+## Settings
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+""" + "".join(
+    f"| `{s.key}` | {'on' if s.default else 'off'} | {s.description} |\n" for s in settings.SETTINGS.values()
+) + """
+## Examples
+
+```
+settings system_commands on   # allow git, python, uname… from your PATH
+settings pager off
+```
+"""
+
+
+@builtin("settings", "Show or change on/off settings", "settings [KEY on|off|toggle] | settings reset KEY",
+         stateful=True, doc=SETTINGS_DOC)
+def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not args:
+        table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+        table.add_column("key", style="sc.path", no_wrap=True)
+        table.add_column("setting")
+        table.add_column("value", justify="center")
+        table.add_column("description", style="sc.muted")
+        for s in settings.SETTINGS.values():
+            on = settings.get(ctx.config, s.key)
+            value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
+            table.add_row(s.key, s.label, value, s.description)
+        return table
+
+    if args[0] == "reset":
+        if len(args) != 2:
+            raise CommandError("usage: settings reset KEY")
+        key = _setting_key(args[1])
+        settings.reset(ctx.config, key)
+        return _store_setting(ctx, key, settings.get(ctx.config, key), "reset to")
+
+    if len(args) != 2:
+        raise CommandError("usage: settings KEY on|off|toggle")
+    key = _setting_key(args[0])
+    if args[1].lower() == "toggle":
+        value = not settings.get(ctx.config, key)
+    else:
+        value = settings.parse_bool(args[1])
+        if value is None:
+            raise CommandError(f"settings: expected on, off or toggle, got '{args[1]}'")
+    settings.set_value(ctx.config, key, value)
+    return _store_setting(ctx, key, value, "set to")
+
+
+def _setting_key(key: str) -> str:
+    if key not in settings.SETTINGS:
+        raise CommandError(f"settings: unknown setting '{key}' (try: {', '.join(settings.SETTINGS)})")
+    return key
+
+
+def _store_setting(ctx: ShellContext, key: str, value: bool, verb: str) -> Text:
+    setting = settings.SETTINGS[key]
+    if setting.apply:
+        setting.apply(ctx, value)
+    msg = Text.assemble(("✓ ", "sc.success"), f"{setting.label} {verb} ",
+                        ("On", "sc.success") if value else ("Off", "sc.error"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f"  (not saved: {exc})", style="sc.warning")
     return msg

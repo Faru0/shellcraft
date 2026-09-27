@@ -21,7 +21,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
     p.add_argument("--allow-system", action="store_true",
-                   help="MCP only: let pipelines fall back to system executables (off by default)")
+                   help="allow OS commands for this session (overrides the system_commands setting)")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p.parse_args(argv)
 
@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         serve(registry, allow_system=args.allow_system)
         return 0
 
+    from core import settings
     from core.config import load_config
     from core.context import ShellContext
     from core.themes import UI, all_themes
@@ -52,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shellcraft: unknown theme '{theme_name}', using cyberpunk", file=sys.stderr)
         theme_name = "cyberpunk"
     ui = UI(themes[theme_name])
-    ctx = ShellContext(registry=registry, ui=ui, config=config)
+    ctx = ShellContext(registry=registry, ui=ui, config=config,
+                       allow_system=args.allow_system or settings.get(config, "system_commands"))
 
     if args.command is not None:
         return _run_once(args.command, ctx)
@@ -60,13 +62,14 @@ def main(argv: list[str] | None = None) -> int:
     from core.shell import Shell
 
     shell = Shell(ctx)
-    if not args.no_banner:
+    if not args.no_banner and settings.get(config, "banner"):
         shell.banner()
     return shell.loop()
 
 
 def _run_once(line: str, ctx) -> int:
-    from core.context import ShellExit
+    from core import settings
+    from core.context import ShellExit, Styled, to_text
     from core.output import show, show_error
     from core.parser import ParseError
     from core.pipeline import PipelineError, run_line
@@ -83,10 +86,10 @@ def _run_once(line: str, ctx) -> int:
         show_error(UI(ctx.ui.theme, Console(stderr=True, highlight=False)), exc, line)
         return 1
     if result is not None and result.output is not None:
-        if isinstance(result.output, str) and not ctx.ui.console.is_terminal:
-            sys.stdout.write(result.output)  # raw bytes for scripts: no wrapping or styling
+        if isinstance(result.output, (str, Styled)) and not ctx.ui.console.is_terminal:
+            sys.stdout.write(to_text(result.output))  # plain text for scripts: no wrapping or styling
         else:
-            show(ctx.ui, result.output)
+            show(ctx.ui, result.output, pager=settings.get(ctx.config, "pager"))
     return 0
 
 

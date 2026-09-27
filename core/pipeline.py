@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import core.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
 from core.builtins import BUILTINS
 from core.context import CommandError, ShellContext, ShellExit, to_text
 from core.modkit import ModuleError
@@ -18,7 +19,7 @@ from core.parser import Command, Pipeline, parse
 
 # cmd.exe built-ins that have no executable on PATH.
 _WINDOWS_CMD_BUILTINS = {"dir", "type", "copy", "del", "erase", "move", "ren", "rename",
-                         "mkdir", "md", "rmdir", "rd", "ver", "vol", "set", "echo"}
+                         "md", "rmdir", "rd", "ver", "vol", "set"}
 
 
 class PipelineError(Exception):
@@ -80,7 +81,7 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
-        if builtin.stateful and not ctx.allow_stateful:
+        if (builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes):
             raise CommandError(f"builtin '{cmd.name}' is not available in this context")
         return builtin.fn(ctx, cmd.args, stdin)
 
@@ -90,10 +91,13 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
         result = ctx.runner(label, lambda: spec.run(list(cmd.args), stdin))
         return "" if result is None else result
 
-    if ctx.allow_system:
-        argv = _resolve_system(cmd)
-        if argv is not None:
+    argv = _resolve_system(cmd)
+    if argv is not None:
+        if ctx.allow_system:
             return ctx.runner(f"running {cmd.name}…", lambda: _run_system(argv, stdin))
+        if ctx.allow_stateful:  # only suggest the setting where the user can change it
+            raise CommandError(f"command not found: {cmd.name} "
+                               f"(OS commands are off — run: settings system_commands on)")
 
     known = list(BUILTINS) + ctx.registry.names()
     hint = difflib.get_close_matches(cmd.name, known, n=1)

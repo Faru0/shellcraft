@@ -35,6 +35,7 @@ class ThemeDef:
                 "sc.success": self.success,
                 "sc.warning": self.warning,
                 "sc.border": self.accent,
+                "sc.match": f"bold reverse {self.accent}",
                 # Markdown (man pages) picks up the palette too.
                 "markdown.h1": f"bold {self.prompt}",
                 "markdown.h1.border": self.accent,

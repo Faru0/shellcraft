@@ -18,6 +18,7 @@ from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 
 from core import __version__
+from core.builtins import BUILTINS
 from core.context import ShellContext, to_text
 from core.loader import ModuleRegistry
 from core.modkit import ModuleError
@@ -64,17 +65,20 @@ SERVER_INSTRUCTIONS = (
 
 
 def _pipeline_description(registry: ModuleRegistry) -> str:
-    listing = "\n".join(f"  {n}: {registry.get(n).summary}" for n in registry.names())
+    modules = "\n".join(f"  {n}: {registry.get(n).summary}" for n in registry.names())
+    usable = sorted(n for n, b in BUILTINS.items() if not (b.stateful or b.writes))
     return (
         "Run a ShellCraft pipeline: commands joined by `|`, each receiving the previous command's "
-        "output as stdin. Use it to combine several tools in one call. File redirection (`>`, `>>`) "
-        "and shell-state commands (cd, theme, exit) are disabled.\n\n"
-        f"Available commands:\n{listing}\n  echo, pwd, help, man: built-ins"
+        "output as stdin. Use it to combine several tools in one call. File redirection (`>`, `>>`), "
+        "file-changing commands (tee, cp, mv, rm, mkdir) and shell-state commands (cd, theme, "
+        "settings, exit) are disabled. Run `man <command>` inside a pipeline for a command's manual.\n\n"
+        f"Modules:\n{modules}\n\nBuilt-in commands: {', '.join(usable)}"
     )
 
 
 def build_server(registry: ModuleRegistry, allow_system: bool = False) -> Server:
-    ctx = ShellContext(registry=registry, allow_redirect=False, allow_system=allow_system, allow_stateful=False)
+    ctx = ShellContext(registry=registry, allow_redirect=False, allow_system=allow_system,
+                       allow_stateful=False, allow_writes=False)
 
     async def on_list_tools(_ctx, _params) -> types.ListToolsResult:
         tools = [

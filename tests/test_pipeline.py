@@ -73,4 +73,5 @@ def test_renderable_builtin_flattens_into_pipe(ctx):
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX executable")
 def test_system_fallback(ctx):
+    ctx.allow_system = True
     assert run_line("echo hello | tr a-z A-Z", ctx).output == "HELLO\n"

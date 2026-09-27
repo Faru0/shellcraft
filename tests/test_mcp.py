@@ -40,3 +40,15 @@ def test_pipeline_tool_blocks_redirect_and_system(registry):
     assert redirect.is_error and "redirection is disabled" in redirect.content[0].text
     system = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo x | tr x y"}))
     assert system.is_error and "command not found" in system.content[0].text
+
+
+def test_pipeline_tool_allows_readonly_ports_but_not_writes(registry, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "f.txt").write_text("b\na\n")
+    server = build_server(registry)
+    ok = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "cat f.txt | sort"}))
+    assert not ok.is_error and ok.content[0].text == "a\nb\n"
+    for command in ("rm f.txt", "echo x | tee g.txt", "mkdir d"):
+        blocked = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": command}))
+        assert blocked.is_error and "not available" in blocked.content[0].text
+    assert (tmp_path / "f.txt").exists()

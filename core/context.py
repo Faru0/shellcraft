@@ -30,9 +30,18 @@ class ShellContext:
     runner: Runner = _direct
     interactive: bool = False
     allow_redirect: bool = True
-    allow_system: bool = True
-    allow_stateful: bool = True  # cd / theme / exit / reload / clear
+    allow_system: bool = False  # OS executable fallback; see the `system_commands` setting
+    allow_stateful: bool = True  # cd / theme / exit / reload / clear / settings
+    allow_writes: bool = True  # filesystem-changing builtins: tee / mkdir / cp / mv / rm
     prev_dir: str | None = None
+
+
+@dataclass
+class Styled:
+    """Output with two faces: `renderable` for the screen, `text` for pipes, files and MCP."""
+
+    renderable: Any
+    text: str
 
 
 class ShellExit(Exception):
@@ -51,6 +60,8 @@ def to_text(value: Any, width: int = 100) -> str:
         return ""
     if isinstance(value, str):
         return value
+    if isinstance(value, Styled):
+        return value.text
     buf = io.StringIO()
     # Uses a preset theme so sc.* style names resolve even without a UI.
     console = Console(file=buf, width=width, color_system=None, force_terminal=False, highlight=False,

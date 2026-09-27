@@ -16,6 +16,8 @@ from prompt_toolkit.filters import Condition
 from rich.panel import Panel
 from rich.text import Text
 
+from core import settings
+from core.context import ShellContext, Styled
 from core.parser import ParseError
 from core.pipeline import PipelineError
 from core.themes import UI
@@ -24,8 +26,9 @@ SPINNER_DELAY = 0.15  # seconds before a spinner appears; fast commands never fl
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
-def make_spinner_runner(ui: UI) -> Callable[[str, Callable[[], Any]], Any]:
+def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]], Any]:
     """Run each segment in a worker thread and show a Rich spinner if it takes a while."""
+    ui = ctx.ui
 
     def runner(label: str, fn: Callable[[], Any]) -> Any:
         done = threading.Event()
@@ -40,10 +43,11 @@ def make_spinner_runner(ui: UI) -> Callable[[str, Callable[[], Any]], Any]:
                 done.set()
 
         threading.Thread(target=target, daemon=True, name=f"shellcraft:{label}").start()
-        if not done.wait(SPINNER_DELAY):
+        if not done.wait(SPINNER_DELAY) and settings.get(ctx.config, "spinner"):
             with ui.console.status(Text(label, style="sc.accent"), spinner="dots12", spinner_style="sc.accent"):
                 while not done.wait(0.05):
                     pass
+        done.wait()
         if "error" in box:
             raise box["error"]
         return box.get("value")
@@ -51,13 +55,17 @@ def make_spinner_runner(ui: UI) -> Callable[[str, Callable[[], Any]], Any]:
     return runner
 
 
-def show(ui: UI, value: Any) -> None:
+def show(ui: UI, value: Any, pager: bool = True) -> None:
     """Print a command's final output, paging it if it is taller than the terminal."""
+    if isinstance(value, Styled):
+        if not value.text:
+            return
+        value = value.renderable
     if value is None or value == "":
         return
     renderable = Text.from_ansi(value.rstrip("\n")) if isinstance(value, str) else value
     console = ui.console
-    if not console.is_terminal:
+    if not console.is_terminal or not pager:
         console.print(renderable)
         return
     with console.capture() as capture:

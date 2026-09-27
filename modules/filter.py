@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
-
-from core.modkit import ArgParser, ModuleError
+from core.commands.text import compile_pattern, match_lines
+from core.modkit import ArgParser
 
 SUMMARY = "Keep lines matching a regex (grep-style)"
 
@@ -20,20 +19,8 @@ def run(args: list[str], stdin: str) -> str:
     parser.add_argument("-m", "--max", type=int, metavar="N")
     opts = parser.parse_args(args)
 
-    source = re.escape(opts.pattern) if opts.fixed else opts.pattern
-    try:
-        regex = re.compile(source, re.IGNORECASE if opts.ignore_case else 0)
-    except re.error as exc:
-        raise ModuleError(f"filter: invalid pattern {opts.pattern!r}: {exc}") from None
-
-    matches: list[str] = []
-    for number, line in enumerate(stdin.splitlines(), start=1):
-        if bool(regex.search(line)) == opts.invert:
-            continue
-        matches.append(f"{number}:{line}" if opts.line_number else line)
-        if opts.max is not None and len(matches) >= opts.max:
-            break
-
+    regex = compile_pattern("filter", opts.pattern, opts.ignore_case, opts.fixed)
+    matches = match_lines(stdin.splitlines(), regex, opts.invert, opts.max)
     if opts.count:
         return f"{len(matches)}\n"
-    return "".join(f"{m}\n" for m in matches)
+    return "".join(f"{n}:{line}\n" if opts.line_number else f"{line}\n" for n, line in matches)

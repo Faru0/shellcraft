@@ -9,6 +9,7 @@ from prompt_toolkit.document import Document
 
 from core.builtins import BUILTINS
 from core.context import ShellContext
+from core.settings import SETTINGS
 from core.themes import all_themes
 
 _BREAK_CHARS = " \t|>"
@@ -29,8 +30,13 @@ class ShellCompleter(Completer):
         if not before.endswith(">") and not segment:
             yield from self._commands(word)
             return
-        if not before.endswith(">") and len(segment) == 1 and segment[0] in ("man", "theme"):
+        if not before.endswith(">") and len(segment) == 1 and segment[0] in ("man", "theme", "settings"):
             yield from self._arguments(segment[0], word)
+            return
+        if not before.endswith(">") and len(segment) == 2 and segment[0] == "settings":
+            options = {"on": "enable", "off": "disable", "toggle": "flip"} if segment[1] != "reset" else \
+                {k: s.label for k, s in SETTINGS.items()}
+            yield from self._complete(word, options)
             return
         yield from self.paths.get_completions(Document(word, len(word)), event)
 
@@ -45,8 +51,13 @@ class ShellCompleter(Completer):
     def _arguments(self, command: str, word: str) -> Iterable[Completion]:
         if command == "theme":
             options = {t.name: t.label for t in all_themes(self.ctx.config).values()}
+        elif command == "settings":
+            options = {k: s.label for k, s in SETTINGS.items()} | {"reset": "restore a default"}
         else:
             options = {n: "module" for n in self.ctx.registry.names()} | {n: "builtin" for n in BUILTINS}
+        yield from self._complete(word, options)
+
+    def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):
             if name.startswith(word):
                 yield Completion(name, start_position=-len(word), display_meta=options[name])

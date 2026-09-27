@@ -27,7 +27,9 @@ shellcraft/
 │   ├── completer.py     # command / argument / path completion
 │   ├── parser.py        # quote-aware tokenizer → Pipeline(segments, redirect)
 │   ├── pipeline.py      # executor: builtins → modules → system fallback, |, >, >>
-│   ├── builtins.py      # cd pwd echo exit clear help man theme modules reload
+│   ├── builtins.py      # builtin registry + shell builtins (cd pwd exit help man theme settings…)
+│   ├── commands/        # portable ports: ls cat grep echo tee head tail wc sort uniq date mkdir cp mv rm
+│   ├── settings.py      # on/off settings (system_commands, pager, spinner, banner)
 │   ├── output.py        # delayed spinner, error panels, auto-pager
 │   ├── themes.py        # presets + Rich/prompt_toolkit style generation
 │   ├── config.py        # ~/.shellcraft/config.json
@@ -79,6 +81,9 @@ man fetch                               # Markdown manual in the pager
 fetch README.md | filter -n -i shell    # pipeline
 fetch README.md | filter -c GitLab > count.txt
 echo another line >> count.txt
+ls -l | grep py | sort -r               # portable builtins: same on Windows and Linux
+cat README.md | grep -i shell | wc -l
+settings                                # on/off settings
 fetch https://api.github.com/repos/python/cpython --json stargazers_count   # spinner while fetching
 theme                                   # list themes with swatches
 theme matrix                            # switch now and save as the default
@@ -87,12 +92,41 @@ cd -  /  pwd  /  exit
 
 - **Ghost text:** type the start of a command you've run before and a faint suggestion appears. Press **→** to accept it.
 - **Tab** completes commands in command position (the first word, or the first word after `|`), `man`/`theme` arguments, and file paths everywhere else, including after `>` and `>>`.
-- **Unknown commands** fall back to executables on your `PATH`, such as `sort`, `git` or `tr`. On Windows, `cmd` built-ins such as `dir` and `type` also work. These commands run non-interactively: their output is captured and passed down the pipe.
+- **OS commands are off by default.** Only ShellCraft builtins and modules run, so a command line behaves the same on Windows and Linux. If you type something that exists on your system, such as `git`, the error tells you how to enable OS commands. With `settings system_commands on` (or `--allow-system` for one session), unknown commands fall back to executables on your `PATH`, and on Windows to `cmd` built-ins like `dir`. Those run non-interactively: their output is captured and passed down the pipe.
 - **Long output** that is taller than the terminal opens the pager:
   - `↑↓`/`j k` scroll by line, and `PgUp`/`PgDn`/`space` scroll by page
   - `g`/`G` jump to the top or end
   - `/` searches, `n`/`N` find the next or previous match, and `q` quits
 - **Errors** stop the pipeline and show a panel naming the failing segment. Nothing is written to the redirect target.
+
+## Built-in commands
+
+These are ported to Python, so they are always available and identical on every OS. Each has a
+manual: `man ls`, `man grep`, …
+
+| Group | Commands |
+| --- | --- |
+| Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `modules`, `reload` |
+| Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `tee` |
+| Files | `ls`, `mkdir`, `cp`, `mv`, `rm` |
+| Info | `date` |
+
+- Builtins win over OS programs with the same name.
+- On screen, `ls` shows colored columns and `grep` highlights matches. When piped or redirected, both output plain text, one item per line.
+- `rm` refuses a filesystem root, your home directory, and the current directory or its parents.
+
+## Settings
+
+`settings` shows every setting. `settings KEY on|off|toggle` changes one immediately, and `settings reset KEY` restores the default. Values are saved in `~/.shellcraft/config.json` under `"settings"`.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `system_commands` | off | Fall back to programs on your `PATH` when no builtin or module matches. |
+| `pager` | on | Open output taller than the terminal in the scrollable viewer. |
+| `spinner` | on | Show a spinner while slow commands run. |
+| `banner` | on | Show the startup banner. |
+
+`--allow-system` turns OS commands on for one session without changing the saved setting.
 
 ## Themes
 
@@ -126,7 +160,11 @@ python main.py --mcp --modules ./modules --allow-system
 ```
 
 - Each module becomes a tool that takes `{"args": [..], "stdin": "..."}`. Its `.skill` content is the tool description.
-- An extra tool, `shellcraft_pipeline`, takes `{"command": "fetch x | filter y"}`. For safety, it cannot use redirection or state-changing builtins (`cd`, `theme`, `exit`, …). It also cannot fall back to system executables unless you pass `--allow-system`.
+- An extra tool, `shellcraft_pipeline`, takes `{"command": "fetch x | filter y"}`. It can use the read-only builtins (`cat`, `grep`, `sort`, `ls`, …). For safety, it cannot use:
+  - redirection
+  - file-changing builtins (`tee`, `cp`, `mv`, `rm`, `mkdir`)
+  - state-changing builtins (`cd`, `theme`, `settings`, `exit`, …)
+  - OS executables, unless you pass `--allow-system`
 - Logs go to stderr, because stdout carries the protocol.
 
 **Claude Desktop / Claude Code** (`mcpServers` config) — use absolute paths:

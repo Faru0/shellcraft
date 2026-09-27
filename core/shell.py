@@ -14,6 +14,7 @@ from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.styles import DynamicStyle
 from rich.text import Text
 
+from core import settings
 from core.banner import render_banner
 from core.completer import ShellCompleter
 from core.config import history_path
@@ -48,7 +49,7 @@ class Shell:
         self.ui = ctx.ui
         self.last_failed = False
         self.user_host = _user_host()
-        ctx.runner = make_spinner_runner(self.ui)
+        ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
 
         try:
@@ -105,7 +106,7 @@ class Shell:
             self.last_failed = False
             if result is not None:
                 try:
-                    show(self.ui, result.output)
+                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"))
                 except KeyboardInterrupt:
                     pass
 
