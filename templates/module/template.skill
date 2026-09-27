@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ShellCraft skill file (TOML). The audience is an AI agent, not a human.
+#
+# At startup, ShellCraft turns this file into the MCP tool description, so an AI client
+# decides from this text alone WHEN to call your tool and HOW to fill in `args` and `stdin`.
+# Be concrete, and document only what the code really does.
+#
+# Supported keys: summary, when_to_use, usage, examples, notes, then the tables
+# args and tests. Any other key is appended to the description, and modtest warns about it.
+#
+# !! TOML ORDER MATTERS !!  Every plain `key = value` line must come BEFORE the first
+# table header. A key written after a table header belongs to that table, so `examples`
+# placed after the args tables would silently vanish from the description.
+#
+# Check your file with:   python tools/modtest.py modules/<name>.py --preview
+# ─────────────────────────────────────────────────────────────────────────────
+
+# One line, at most 200 characters. Start with a verb and say what comes back.
+summary = "Count word frequencies in text and return the top N words as 'word count' lines, most frequent first."
+
+# When SHOULD an AI pick this tool, and when should it NOT? Name the typical situations.
+when_to_use = """
+Use to find the most common words or terms in a document, log or web page: keyword
+extraction, spotting repeated errors, a quick summary of what a text is about.
+Pass the text in `stdin`, or give file paths in `args`.
+Do not use it for exact phrase search (use grep/filter) or for counting lines (use wc)."""
+
+# The synopsis, exactly as in the .md file.
+usage = "template [-n N] [-i] [--min-length N] [FILE...]"
+
+# Show real calls in the MCP shape (args array + stdin) and the output they produce.
+examples = [
+  'args=["-n", "3"], stdin="the cat and the hat and the bat"  -> "the 3\nand 2\nbat 1\n"',
+  'args=["-i", "--min-length", "4", "report.txt"]  -> top 10 words of 4+ letters from the file',
+]
+
+# Anything else the AI must know: output format, edge cases, errors, limits, side effects.
+notes = """
+Output is plain text, one 'word count' pair per line. Ties are sorted alphabetically.
+Empty input returns an empty result (not an error). A missing file or an invalid option
+returns a tool error with a one-line message."""
+
+# ─── Arguments: one [[args]] table per positional argument and per option ────
+# Say what the value means and give its default. The AI sends these as separate
+# strings in the `args` array.
+[[args]]
+name = "FILE..."
+description = "Optional file paths, relative to the server's working directory. Omit them to read `stdin`."
+
+[[args]]
+name = "-n N / --top N"
+description = "How many words to return (default 10, minimum 1)."
+
+[[args]]
+name = "-i / --ignore-case"
+description = "Treat upper and lower case as the same word. The output is lowercase."
+
+[[args]]
+name = "--min-length N"
+description = "Ignore words shorter than N characters (default 1). Use 4 or more to skip 'the', 'and', …"
+
+# ─── Tests: run by tools/modtest.py, NEVER shown to the AI ───────────────────
+# Each case calls run(args, stdin) and checks exactly ONE of:
+#   expect   = exact output
+#   contains = a substring the output must contain
+#   error    = a substring of the expected ModuleError message
+# Add network = true for cases that need the internet (skipped unless --network).
+# modtest also treats a module with any network test as network-using, and skips its
+# plain smoke calls unless you pass --network.
+[[tests]]
+args = ["-n", "2"]
+stdin = "b a b c a b\n"
+expect = "b 3\na 2\n"
+
+[[tests]]
+args = ["-i", "-n", "1"]
+stdin = "The the THE cat\n"
+expect = "the 3\n"
+
+[[tests]]
+args = ["--min-length", "4"]
+stdin = "a an ant ants\n"
+expect = "ants 1\n"
+
+[[tests]]
+args = ["-n", "0"]
+stdin = "x"
+error = "-n must be at least 1"
+
+[[tests]]
+args = ["no-such-file.txt"]
+error = "no such file"

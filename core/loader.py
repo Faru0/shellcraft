@@ -28,6 +28,8 @@ class SkillInfo:
     examples: list[str] = field(default_factory=list)
     notes: str = ""
     extra: dict[str, str] = field(default_factory=dict)
+    # [[tests]] cases for tools/modtest.py; never part of the MCP description.
+    tests: list[dict[str, Any]] = field(default_factory=list)
     parsed: bool = True
 
     @classmethod
@@ -45,7 +47,7 @@ class SkillInfo:
                 args.append({"name": str(item.get("name", "")), "description": str(item.get("description", ""))})
             else:
                 args.append({"name": str(item), "description": ""})
-        known = {"summary", "when_to_use", "usage", "args", "examples", "notes"}
+        known = {"summary", "when_to_use", "usage", "args", "examples", "notes", "tests"}
         return cls(
             raw=text,
             summary=str(data.get("summary", "")).strip(),
@@ -55,6 +57,7 @@ class SkillInfo:
             examples=[str(e) for e in data.get("examples", [])],
             notes=str(data.get("notes", "")).strip(),
             extra={k: str(v).strip() for k, v in data.items() if k not in known},
+            tests=[t for t in data.get("tests", []) if isinstance(t, dict)],
         )
 
     def to_description(self) -> str:
@@ -130,11 +133,12 @@ class ModuleRegistry:
                 self.warnings.append(f"{py.name}: invalid module name, skipped")
                 continue
             try:
-                self.modules[name] = self._load_one(name, py)
+                self.modules[name] = self.load_file(name, py)
             except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
                 self.warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
 
-    def _load_one(self, name: str, py: Path) -> ModuleSpec:
+    def load_file(self, name: str, py: Path) -> ModuleSpec:
+        """Import one module file (as the shell does) and return its spec; raises on failure."""
         import_name = f"shellcraft_modules.{name}"
         spec = importlib.util.spec_from_file_location(import_name, py)
         if spec is None or spec.loader is None:

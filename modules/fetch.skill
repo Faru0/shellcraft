@@ -10,6 +10,17 @@ Do not use it to write files; it only reads."""
 
 usage = "fetch [SOURCE] [--head N] [--json PATH] [--timeout SECONDS]"
 
+examples = [
+  'args=["https://example.com", "--head", "20"]',
+  'args=["package.json", "--json", "dependencies"]',
+  'args=["https://api.github.com/repos/python/cpython", "--json", "stargazers_count"]',
+]
+
+notes = """
+Output is plain text. Pass it as `stdin` to `filter` (or use the shellcraft_pipeline tool with
+'fetch SOURCE | filter PATTERN') to narrow it down. Errors (missing file, HTTP error, bad JSON)
+come back as tool errors with a one-line explanation."""
+
 [[args]]
 name = "SOURCE"
 description = "http(s) URL or file path relative to the server's working directory. Omit (or '-') to echo `stdin`."
@@ -26,13 +37,22 @@ description = "Dotted path into parsed JSON, e.g. 'data.items.0.name'. Lists of 
 name = "--timeout SECONDS"
 description = "Network timeout (default 15)."
 
-examples = [
-  'args=["https://example.com", "--head", "20"]',
-  'args=["package.json", "--json", "dependencies"]',
-  'args=["https://api.github.com/repos/python/cpython", "--json", "stargazers_count"]',
-]
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = ["--head", "1"]
+stdin = "first\nsecond\n"
+expect = "first\n"
 
-notes = """
-Output is plain text. Pass it as `stdin` to `filter` (or use the shellcraft_pipeline tool with
-'fetch SOURCE | filter PATTERN') to narrow it down. Errors (missing file, HTTP error, bad JSON)
-come back as tool errors with a one-line explanation."""
+[[tests]]
+args = ["--json", "user.name"]
+stdin = '{"user": {"name": "ada"}}'
+expect = "ada\n"
+
+[[tests]]
+args = ["--json", "a"]
+stdin = "not json"
+error = "not valid JSON"
+
+[[tests]]
+args = ["no-such-file.txt"]
+error = "no such file"

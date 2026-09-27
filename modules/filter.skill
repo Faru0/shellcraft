@@ -9,6 +9,16 @@ whole large document yourself. Put the text to search in `stdin`; this tool neve
 
 usage = "filter [-i] [-v] [-c] [-n] [-F] [-m N] PATTERN"
 
+examples = [
+  'args=["-i", "error"], stdin="<log text>"',
+  'args=["-c", "^GET "], stdin="<access log>"',
+  'args=["-v", "-F", "#"], stdin="<config file text>"',
+]
+
+notes = """
+An empty result means no line matched (not an error). An invalid regex returns a tool error;
+retry with -F for literal text."""
+
 [[args]]
 name = "PATTERN"
 description = "Python regular expression (required, the last positional argument)."
@@ -37,12 +47,23 @@ description = "Treat PATTERN as a literal string (no regex metacharacters)."
 name = "-m N"
 description = "Stop after N matches."
 
-examples = [
-  'args=["-i", "error"], stdin="<log text>"',
-  'args=["-c", "^GET "], stdin="<access log>"',
-  'args=["-v", "-F", "#"], stdin="<config file text>"',
-]
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = ["-i", "b"]
+stdin = "apple\nBanana\ncherry\n"
+expect = "Banana\n"
 
-notes = """
-An empty result means no line matched (not an error). An invalid regex returns a tool error;
-retry with -F for literal text."""
+[[tests]]
+args = ["-c", "an"]
+stdin = "apple\nbanana\nmango\n"
+expect = "2\n"
+
+[[tests]]
+args = ["-n", "-v", "an"]
+stdin = "apple\nbanana\n"
+expect = "1:apple\n"
+
+[[tests]]
+args = ["("]
+stdin = "x"
+error = "invalid pattern"

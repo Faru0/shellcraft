@@ -96,7 +96,8 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Input-line syntax highlighting** with a prompt_toolkit lexer: known commands green, unknown ones red, operators in the accent color. Also:
   - a bottom toolbar (cwd, git branch, last command duration)
   - Ctrl-R history search
-- [ ] **Module scaffolding**: `new-module NAME` generates the `.py` / `.md` / `.skill` trio. `skill check NAME` lints a `.skill` and previews the exact MCP description.
+- [x] **Module authoring kit**: `templates/` (a reference module plus a guide), `tools/modtest.py` (the tester, including `[[tests]]` in `.skill` files and `--preview`), and `tools/mkprompt.py` (an AI prompt that writes `.md`/`.skill` from a `.py`).
+- [ ] **Module scaffolding**: a `new-module NAME` builtin that copies the template trio and renames it. Also a `modtest` builtin inside the shell, and running `modtest --all --strict` in CI.
 - [ ] **Modules as packages**: `modules/<name>/` directories, per-module requirements, and version/author metadata in `.skill`.
 - [ ] **Structured data mode**: JSON-lines between modules, with `select`, `where`, `sort-by` and a `table` renderer, for Nushell-style pipelines.
 - [ ] **Background jobs** (`cmd &`, `jobs`, `fg`) and per-command timing.

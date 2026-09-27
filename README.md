@@ -189,13 +189,15 @@ To inspect the server interactively: `npx @modelcontextprotocol/inspector python
 
 ## Writing a module
 
+> **Full guide: [`templates/README.md`](templates/README.md).** Start from the commented reference module in `templates/module/`. Check your module with `python tools/modtest.py modules/<name>.py`. Already have the `.py`? `python tools/mkprompt.py modules/<name>.py -o prompt.md` builds a prompt that has any AI write the matching `.md` and `.skill`.
+
 A tool is made of three files that share one base name in `modules/`:
 
 | File | Purpose |
 | --- | --- |
 | `<name>.py` | `run(args: list[str], stdin: str) -> str`: gets text in and returns text out. Optional `SUMMARY` (one line) and `SPINNER_TEXT`. |
 | `<name>.md` | Manual page shown by `man <name>` (rendered Markdown). |
-| `<name>.skill` | Guidance for AI agents, used as the MCP tool description. TOML fields: `summary`, `when_to_use`, `usage`, `[[args]]` (`name`, `description`), `examples`, `notes`. Plain free-form text also works. |
+| `<name>.skill` | Guidance for AI agents, used as the MCP tool description. TOML: `summary`, `when_to_use`, `usage`, `examples` and `notes` first, then `[[args]]` tables (`name`, `description`), then `[[tests]]` for `modtest`. Plain `key = value` lines must come before the first `[[args]]`. |
 
 Minimal example, `modules/upper.py`:
 
