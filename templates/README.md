@@ -68,6 +68,19 @@ See `module/template.md`.
 - **Keys:** `summary` (one line, ≤ 200 chars), `when_to_use` (when to use it, and when *not* to), `usage`, `examples` (MCP-shaped calls with results), `notes`, then one `[[args]]` table per argument/option (`name`, `description`), then `[[tests]]`.
 - ⚠️ **Order matters.** Put every `key = value` line *before* the first `[[args]]`. In TOML, a key written after a table header belongs to that table, so it silently disappears from the description. `modtest` catches this.
 - Write for an AI reader: be concrete, give defaults, say what the output looks like, and name side effects such as network access or files written.
+- Write `[[args]]` names as `"-s / --long METAVAR"`. For options with a fixed set of choices, add `values = ["a", "b"]`.
+
+### Tab completion comes free
+
+The shell completes your module's switches from these files, with no completer code needed:
+
+- `mymod -<Tab>` lists the switches, with help text from the `.md` Options table.
+- `mymod --fo<Tab>` completes long switches.
+- `mymod --format <Tab>` offers the `values` from the `.skill`.
+- Switches already on the line aren't offered again.
+
+The `.skill` `[[args]]` tables are the main source; the `.md` Options table fills in the short help
+text, and it also works on its own. `modtest` reports how many switches it found ("Tab completion").
 
 ### `[[tests]]`: executable examples
 
@@ -101,5 +114,6 @@ python tools/modtest.py --all --strict           # warnings fail too (good for C
 | `.md` | The title is `# <name>`; Synopsis, Options and Examples sections exist; it renders. |
 | `.skill` | Valid TOML, required keys present, no misplaced or unknown keys, summary length, description size. |
 | Docs coverage | Every `add_argument("-x", "--long")` flag in the code appears in both the `.md` and the `.skill`. |
+| Tab completion | How many switches (and value lists) completion found. A WARN if the code has options but the docs yield none. |
 
 The exit code is `0` when there are no FAILs, and `1` otherwise.

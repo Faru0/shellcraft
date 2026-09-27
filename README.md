@@ -91,7 +91,12 @@ cd -  /  pwd  /  exit
 ```
 
 - **Ghost text:** type the start of a command you've run before and a faint suggestion appears. Press **→** to accept it.
-- **Tab** completes commands in command position (the first word, or the first word after `|`), `man`/`theme` arguments, and file paths everywhere else, including after `>` and `>>`.
+- **Tab** completes:
+  - commands in command position (the first word, or the first word after `|`)
+  - **switches** for builtins and modules, such as `myip -<Tab>` or `grep --<Tab>`, read automatically from each command's `.skill`/`.md`
+  - **switch values**, such as `myip -f <Tab>` for field names or `find -type <Tab>`
+  - `man` / `theme` / `settings` arguments
+  - file paths everywhere else, including after `>` and `>>`
 - **OS commands are off by default.** Only ShellCraft builtins and modules run, so a command line behaves the same on Windows and Linux. If you type something that exists on your system, such as `git`, the error tells you how to enable OS commands. With `settings system_commands on` (or `--allow-system` for one session), unknown commands fall back to executables on your `PATH`, and on Windows to `cmd` built-ins like `dir`. Those run non-interactively: their output is captured and passed down the pipe.
 - **Long output** that is taller than the terminal opens the pager:
   - `↑↓`/`j k` scroll by line, and `PgUp`/`PgDn`/`space` scroll by page

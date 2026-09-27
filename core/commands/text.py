@@ -205,7 +205,11 @@ def _head_tail(prog: str, args: list[str], stdin: str, take_last: bool) -> str:
 @builtin("head", "Output the first lines of input", "head [-n N | -N] [FILE...]", category="text", doc="""\
 # head
 
-Print the first 10 lines (or `-n N` lines) of stdin or each FILE. `-N` is shorthand for `-n N`.
+Print the first 10 lines of stdin or of each FILE.
+
+| Option | Meaning |
+| --- | --- |
+| `-n N`, `--lines N` | Print the first N lines instead (`-N` is shorthand). |
 
 ## Examples
 
@@ -221,7 +225,11 @@ def head(ctx: ShellContext, args: list[str], stdin: str) -> str:
 @builtin("tail", "Output the last lines of input", "tail [-n N | -N] [FILE...]", category="text", doc="""\
 # tail
 
-Print the last 10 lines (or `-n N` lines) of stdin or each FILE. `-N` is shorthand for `-n N`.
+Print the last 10 lines of stdin or of each FILE.
+
+| Option | Meaning |
+| --- | --- |
+| `-n N`, `--lines N` | Print the last N lines instead (`-N` is shorthand). |
 
 ## Examples
 
@@ -553,6 +561,12 @@ tr -s SET1         # squeeze runs of repeated SET1 chars into one
 tr -s SET1 SET2    # translate, then squeeze runs of SET2 chars
 tr -cd SET1        # delete everything NOT in SET1
 ```
+
+| Option | Meaning |
+| --- | --- |
+| `-d`, `--delete` | Delete characters in SET1. |
+| `-s`, `--squeeze-repeats` | Squeeze runs of repeated characters into one. |
+| `-c`, `--complement` | Use every character NOT in SET1 (with `-d` or `-s`). |
 
 SET syntax: plain characters, ranges such as `a-z` or `0-9`, escapes (`\\n`, `\\t`, `\\\\`) and classes
 `[:upper:]`, `[:lower:]`, `[:digit:]`, `[:alpha:]`, `[:alnum:]`, `[:space:]`, `[:blank:]`,

@@ -51,6 +51,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Windows: the prompt's `~` shortening is case-sensitive.** Use `os.path.normcase`. — `core/shell.py`
 - [ ] **`cd` inside a pipeline changes the real cwd** (`cd x | pwd`), unlike POSIX subshells. Disallow it outside a single-segment line, or document it. — `core/builtins.py`
 - [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
+- [x] **Switch completion**: Tab completes each command's options and option values from its `.skill` `[[args]]` (including the new `values` key) and its `.md` options table. It is modular, with no per-module code.
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
 - [ ] **Dead code**: `ShellContext.interactive` is set but never read. — `core/context.py`
 - [ ] **Version is defined twice** (`pyproject.toml` and `core/__init__.py`). Use a single dynamic version. — `pyproject.toml`

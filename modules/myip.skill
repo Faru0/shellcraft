@@ -41,7 +41,8 @@ description = "JSON record (a JSON array for several IPs). Best choice when you 
 
 [[args]]
 name = "-f / --field FIELD"
-description = "One field: ip, hostname, country, country_iso, country_eu, region_name, region_code, city, zip_code, latitude, longitude, coordinates, metro_code, time_zone, asn, asn_org, ip_decimal. Several IPs give 'ip<TAB>value' lines."
+description = "Return one field only. Several IPs give 'ip<TAB>value' lines. Dashes also work (country-iso)."
+values = ["ip", "hostname", "country", "country_iso", "country_eu", "region_name", "region_code", "city", "zip_code", "latitude", "longitude", "coordinates", "metro_code", "time_zone", "asn", "asn_org", "ip_decimal"]
 
 [[args]]
 name = "-p / --port N"

@@ -7,8 +7,11 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable
+
+from core.options import OptionSpec, from_markdown, from_skill, merge
 
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 RESERVED_NAMES = {"shellcraft_pipeline"}
@@ -44,9 +47,11 @@ class SkillInfo:
         args = []
         for item in data.get("args", []):
             if isinstance(item, dict):
-                args.append({"name": str(item.get("name", "")), "description": str(item.get("description", ""))})
+                values = item.get("values")
+                args.append({"name": str(item.get("name", "")), "description": str(item.get("description", "")),
+                             "values": [str(v) for v in values] if isinstance(values, list) else []})
             else:
-                args.append({"name": str(item), "description": ""})
+                args.append({"name": str(item), "description": "", "values": []})
         known = {"summary", "when_to_use", "usage", "args", "examples", "notes", "tests"}
         return cls(
             raw=text,
@@ -70,7 +75,12 @@ class SkillInfo:
         if self.usage:
             parts.append(f"Usage: {self.usage}")
         if self.args:
-            lines = [f"  {a['name']}: {a['description']}" if a["description"] else f"  {a['name']}" for a in self.args]
+            lines = []
+            for a in self.args:
+                line = f"  {a['name']}: {a['description']}" if a["description"] else f"  {a['name']}"
+                if a.get("values"):
+                    line += f" (values: {', '.join(a['values'])})"
+                lines.append(line)
             parts.append("Arguments (pass in `args` as CLI-style strings):\n" + "\n".join(lines))
         if self.examples:
             parts.append("Examples:\n" + "\n".join(f"  {e}" for e in self.examples))
@@ -103,6 +113,11 @@ class ModuleSpec:
                 if line and not line.startswith("#"):
                     return line
         return ""
+
+    @cached_property
+    def options(self) -> list[OptionSpec]:
+        """Switches for Tab completion: .skill [[args]] merged with the .md Options table."""
+        return merge(from_skill(self.skill), from_markdown(self.doc_md))
 
     @property
     def description(self) -> str:

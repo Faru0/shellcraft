@@ -43,6 +43,13 @@ returns a tool error with a one-line message."""
 # ─── Arguments: one [[args]] table per positional argument and per option ────
 # Say what the value means and give its default. The AI sends these as separate
 # strings in the `args` array.
+# The same tables drive Tab completion in the shell: write `name` as
+# "-s / --long METAVAR" so both switch forms and the value placeholder are recognized.
+# For an option with a fixed set of choices, add `values`: Tab completes them after
+# the switch, and AI clients see them listed. For example:
+#     name = "--format FMT"
+#     description = "Output format."
+#     values = ["text", "json", "csv"]
 [[args]]
 name = "FILE..."
 description = "Optional file paths, relative to the server's working directory. Omit them to read `stdin`."

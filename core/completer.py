@@ -1,4 +1,8 @@
-"""Tab completion: commands in command position, theme/man arguments, paths elsewhere."""
+"""Tab completion: commands, per-command option switches and their values, and paths.
+
+Option switches come from each command's own metadata (a module's .skill and .md, a
+builtin's doc), so new modules get completion without any code here.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from prompt_toolkit.document import Document
 
 from core.builtins import BUILTINS
 from core.context import ShellContext
+from core.options import OptionSpec, builtin_options
 from core.settings import SETTINGS
 from core.themes import all_themes
 
@@ -38,7 +43,37 @@ class ShellCompleter(Completer):
                 {k: s.label for k, s in SETTINGS.items()}
             yield from self._complete(word, options)
             return
+        if not before.endswith(">") and segment:
+            options = self._options_for(segment[0])
+            prev = segment[-1] if len(segment) > 1 else None
+            wanted = next((o for o in options if prev in o.flags and o.metavar), None)
+            if wanted is not None:  # the previous word is a switch that takes a value
+                if wanted.values:
+                    yield from self._complete(word, {v: wanted.label for v in wanted.values})
+                elif wanted.takes_path:
+                    yield from self.paths.get_completions(Document(word, len(word)), event)
+                return  # a free-form value (N, PATTERN, …): offering file names would mislead
+            if word.startswith("-") and options:
+                yield from self._switches(word, options, used=set(segment[1:]))
+                return
         yield from self.paths.get_completions(Document(word, len(word)), event)
+
+    def _options_for(self, command: str) -> list[OptionSpec] | tuple[OptionSpec, ...]:
+        if command in BUILTINS:
+            return builtin_options(command)
+        spec = self.ctx.registry.get(command)
+        return spec.options if spec is not None else ()
+
+    def _switches(self, word: str, options, used: set[str]) -> Iterable[Completion]:
+        for option in options:
+            if used & set(option.flags):
+                continue  # already on the line
+            if word.startswith("--"):
+                flag = next((f for f in option.flags if f.startswith("--") and f.startswith(word)), None)
+            else:  # one short form per option when possible, e.g. "-f" rather than "--field"
+                flag = next((f for f in (option.short, option.long) if f and f.startswith(word)), None)
+            if flag:
+                yield Completion(flag, start_position=-len(word), display=option.label, display_meta=option.help)
 
     def _commands(self, word: str) -> Iterable[Completion]:
         entries = {name: "builtin" for name in BUILTINS}

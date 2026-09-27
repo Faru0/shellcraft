@@ -158,6 +158,16 @@ def check_contract(report: Report) -> bool:
     except ValueError:
         pass  # builtins/C functions without a signature: let the behavior checks decide
     report.add(PASS, "run() signature", "run(args, stdin)")
+    options = spec.options
+    source_has_flags = bool(source_flags(report.path.read_text(encoding="utf-8")))
+    if options:
+        labels = ", ".join(o.short or o.long for o in options)
+        valued = sum(bool(o.values) for o in options)
+        report.add(PASS, "Tab completion", f"{len(options)} switch(es): {labels}"
+                                           + (f"; {valued} with value lists" if valued else ""))
+    elif source_has_flags:
+        report.add(WARN, "Tab completion", "the code defines options, but neither the .skill [[args]] nor an "
+                                           ".md options table lists them, so Tab can't complete them")
     if spec.module_summary:
         report.add(PASS, "SUMMARY", spec.module_summary)
     else:
@@ -305,8 +315,11 @@ def check_skill(report: Report) -> None:
     for i, arg in enumerate(data.get("args", []), start=1):
         if not isinstance(arg, dict) or not arg.get("name") or not arg.get("description"):
             report.add(WARN, ".skill [[args]]", f"entry #{i} needs both `name` and `description`")
-        elif stray := sorted(set(arg) - {"name", "description"}):
+        elif stray := sorted(set(arg) - {"name", "description", "values"}):
             report.add(FAIL, ".skill [[args]]", _misplaced(stray, "[[args]]"))
+        elif "values" in arg and (not isinstance(arg["values"], list)
+                                  or not all(isinstance(v, str) for v in arg["values"])):
+            report.add(FAIL, ".skill [[args]]", f"entry #{i}: `values` must be a list of strings")
     for i, case in enumerate(data.get("tests", []), start=1):
         if isinstance(case, dict) and (stray := sorted(set(case) - TEST_KEYS)):
             report.add(FAIL, ".skill [[tests]]", f"test #{i}: " + _misplaced(stray, "[[tests]]"))

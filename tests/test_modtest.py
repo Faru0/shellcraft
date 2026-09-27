@@ -133,3 +133,16 @@ def test_mkprompt_fills_every_placeholder():
     assert "def run(args: list[str], stdin: str)" in prompt  # module source embedded
     assert "`myip.md`" in prompt and "Current `myip.skill`" in prompt
     assert "Count the most frequent words" in prompt  # worked example embedded
+
+
+def test_values_key_is_allowed_and_validated(tmp_path):
+    skill = GOOD_SKILL.replace("[[tests]]", '[[args]]\nname = "--mode M"\ndescription = "m"\nvalues = ["a", "b"]\n\n[[tests]]')
+    assert check_module(make(tmp_path, "valued", GOOD_PY, skill=skill)).count(FAIL) == 0
+    bad = skill.replace('values = ["a", "b"]', "values = 3")
+    report = check_module(make(tmp_path, "badvalues", GOOD_PY, skill=bad))
+    assert any(c.status == FAIL and "`values` must be" in c.detail for c in report.checks)
+
+
+def test_values_appear_in_mcp_description():
+    skill = SkillInfo.parse('[[args]]\nname = "--mode M"\ndescription = "Mode."\nvalues = ["a", "b"]\n')
+    assert "--mode M: Mode. (values: a, b)" in skill.to_description()

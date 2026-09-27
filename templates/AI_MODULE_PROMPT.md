@@ -44,7 +44,8 @@ Keep it concise and practical. Don't use HTML.
 - `usage`: the same synopsis as the `.md`.
 - `examples`: a list of strings showing real calls in MCP shape, with their results. For example, `'args=["-n", "3"], stdin="a b a"  -> "a 2\nb 1\n"'`. Use single-quoted TOML literal strings.
 - `notes`: the output format, empty-input behavior, error behavior, limits, side effects (network access, files written), and anything an agent could get wrong.
-- One `[[args]]` table per positional argument and per option, with `name` (e.g. `"-n N / --top N"`) and `description` (what it means plus its default). Every flag in the parser must appear.
+- One `[[args]]` table per positional argument and per option, with `name` in the form `"-s / --long METAVAR"` (e.g. `"-n / --top N"`) and `description` (what it means plus its default). Every flag in the parser must appear. The shell also uses these tables for Tab completion.
+- If an option accepts only a fixed set of values (`choices=[…]` in the parser, or a set the code checks against), add `values = ["a", "b", …]` to its `[[args]]` table with exactly those values.
 - Add 2–5 `[[tests]]` tables **at the end**. Each has `args` (a list of strings), an optional `stdin`, and **exactly one** of:
   - `expect` (exact output)
   - `contains` (a substring)
