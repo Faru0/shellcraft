@@ -29,7 +29,7 @@ Use exactly this section order and these headings:
 2. One plain sentence saying what the command does.
 3. `## Synopsis`: a fenced code block with the usage line(s), built from the parser. Use `[optional]`, `A | B` for choices, and `FILE...` for repeats.
 4. `## Description`: how it behaves, including where input comes from (stdin and/or files), what the output looks like, and edge cases such as empty input.
-5. `## Options`: a Markdown table `| Option | Meaning |` with **every** option from the code, using both short and long forms (`` `-n N`, `--top N` ``). Include each default. Leave this section out only if the module has no options.
+5. `## Options`: a Markdown table `| Option | Meaning |` with **every** option from the code, using both short and long forms (`` `-n N`, `--top N` ``). Put every switch in backticks in the first column, because the shell's Tab completion reads switches and help text from these rows. Include each default. Leave this section out only if the module has no options.
 6. `## Examples`: a fenced code block with 3–6 realistic command lines. At least one should use a pipe (`|`), and one may use `>` redirection. Short `# comments` are allowed.
 7. `## Errors`: the user-visible error cases, taken from the `ModuleError` messages in the code.
 8. `## See also`: related commands, such as `man grep`.

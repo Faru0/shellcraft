@@ -1,6 +1,7 @@
 # ShellCraft — TODO
 
-> Assessment of **v0.1.0** (`main` @ 72a9897): core shell, MCP server, modules `fetch`, `filter`, `myip`. 42 tests pass.
+> First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
+> **Current state:** 32 portable builtins, a settings system (OS commands off by default), modules `fetch`, `filter` and `myip`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 112 tests pass.
 
 ## Assessment
 
@@ -13,7 +14,7 @@
 **Biggest risks**
 1. **Security of the MCP surface.** `fetch` can read *any* file the server user can read and request *any* URL. That matters as soon as an AI client is connected.
 2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error.
-3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline.
+3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands.)*
 4. **Only tested on Linux.** None of the Windows paths have been run yet.
 
 Items marked **(verified)** were reproduced during the assessment.
@@ -117,7 +118,8 @@ Items marked **(verified)** were reproduced during the assessment.
   - the banner's narrow-terminal fallback
 - [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.13.
 - [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook.
-- [ ] **Docs**: a LICENSE, a README screenshot or asciinema recording, a CHANGELOG, and a `.skill` authoring guide with good and bad examples.
+- [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).
+- [ ] **Docs**: a LICENSE, a README screenshot or asciinema recording, and a CHANGELOG.
 - [ ] **Windows verification pass**: covering prompt rendering, the pager, `cmd` builtins, paths and the MCP stdio server.
 
 ---

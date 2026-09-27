@@ -9,50 +9,27 @@
 ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝        ╚═╝
 ```
 
-A modular, pipe-friendly terminal shell in Python for **Linux and Windows**. It follows the Unix
-idea: *input → process → pipe/redirect out*.
+A modular, pipe-friendly terminal shell in Python that behaves the same on **Linux and Windows**.
+It follows the Unix idea: *input → process → pipe/redirect out*.
 
-- **prompt_toolkit** handles input: fish-style ghost-text suggestions from history, and Tab completion for commands, paths, `man` topics and theme names.
-- **Rich** handles output: a gradient banner, themed error panels, live spinners, `man` pages rendered from Markdown, and a built-in scrollable pager.
-- **MCP** is built in: every module is also an MCP tool, and the tool's description comes from the module's `.skill` file.
+- **Portable built-in commands:** `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr` and more, written in Python.
+- **Pluggable modules:** drop a module into `modules/` and it becomes a command.
+- **Comfortable input:** ghost-text suggestions from history, and Tab completion for commands, switches, switch values and paths.
+- **Rich output:** themes, live spinners, `man` pages, a built-in pager, and clear error panels.
+- **Built-in MCP server:** AI clients such as Claude Desktop or Claude Code can use your modules as tools.
 
-## Project layout
+---
 
-```
-shellcraft/
-├── main.py              # launcher: interactive | -c "<line>" | --mcp
-├── core/
-│   ├── cli.py           # argument parsing, mode selection
-│   ├── shell.py         # REPL (PromptSession, prompt, history, ghost text)
-│   ├── completer.py     # command / argument / path completion
-│   ├── parser.py        # quote-aware tokenizer → Pipeline(segments, redirect)
-│   ├── pipeline.py      # executor: builtins → modules → system fallback, |, >, >>
-│   ├── builtins.py      # builtin registry + shell builtins (cd pwd exit help man theme settings…)
-│   ├── commands/        # portable ports of ls, cat, grep, find, tree, cut, tr, … (see below)
-│   ├── settings.py      # on/off settings (system_commands, pager, spinner, banner)
-│   ├── output.py        # delayed spinner, error panels, auto-pager
-│   ├── themes.py        # presets + Rich/prompt_toolkit style generation
-│   ├── config.py        # ~/.shellcraft/config.json
-│   ├── banner.py        # startup banner
-│   ├── loader.py        # module discovery, .skill parsing
-│   ├── modkit.py        # helpers for module authors (ArgParser, ModuleError)
-│   └── mcp_server.py    # MCP server (stdio)
-├── modules/
-│   ├── fetch.py  fetch.md  fetch.skill     # data fetcher (URL / file / stdin, --json, --head)
-│   └── filter.py filter.md filter.skill    # grep-style line filter
-└── tests/
-```
+## Installation
 
-## Install
-
-You need Python **3.11+**.
+You need **Python 3.11 or newer**. Clone or download the project, then run these commands from its folder.
 
 **Linux / macOS**
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt        # or: pip install -e ".[dev]"
+pip install -r requirements.txt
 ```
 
 **Windows (PowerShell)**
@@ -60,54 +37,97 @@ pip install -r requirements.txt        # or: pip install -e ".[dev]"
 ```powershell
 py -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt        # or: pip install -e ".[dev]"
+pip install -r requirements.txt
 ```
 
-## Run the interactive shell
+Optionally, run `pip install -e .` (with `-e`) to get a `shellcraft` command that works from any
+folder. Always use `-e`: a plain `pip install .` doesn't include the bundled modules yet.
+
+## Quick start
 
 ```bash
-python main.py                      # banner + REPL
-python main.py --theme nord         # theme for this session only
-python main.py -c "fetch app.log | filter -i error > errors.txt"   # one-shot, script-friendly
+python main.py                                        # start the interactive shell
+python main.py -c "cat notes.txt | grep -i todo"      # run one command line and exit
+python main.py --mcp                                  # run as an MCP server (see below)
 ```
 
-If you installed with `pip install -e .`, the `shellcraft` command also works.
-
-### Things to try
+Inside the shell, try:
 
 ```
-help                                    # all builtins + modules
-man fetch                               # Markdown manual in the pager
-fetch README.md | filter -n -i shell    # pipeline
-fetch README.md | filter -c GitLab > count.txt
-echo another line >> count.txt
-ls -l | grep py | sort -r               # portable builtins: same on Windows and Linux
-cat README.md | grep -i shell | wc -l
-settings                                # on/off settings
-fetch https://api.github.com/repos/python/cpython --json stargazers_count   # spinner while fetching
-theme                                   # list themes with swatches
-theme matrix                            # switch now and save as the default
-cd -  /  pwd  /  exit
+help                                  # every command, grouped
+man grep                              # manual pages, in a scrollable viewer
+ls -l | grep py | sort -r             # pipelines
+cat README.md | grep -c Shell > count.txt
+echo another line >> count.txt       # > overwrites, >> appends
+tree -L 1                             # directory tree
+find . -name "*.md" | wc -l
+myip                                  # your public IP
+myip 8.8.8.8 -f country               # look up any IP address
+fetch https://example.com --head 5    # download text (with a spinner)
+theme matrix                          # switch the color theme
+settings                              # on/off settings
+exit                                  # or Ctrl-D
 ```
 
-- **Ghost text:** type the start of a command you've run before and a faint suggestion appears. Press **→** to accept it.
+### Command-line options
+
+| Option | Meaning |
+| --- | --- |
+| `-c "LINE"` | Run one command line and exit. The exit code is 1 if it fails. Output is plain text when piped, so it works in scripts. |
+| `--mcp` | Run as an MCP server over stdio instead of the interactive shell. |
+| `--theme NAME` | Use a theme for this session only. |
+| `--no-banner` | Skip the startup banner. |
+| `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
+| `--modules DIR` | Load modules from DIR instead of `./modules`. |
+| `--version`, `-h` | Show the version, or the help text. |
+
+| Environment variable | Meaning |
+| --- | --- |
+| `SHELLCRAFT_HOME` | Where config and history are stored (default `~/.shellcraft`). |
+| `SHELLCRAFT_MODULES` | The default modules folder (overridden by `--modules`). |
+
+---
+
+## Using the shell
+
+### Pipes and redirection
+
+- `a | b | c` passes each command's output to the next command as input.
+- `> file` writes the final output to a file, and `>> file` appends to it.
+- Quote arguments that contain spaces or operators: `grep "a | b" notes.txt`. Backslashes are kept as typed, so Windows paths like `C:\data\log.txt` work.
+- If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.
+
+These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)).
+
+### Typing helpers
+
+- **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it.
 - **Tab** completes:
-  - commands in command position (the first word, or the first word after `|`)
-  - **switches** for builtins and modules, such as `myip -<Tab>` or `grep --<Tab>`, read automatically from each command's `.skill`/`.md`
-  - **switch values**, such as `myip -f <Tab>` for field names or `find -type <Tab>`
-  - `man` / `theme` / `settings` arguments
-  - file paths everywhere else, including after `>` and `>>`
-- **OS commands are off by default.** Only ShellCraft builtins and modules run, so a command line behaves the same on Windows and Linux. If you type something that exists on your system, such as `git`, the error tells you how to enable OS commands. With `settings system_commands on` (or `--allow-system` for one session), unknown commands fall back to executables on your `PATH`, and on Windows to `cmd` built-ins like `dir`. Those run non-interactively: their output is captured and passed down the pipe.
-- **Long output** that is taller than the terminal opens the pager:
-  - `↑↓`/`j k` scroll by line, and `PgUp`/`PgDn`/`space` scroll by page
-  - `g`/`G` jump to the top or end
-  - `/` searches, `n`/`N` find the next or previous match, and `q` quits
-- **Errors** stop the pipeline and show a panel naming the failing segment. Nothing is written to the redirect target.
+  - command names (the first word, or the first word after `|`)
+  - **switches** for every command: `myip -<Tab>`, `grep --<Tab>`, `ls -<Tab>`. The menu shows what each one does, and switches already on the line aren't offered again.
+  - **switch values**: `myip -f <Tab>` lists the field names, `find . -type <Tab>` offers `f`, `d` and `l`
+  - arguments for `man`, `theme` and `settings`
+  - file and folder paths everywhere else, including after `>` and `>>`
+- **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
+- The prompt shows `[✗]` after a command fails.
+
+### Long output
+
+Output taller than the window opens a scrollable viewer:
+- `↑` / `↓` or `j` / `k` scroll by line
+- `PgUp` / `PgDn` / `space` scroll by page
+- `g` / `G` jump to the top or end
+- `/` searches, `n` / `N` jump to the next or previous match
+- `q` closes the viewer
+
+Turn it off with `settings pager off`.
+
+---
 
 ## Built-in commands
 
-These are ported to Python, so they are always available and identical on every OS. Each has a
-manual: `man ls`, `man grep`, …
+These are built into ShellCraft (written in Python), so they work the same on every operating
+system. Each one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
@@ -116,29 +136,51 @@ manual: `man ls`, `man grep`, …
 | Files | `ls`, `find`, `tree`, `touch`, `mkdir`, `cp`, `mv`, `rm` |
 | Info | `date`, `which`, `env` |
 
-- Builtins win over OS programs with the same name.
-- On screen, `ls` shows colored columns, `tree` draws a colored tree and `grep` highlights matches. When piped or redirected, they output plain text.
-- `which NAME` tells you whether a name runs a builtin, a module or an OS program. `which -a` also shows OS programs hidden behind a builtin.
-- `rm` refuses a filesystem root, your home directory, and the current directory or its parents.
+- **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. When piped or redirected, they output plain text, one item per line.
+- **`which NAME`** tells you whether a name runs a builtin, a module or an OS program. `which -a` also shows OS programs that a builtin hides.
+- **`rm` safety:** there is no trash can. For safety, `rm` refuses a filesystem root, your home folder, and the current folder or its parents.
+- **`modules`** lists the loaded modules. **`reload`** picks up new or changed modules without restarting.
+
+## Bundled modules
+
+| Module | What it does |
+| --- | --- |
+| `fetch` | Reads text from a URL, a file or stdin. `--head N` keeps the first N lines, and `--json PATH` extracts a field from JSON. |
+| `filter` | Keeps lines matching a regular expression (like `grep`, for stdin). |
+| `myip` | Shows your public IP, or the location/network owner of any IP (via ipconfig.io). `-p PORT` checks whether a port is reachable. |
+
+See `man fetch`, `man filter` and `man myip` for details. To add your own modules, see
+[Creating modules](#creating-modules).
 
 ## Settings
 
-`settings` shows every setting. `settings KEY on|off|toggle` changes one immediately, and `settings reset KEY` restores the default. Values are saved in `~/.shellcraft/config.json` under `"settings"`.
+`settings` shows every setting. `settings KEY on|off|toggle` changes one immediately, and
+`settings reset KEY` restores its default. Settings are saved in `~/.shellcraft/config.json`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `system_commands` | off | Fall back to programs on your `PATH` when no builtin or module matches. |
-| `pager` | on | Open output taller than the terminal in the scrollable viewer. |
+| `system_commands` | off | Allow OS programs from your `PATH` (see below). |
+| `pager` | on | Open output taller than the window in the scrollable viewer. |
 | `spinner` | on | Show a spinner while slow commands run. |
 | `banner` | on | Show the startup banner. |
 
-`--allow-system` turns OS commands on for one session without changing the saved setting.
+### OS commands
+
+By default, ShellCraft runs **only** its built-in commands and modules. That way, a command line
+does the same thing on Windows and Linux. If you type the name of a program that exists on your
+system, such as `git`, the error tells you how to allow it.
+
+- `settings system_commands on` allows OS programs permanently. `--allow-system` allows them for one session.
+- When allowed, unknown commands run programs from your `PATH`. On Windows, `cmd` built-ins such as `dir` also work.
+- Built-in commands still win over OS programs with the same name. Use `which -a NAME` to see both.
+- OS programs run with their output captured, so full-screen programs such as `vim`, `top` or `ssh` don't work inside ShellCraft yet.
 
 ## Themes
 
-The presets are `cyberpunk` (Cyberpunk Neon), `matrix` (Matrix Green), `nord` and `solarized`.
-The active theme is stored in `~/.shellcraft/config.json`; set `SHELLCRAFT_HOME` to use a different directory.
-You can add your own themes there. Any color you don't set is inherited from `base`:
+The presets are `cyberpunk` (Cyberpunk Neon, the default), `matrix` (Matrix Green), `nord` and `solarized`.
+`theme` lists them with color swatches, and `theme NAME` switches immediately and saves your choice.
+
+You can add your own themes to `~/.shellcraft/config.json`. Any color you leave out is taken from `base`:
 
 ```json
 {
@@ -156,25 +198,35 @@ You can add your own themes there. Any color you don't set is inherited from `ba
 }
 ```
 
-These are the semantic colors a theme can set: `prompt`, `path`, `accent`, `muted`, `error`, `success`, `warning`, `gradient_from`, `gradient_to`.
+These are the colors a theme can set: `prompt`, `path`, `accent`, `muted`, `error`, `success`,
+`warning`, `gradient_from`, `gradient_to`. Use `#rrggbb` hex values; an invalid color currently
+stops the shell from starting.
 
-## Run the MCP server
+---
+
+## Using ShellCraft from an AI client (MCP server)
+
+`python main.py --mcp` starts an MCP server over stdio. AI applications can then use these tools:
+
+- **One tool per module** (`fetch`, `filter`, `myip`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
+- **`shellcraft_pipeline`** runs a whole command line such as `{"command": "cat notes.txt | grep -i todo | sort"}`. It can use the read-only built-in commands. For safety, it **cannot**:
+  - redirect output to files
+  - change files (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
+  - read environment variables (`env`)
+  - change the shell (`cd`, `theme`, `settings`, `exit`)
+  - run OS programs, unless you start the server with `--allow-system`
+
+> ⚠️ **Security note:** connected AI clients can read any file your user account can read (through
+> `fetch`, `cat`, `grep`, …), and `fetch` can request any URL. Only connect AI clients you trust.
+> Sandboxing is on the roadmap.
+
+### Claude Code
 
 ```bash
-python main.py --mcp                    # stdio transport
-python main.py --mcp --modules ./modules --allow-system
+claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shellcraft/main.py --mcp
 ```
 
-- Each module becomes a tool that takes `{"args": [..], "stdin": "..."}`. Its `.skill` content is the tool description.
-- An extra tool, `shellcraft_pipeline`, takes `{"command": "fetch x | filter y"}`. It can use the read-only builtins (`cat`, `grep`, `sort`, `ls`, …). For safety, it cannot use:
-  - redirection
-  - file-changing builtins (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
-  - `env`, because environment variables often hold secrets
-  - state-changing builtins (`cd`, `theme`, `settings`, `exit`, …)
-  - OS executables, unless you pass `--allow-system`
-- Logs go to stderr, because stdout carries the protocol.
-
-**Claude Desktop / Claude Code** (`mcpServers` config) — use absolute paths:
+### Claude Desktop (or any client that uses an `mcpServers` config)
 
 ```json
 {
@@ -187,39 +239,25 @@ python main.py --mcp --modules ./modules --allow-system
 }
 ```
 
-On Windows, use `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe` for `command`. With Claude Code you can instead run:
-`claude mcp add shellcraft -- /path/to/.venv/bin/python /path/to/main.py --mcp`.
+Use absolute paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
 
-To inspect the server interactively: `npx @modelcontextprotocol/inspector python main.py --mcp`.
+To try the server by hand, use the MCP Inspector:
+`npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
 
-## Writing a module
+---
 
-> **Full guide: [`templates/README.md`](templates/README.md).** Start from the commented reference module in `templates/module/`. Check your module with `python tools/modtest.py modules/<name>.py`. Already have the `.py`? `python tools/mkprompt.py modules/<name>.py -o prompt.md` builds a prompt that has any AI write the matching `.md` and `.skill`.
+## Creating modules
 
-A tool is made of three files that share one base name in `modules/`:
+A module is three files in `modules/`: the code (`.py`), its manual (`.md`) and its AI
+description (`.skill`). The **module guide** covers the rules, a ready-to-copy template, the
+module tester, and a prompt that lets an AI write the `.md` and `.skill` for you:
 
-| File | Purpose |
+**→ [templates/README.md](templates/README.md)**
+
+## More documentation
+
+| Document | For |
 | --- | --- |
-| `<name>.py` | `run(args: list[str], stdin: str) -> str`: gets text in and returns text out. Optional `SUMMARY` (one line) and `SPINNER_TEXT`. |
-| `<name>.md` | Manual page shown by `man <name>` (rendered Markdown). |
-| `<name>.skill` | Guidance for AI agents, used as the MCP tool description. TOML: `summary`, `when_to_use`, `usage`, `examples` and `notes` first, then `[[args]]` tables (`name`, `description`), then `[[tests]]` for `modtest`. Plain `key = value` lines must come before the first `[[args]]`. |
-
-Minimal example, `modules/upper.py`:
-
-```python
-"""upper — uppercase the input stream."""
-
-def run(args, stdin):
-    return stdin.upper()
-```
-
-- **Errors:** raise `core.modkit.ModuleError("message")` to show a clean error. Any other exception is shown with its type name.
-- **Arguments:** `core.modkit.ArgParser` is an `argparse` that reports bad arguments as errors instead of exiting.
-- **Loading:** run `reload` in the shell to pick up new modules without restarting. A broken module is skipped with a warning; it doesn't stop the shell.
-
-## Tests
-
-```bash
-pip install -e ".[dev]"
-pytest
-```
+| [templates/README.md](templates/README.md) | Writing and testing your own modules |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: project layout, architecture, running the tests |
+| [TODO.md](TODO.md) | Known issues and the roadmap |

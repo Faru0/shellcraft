@@ -7,6 +7,7 @@
 #
 # Supported keys: summary, when_to_use, usage, examples, notes, then the tables
 # args and tests. Any other key is appended to the description, and modtest warns about it.
+# modtest requires: summary, when_to_use, usage, examples.
 #
 # !! TOML ORDER MATTERS !!  Every plain `key = value` line must come BEFORE the first
 # table header. A key written after a table header belongs to that table, so `examples`

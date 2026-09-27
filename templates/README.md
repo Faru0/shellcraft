@@ -1,5 +1,8 @@
 # Writing a ShellCraft module
 
+This is the module author's guide. For installing and using ShellCraft, see the main
+[README](../README.md). For working on the shell itself, see [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 A module is **three files with the same base name** in `modules/`:
 
 | File | For | Required? |
@@ -10,6 +13,16 @@ A module is **three files with the same base name** in `modules/`:
 
 `templates/module/` holds a complete, working, commented reference module (`template`, a word
 counter). Copy it, rename it, and change it.
+
+What your module gets for free:
+- **A command:** it runs in pipelines and can be redirected.
+- **A manual:** `man <name>`.
+- **A `help` listing.**
+- **Tab completion** of its switches and their values.
+- **An MCP tool** that AI clients can call.
+
+Because of that last point, **anything your module can do, a connected AI can do too.** Be careful
+with modules that delete, overwrite or send data.
 
 ## Quick start
 
@@ -51,7 +64,7 @@ placeholders by hand.
 6. **Accept stdin and FILE arguments,** like Unix tools. Relative paths resolve against the shell's current directory.
 7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` just work.
 8. **Optional metadata:**
-   - `SUMMARY = "..."`: one line for `help` and Tab completion.
+   - `SUMMARY = "..."`: one line for `help` and Tab completion, used when the `.skill` has no `summary`.
    - `SPINNER_TEXT = "..."`: shown while slow calls run.
    - a module docstring.
 9. **Keep `run()` free of side effects when it runs with no arguments,** or make it cheap. `modtest` calls `run([], "")` as a smoke test.
@@ -63,9 +76,13 @@ Use this section order: `# <name>`, a one-sentence description, `## Synopsis` (a
 `## Examples` (a code block, with at least one pipe), `## Errors`, `## See also`.
 See `module/template.md`.
 
+Write each Options row as ``| `-n N`, `--top N` | Meaning (default 10). |``. Put every switch in
+backticks in the first column, because Tab completion reads its switches and help text from these
+rows. A value list can be written as ``| `--mode a\|b\|c` | … |``.
+
 ## Rules for the `.skill` (TOML)
 
-- **Keys:** `summary` (one line, ≤ 200 chars), `when_to_use` (when to use it, and when *not* to), `usage`, `examples` (MCP-shaped calls with results), `notes`, then one `[[args]]` table per argument/option (`name`, `description`), then `[[tests]]`.
+- **Keys:** `summary` (one line, ≤ 200 chars), `when_to_use` (when to use it, and when *not* to), `usage`, `examples` (MCP-shaped calls with results), `notes`, then one `[[args]]` table per argument/option (`name`, `description`, optional `values`), then `[[tests]]`. `modtest` requires `summary`, `when_to_use`, `usage` and `examples`.
 - ⚠️ **Order matters.** Put every `key = value` line *before* the first `[[args]]`. In TOML, a key written after a table header belongs to that table, so it silently disappears from the description. `modtest` catches this.
 - Write for an AI reader: be concrete, give defaults, say what the output looks like, and name side effects such as network access or files written.
 - Write `[[args]]` names as `"-s / --long METAVAR"`. For options with a fixed set of choices, add `values = ["a", "b"]`.
@@ -93,6 +110,9 @@ network = false            # true = only run with modtest --network
 ```
 
 Tests are run by `modtest` and are **never** shown to AI clients.
+
+If any test has `network = true`, `modtest` treats the whole module as network-using. It then also
+skips its plain smoke calls (`run([], "")`), unless you pass `--network`.
 
 ## The tester: `tools/modtest.py`
 
