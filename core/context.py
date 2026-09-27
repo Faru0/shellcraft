@@ -32,7 +32,8 @@ class ShellContext:
     allow_redirect: bool = True
     allow_system: bool = False  # OS executable fallback; see the `system_commands` setting
     allow_stateful: bool = True  # cd / theme / exit / reload / clear / settings
-    allow_writes: bool = True  # filesystem-changing builtins: tee / mkdir / cp / mv / rm
+    allow_writes: bool = True  # filesystem-changing builtins: tee / mkdir / cp / mv / rm / touch
+    allow_sensitive: bool = True  # builtins that may reveal secrets: env
     prev_dir: str | None = None
 
 

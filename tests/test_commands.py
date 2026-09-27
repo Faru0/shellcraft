@@ -134,7 +134,7 @@ def test_rm_validates_all_before_deleting(ctx, files):
 
 def test_write_commands_blocked_when_writes_disabled(ctx, files):
     ctx.allow_writes = False
-    for line in ("echo x | tee t.txt", "mkdir d", "cp a.txt c.txt", "mv a.txt m.txt", "rm a.txt"):
+    for line in ("echo x | tee t.txt", "mkdir d", "cp a.txt c.txt", "mv a.txt m.txt", "rm a.txt", "touch t"):
         with pytest.raises(PipelineError, match="not available"):
             run_line(line, ctx)
     assert out("cat a.txt | sort -r | head -1", ctx) == "cherry\n"
@@ -142,3 +142,98 @@ def test_write_commands_blocked_when_writes_disabled(ctx, files):
 
 def test_man_uses_builtin_docs(ctx):
     assert out("man grep", ctx).startswith("# grep")
+
+
+# ── find / tree / touch ──────────────────────────────────────────────────────
+
+def test_find(ctx, files):
+    j = os.path.join
+    assert out('find . -name "*.txt" -maxdepth 1', ctx) == f"{j('.', 'a.txt')}\n{j('.', 'b.txt')}\n{j('.', 'nums.txt')}\n"
+    assert out("find sub", ctx) == f"sub\n{j('sub', 'inner.txt')}\n"
+    assert out("find . -type d", ctx) == f".\n{j('.', 'sub')}\n"
+    assert out('find . -iname "A.TXT"', ctx) == f"{j('.', 'a.txt')}\n"
+    assert out("find . -mindepth 2", ctx) == f"{j('.', 'sub', 'inner.txt')}\n"
+    assert j(".", ".hidden") in out("find .", ctx)
+    with pytest.raises(PipelineError, match="no such file"):
+        run_line("find nope", ctx)
+
+
+def test_tree(ctx, files):
+    text = out("tree", ctx)
+    assert text.splitlines()[0] == "."
+    assert "├── a.txt" in text and "└── sub/" in text and "    └── inner.txt" in text
+    assert text.rstrip().endswith("1 directory, 4 files")
+    assert ".hidden" not in text and ".hidden" in out("tree -a", ctx)
+    assert out("tree -d", ctx).rstrip().endswith("1 directory")
+    assert "inner.txt" not in out("tree -L 1", ctx)
+    assert isinstance(run_line("tree", ctx).output, Styled)
+
+
+def test_touch(ctx, files):
+    run_line("touch new.txt", ctx)
+    assert (files / "new.txt").read_text() == ""
+    os.utime(files / "a.txt", (0, 0))
+    run_line("touch a.txt", ctx)
+    assert (files / "a.txt").stat().st_mtime > 0
+    run_line("touch -c ghost.txt", ctx)
+    assert not (files / "ghost.txt").exists()
+
+
+# ── cut / tr ─────────────────────────────────────────────────────────────────
+
+def test_cut(ctx, files):
+    (files / "d.csv").write_text("a,b,c,d\n1,2,3,4\nnodelim\n")
+    assert out("cut -d , -f 1,3 d.csv", ctx) == "a,c\n1,3\nnodelim\n"
+    assert out("cut -d , -f 3- -s d.csv", ctx) == "c,d\n3,4\n"
+    assert out("cut -d , -f -2 --output-delimiter : d.csv", ctx) == "a:b\n1:2\nnodelim\n"
+    assert out("cut -c 2-3 a.txt", ctx) == "pp\nan\nhe\n"
+    with pytest.raises(PipelineError, match="invalid"):
+        run_line("cut -f 0 a.txt", ctx)
+    with pytest.raises(PipelineError):
+        run_line("cut a.txt", ctx)
+
+
+def test_tr(ctx):
+    assert out("echo hello | tr a-z A-Z", ctx) == "HELLO\n"
+    assert out("echo hello | tr [:lower:] [:upper:]", ctx) == "HELLO\n"
+    assert out("echo 'a  b   c' | tr -s ' '", ctx) == "a b c\n"
+    assert out("echo 'phone: 555-0100' | tr -cd 0-9", ctx) == "5550100"
+    assert out("echo banana | tr -d a", ctx) == "bnn\n"
+    assert out("echo abc | tr abc x", ctx) == "xxx\n"
+    assert out(r"echo -e 'a\tb' | tr '\t' ,", ctx) == "a,b\n"
+    with pytest.raises(PipelineError, match="missing SET2"):
+        run_line("echo x | tr a", ctx)
+    with pytest.raises(PipelineError, match="reverse order"):
+        run_line("echo x | tr z-a x", ctx)
+
+
+# ── which / env ──────────────────────────────────────────────────────────────
+
+def test_which(ctx, monkeypatch, tmp_path):
+    assert out("which ls fetch", ctx).splitlines() == [
+        "ls: ShellCraft builtin (files)",
+        f"fetch: ShellCraft module ({ctx.registry.get('fetch').path})",
+    ]
+    assert out("which ls nope-xyz", ctx).splitlines()[-1] == "nope-xyz: not found"
+    with pytest.raises(PipelineError, match="not found"):
+        run_line("which nope-xyz", ctx)
+
+    fake = tmp_path / ("ls.bat" if os.name == "nt" else "ls")
+    fake.write_text("")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    everything = out("which -a ls", ctx).splitlines()
+    assert everything[0] == "ls: ShellCraft builtin (files)"
+    assert "shadowed" in everything[1] and "OS commands are off" in everything[1]
+
+
+def test_env(ctx, monkeypatch):
+    monkeypatch.setenv("SHELLCRAFT_TEST_VAR", "hello")
+    assert out("env SHELLCRAFT_TEST_VAR MISSING_VAR_XYZ", ctx) == "SHELLCRAFT_TEST_VAR=hello\n"
+    assert "SHELLCRAFT_TEST_VAR=hello" in out("env | grep SHELLCRAFT_TEST", ctx)
+
+
+def test_env_blocked_when_sensitive_disabled(ctx):
+    ctx.allow_sensitive = False
+    with pytest.raises(PipelineError, match="not available"):
+        run_line("env", ctx)

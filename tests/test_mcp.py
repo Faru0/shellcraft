@@ -2,6 +2,7 @@ import anyio
 from mcp.client import Client
 
 from core.mcp_server import PIPELINE_TOOL, build_server
+from tests.conftest import OS_UPPER
 
 
 def _call(server, fn):
@@ -38,7 +39,7 @@ def test_pipeline_tool_blocks_redirect_and_system(registry):
     assert ok.content[0].text == "1\n"
     redirect = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo x > pwned.txt"}))
     assert redirect.is_error and "redirection is disabled" in redirect.content[0].text
-    system = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo x | tr x y"}))
+    system = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": f"echo x | {OS_UPPER}"}))
     assert system.is_error and "command not found" in system.content[0].text
 
 
@@ -48,7 +49,7 @@ def test_pipeline_tool_allows_readonly_ports_but_not_writes(registry, tmp_path, 
     server = build_server(registry)
     ok = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "cat f.txt | sort"}))
     assert not ok.is_error and ok.content[0].text == "a\nb\n"
-    for command in ("rm f.txt", "echo x | tee g.txt", "mkdir d"):
+    for command in ("rm f.txt", "echo x | tee g.txt", "mkdir d", "touch t", "env"):
         blocked = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": command}))
         assert blocked.is_error and "not available" in blocked.content[0].text
     assert (tmp_path / "f.txt").exists()

@@ -11,6 +11,9 @@ from core.loader import ModuleRegistry  # noqa: E402
 
 MODULES_DIR = ROOT / "modules"
 
+# A real OS program that exists wherever the tests run: the current interpreter.
+OS_UPPER = f'"{sys.executable}" -c "print(input().upper())"'
+
 
 @pytest.fixture
 def registry() -> ModuleRegistry:

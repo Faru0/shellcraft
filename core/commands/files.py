@@ -1,7 +1,8 @@
-"""Filesystem commands: ls, mkdir, cp, mv, rm."""
+"""Filesystem commands: ls, find, tree, touch, mkdir, cp, mv, rm."""
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import shutil
 import stat
@@ -13,6 +14,7 @@ from rich.columns import Columns
 from rich.console import Group
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from core.builtins import builtin
 from core.commands._io import lines_out
@@ -334,4 +336,187 @@ def rm(ctx: ShellContext, args: list[str], stdin: str) -> str:
                 path.unlink()
         except OSError as exc:
             raise ModuleError(f"rm: {raw}: {exc.strerror or exc}") from None
+    return ""
+
+
+# ── find ─────────────────────────────────────────────────────────────────────
+
+def _children(directory: Path, show_hidden: bool = True) -> list[Path]:
+    try:
+        entries = sorted(directory.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return []  # unreadable directories are skipped, like `find` without error spam
+    return [e for e in entries if show_hidden or not e.name.startswith(".")]
+
+
+def _walk(path: Path, shown: str, depth: int, max_depth: int | None):
+    yield path, shown, depth
+    if max_depth is not None and depth >= max_depth:
+        return
+    if path.is_dir() and not path.is_symlink():
+        for child in _children(path):
+            yield from _walk(child, os.path.join(shown, child.name), depth + 1, max_depth)
+
+
+@builtin("find", "Search for files in a directory tree", "find [PATH...] [-name GLOB] [-iname GLOB] "
+         "[-type f|d|l] [-maxdepth N] [-mindepth N]", category="files", doc="""\
+# find
+
+Walk each PATH (default `.`) recursively and print every entry that matches all the given tests.
+Output has one path per line, so it pipes into `grep`, `wc -l` and so on.
+
+## Tests
+
+| Option | Meaning |
+| --- | --- |
+| `-name GLOB` | The file name matches GLOB (`*.py`, `data_??.csv`). Quote globs. |
+| `-iname GLOB` | Like `-name`, but ignoring case. |
+| `-type f\\|d\\|l` | Only files, directories or symlinks. |
+| `-maxdepth N` | Descend at most N levels (0 = only the PATHs themselves). |
+| `-mindepth N` | Skip entries shallower than N levels. |
+
+Symlinked directories are listed but not followed. Unreadable directories are skipped.
+
+## Examples
+
+```
+find . -name "*.py"
+find modules -type f -iname "*.SKILL"
+find -maxdepth 1 -type d
+find . -name "*.log" | wc -l
+```
+""")
+def find(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    parser = ArgParser("find")
+    parser.add_argument("paths", nargs="*")
+    parser.add_argument("-name")
+    parser.add_argument("-iname")
+    parser.add_argument("-type", choices=["f", "d", "l"])
+    parser.add_argument("-maxdepth", type=int)
+    parser.add_argument("-mindepth", type=int, default=0)
+    opts = parser.parse_args(args)
+
+    def matches(path: Path, name: str, depth: int) -> bool:
+        if depth < opts.mindepth:
+            return False
+        if opts.name and not fnmatch.fnmatchcase(name, opts.name):
+            return False
+        if opts.iname and not fnmatch.fnmatchcase(name.lower(), opts.iname.lower()):
+            return False
+        if opts.type == "l" and not path.is_symlink():
+            return False
+        if opts.type == "d" and (path.is_symlink() or not path.is_dir()):
+            return False
+        if opts.type == "f" and (path.is_symlink() or not path.is_file()):
+            return False
+        return True
+
+    found: list[str] = []
+    for start in opts.paths or ["."]:
+        root = Path(start).expanduser()
+        if not root.exists() and not root.is_symlink():
+            raise ModuleError(f"find: {start}: no such file or directory")
+        for path, shown, depth in _walk(root, start, 0, opts.maxdepth):
+            # Like POSIX find, a start point is matched by its literal basename (so "." is ".").
+            name = path.name if depth else os.path.basename(os.path.normpath(start))
+            if matches(path, name, depth):
+                found.append(shown)
+    return lines_out(found)
+
+
+# ── tree ─────────────────────────────────────────────────────────────────────
+
+@builtin("tree", "Show a directory tree", "tree [-a] [-d] [-L N] [PATH]", category="files", doc="""\
+# tree
+
+Show the contents of PATH (default `.`) as a tree, followed by a count of directories and files.
+It is a colored tree on screen, and plain `├──`/`└──` text when piped or redirected.
+
+| Option | Meaning |
+| --- | --- |
+| `-a` | Include hidden entries. |
+| `-d` | Directories only. |
+| `-L N` | Descend at most N levels. |
+
+## Examples
+
+```
+tree
+tree -L 2 core
+tree -d > layout.txt
+```
+""")
+def tree(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
+    parser = ArgParser("tree")
+    parser.add_argument("path", nargs="?", default=".")
+    parser.add_argument("-a", action="store_true", dest="all")
+    parser.add_argument("-d", action="store_true", dest="dirs_only")
+    parser.add_argument("-L", type=int, dest="level")
+    opts = parser.parse_args(args)
+    root = Path(opts.path).expanduser()
+    if not root.is_dir():
+        raise ModuleError(f"tree: {opts.path}: not a directory")
+    if opts.level is not None and opts.level < 1:
+        raise ModuleError("tree: -L must be >= 1")
+
+    counts = {"dirs": 0, "files": 0}
+    plain = [opts.path]
+    rich_root = Tree(Text(opts.path, style="sc.path"), guide_style="sc.muted")
+
+    def add(directory: Path, node: Tree, prefix: str, depth: int) -> None:
+        entries = [e for e in _children(directory, opts.all) if not opts.dirs_only or e.is_dir()]
+        for i, entry in enumerate(entries):
+            last = i == len(entries) - 1
+            name, styled, _ = _entry(entry, entry.name)
+            plain.append(prefix + ("└── " if last else "├── ") + name)
+            child = node.add(styled)
+            is_dir = entry.is_dir() and not entry.is_symlink()
+            counts["dirs" if is_dir else "files"] += 1
+            if is_dir and (opts.level is None or depth < opts.level):
+                add(entry, child, prefix + ("    " if last else "│   "), depth + 1)
+
+    add(root, rich_root, "", 1)
+    summary = f"{counts['dirs']} director{'y' if counts['dirs'] == 1 else 'ies'}"
+    if not opts.dirs_only:
+        summary += f", {counts['files']} file{'' if counts['files'] == 1 else 's'}"
+    plain += ["", summary]
+    return Styled(Group(rich_root, Text(""), Text(summary, style="sc.muted")), lines_out(plain))
+
+
+# ── touch ────────────────────────────────────────────────────────────────────
+
+@builtin("touch", "Create empty files or update timestamps", "touch [-c] FILE...", category="files",
+         writes=True, doc="""\
+# touch
+
+Update the modification time of each FILE to now, and create any FILE that doesn't exist as an
+empty file.
+
+| Option | Meaning |
+| --- | --- |
+| `-c` | Don't create missing files. |
+
+## Examples
+
+```
+touch notes.md
+touch -c build.stamp
+```
+""")
+def touch(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    parser = ArgParser("touch")
+    parser.add_argument("-c", "--no-create", action="store_true")
+    parser.add_argument("files", nargs="+")
+    opts = parser.parse_args(args)
+    for name in opts.files:
+        path = Path(name).expanduser()
+        try:
+            if path.exists():
+                os.utime(path, None)
+            elif not opts.no_create:
+                path.touch()
+        except FileNotFoundError:
+            raise ModuleError(f"touch: {name}: parent directory missing") from None
+        except OSError as exc:
+            raise ModuleError(f"touch: {name}: {exc.strerror or exc}") from None
     return ""

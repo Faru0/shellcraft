@@ -5,6 +5,7 @@ import pytest
 
 from core.context import ShellExit
 from core.pipeline import PipelineError, run_line
+from tests.conftest import OS_UPPER
 
 
 def test_chaining_modules(ctx, tmp_path):
@@ -71,7 +72,6 @@ def test_renderable_builtin_flattens_into_pipe(ctx):
     assert int(out) >= 1
 
 
-@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX executable")
 def test_system_fallback(ctx):
     ctx.allow_system = True
-    assert run_line("echo hello | tr a-z A-Z", ctx).output == "HELLO\n"
+    assert run_line(f"echo hello | {OS_UPPER}", ctx).output.strip() == "HELLO"

@@ -81,7 +81,8 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
-        if (builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes):
+        if ((builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes)
+                or (builtin.sensitive and not ctx.allow_sensitive)):
             raise CommandError(f"builtin '{cmd.name}' is not available in this context")
         return builtin.fn(ctx, cmd.args, stdin)
 

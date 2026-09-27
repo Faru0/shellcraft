@@ -28,7 +28,7 @@ shellcraft/
 │   ├── parser.py        # quote-aware tokenizer → Pipeline(segments, redirect)
 │   ├── pipeline.py      # executor: builtins → modules → system fallback, |, >, >>
 │   ├── builtins.py      # builtin registry + shell builtins (cd pwd exit help man theme settings…)
-│   ├── commands/        # portable ports: ls cat grep echo tee head tail wc sort uniq date mkdir cp mv rm
+│   ├── commands/        # portable ports of ls, cat, grep, find, tree, cut, tr, … (see below)
 │   ├── settings.py      # on/off settings (system_commands, pager, spinner, banner)
 │   ├── output.py        # delayed spinner, error panels, auto-pager
 │   ├── themes.py        # presets + Rich/prompt_toolkit style generation
@@ -107,12 +107,13 @@ manual: `man ls`, `man grep`, …
 | Group | Commands |
 | --- | --- |
 | Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `modules`, `reload` |
-| Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `tee` |
-| Files | `ls`, `mkdir`, `cp`, `mv`, `rm` |
-| Info | `date` |
+| Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee` |
+| Files | `ls`, `find`, `tree`, `touch`, `mkdir`, `cp`, `mv`, `rm` |
+| Info | `date`, `which`, `env` |
 
 - Builtins win over OS programs with the same name.
-- On screen, `ls` shows colored columns and `grep` highlights matches. When piped or redirected, both output plain text, one item per line.
+- On screen, `ls` shows colored columns, `tree` draws a colored tree and `grep` highlights matches. When piped or redirected, they output plain text.
+- `which NAME` tells you whether a name runs a builtin, a module or an OS program. `which -a` also shows OS programs hidden behind a builtin.
 - `rm` refuses a filesystem root, your home directory, and the current directory or its parents.
 
 ## Settings
@@ -162,7 +163,8 @@ python main.py --mcp --modules ./modules --allow-system
 - Each module becomes a tool that takes `{"args": [..], "stdin": "..."}`. Its `.skill` content is the tool description.
 - An extra tool, `shellcraft_pipeline`, takes `{"command": "fetch x | filter y"}`. It can use the read-only builtins (`cat`, `grep`, `sort`, `ls`, …). For safety, it cannot use:
   - redirection
-  - file-changing builtins (`tee`, `cp`, `mv`, `rm`, `mkdir`)
+  - file-changing builtins (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
+  - `env`, because environment variables often hold secrets
   - state-changing builtins (`cd`, `theme`, `settings`, `exit`, …)
   - OS executables, unless you pass `--allow-system`
 - Logs go to stderr, because stdout carries the protocol.

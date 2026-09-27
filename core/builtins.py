@@ -32,15 +32,16 @@ class Builtin:
     writes: bool = False  # changes the filesystem; disabled for MCP pipelines
     category: str = "shell"
     doc: str | None = None  # Markdown manual shown by `man`
+    sensitive: bool = False  # may reveal secrets (e.g. env vars); disabled for MCP pipelines
 
 
 BUILTINS: dict[str, Builtin] = {}
 
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
-            category: str = "shell", doc: str | None = None):
+            category: str = "shell", doc: str | None = None, sensitive: bool = False):
     def register(fn):
-        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc)
+        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive)
         return fn
     return register
 

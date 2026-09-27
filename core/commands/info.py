@@ -1,11 +1,14 @@
-"""Information commands: date."""
+"""Information commands: date, which, env."""
 
 from __future__ import annotations
 
+import os
+import shutil
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from core.builtins import builtin
+from core.builtins import BUILTINS, builtin
+from core.commands._io import lines_out
 from core.modkit import ArgParser, ModuleError
 
 if TYPE_CHECKING:
@@ -62,3 +65,74 @@ def date(ctx: ShellContext, args: list[str], stdin: str) -> str:
         return now.strftime(fmt) + "\n"
     except ValueError as exc:
         raise ModuleError(f"date: invalid format {fmt!r}: {exc}") from None
+
+
+@builtin("which", "Show what a command name runs", "which [-a] NAME...", category="info", doc="""\
+# which
+
+Show what each NAME runs when you type it: a ShellCraft builtin, a module (with its file), or an
+OS program on your PATH. They are checked in that order, and the first match wins.
+
+| Option | Meaning |
+| --- | --- |
+| `-a` | Show every match, including OS programs hidden behind a builtin or module. |
+
+An OS program is marked *disabled* while the `system_commands` setting is off.
+
+## Examples
+
+```
+which ls
+which -a ls grep
+which fetch git
+```
+""")
+def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    parser = ArgParser("which")
+    parser.add_argument("-a", "--all", action="store_true")
+    parser.add_argument("names", nargs="+")
+    opts = parser.parse_args(args)
+
+    lines: list[str] = []
+    missing: list[str] = []
+    for name in opts.names:
+        hits: list[str] = []
+        if name in BUILTINS:
+            hits.append(f"{name}: ShellCraft builtin ({BUILTINS[name].category})")
+        if (spec := ctx.registry.get(name)) is not None:
+            hits.append(f"{name}: ShellCraft module ({spec.path})")
+        if (path := shutil.which(name)) is not None:
+            notes = [n for n, on in (("shadowed", bool(hits)), ("disabled: OS commands are off",
+                                                                 not ctx.allow_system)) if on]
+            hits.append(f"{name}: {path}" + (f" ({', '.join(notes)})" if notes else ""))
+        if not hits:
+            missing.append(name)
+            lines.append(f"{name}: not found")
+        else:
+            lines += hits if opts.all else hits[:1]
+    if len(missing) == len(opts.names):
+        raise ModuleError(f"which: not found: {', '.join(missing)}")
+    return lines_out(lines)
+
+
+@builtin("env", "Print environment variables", "env [NAME...]", category="info", sensitive=True, doc="""\
+# env
+
+Print environment variables as `NAME=value`, sorted by name. With NAMEs, print only those
+variables. Unset names are skipped.
+
+Environment variables often hold secrets such as API keys, so `env` is **not** available to AI
+clients through the MCP server.
+
+## Examples
+
+```
+env
+env PATH HOME
+env | grep -i proxy
+```
+""")
+def env(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    if args:
+        return lines_out(f"{name}={os.environ[name]}" for name in args if name in os.environ)
+    return lines_out(f"{k}={v}" for k, v in sorted(os.environ.items(), key=lambda kv: kv[0].lower()))

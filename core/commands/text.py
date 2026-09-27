@@ -1,8 +1,9 @@
-"""Text-stream commands: echo, cat, grep, head, tail, wc, sort, uniq, tee."""
+"""Text-stream commands: echo, cat, grep, head, tail, wc, sort, uniq, cut, tr, tee."""
 
 from __future__ import annotations
 
 import re
+import string
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
@@ -414,3 +415,194 @@ def tee(ctx: ShellContext, args: list[str], stdin: str) -> str:
         except OSError as exc:
             raise ModuleError(f"tee: {name}: {exc.strerror or exc}") from None
     return stdin
+
+
+# ── cut ──────────────────────────────────────────────────────────────────────
+
+def _parse_list(prog: str, spec: str) -> list[tuple[int, int | None]]:
+    """'1,3-5,7-' -> [(1, 1), (3, 5), (7, None)] (1-based, inclusive; None = to the end)."""
+    ranges = []
+    for part in spec.split(","):
+        m = re.fullmatch(r"(\d*)-(\d*)|(\d+)", part.strip())
+        if not m or part.strip() == "-":
+            raise ModuleError(f"{prog}: invalid list '{spec}' (use e.g. 1,3-5,7-)")
+        if m.group(3):
+            lo = hi = int(m.group(3))
+        else:
+            lo = int(m.group(1)) if m.group(1) else 1
+            hi = int(m.group(2)) if m.group(2) else None
+        if lo < 1 or (hi is not None and hi < lo):
+            raise ModuleError(f"{prog}: invalid range '{part}' (positions start at 1)")
+        ranges.append((lo, hi))
+    return ranges
+
+
+def _select(items: list[str], ranges: list[tuple[int, int | None]]) -> list[str]:
+    return [item for i, item in enumerate(items, start=1)
+            if any(lo <= i and (hi is None or i <= hi) for lo, hi in ranges)]
+
+
+@builtin("cut", "Select fields or characters from each line", "cut (-f LIST [-d DELIM] [-s] | -c LIST) [FILE...]",
+         category="text", doc="""\
+# cut
+
+Print selected parts of each line of stdin or FILEs.
+
+| Option | Meaning |
+| --- | --- |
+| `-f LIST` | Select fields, split on DELIM. |
+| `-d DELIM` | Field delimiter, one character (default: TAB). |
+| `-s` | With `-f`, skip lines that don't contain DELIM. |
+| `-c LIST` | Select characters. |
+| `--output-delimiter S` | Join the selected fields with S instead of DELIM. |
+
+LIST is comma-separated positions and ranges, starting at 1: `1,3`, `2-4`, `3-` (to the end),
+or `-2` (from the start).
+
+## Examples
+
+```
+cat data.csv | cut -d , -f 1,3
+cat /etc/passwd | cut -d : -f 1
+ls -l | cut -c 1-10
+```
+""")
+def cut(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    parser = ArgParser("cut")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("-f", "--fields")
+    mode.add_argument("-c", "--characters")
+    parser.add_argument("-d", "--delimiter", default="\t")
+    parser.add_argument("-s", "--only-delimited", action="store_true")
+    parser.add_argument("--output-delimiter")
+    parser.add_argument("files", nargs="*")
+    opts = parser.parse_args(args)
+    if len(opts.delimiter) != 1:
+        raise ModuleError("cut: the delimiter must be a single character")
+
+    lines = joined("cut", opts.files, stdin).splitlines()
+    if opts.characters:
+        ranges = _parse_list("cut", opts.characters)
+        return lines_out("".join(_select(list(line), ranges)) for line in lines)
+
+    ranges = _parse_list("cut", opts.fields)
+    joiner = opts.output_delimiter if opts.output_delimiter is not None else opts.delimiter
+    out = []
+    for line in lines:
+        if opts.delimiter not in line:
+            if not opts.only_delimited:
+                out.append(line)
+            continue
+        out.append(joiner.join(_select(line.split(opts.delimiter), ranges)))
+    return lines_out(out)
+
+
+# ── tr ───────────────────────────────────────────────────────────────────────
+
+_CHAR_CLASSES = {
+    "upper": string.ascii_uppercase, "lower": string.ascii_lowercase, "digit": string.digits,
+    "alpha": string.ascii_letters, "alnum": string.ascii_letters + string.digits,
+    "space": " \t\n\r\f\v", "blank": " \t", "punct": string.punctuation,
+    "xdigit": string.hexdigits,
+}
+
+
+def _expand_set(spec: str) -> str:
+    """Expand ranges (a-z), classes ([:upper:]) and escapes (\\n) in a tr SET."""
+    spec = _ESCAPE.sub(lambda m: _ESCAPES[m.group(1)], spec)
+    out: list[str] = []
+    i = 0
+    while i < len(spec):
+        m = re.match(r"\[:(\w+):\]", spec[i:])
+        if m:
+            if m.group(1) not in _CHAR_CLASSES:
+                raise ModuleError(f"tr: unknown class '[:{m.group(1)}:]'")
+            out.append(_CHAR_CLASSES[m.group(1)])
+            i += m.end()
+        elif i + 2 < len(spec) and spec[i + 1] == "-":
+            lo, hi = spec[i], spec[i + 2]
+            if ord(lo) > ord(hi):
+                raise ModuleError(f"tr: range '{lo}-{hi}' is in reverse order")
+            out.append("".join(chr(c) for c in range(ord(lo), ord(hi) + 1)))
+            i += 3
+        else:
+            out.append(spec[i])
+            i += 1
+    return "".join(out)
+
+
+def _squeeze(text: str, chars: set[str]) -> str:
+    """Collapse runs of the same character into one, for characters in `chars`."""
+    out: list[str] = []
+    for ch in text:
+        if not (out and ch == out[-1] and ch in chars):
+            out.append(ch)
+    return "".join(out)
+
+
+@builtin("tr", "Translate, delete or squeeze characters", "tr [-d] [-s] [-c] SET1 [SET2]", category="text",
+         doc="""\
+# tr
+
+Translate, delete or squeeze characters from stdin.
+
+```
+tr SET1 SET2       # replace each char of SET1 with the matching char of SET2
+tr -d SET1         # delete chars in SET1
+tr -s SET1         # squeeze runs of repeated SET1 chars into one
+tr -s SET1 SET2    # translate, then squeeze runs of SET2 chars
+tr -cd SET1        # delete everything NOT in SET1
+```
+
+SET syntax: plain characters, ranges such as `a-z` or `0-9`, escapes (`\\n`, `\\t`, `\\\\`) and classes
+`[:upper:]`, `[:lower:]`, `[:digit:]`, `[:alpha:]`, `[:alnum:]`, `[:space:]`, `[:blank:]`,
+`[:punct:]`, `[:xdigit:]`. If SET2 is shorter than SET1, its last character is repeated.
+
+## Examples
+
+```
+echo hello | tr a-z A-Z
+cat notes.txt | tr -s " "
+cat data.txt | tr -d "\\r"            # strip Windows line endings
+echo "phone: 555-0100" | tr -cd 0-9
+cat words.txt | tr [:upper:] [:lower:]
+```
+""")
+def tr(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    parser = ArgParser("tr")
+    parser.add_argument("-d", "--delete", action="store_true")
+    parser.add_argument("-s", "--squeeze-repeats", action="store_true")
+    parser.add_argument("-c", "--complement", action="store_true")
+    parser.add_argument("sets", nargs="+")
+    opts = parser.parse_args(args)
+    if len(opts.sets) > 2:
+        raise ModuleError("tr: too many sets (at most SET1 and SET2)")
+    set1 = _expand_set(opts.sets[0])
+    set2 = _expand_set(opts.sets[1]) if len(opts.sets) == 2 else None
+
+    if opts.complement and not opts.delete and set2 is not None:
+        raise ModuleError("tr: -c is only supported with -d or -s")
+    in_set1 = (lambda ch: ch not in set1) if opts.complement else (lambda ch: ch in set1)
+
+    text = stdin
+    if opts.delete:
+        text = "".join(ch for ch in text if not in_set1(ch))
+        if opts.squeeze_repeats:
+            if set2 is None:
+                raise ModuleError("tr: -ds needs SET2 (the characters to squeeze)")
+            text = _squeeze(text, set(set2))
+        elif set2 is not None:
+            raise ModuleError("tr: extra SET2 with -d (did you mean -ds?)")
+        return text
+
+    if set2 is None:
+        if not opts.squeeze_repeats:
+            raise ModuleError("tr: missing SET2 (or use -d / -s)")
+        squeeze = {ch for ch in set(text) if in_set1(ch)} if opts.complement else set(set1)
+        return _squeeze(text, squeeze)
+
+    if not set2:
+        raise ModuleError("tr: SET2 must not be empty")
+    padded = set2 + set2[-1] * max(0, len(set1) - len(set2))
+    text = text.translate({ord(a): b for a, b in zip(set1, padded)})
+    return _squeeze(text, set(set2)) if opts.squeeze_repeats else text
