@@ -1,4 +1,9 @@
+import json
+import re
+
 import pytest
+import requests
+from urllib3.exceptions import MaxRetryError, NameResolutionError
 
 from core.modkit import ModuleError
 
@@ -58,3 +63,62 @@ def test_port(myip):
 def test_errors(myip, args, fragment):
     with pytest.raises(ModuleError, match=fragment):
         myip(args, "")
+
+
+# --- _get: the HTTP layer, with requests.get stubbed ------------------------------------------
+
+
+def _response(status=200, body=b"", reason="OK"):
+    response = requests.Response()
+    response.status_code, response.reason = status, reason
+    response._content = body if isinstance(body, bytes) else json.dumps(body).encode()
+    return response
+
+
+@pytest.fixture
+def get(registry, monkeypatch):
+    """Returns (_get, calls); set `get.result` to a Response or an exception to raise."""
+    module = registry.get("myip").run.__globals__
+    calls = []
+
+    def fake(url, **kwargs):
+        calls.append((url, kwargs))
+        if isinstance(fake.result, Exception):
+            raise fake.result
+        return fake.result
+
+    fake.result = _response(body={"ip": "203.0.113.42"})
+    monkeypatch.setattr(requests, "get", fake)
+    return module["_get"], calls, fake
+
+
+def test_get_sends_ip_param_headers_and_timeout(get):
+    _get, calls, _ = get
+    assert _get("/json", "8.8.8.8", 3.0) == {"ip": "203.0.113.42"}
+    url, kwargs = calls[0]
+    assert url == "https://ipconfig.io/json"
+    assert kwargs["params"] == {"ip": "8.8.8.8"} and kwargs["timeout"] == 3.0
+    assert kwargs["headers"]["Accept"] == "application/json"
+    _get("/json", None, 3.0)
+    assert calls[1][1]["params"] is None
+
+
+@pytest.mark.parametrize("result, fragment", [
+    (_response(400, {"status": 400, "error": "could not parse IP: x"}, "Bad Request"), "myip: could not parse IP: x"),
+    (_response(502, b"<html>bad gateway</html>", "Bad Gateway"), "ipconfig.io returned 502 Bad Gateway"),
+    (_response(500, ["not", "a", "dict"], "Server Error"), "ipconfig.io returned 500 Server Error"),
+    (_response(200, b"<html></html>"), "non-JSON"),
+    (_response(200, ["a", "list"]), "non-JSON"),
+    (requests.ConnectTimeout("slow"), "timed out after 2s"),
+    (requests.ReadTimeout("slow"), "timed out after 2s"),
+    (requests.ConnectionError(MaxRetryError(None, "/json", NameResolutionError(
+        "ipconfig.io", object(), "Failed to resolve 'ipconfig.io'"))),
+     "cannot reach ipconfig.io: Failed to resolve 'ipconfig.io'"),
+    (requests.exceptions.SSLError("certificate verify failed"), "cannot reach ipconfig.io: certificate verify failed"),
+    (requests.TooManyRedirects("loop"), "request to ipconfig.io failed: loop"),
+])
+def test_get_errors(get, result, fragment):
+    _get, _, fake = get
+    fake.result = result
+    with pytest.raises(ModuleError, match=re.escape(fragment)):
+        _get("/json", None, 2.0)

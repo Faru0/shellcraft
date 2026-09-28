@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.parse
-import urllib.request
+import re
+
+import requests
 
 from core.modkit import ArgParser, ModuleError
 
@@ -13,6 +13,7 @@ SUMMARY = "Show your public IP or look up IP geolocation/ASN (ipconfig.io)"
 SPINNER_TEXT = "asking ipconfig.io…"
 
 API = "https://ipconfig.io"
+HEADERS = {"Accept": "application/json", "User-Agent": "ShellCraft-myip/0.1"}
 
 # Display order for --info; optional fields only appear when the API knows them.
 INFO_FIELDS = [
@@ -70,25 +71,38 @@ def run(args: list[str], stdin: str) -> str:
 
 
 def _get(path: str, ip: str | None, timeout: float) -> dict:
-    url = API + path + (f"?{urllib.parse.urlencode({'ip': ip})}" if ip else "")
-    request = urllib.request.Request(url, headers={"Accept": "application/json",
-                                                   "User-Agent": "ShellCraft-myip/0.1"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
+        response = requests.get(API + path, params={"ip": ip} if ip else None,
+                                headers=HEADERS, timeout=timeout)
+    except requests.Timeout:  # before ConnectionError: ConnectTimeout is both
+        raise ModuleError(f"myip: ipconfig.io timed out after {timeout:g}s") from None
+    except requests.ConnectionError as exc:
+        raise ModuleError(f"myip: cannot reach ipconfig.io: {_reason(exc)}") from None
+    except requests.RequestException as exc:
+        raise ModuleError(f"myip: request to ipconfig.io failed: {exc}") from None
+
+    if not response.ok:
         # The API reports bad input as JSON: {"status": 400, "error": "could not parse IP: x"}
         try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error") or exc.reason
+            detail = response.json().get("error")
         except (ValueError, AttributeError):
-            detail = exc.reason
-        raise ModuleError(f"myip: {detail}") from None
-    except urllib.error.URLError as exc:
-        raise ModuleError(f"myip: cannot reach ipconfig.io: {exc.reason}") from None
-    except TimeoutError:
-        raise ModuleError(f"myip: ipconfig.io timed out after {timeout:g}s") from None
-    except json.JSONDecodeError:
-        raise ModuleError("myip: ipconfig.io returned an unexpected (non-JSON) response") from None
+            detail = None
+        raise ModuleError(f"myip: {detail or f'ipconfig.io returned {response.status_code} {response.reason}'}")
+
+    try:
+        record = response.json()
+    except ValueError:
+        record = None
+    if not isinstance(record, dict):
+        raise ModuleError("myip: ipconfig.io returned an unexpected (non-JSON) response")
+    return record
+
+
+def _reason(exc: requests.ConnectionError) -> str:
+    # requests wraps urllib3's MaxRetryError; its .reason is the underlying socket/DNS/TLS error.
+    # urllib3 prefixes some of these with the connection's repr: "<...HTTPSConnection object at 0x…>: ".
+    cause = exc.args[0] if exc.args else exc
+    return re.sub(r"^<[^>]*>: ", "", str(getattr(cause, "reason", None) or cause))
 
 
 def _clean(record: dict) -> dict:
