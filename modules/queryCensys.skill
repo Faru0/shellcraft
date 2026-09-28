@@ -10,7 +10,7 @@ Use when you need:
 Do not use it for private/LAN addresses, or for simple geolocation (ip2geo/myip are free and cheaper).
 Every call consumes Censys credits: don't loop over large IP lists."""
 
-usage = "QueryCensys host IP... | cert SHA256... | search QUERY [-n N] [--page-token TOKEN]  [-o table|json] [--timeout SECONDS]"
+usage = "queryCensys host IP... | cert SHA256... | search QUERY [-n N] [--page-token TOKEN]  [-o table|json] [--timeout SECONDS]"
 
 examples = [
   'args=["host", "8.8.8.8"]  -> "ip          8.8.8.8\nasn         AS15169 GOOGLE\n...\nPORT    PROTOCOL  SOFTWARE\n53/udp  DNS\n443/tcp HTTP  Google ..."',

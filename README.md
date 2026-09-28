@@ -154,7 +154,7 @@ system. Each one has a manual: `man ls`, `man grep`, …
 | `ip2geo` | Geolocates IPs or domain names: country, city, ISP, ASN, and mobile/proxy/hosting flags (via ip-api.com, no key). |
 | `queryDns` | A domain's DNS records (A, MX, NS, TXT, CNAME) with each IP's owner, country and netblock (DnsDumpster API; **needs a free key**). |
 | `queryCert` | TLS certificates and subdomains from Certificate Transparency logs (via crt.sh, no key). `-s` finds subdomains. |
-| `QueryCensys` | Open ports and software on a host, certificate details, or Censys searches (Censys Platform; **needs a token** and `pip install censys-platform`). |
+| `queryCensys` | Open ports and software on a host, certificate details, or Censys searches (Censys Platform; **needs a token** and `pip install censys-platform`). |
 
 See `man <module>` for details, e.g. `man queryDns`. To add your own modules, see
 [Creating modules](#creating-modules).
@@ -188,10 +188,10 @@ settings reset DNSDUMPSTER_API_KEY    # forget it
 | Variable | Module | Where to get it |
 | --- | --- | --- |
 | `DNSDUMPSTER_API_KEY` | `queryDns` | Free account at [dnsdumpster.com](https://dnsdumpster.com): the key is on your dashboard. |
-| `CENSYS_API_TOKEN` | `QueryCensys` | Censys Platform → your user icon → **API Access** → *Create New Token*. |
-| `CENSYS_ORG_ID` | `QueryCensys` | Paid plans only (needed for `search`): the *Current Organization* box on the same page. |
+| `CENSYS_API_TOKEN` | `queryCensys` | Censys Platform → your user icon → **API Access** → *Create New Token*. |
+| `CENSYS_ORG_ID` | `queryCensys` | Paid plans only (needed for `search`): the *Current Organization* box on the same page. |
 
-`QueryCensys` also needs the Censys SDK: `pip install censys-platform`, or
+`queryCensys` also needs the Censys SDK: `pip install censys-platform`, or
 `pip install -e ".[censys]"`.
 
 - **Where keys are stored:** in plain text under `"env"` in `~/.shellcraft/config.json`. The file is made readable by you only (mode 600).
@@ -243,7 +243,7 @@ stops the shell from starting.
 
 `python main.py --mcp` starts an MCP server over stdio. AI applications can then use these tools:
 
-- **One tool per module** (`fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert`, `QueryCensys`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
+- **One tool per module** (`fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert`, `queryCensys`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
 - **`shellcraft_pipeline`** runs a whole command line such as `{"command": "cat notes.txt | grep -i todo | sort"}`. It can use the read-only built-in commands. For safety, it **cannot**:
   - redirect output to files
   - change files (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
@@ -253,7 +253,7 @@ stops the shell from starting.
 
 > ⚠️ **Security note:** connected AI clients can read any file your user account can read (through
 > `fetch`, `cat`, `grep`, …), and `fetch` can request any URL. Modules that use your API keys
-> (`queryDns`, `QueryCensys`) spend your quota or credits when an AI calls them. Only connect AI clients you trust.
+> (`queryDns`, `queryCensys`) spend your quota or credits when an AI calls them. Only connect AI clients you trust.
 > Sandboxing is on the roadmap.
 
 ### Claude Code

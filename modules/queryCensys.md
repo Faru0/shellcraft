@@ -1,4 +1,4 @@
-# QueryCensys
+# queryCensys
 
 Look up a **host** (open ports, services, software, ASN, location) or a **certificate** in the
 [Censys Platform](https://docs.censys.com/reference/get-started), or run a Censys **search**.
@@ -7,9 +7,9 @@ It uses the official `censys-platform` Python SDK.
 ## Synopsis
 
 ```
-QueryCensys host IP...             [-o table|json] [--timeout SECONDS]
-QueryCensys cert SHA256...         [-o table|json] [--timeout SECONDS]
-QueryCensys search QUERY [-n N] [--page-token TOKEN] [-o table|json] [--timeout SECONDS]
+queryCensys host IP...             [-o table|json] [--timeout SECONDS]
+queryCensys cert SHA256...         [-o table|json] [--timeout SECONDS]
+queryCensys search QUERY [-n N] [--page-token TOKEN] [-o table|json] [--timeout SECONDS]
 ```
 
 ## Description
@@ -53,11 +53,11 @@ Censys credits. Free and Starter plans allow one request at a time.
 ## Examples
 
 ```
-QueryCensys host 8.8.8.8
-QueryCensys host 8.8.8.8 -o json | fetch --json resource.services.0.port
-queryDns example.com -t a -o ips | QueryCensys host
-QueryCensys cert 3daf28...e4 -o json
-QueryCensys search 'host.services.port: 3389 and host.location.country_code: "NL"' -n 50
+queryCensys host 8.8.8.8
+queryCensys host 8.8.8.8 -o json | fetch --json resource.services.0.port
+queryDns example.com -t a -o ips | queryCensys host
+queryCensys cert 3daf28...e4 -o json
+queryCensys search 'host.services.port: 3389 and host.location.country_code: "NL"' -n 50
 ```
 
 ## Errors

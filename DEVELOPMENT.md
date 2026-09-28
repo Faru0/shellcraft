@@ -39,7 +39,7 @@ shellcraft/
 │   ├── banner.py           # startup banner
 │   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting
 │   └── mcp_server.py       # MCP server (stdio): one tool per module + shellcraft_pipeline
-├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, QueryCensys
+├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module authoring kit: guide, reference module, AI prompt
 ├── tools/
 │   ├── modtest.py          # module tester
@@ -130,12 +130,12 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
 | `test_mcp.py` | the MCP tools, run in-process |
-| `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `QueryCensys` gets a fake SDK client |
+| `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_modtest.py` | the module tester and prompt builder |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python
 interpreter, so they work on every platform. Tests that touch API keys use the `clean_env` fixture,
 which removes the keys from the environment for the test and restores them afterwards.
 
-For the `QueryCensys` module and its tests against the real SDK types, install the extra:
+For the `queryCensys` module and its tests against the real SDK types, install the extra:
 `pip install -e ".[dev,censys]"`. Without it, those few checks are skipped.

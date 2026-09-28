@@ -1,4 +1,4 @@
-"""QueryCensys — hosts, certificates and searches from the Censys Platform API (censys-platform SDK)."""
+"""queryCensys — hosts, certificates and searches from the Censys Platform API (censys-platform SDK)."""
 
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ ENV_SETTINGS = [
 
 COMMANDS = ("host", "search", "cert")
 OUTPUTS = ("table", "json")
-INSTALL_HINT = 'QueryCensys: needs the Censys SDK: pip install censys-platform  (or pip install -e ".[censys]")'
+INSTALL_HINT = 'queryCensys: needs the Censys SDK: pip install censys-platform  (or pip install -e ".[censys]")'
 
 
 def run(args: list[str], stdin: str) -> str:
-    parser = ArgParser("QueryCensys")
+    parser = ArgParser("queryCensys")
     parser.add_argument("command", nargs="?", choices=COMMANDS)
     parser.add_argument("targets", nargs="*", metavar="TARGET")
     parser.add_argument("-o", "--output", default="table", choices=OUTPUTS)
@@ -37,22 +37,22 @@ def run(args: list[str], stdin: str) -> str:
     opts = parser.parse_args(args)
 
     if opts.command is None:
-        raise ModuleError("QueryCensys: give a command: host IP | search QUERY | cert SHA256  (see `man QueryCensys`)")
+        raise ModuleError("queryCensys: give a command: host IP | search QUERY | cert SHA256  (see `man queryCensys`)")
     targets = opts.targets or [ln.strip() for ln in stdin.splitlines()
                                if ln.strip() and not ln.lstrip().startswith("#")]
     if not targets:
         what = {"host": "an IP address", "search": "a query", "cert": "a SHA-256 fingerprint"}[opts.command]
-        raise ModuleError(f"QueryCensys: {opts.command} needs {what} (as an argument or on stdin)")
+        raise ModuleError(f"queryCensys: {opts.command} needs {what} (as an argument or on stdin)")
     if opts.command == "search":
         if not 1 <= opts.limit <= 100:
-            raise ModuleError("QueryCensys: --limit must be between 1 and 100")
+            raise ModuleError("queryCensys: --limit must be between 1 and 100")
         targets = [" ".join(opts.targets) if opts.targets else " ".join(targets)]
     if opts.command == "cert":
         targets = [_fingerprint(t) for t in targets]
 
     token = os.environ.get(TOKEN_VAR, "").strip()
     if not token:
-        raise ModuleError(f"QueryCensys: no Censys API token. Create a Personal Access Token in the Censys "
+        raise ModuleError(f"queryCensys: no Censys API token. Create a Personal Access Token in the Censys "
                           f"Platform (user icon → API Access), then run: settings {TOKEN_VAR}")
     org = os.environ.get(ORG_VAR, "").strip() or None
     sdk = _client(token, org, opts.timeout)
@@ -92,7 +92,7 @@ def _call(fn, command: str, target: str, org: str | None) -> dict:
     envelope = getattr(response, "result", None)
     payload = getattr(envelope, "result", None)
     if payload is None:
-        raise ModuleError(f"QueryCensys: Censys returned no data for {target}")
+        raise ModuleError(f"queryCensys: Censys returned no data for {target}")
     return payload.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
@@ -101,29 +101,29 @@ def _explain(exc: Exception, command: str, target: str, org: str | None) -> str:
     if not isinstance(status, int):
         name = type(exc).__name__
         if "Timeout" in name:
-            return f"QueryCensys: Censys did not answer in time for {target} (raise --timeout)"
+            return f"queryCensys: Censys did not answer in time for {target} (raise --timeout)"
         if name in ("ConnectError", "NetworkError", "ProxyError") or isinstance(exc, OSError):
-            return f"QueryCensys: cannot reach api.platform.censys.io: {exc}"
-        return f"QueryCensys: {name}: {exc}"
+            return f"queryCensys: cannot reach api.platform.censys.io: {exc}"
+        return f"queryCensys: {name}: {exc}"
     detail = _detail(exc)
     if status == 401:
-        return f"QueryCensys: Censys rejected the API token (401). Create a new one, then run: settings {TOKEN_VAR}"
+        return f"queryCensys: Censys rejected the API token (401). Create a new one, then run: settings {TOKEN_VAR}"
     if status == 403:
-        return ("QueryCensys: Censys denied access (403): your plan doesn't include this, or your user lacks the "
+        return ("queryCensys: Censys denied access (403): your plan doesn't include this, or your user lacks the "
                 "API Access role" + (f" ({detail})" if detail else ""))
     if status == 404:
         what = {"host": "host", "cert": "certificate", "search": "resource"}[command]
-        return f"QueryCensys: Censys has no {what} {target} (404)"
+        return f"queryCensys: Censys has no {what} {target} (404)"
     if status == 422:
         if command == "search" and org is None:
-            return ("QueryCensys: search needs a paid Censys plan and its organization ID; "
+            return ("queryCensys: search needs a paid Censys plan and its organization ID; "
                     f"run: settings {ORG_VAR}" + (f" ({detail})" if detail else ""))
-        return f"QueryCensys: Censys rejected the request (422): {detail or 'invalid value'}"
+        return f"queryCensys: Censys rejected the request (422): {detail or 'invalid value'}"
     if status == 429:
-        return "QueryCensys: too many concurrent requests for your Censys plan (429); wait and retry"
+        return "queryCensys: too many concurrent requests for your Censys plan (429); wait and retry"
     if status == 503:
-        return "QueryCensys: Censys rate limit reached (503); slow down and retry"
-    return f"QueryCensys: Censys error {status}" + (f": {detail}" if detail else "")
+        return "queryCensys: Censys rate limit reached (503); slow down and retry"
+    return f"queryCensys: Censys error {status}" + (f": {detail}" if detail else "")
 
 
 def _detail(exc: Exception) -> str:
@@ -143,7 +143,7 @@ def _detail(exc: Exception) -> str:
 def _fingerprint(text: str) -> str:
     fp = text.strip().lower().replace(":", "")
     if len(fp) != 64 or any(c not in "0123456789abcdef" for c in fp):
-        raise ModuleError(f"QueryCensys: '{text}' is not a SHA-256 fingerprint (64 hex characters)")
+        raise ModuleError(f"queryCensys: '{text}' is not a SHA-256 fingerprint (64 hex characters)")
     return fp
 
 

@@ -55,4 +55,4 @@ limit was hit. Network failures and timeouts are reported in one line.
 
 ## See also
 
-`man myip`, `man queryDns`, `man QueryCensys`
+`man myip`, `man queryDns`, `man queryCensys`

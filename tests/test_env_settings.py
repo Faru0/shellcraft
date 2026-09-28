@@ -35,7 +35,7 @@ def test_modules_declare_their_keys(registry):
     keys = settings.env_settings(registry)
     assert {KEY, "CENSYS_API_TOKEN", "CENSYS_ORG_ID"} <= set(keys)
     assert keys[KEY].label == "queryDns · DnsDumpster API key"
-    assert keys["CENSYS_ORG_ID"].label == "QueryCensys · Organization ID"
+    assert keys["CENSYS_ORG_ID"].label == "queryCensys · Organization ID"
 
 
 def test_table_lists_keys_after_on_off_settings_masked(ctx):

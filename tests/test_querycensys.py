@@ -86,7 +86,7 @@ class FakeGlobalData:
 
 @pytest.fixture
 def censys(registry, clean_env):
-    module = registry.get("QueryCensys").run.__globals__
+    module = registry.get("queryCensys").run.__globals__
     clean_env.setenv("CENSYS_API_TOKEN", "censys_test")
     fake = FakeGlobalData()
     clients = []
@@ -96,7 +96,7 @@ def censys(registry, clean_env):
         return SimpleNamespace(global_data=fake)
 
     clean_env.setitem(module, "_client", client)
-    run = registry.get("QueryCensys").run
+    run = registry.get("queryCensys").run
     run.fake, run.clients = fake, clients
     return run
 
@@ -146,7 +146,7 @@ def test_missing_sdk(registry, clean_env):
     clean_env.setenv("CENSYS_API_TOKEN", "censys_test")
     clean_env.setitem(sys.modules, "censys_platform", None)  # makes `import censys_platform` fail
     with pytest.raises(ModuleError, match="pip install censys-platform"):
-        registry.get("QueryCensys").run(["host", "8.8.8.8"], "")
+        registry.get("queryCensys").run(["host", "8.8.8.8"], "")
 
 
 @pytest.mark.parametrize("command, org, status, body, fragment", [

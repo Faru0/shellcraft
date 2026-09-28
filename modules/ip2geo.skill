@@ -6,7 +6,7 @@ when_to_use = """
 Use when you need where an IP or domain is located, who operates it (ISP/org/ASN), or whether it
 is a mobile connection, a proxy/VPN/Tor exit, or a hosting/data-center address. Call with no
 arguments for the host's own public IP. Do not use it for private/LAN addresses (they fail with
-'private range'). For open ports and services use QueryCensys."""
+'private range'). For open ports and services use queryCensys."""
 
 usage = "ip2geo [QUERY...] [-f FIELDS]... [-o table|json|tsv] [--lang LANG] [--timeout SECONDS]"
 

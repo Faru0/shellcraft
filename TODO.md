@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `QueryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 195 tests pass.
+> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 195 tests pass.
 
 ## Assessment
 
@@ -42,7 +42,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. — `core/mcp_server.py`
 - [ ] **History records everything**, including secrets typed inline. Support the "leading space = not saved" convention. *(Values in `settings NAME VALUE` are already redacted.)* — `core/shell.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
-- [ ] **Network modules spend the user's quota through MCP**: `queryDns` and `QueryCensys` use the stored keys whenever an AI calls them. Add a per-module MCP opt-out (see *Per-module MCP exposure switch*) and mention it in the `.skill` notes. — `core/mcp_server.py`
+- [ ] **Network modules spend the user's quota through MCP**: `queryDns` and `queryCensys` use the stored keys whenever an AI calls them. Add a per-module MCP opt-out (see *Per-module MCP exposure switch*) and mention it in the `.skill` notes. — `core/mcp_server.py`
 
 ## 🔧 Bugs / polish — P1
 
@@ -56,14 +56,14 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
 - [x] **Switch completion**: Tab completes each command's options and option values from its `.skill` `[[args]]` (including the new `values` key) and its `.md` options table. It is modular, with no per-module code.
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
-- [ ] **Positional values aren't completed**: `QueryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[args]]` entry `COMMAND` lists them in `values`. Complete the first positional from such an entry. — `core/options.py`, `core/completer.py`
+- [ ] **Positional values aren't completed**: `queryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[args]]` entry `COMMAND` lists them in `values`. Complete the first positional from such an entry. — `core/options.py`, `core/completer.py`
 - [x] **Dead code**: `ShellContext.interactive` is now read by `settings NAME` to choose the hidden prompt.
 - [ ] **Version is defined twice** (`pyproject.toml` and `core/__init__.py`). Use a single dynamic version. — `pyproject.toml`
 
 ## ⬆️ Upgrades — P1
 
 - [ ] **API-key precedence**: a key stored with `settings` replaces the same variable exported in the user's shell, so `DNSDUMPSTER_API_KEY=… queryDns` silently uses the stored key. Show a hint in `settings` when both exist, or let the environment win. — `core/settings.py`
-- [ ] **`QueryCensys`**: check the table layouts against a real token (only the error paths have been live-tested), and add `--at-time` for host history plus `web HOSTNAME:PORT` lookups (the SDK has `get_web_property`). — `modules/QueryCensys.py`
+- [ ] **`queryCensys`**: check the table layouts against a real token (only the error paths have been live-tested), and add `--at-time` for host history plus `web HOSTNAME:PORT` lookups (the SDK has `get_web_property`). — `modules/queryCensys.py`
 - [ ] **`queryDns`**: the CNAME record shape is undocumented (the example is empty). Confirm it with a domain that has CNAMEs. Also offer the Plus-only `?map=1` domain map. — `modules/queryDns.py`
 - [ ] **`queryCert`**: crt.sh often needs more than modtest's 10 s per call; add a per-test `timeout` key to `[[tests]]`. — `tools/modtest.py`
 - [ ] **`ip2geo`**: use the ip-api.com batch endpoint (`POST /batch`, up to 100 IPs per request) for long lists. — `modules/ip2geo.py`
@@ -113,7 +113,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Structured data mode**: JSON-lines between modules, with `select`, `where`, `sort-by` and a `table` renderer, for Nushell-style pipelines.
 - [ ] **Background jobs** (`cmd &`, `jobs`, `fg`) and per-command timing.
 - [ ] **`ask "..."` builtin**: a Claude-powered assistant that uses the loaded modules as tools and their `.skill` files as guidance.
-- [x] **Network lookup modules**: `ip2geo` (ip-api.com), `queryDns` (DnsDumpster), `queryCert` (crt.sh) and `QueryCensys` (Censys Platform SDK), plus API-key settings (`ENV_SETTINGS`: masked in `settings`, hidden prompt, exported in every mode including MCP).
+- [x] **Network lookup modules**: `ip2geo` (ip-api.com), `queryDns` (DnsDumpster), `queryCert` (crt.sh) and `queryCensys` (Censys Platform SDK), plus API-key settings (`ENV_SETTINGS`: masked in `settings`, hidden prompt, exported in every mode including MCP).
 - [ ] **More modules**: `json` (pretty-print/query), `hash`, `whois`, `weather`.
 
 ## 🧪 Tests / CI / docs — P1

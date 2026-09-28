@@ -53,4 +53,4 @@ cat domains.txt | queryCert -o names | sort | uniq
 
 ## See also
 
-`man queryDns`, `man QueryCensys`
+`man queryDns`, `man queryCensys`

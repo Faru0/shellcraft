@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-censys = ["censys-platform>=0.16"]  # for the QueryCensys module
+censys = ["censys-platform>=0.16"]  # for the queryCensys module
 
 [project.scripts]
 shellcraft = "core.cli:main"

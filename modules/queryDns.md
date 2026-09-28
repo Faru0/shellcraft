@@ -62,4 +62,4 @@ cat domains.txt | queryDns -o json > dns.json
 
 ## See also
 
-`man queryCert`, `man QueryCensys`, `man myip`, `man settings`
+`man queryCert`, `man queryCensys`, `man myip`, `man settings`
