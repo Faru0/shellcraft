@@ -56,4 +56,4 @@ failures and timeouts are reported the same way.
 
 ## See also
 
-`man fetch`, `man filter`
+`man ip2geo` (ISP, proxy/hosting flags, domain names), `man fetch`, `man filter`

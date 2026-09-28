@@ -63,7 +63,9 @@ tree -L 1                             # directory tree
 find . -name "*.md" | wc -l
 myip                                  # your public IP
 myip 8.8.8.8 -f country               # look up any IP address
+ip2geo google.com -f country,isp      # geolocate an IP or domain name
 queryCert -s example.com -o names     # subdomains from certificate logs
+queryDns example.com -t mx            # DNS records (needs a free API key: see "API keys")
 fetch https://example.com --head 5    # download text (with a spinner)
 theme matrix                          # switch the color theme
 settings                              # on/off settings and API keys
@@ -106,7 +108,7 @@ These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `$VAR` and `*` 
 - **Tab** completes:
   - command names (the first word, or the first word after `|`)
   - **switches** for every command: `myip -<Tab>`, `grep --<Tab>`, `ls -<Tab>`. The menu shows what each one does, and switches already on the line aren't offered again.
-  - **switch values**: `myip -f <Tab>` lists the field names, `find . -type <Tab>` offers `f`, `d` and `l`
+  - **switch values**: `myip -f <Tab>` lists the field names, `queryDns -o <Tab>` offers the output formats, `find . -type <Tab>` offers `f`, `d` and `l`
   - arguments for `man`, `theme` and `settings`, including API-key names
   - file and folder paths everywhere else, including after `>` and `>>`
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
