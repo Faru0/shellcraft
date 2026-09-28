@@ -36,6 +36,7 @@ pip install -r requirements.txt
 
 ```powershell
 py -m venv .venv
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
