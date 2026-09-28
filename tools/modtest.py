@@ -8,7 +8,7 @@
 
 It checks the files and name, the import, the run(args, stdin) contract, runtime behavior
 (no printing, no sys.exit, sane errors), the [[tests]] cases in the .skill file, the
-structure of the .md and .skill files, and that every option is documented.
+structure of the .md and .skill files, and that every option and API key is documented.
 The exit code is 1 if any check FAILs (with --strict, WARNs count too).
 """
 
@@ -43,6 +43,7 @@ from core.builtins import BUILTINS  # noqa: E402
 from core.context import to_text  # noqa: E402
 from core.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo  # noqa: E402
 from core.modkit import ModuleError  # noqa: E402
+from core.settings import SETTINGS  # noqa: E402
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 REQUIRED_SKILL_KEYS = ("summary", "when_to_use", "usage", "examples")
@@ -168,11 +169,36 @@ def check_contract(report: Report) -> bool:
     elif source_has_flags:
         report.add(WARN, "Tab completion", "the code defines options, but neither the .skill [[args]] nor an "
                                            ".md options table lists them, so Tab can't complete them")
+    check_env_settings(report)
     if spec.module_summary:
         report.add(PASS, "SUMMARY", spec.module_summary)
     else:
         report.add(WARN, "SUMMARY", "no SUMMARY or module docstring (help/Tab completion show nothing)")
     return True
+
+
+def check_env_settings(report: Report) -> None:
+    """ENV_SETTINGS were validated on import; here: each variable is documented for users and AIs."""
+    declared = report.spec.env_settings
+    if not declared:
+        return
+    names = [s.name for s in declared]
+    clash = [n for n in names if n.lower() in SETTINGS]
+    if clash:
+        report.add(FAIL, "API keys", f"{', '.join(clash)} clashes with an on/off setting name")
+        return
+    report.add(PASS, "API keys", ", ".join(f"{s.name} ({report.name} · {s.label})" for s in declared))
+    for suffix in (".md", ".skill"):
+        path = report.path.with_suffix(suffix)
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        missing = [n for n in names if n not in text]
+        if missing:
+            report.add(WARN, f"API keys in {path.name}", f"not mentioned: {', '.join(missing)} "
+                                                         f"(say how to set it: settings {missing[0]})")
+        else:
+            report.add(PASS, f"API keys in {path.name}", "every variable is documented")
 
 
 def _judge(report: Report, label: str, outcome: Outcome, timeout: float, bad_flag: bool = False) -> None:

@@ -11,7 +11,9 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable
 
+from core.modkit import EnvSetting
 from core.options import OptionSpec, from_markdown, from_skill, merge
+from core.settings import ENV_NAME
 
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 RESERVED_NAMES = {"shellcraft_pipeline"}
@@ -100,6 +102,7 @@ class ModuleSpec:
     skill: SkillInfo | None = None
     spinner_text: str | None = None
     module_summary: str | None = None
+    env_settings: tuple[EnvSetting, ...] = ()  # API keys etc. set with `settings NAME`
 
     @property
     def summary(self) -> str:
@@ -179,6 +182,7 @@ class ModuleRegistry:
             skill=SkillInfo.parse(text) if (text := _read(skill)) is not None else None,
             spinner_text=getattr(module, "SPINNER_TEXT", None),
             module_summary=getattr(module, "SUMMARY", None) or _first_doc_line(module),
+            env_settings=_env_settings(module),
         )
 
     def get(self, name: str) -> ModuleSpec | None:
@@ -196,6 +200,28 @@ def _read(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
+
+
+def _env_settings(module: Any) -> tuple[EnvSetting, ...]:
+    """Validate ENV_SETTINGS; a malformed declaration stops the module from loading."""
+    declared = getattr(module, "ENV_SETTINGS", None)
+    if declared is None:
+        return ()
+    if not isinstance(declared, (list, tuple)):
+        raise TypeError("ENV_SETTINGS must be a list of core.modkit.EnvSetting")
+    seen: set[str] = set()
+    for item in declared:
+        if not isinstance(item, EnvSetting):
+            raise TypeError(f"ENV_SETTINGS entries must be core.modkit.EnvSetting, got {type(item).__name__}")
+        if not isinstance(item.name, str) or not ENV_NAME.match(item.name):
+            raise ValueError(f"ENV_SETTINGS name {item.name!r} must be an UPPER_CASE environment variable name")
+        if not (isinstance(item.label, str) and item.label.strip()
+                and isinstance(item.description, str) and item.description.strip()):
+            raise ValueError(f"ENV_SETTINGS {item.name}: label and description must be non-empty strings")
+        if item.name in seen:
+            raise ValueError(f"ENV_SETTINGS {item.name} is declared twice")
+        seen.add(item.name)
+    return tuple(declared)
 
 
 def _first_doc_line(module: Any) -> str | None:

@@ -35,18 +35,21 @@ def main(argv: list[str] | None = None) -> int:
     registry = ModuleRegistry(modules_dir)
     registry.load()
 
+    from core import settings
+    from core.config import load_config
+
+    config = load_config()
+    settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
+
     if args.mcp:
         from core.mcp_server import serve
 
         serve(registry, allow_system=args.allow_system)
         return 0
 
-    from core import settings
-    from core.config import load_config
     from core.context import ShellContext
     from core.themes import UI, all_themes
 
-    config = load_config()
     themes = all_themes(config)
     theme_name = args.theme or config.get("theme", "cyberpunk")
     if theme_name not in themes:

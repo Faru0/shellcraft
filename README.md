@@ -63,9 +63,10 @@ tree -L 1                             # directory tree
 find . -name "*.md" | wc -l
 myip                                  # your public IP
 myip 8.8.8.8 -f country               # look up any IP address
+queryCert -s example.com -o names     # subdomains from certificate logs
 fetch https://example.com --head 5    # download text (with a spinner)
 theme matrix                          # switch the color theme
-settings                              # on/off settings
+settings                              # on/off settings and API keys
 exit                                  # or Ctrl-D
 ```
 
@@ -106,7 +107,7 @@ These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `$VAR` and `*` 
   - command names (the first word, or the first word after `|`)
   - **switches** for every command: `myip -<Tab>`, `grep --<Tab>`, `ls -<Tab>`. The menu shows what each one does, and switches already on the line aren't offered again.
   - **switch values**: `myip -f <Tab>` lists the field names, `find . -type <Tab>` offers `f`, `d` and `l`
-  - arguments for `man`, `theme` and `settings`
+  - arguments for `man`, `theme` and `settings`, including API-key names
   - file and folder paths everywhere else, including after `>` and `>>`
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - The prompt shows `[✗]` after a command fails.
@@ -148,14 +149,19 @@ system. Each one has a manual: `man ls`, `man grep`, …
 | `fetch` | Reads text from a URL, a file or stdin. `--head N` keeps the first N lines, and `--json PATH` extracts a field from JSON. |
 | `filter` | Keeps lines matching a regular expression (like `grep`, for stdin). |
 | `myip` | Shows your public IP, or the location/network owner of any IP (via ipconfig.io). `-p PORT` checks whether a port is reachable. |
+| `ip2geo` | Geolocates IPs or domain names: country, city, ISP, ASN, and mobile/proxy/hosting flags (via ip-api.com, no key). |
+| `queryDns` | A domain's DNS records (A, MX, NS, TXT, CNAME) with each IP's owner, country and netblock (DnsDumpster API; **needs a free key**). |
+| `queryCert` | TLS certificates and subdomains from Certificate Transparency logs (via crt.sh, no key). `-s` finds subdomains. |
+| `QueryCensys` | Open ports and software on a host, certificate details, or Censys searches (Censys Platform; **needs a token** and `pip install censys-platform`). |
 
-See `man fetch`, `man filter` and `man myip` for details. To add your own modules, see
+See `man <module>` for details, e.g. `man queryDns`. To add your own modules, see
 [Creating modules](#creating-modules).
 
 ## Settings
 
-`settings` shows every setting. `settings KEY on|off|toggle` changes one immediately, and
-`settings reset KEY` restores its default. Settings are saved in `~/.shellcraft/config.json`.
+`settings` shows every setting, and then the API keys modules need (see [API keys](#api-keys)).
+`settings KEY on|off|toggle` changes a setting immediately, and `settings reset KEY` restores its
+default. Settings are saved in `~/.shellcraft/config.json`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -163,6 +169,33 @@ See `man fetch`, `man filter` and `man myip` for details. To add your own module
 | `pager` | on | Open output taller than the window in the scrollable viewer. |
 | `spinner` | on | Show a spinner while slow commands run. |
 | `banner` | on | Show the startup banner. |
+
+### API keys
+
+Some modules call services that need an API key. The module declares the key, and `settings`
+lists it after the on/off settings, labelled with the module's name, for example
+`queryDns · DnsDumpster API key`. The value is never shown in full. It says `set ••••ab12`,
+`from environment` (exported by your own shell), or `not set`.
+
+```
+settings DNSDUMPSTER_API_KEY          # asks for the key; typing is hidden
+settings DNSDUMPSTER_API_KEY VALUE    # or set it in one go
+settings reset DNSDUMPSTER_API_KEY    # forget it
+```
+
+| Variable | Module | Where to get it |
+| --- | --- | --- |
+| `DNSDUMPSTER_API_KEY` | `queryDns` | Free account at [dnsdumpster.com](https://dnsdumpster.com): the key is on your dashboard. |
+| `CENSYS_API_TOKEN` | `QueryCensys` | Censys Platform → your user icon → **API Access** → *Create New Token*. |
+| `CENSYS_ORG_ID` | `QueryCensys` | Paid plans only (needed for `search`): the *Current Organization* box on the same page. |
+
+`QueryCensys` also needs the Censys SDK: `pip install censys-platform`, or
+`pip install -e ".[censys]"`.
+
+- **Where keys are stored:** in plain text under `"env"` in `~/.shellcraft/config.json`. The file is made readable by you only (mode 600).
+- **How modules get them:** ShellCraft exports the stored keys as environment variables when it starts, in every mode including `--mcp`, and right after you set one. A stored key replaces the value from your shell. After `settings reset`, your shell's own value applies again.
+- **Command history:** `settings NAME VALUE` is saved as `settings NAME ••••`. Still, prefer the prompt form, `settings NAME`.
+- **Other ways to set them:** you can export the variables in your own shell instead, for example `export DNSDUMPSTER_API_KEY=…`, or in an MCP client's `env` config.
 
 ### OS commands
 
@@ -208,16 +241,17 @@ stops the shell from starting.
 
 `python main.py --mcp` starts an MCP server over stdio. AI applications can then use these tools:
 
-- **One tool per module** (`fetch`, `filter`, `myip`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
+- **One tool per module** (`fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert`, `QueryCensys`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
 - **`shellcraft_pipeline`** runs a whole command line such as `{"command": "cat notes.txt | grep -i todo | sort"}`. It can use the read-only built-in commands. For safety, it **cannot**:
   - redirect output to files
   - change files (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
   - read environment variables (`env`)
-  - change the shell (`cd`, `theme`, `settings`, `exit`)
+  - change the shell (`cd`, `theme`, `settings`, `exit`), so an AI client can't read or change your API keys through `settings`
   - run OS programs, unless you start the server with `--allow-system`
 
 > ⚠️ **Security note:** connected AI clients can read any file your user account can read (through
-> `fetch`, `cat`, `grep`, …), and `fetch` can request any URL. Only connect AI clients you trust.
+> `fetch`, `cat`, `grep`, …), and `fetch` can request any URL. Modules that use your API keys
+> (`queryDns`, `QueryCensys`) spend your quota or credits when an AI calls them. Only connect AI clients you trust.
 > Sandboxing is on the roadmap.
 
 ### Claude Code

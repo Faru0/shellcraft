@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -190,15 +191,18 @@ def _reload(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 SETTINGS_DOC = """# settings
 
-Show and change ShellCraft's on/off settings. Changes apply immediately and are saved to
-`~/.shellcraft/config.json`.
+Show and change ShellCraft's settings: on/off switches, and the API keys that modules need.
+Changes apply immediately and are saved to `~/.shellcraft/config.json`.
 
 ## Usage
 
 ```
-settings                      # table of all settings
-settings KEY on|off|toggle    # change one
+settings                      # table of all settings and API keys
+settings KEY on|off|toggle    # change an on/off setting
 settings reset KEY            # back to the default
+settings NAME                 # enter an API key (typing is hidden)
+settings NAME VALUE           # set an API key in one go
+settings reset NAME           # forget a stored API key
 ```
 
 ## Settings
@@ -208,40 +212,63 @@ settings reset KEY            # back to the default
 """ + "".join(
     f"| `{s.key}` | {'on' if s.default else 'off'} | {s.description} |\n" for s in settings.SETTINGS.values()
 ) + """
+## API keys
+
+Modules that call paid or registered APIs declare the environment variables they need, and
+`settings` lists them after the on/off settings as *module · label*. The value is never shown:
+the table says `set ••••ab12` (stored by ShellCraft), `from environment` (exported by your own
+shell) or `not set`. A stored key is exported to the environment when ShellCraft starts
+(interactive, `-c` and `--mcp` alike) and replaces a value from your shell. `settings reset NAME`
+forgets the stored key and brings back your shell's value, if it had one.
+
+Keys are kept in plain text in `config.json`, which is made readable by you only (mode 600).
+`settings NAME VALUE` is saved to history as `settings NAME ••••`, but prefer `settings NAME`,
+which asks for the value without echoing it.
+
 ## Examples
 
 ```
 settings system_commands on   # allow git, python, uname… from your PATH
 settings pager off
+settings DNSDUMPSTER_API_KEY  # prompts for the key
+settings reset CENSYS_ORG_ID
 ```
 """
 
 
-@builtin("settings", "Show or change on/off settings", "settings [KEY on|off|toggle] | settings reset KEY",
+@builtin("settings", "Show or change settings and API keys",
+         "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings reset KEY",
          stateful=True, doc=SETTINGS_DOC)
 def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    keys = settings.env_settings(ctx.registry)
     if not args:
-        table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
-        table.add_column("key", style="sc.path", no_wrap=True)
-        table.add_column("setting")
-        table.add_column("value", justify="center")
-        table.add_column("description", style="sc.muted")
-        for s in settings.SETTINGS.values():
-            on = settings.get(ctx.config, s.key)
-            value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
-            table.add_row(s.key, s.label, value, s.description)
-        return table
+        return _settings_table(ctx, keys)
 
     if args[0] == "reset":
         if len(args) != 2:
             raise CommandError("usage: settings reset KEY")
-        key = _setting_key(args[1])
+        if args[1] in keys:
+            settings.env_reset(ctx.config, args[1])
+            return _store_env(ctx, keys[args[1]], "cleared", None)
+        key = _setting_key(args[1], keys)
         settings.reset(ctx.config, key)
         return _store_setting(ctx, key, settings.get(ctx.config, key), "reset to")
 
+    if args[0] in keys:
+        entry = keys[args[0]]
+        if len(args) > 2:
+            raise CommandError(f"usage: settings {entry.name} [VALUE]  (quote a value that contains spaces)")
+        value = args[1] if len(args) == 2 else _ask_secret(ctx, entry)
+        if not value.strip():
+            raise CommandError(f"settings: empty value; {entry.name} unchanged "
+                               f"(use `settings reset {entry.name}` to clear it)")
+        settings.env_set(ctx.config, entry.name, value.strip())
+        return _store_env(ctx, entry, "set", value.strip())
+
     if len(args) != 2:
-        raise CommandError("usage: settings KEY on|off|toggle")
-    key = _setting_key(args[0])
+        key = _setting_key(args[0], keys)
+        raise CommandError(f"usage: settings {key} on|off|toggle")
+    key = _setting_key(args[0], keys)
     if args[1].lower() == "toggle":
         value = not settings.get(ctx.config, key)
     else:
@@ -252,10 +279,60 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return _store_setting(ctx, key, value, "set to")
 
 
-def _setting_key(key: str) -> str:
+def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Table:
+    table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    table.add_column("key", style="sc.path", no_wrap=True)
+    table.add_column("setting")
+    table.add_column("value", justify="center")
+    table.add_column("description", style="sc.muted")
+    rows = list(settings.SETTINGS.values())
+    for i, s in enumerate(rows):
+        on = settings.get(ctx.config, s.key)
+        value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
+        table.add_row(s.key, s.label, value, s.description, end_section=bool(keys) and i == len(rows) - 1)
+    styles = {"set": "sc.success", "environment": "sc.accent", "unset": "sc.muted"}
+    for name in sorted(keys, key=lambda n: (keys[n].module.lower(), n)):
+        entry = keys[name]
+        state, text = settings.env_status(ctx.config, name)
+        table.add_row(name, entry.label, Text(text, style=styles[state]), entry.setting.description)
+    return table
+
+
+def _setting_key(key: str, keys: dict[str, settings.EnvEntry] | None = None) -> str:
     if key not in settings.SETTINGS:
-        raise CommandError(f"settings: unknown setting '{key}' (try: {', '.join(settings.SETTINGS)})")
+        names = list(settings.SETTINGS) + sorted(keys or ())
+        raise CommandError(f"settings: unknown setting '{key}' (try: {', '.join(names)})")
     return key
+
+
+def _ask_secret(ctx: ShellContext, entry: settings.EnvEntry) -> str:
+    """Read a value without echoing it; only possible in an interactive terminal."""
+    label = f"{entry.label} ({entry.name}): "
+    try:
+        if ctx.interactive:
+            from prompt_toolkit import prompt
+
+            return prompt(label, is_password=True)
+        if sys.stdin.isatty():
+            import getpass
+
+            return getpass.getpass(label)
+    except (EOFError, KeyboardInterrupt):
+        raise CommandError(f"settings: cancelled; {entry.name} unchanged") from None
+    raise CommandError(f"settings: no terminal to ask for {entry.name}; use: settings {entry.name} VALUE")
+
+
+def _store_env(ctx: ShellContext, entry: settings.EnvEntry, verb: str, value: str | None) -> Text:
+    msg = Text.assemble(("✓ ", "sc.success"), f"{entry.label} {verb}")
+    if value is not None:
+        msg.append(f" ({settings.mask(value)})", style="sc.muted")
+    elif os.environ.get(entry.name):
+        msg.append(" (your environment's value is used again)", style="sc.muted")
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f"  (not saved: {exc})", style="sc.warning")
+    return msg
 
 
 def _store_setting(ctx: ShellContext, key: str, value: bool, verb: str) -> Text:

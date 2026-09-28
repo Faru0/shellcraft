@@ -20,6 +20,7 @@ messages and the return values carefully.
 - Errors are raised as `ModuleError("one-line message")`. The shell shows them in an error panel, and MCP clients receive them as tool errors.
 - The module name is the file name. Relative file paths resolve against the shell's current directory.
 - Through MCP, an AI calls the tool with `{"args": [...], "stdin": "..."}` and gets the returned text back.
+- A module may declare `ENV_SETTINGS = [EnvSetting("NAME", "label", "description")]`. These are API keys the user sets once with `settings NAME`, and the module reads them from `os.environ`.
 
 ## Rules for `{{MODULE_NAME}}.md`
 
@@ -32,6 +33,8 @@ Use exactly this section order and these headings:
 5. `## Options`: a Markdown table `| Option | Meaning |` with **every** option from the code, using both short and long forms (`` `-n N`, `--top N` ``). Put every switch in backticks in the first column, because the shell's Tab completion reads switches and help text from these rows. Include each default. Leave this section out only if the module has no options.
 6. `## Examples`: a fenced code block with 3–6 realistic command lines. At least one should use a pipe (`|`), and one may use `>` redirection. Short `# comments` are allowed.
 7. `## Errors`: the user-visible error cases, taken from the `ModuleError` messages in the code.
+
+If the code declares `ENV_SETTINGS`, add a short setup subsection under `## Description`: where to get each key, and the `settings NAME` command that stores it. Name every variable.
 8. `## See also`: related commands, such as `man grep`.
 
 Keep it concise and practical. Don't use HTML.
@@ -43,7 +46,7 @@ Keep it concise and practical. Don't use HTML.
 - `when_to_use`: a multi-line string. Say when an AI should pick this tool, and when it should *not* (name better alternatives, such as `grep`/`filter` or `wc`). Mention whether input goes in `stdin` or in `args`.
 - `usage`: the same synopsis as the `.md`.
 - `examples`: a list of strings showing real calls in MCP shape, with their results. For example, `'args=["-n", "3"], stdin="a b a"  -> "a 2\nb 1\n"'`. Use single-quoted TOML literal strings.
-- `notes`: the output format, empty-input behavior, error behavior, limits, side effects (network access, files written), and anything an agent could get wrong.
+- `notes`: the output format, empty-input behavior, error behavior, limits, side effects (network access, files written), and anything an agent could get wrong. If the code declares `ENV_SETTINGS`, name each variable and say that the *user* sets it with `settings NAME`. An agent should relay a missing-key error, not retry.
 - One `[[args]]` table per positional argument and per option, with `name` in the form `"-s / --long METAVAR"` (e.g. `"-n / --top N"`) and `description` (what it means plus its default). Every flag in the parser must appear. The shell also uses these tables for Tab completion.
 - If an option accepts only a fixed set of values (`choices=[…]` in the parser, or a set the code checks against), add `values = ["a", "b", …]` to its `[[args]]` table with exactly those values.
 - Add 2–5 `[[tests]]` tables **at the end**. Each has `args` (a list of strings), an optional `stdin`, and **exactly one** of:

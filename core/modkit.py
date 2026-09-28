@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from typing import NoReturn
 
 
@@ -22,3 +23,17 @@ class ArgParser(argparse.ArgumentParser):
 
     def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
         raise ModuleError(message or f"{self.prog}: exited with status {status}")
+
+
+@dataclass(frozen=True)
+class EnvSetting:
+    """An environment variable (usually an API key) a module needs, set with `settings NAME`.
+
+    Declare them in the module as ENV_SETTINGS = [EnvSetting("MY_API_KEY", "My API key", "…")].
+    The shell lists them in `settings` as "<module> · <label>", stores the value in
+    config.json and exports it to os.environ, so the module just reads os.environ["MY_API_KEY"].
+    """
+
+    name: str  # the environment variable, e.g. "DNSDUMPSTER_API_KEY"
+    label: str  # short human name, e.g. "DnsDumpster API key"
+    description: str  # where to get it, what it unlocks

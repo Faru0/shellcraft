@@ -46,4 +46,15 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(config, indent=2) + "\n"
+    if not config.get("env"):
+        path.write_text(text, encoding="utf-8")
+        return
+    # API keys inside: readable by the owner only (created that way, and tightened if it existed).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # e.g. filesystems without Unix permissions

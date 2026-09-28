@@ -1,0 +1,65 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "List TLS certificates logged in Certificate Transparency for a domain, and the host names/subdomains they cover, via crt.sh (no API key)."
+
+when_to_use = """
+Use when you need:
+- subdomains of a domain as seen in issued certificates (-s -o names): passive subdomain discovery;
+- which CAs issued certificates for a domain, and when they expire;
+- a certificate's crt.sh ID to look it up in more detail.
+Do not use it to check the certificate a server presents right now (CT logs show what was issued,
+not what is deployed)."""
+
+usage = "queryCert [DOMAIN...] [-s] [--expired] [-o table|names|json] [--timeout SECONDS]"
+
+examples = [
+  'args=["-s", "example.com", "-o", "names"]  -> "*.example.com\nexample.com\ndev.example.com\nwww.example.com\n"',
+  'args=["example.com", "-o", "json"]  -> [{"id": 29557945233, "issuer_name": "C=GB, O=Sectigo Limited, CN=...", "common_name": "example.com", "name_value": "*.example.com\nexample.com", "not_before": "2026-09-24T00:00:00", "not_after": "2026-12-21T09:32:54", "serial_number": "2cae...", ...}]',
+  'args=["example.com"]  -> table: CRT.SH ID  NOT BEFORE  NOT AFTER  ISSUER  NAMES',
+]
+
+notes = """
+crt.sh is free but slow and often overloaded: calls can take up to a minute or more for large
+domains (-s on a big domain especially). If the tool reports that crt.sh is overloaded, wait and
+retry once rather than looping. Only currently valid certificates are returned unless --expired
+is given. Output is newest first; names output is deduplicated, lowercased, and excludes
+e-mail addresses and free-text common names."""
+
+[[args]]
+name = "DOMAIN..."
+description = "One or more domain names. If omitted, domains are read from `stdin`, one per line."
+
+[[args]]
+name = "-s / --subdomains"
+description = "Search %.DOMAIN: certificates for every subdomain, not just the exact name."
+
+[[args]]
+name = "--expired"
+description = "Include expired certificates (excluded by default)."
+
+[[args]]
+name = "-o / --output FORMAT"
+description = "table (default), names (unique host names, one per line), json (raw crt.sh records)."
+values = ["table", "names", "json"]
+
+[[args]]
+name = "--timeout SECONDS"
+description = "Network timeout (default 90; crt.sh is slow)."
+
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = []
+error = "give a domain"
+
+[[tests]]
+args = ["https://"]
+error = "is not a domain name"
+
+[[tests]]
+args = ["example.com", "-o", "csv"]
+error = "invalid choice"
+
+[[tests]]
+args = ["example.com", "-o", "names"]
+contains = "example.com\n"
+network = true

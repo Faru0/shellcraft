@@ -14,7 +14,7 @@ from prompt_toolkit.document import Document
 from core.builtins import BUILTINS
 from core.context import ShellContext
 from core.options import OptionSpec, builtin_options
-from core.settings import SETTINGS
+from core.settings import SETTINGS, env_settings
 from core.themes import all_themes
 
 _BREAK_CHARS = " \t|>"
@@ -39,9 +39,12 @@ class ShellCompleter(Completer):
             yield from self._arguments(segment[0], word)
             return
         if not before.endswith(">") and len(segment) == 2 and segment[0] == "settings":
-            options = {"on": "enable", "off": "disable", "toggle": "flip"} if segment[1] != "reset" else \
-                {k: s.label for k, s in SETTINGS.items()}
-            yield from self._complete(word, options)
+            if segment[1] == "reset":
+                yield from self._complete(word, self._setting_names())
+            elif segment[1] in SETTINGS:
+                yield from self._complete(word, {"on": "enable", "off": "disable", "toggle": "flip"})
+            return  # after an API-key name comes a secret: offer nothing
+        if not before.endswith(">") and len(segment) > 2 and segment[0] == "settings":
             return
         if not before.endswith(">") and segment:
             options = self._options_for(segment[0])
@@ -87,10 +90,14 @@ class ShellCompleter(Completer):
         if command == "theme":
             options = {t.name: t.label for t in all_themes(self.ctx.config).values()}
         elif command == "settings":
-            options = {k: s.label for k, s in SETTINGS.items()} | {"reset": "restore a default"}
+            options = self._setting_names() | {"reset": "restore a default"}
         else:
             options = {n: "module" for n in self.ctx.registry.names()} | {n: "builtin" for n in BUILTINS}
         yield from self._complete(word, options)
+
+    def _setting_names(self) -> dict[str, str]:
+        keys = {name: entry.label for name, entry in env_settings(self.ctx.registry).items()}
+        return {k: s.label for k, s in SETTINGS.items()} | keys
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):

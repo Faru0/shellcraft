@@ -42,6 +42,21 @@ def _user_host() -> str:
     return f"{user}@{socket.gethostname().split('.')[0]}"
 
 
+class _RedactingHistory:
+    """Mixin: store `settings NAME ••••` instead of an API key typed on the command line."""
+
+    def append_string(self, string: str) -> None:
+        super().append_string(settings.redact_line(string))
+
+
+class RedactingFileHistory(_RedactingHistory, FileHistory):
+    pass
+
+
+class RedactingInMemoryHistory(_RedactingHistory, InMemoryHistory):
+    pass
+
+
 class Shell:
     def __init__(self, ctx: ShellContext):
         assert ctx.ui is not None
@@ -55,9 +70,9 @@ class Shell:
         try:
             path = history_path()
             path.parent.mkdir(parents=True, exist_ok=True)
-            history = FileHistory(str(path))
+            history = RedactingFileHistory(str(path))
         except OSError:
-            history = InMemoryHistory()
+            history = RedactingInMemoryHistory()
 
         self.session: PromptSession = PromptSession(
             history=history,

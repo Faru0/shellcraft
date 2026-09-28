@@ -1,12 +1,21 @@
-"""On/off settings persisted under "settings" in ~/.shellcraft/config.json."""
+"""Settings persisted in ~/.shellcraft/config.json.
+
+- On/off settings (SETTINGS) live under "settings".
+- API keys and other secrets that modules declare with ENV_SETTINGS live under "env". They are
+  exported to os.environ, where modules read them.
+"""
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from core.context import ShellContext
+    from core.loader import ModuleRegistry
+    from core.modkit import EnvSetting
 
 
 @dataclass(frozen=True)
@@ -63,3 +72,94 @@ def parse_bool(word: str) -> bool | None:
     if word in FALSE_WORDS:
         return False
     return None
+
+
+# ── API keys (ENV_SETTINGS) ──────────────────────────────────────────────────
+
+ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+# The environment as it was before ShellCraft exported anything, so `settings reset NAME`
+# can restore a variable the user had set in their own shell.
+_ORIGINAL_ENV: dict[str, str | None] = {}
+
+
+@dataclass(frozen=True)
+class EnvEntry:
+    module: str
+    setting: EnvSetting
+
+    @property
+    def name(self) -> str:
+        return self.setting.name
+
+    @property
+    def label(self) -> str:
+        return f"{self.module} · {self.setting.label}"
+
+
+def env_settings(registry: ModuleRegistry | None) -> dict[str, EnvEntry]:
+    """Every ENV_SETTINGS entry of the loaded modules, keyed by variable name (first module wins)."""
+    entries: dict[str, EnvEntry] = {}
+    if registry is None:
+        return entries
+    for module in registry.names():
+        for setting in registry.get(module).env_settings:
+            entries.setdefault(setting.name, EnvEntry(module, setting))
+    return entries
+
+
+def env_get(config: dict[str, Any], name: str) -> str | None:
+    value = (config.get("env") or {}).get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def env_set(config: dict[str, Any], name: str, value: str) -> None:
+    config.setdefault("env", {})[name] = value
+    _export(name, value)
+
+
+def env_reset(config: dict[str, Any], name: str) -> None:
+    (config.get("env") or {}).pop(name, None)
+    original = _ORIGINAL_ENV.pop(name, os.environ.get(name))
+    if original is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = original
+
+
+def export_env(config: dict[str, Any]) -> None:
+    """Put every stored value into os.environ (startup, all modes)."""
+    for name, value in (config.get("env") or {}).items():
+        if isinstance(name, str) and ENV_NAME.match(name) and isinstance(value, str) and value:
+            _export(name, value)
+
+
+def _export(name: str, value: str) -> None:
+    _ORIGINAL_ENV.setdefault(name, os.environ.get(name))
+    os.environ[name] = value
+
+
+def env_status(config: dict[str, Any], name: str) -> tuple[str, str]:
+    """(state, text) for display: ("set", "set ••••ab12"), ("environment", …) or ("unset", …)."""
+    value = env_get(config, name)
+    if value is not None:
+        return "set", f"set {mask(value)}"
+    if os.environ.get(name):
+        return "environment", "from environment"
+    return "unset", "not set"
+
+
+def mask(value: str) -> str:
+    """Show only the last 4 characters, and none of a short value."""
+    return "••••" + (value[-4:] if len(value) >= 12 else "")
+
+
+_SETTINGS_LINE = re.compile(r"^(\s*settings\s+)([A-Z][A-Z0-9_]*)(\s+)(\S.*)$")
+
+
+def redact_line(line: str) -> str:
+    """Hide the value in `settings NAME VALUE` so API keys never reach the history file."""
+    match = _SETTINGS_LINE.match(line)
+    if not match:
+        return line
+    return f"{match.group(1)}{match.group(2)}{match.group(3)}••••"

@@ -1,0 +1,67 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Look up a domain's DNS records (A, MX, NS, TXT, CNAME) with each IP's ASN owner, country and netblock, via the DnsDumpster API."
+
+when_to_use = """
+Use when you need:
+- the known subdomains/hosts of a domain and their IP addresses (DnsDumpster includes
+  subdomains it has seen, not just the apex);
+- a domain's mail servers (mx), name servers (ns) or TXT/SPF records;
+- which networks/ASNs host a domain's infrastructure.
+Do not use it for a single live DNS resolution of one name; results come from DnsDumpster's
+database. For certificate-based subdomain discovery use queryCert."""
+
+usage = "queryDns [DOMAIN...] [-t TYPE]... [-o table|hosts|ips|json] [--page N] [--timeout SECONDS]"
+
+examples = [
+  'args=["example.com", "-o", "json"]  -> {"a": [{"host": "www.example.com", "ips": [{"ip": "93.184.215.14", "asn": "15133", "asn_name": "EDGECAST", "country_code": "US", "asn_range": "93.184.215.0/24", "ptr": ""}]}], "mx": [], "ns": [...], "txt": ["v=spf1 -all"], "cname": [], "total_a_recs": 1}',
+  'args=["example.com", "-t", "a", "-o", "hosts"]  -> "example.com\nwww.example.com\n"',
+  'args=["-t", "mx", "-o", "ips"], stdin="example.com\nexample.org"  -> one IP per line',
+]
+
+notes = """
+Needs the DNSDUMPSTER_API_KEY environment variable; the user sets it once in the shell with
+`settings DNSDUMPSTER_API_KEY`. Without it every call returns a tool error saying so; ask the user
+to set it rather than retrying. The API allows 1 request per 2 seconds: several domains in one
+call are spaced 2 s apart automatically, so avoid calling the tool in a tight loop. Free accounts
+get at most 50 records per domain (Plus: 200, more with --page). With several domains, json
+output is an object keyed by domain."""
+
+[[args]]
+name = "DOMAIN..."
+description = "One or more domain names. If omitted, domains are read from `stdin`, one per line."
+
+[[args]]
+name = "-t / --type TYPE"
+description = "Record type to include; repeat or comma-separate (a,mx). Default: all types."
+values = ["a", "mx", "ns", "txt", "cname"]
+
+[[args]]
+name = "-o / --output FORMAT"
+description = "table (default, aligned columns), hosts (unique host names), ips (unique IPs), json (API records)."
+values = ["table", "hosts", "ips", "json"]
+
+[[args]]
+name = "--page N"
+description = "Result page for domains with more than 200 records (DnsDumpster Plus only)."
+
+[[args]]
+name = "--timeout SECONDS"
+description = "Network timeout (default 30)."
+
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = []
+error = "give a domain"
+
+[[tests]]
+args = ["example.com", "-t", "soa"]
+error = "unknown record type"
+
+[[tests]]
+args = ["not a domain"]
+error = "is not a domain name"
+
+[[tests]]
+args = ["example.com", "--page", "0"]
+error = "--page must be 1 or more"

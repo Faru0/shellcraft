@@ -66,8 +66,43 @@ placeholders by hand.
 8. **Optional metadata:**
    - `SUMMARY = "..."`: one line for `help` and Tab completion, used when the `.skill` has no `summary`.
    - `SPINNER_TEXT = "..."`: shown while slow calls run.
+   - `ENV_SETTINGS = [...]`: API keys the module needs (see [API keys](#api-keys-env_settings) below).
    - a module docstring.
 9. **Keep `run()` free of side effects when it runs with no arguments,** or make it cheap. `modtest` calls `run([], "")` as a smoke test.
+
+## API keys (`ENV_SETTINGS`)
+
+If your module calls a service that needs a key, don't invent your own config file. Declare the
+environment variable, and read it from `os.environ` when `run()` is called:
+
+```python
+import os
+from core.modkit import EnvSetting, ModuleError
+
+ENV_SETTINGS = [
+    EnvSetting("MYSERVICE_API_KEY", "MyService API key",
+               "Free key from https://myservice.example/account."),
+]
+
+def run(args, stdin):
+    ...                                   # parse and validate arguments first
+    key = os.environ.get("MYSERVICE_API_KEY", "").strip()
+    if not key:
+        raise ModuleError("mymod: no MyService API key; run: settings MYSERVICE_API_KEY")
+```
+
+What you get:
+- `settings` lists the key as `mymod · MyService API key`, with a masked value.
+- `settings MYSERVICE_API_KEY` asks for it without echoing, stores it in `config.json` (mode 600), and exports it.
+- It's exported at every startup, MCP mode included.
+- Tab completion knows the name, and the value never reaches the history file.
+
+Rules:
+- **Names:** UPPER_CASE environment-variable names. Use the name the service's own tools use, if there is one.
+- **Order of checks:** check the key *after* validating arguments. Then `modtest`'s smoke calls and your `[[tests]]` error cases pass whether or not a key is set.
+- **Clear errors:** say how to get the key, and to run `settings NAME`. Turn the service's 401/403 into a "key rejected" message.
+- **Documentation:** name every variable in the `.md` (for example in a *Setup* or *API key* section) and in the `.skill` `notes`. `modtest` warns otherwise.
+- **Tests:** offline tests can set the variable with `monkeypatch.setenv`. See `tests/test_querydns.py`.
 
 ## Rules for the `.md`
 
@@ -135,5 +170,6 @@ python tools/modtest.py --all --strict           # warnings fail too (good for C
 | `.skill` | Valid TOML, required keys present, no misplaced or unknown keys, summary length, description size. |
 | Docs coverage | Every `add_argument("-x", "--long")` flag in the code appears in both the `.md` and the `.skill`. |
 | Tab completion | How many switches (and value lists) completion found. A WARN if the code has options but the docs yield none. |
+| API keys | Lists `ENV_SETTINGS` (an invalid declaration already fails the import), and WARNs if a variable isn't named in the `.md` or `.skill`. |
 
 The exit code is `0` when there are no FAILs, and `1` otherwise.

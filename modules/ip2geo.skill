@@ -1,0 +1,66 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Geolocate IPv4/IPv6 addresses or domain names via ip-api.com: country, region, city, lat/lon, timezone, ISP, org, ASN, and mobile/proxy/hosting flags."
+
+when_to_use = """
+Use when you need where an IP or domain is located, who operates it (ISP/org/ASN), or whether it
+is a mobile connection, a proxy/VPN/Tor exit, or a hosting/data-center address. Call with no
+arguments for the host's own public IP. Do not use it for private/LAN addresses (they fail with
+'private range'). For open ports and services use QueryCensys."""
+
+usage = "ip2geo [QUERY...] [-f FIELDS]... [-o table|json|tsv] [--lang LANG] [--timeout SECONDS]"
+
+examples = [
+  'args=["24.48.0.1", "-o", "json", "-f", "country,city,isp,as"]  -> {"status": "success", "query": "24.48.0.1", "country": "Canada", "city": "Montreal", "isp": "Le Groupe Videotron Ltee", "as": "AS5769 Videotron Ltee"}',
+  'args=["-f", "countryCode,proxy", "-o", "tsv"], stdin="8.8.8.8\n10.0.0.1"  -> "query\tcountryCode\tproxy\n8.8.8.8\tUS\tno\n10.0.0.1\tfail: private range\t\n"',
+  'args=[]  -> the host public IP with every field',
+]
+
+notes = """
+Free, no API key, HTTP only (unencrypted), non-commercial use only. Limit: 45 requests per minute
+per IP; the tool waits out the window when it runs out, so a long list can take minutes. Don't
+loop calls over huge lists. With a single query, a failed lookup is a tool error with the API's
+message (private range, reserved range, invalid query); with several, failures appear inline.
+Booleans (mobile, proxy, hosting) print as yes/no in table/tsv and as true/false in json.
+Use -o json or -o tsv when you will parse the result."""
+
+[[args]]
+name = "QUERY..."
+description = "IPv4/IPv6 addresses or domain names. If omitted, read from `stdin` (one per line); if stdin is empty too, the host's own IP is used."
+
+[[args]]
+name = "-f / --fields FIELDS"
+description = "Comma-separated fields to request (repeatable); 'all' adds every field including the slow reverse DNS. Default: all except reverse."
+values = ["query", "continent", "continentCode", "country", "countryCode", "region", "regionName", "city", "district", "zip", "lat", "lon", "timezone", "offset", "currency", "isp", "org", "as", "asname", "reverse", "mobile", "proxy", "hosting", "all"]
+
+[[args]]
+name = "-o / --output FORMAT"
+description = "table (default, 'field  value' lines), json (records; an array for several queries), tsv (header + one line per query)."
+values = ["table", "json", "tsv"]
+
+[[args]]
+name = "--lang LANG"
+description = "Language for country, regionName and city (default en)."
+values = ["en", "de", "es", "pt-BR", "fr", "ja", "zh-CN", "ru"]
+
+[[args]]
+name = "--timeout SECONDS"
+description = "Network timeout (default 10)."
+
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = ["-f", "bogus"]
+error = "unknown field"
+
+[[tests]]
+args = ["http://example.com/x"]
+error = "is not an IP address or domain name"
+
+[[tests]]
+args = ["8.8.8.8", "--lang", "xx"]
+error = "invalid choice"
+
+[[tests]]
+args = ["8.8.8.8", "-f", "countryCode", "-o", "tsv"]
+expect = "query\tcountryCode\n8.8.8.8\tUS\n"
+network = true

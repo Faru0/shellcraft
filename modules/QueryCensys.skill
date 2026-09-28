@@ -1,0 +1,75 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Censys Platform: look up an internet host (open ports, services, software, ASN, location) or a TLS certificate by SHA-256, or search Censys with a CenQL query."
+
+when_to_use = """
+Use when you need:
+- what is exposed on a public IP: open ports, protocols, detected software/OS, ASN and location (host);
+- details of a certificate you have a SHA-256 fingerprint for (cert);
+- to find hosts, web properties or certificates matching criteria (search; paid Censys plans only).
+Do not use it for private/LAN addresses, or for simple geolocation (ip2geo/myip are free and cheaper).
+Every call consumes Censys credits: don't loop over large IP lists."""
+
+usage = "QueryCensys host IP... | cert SHA256... | search QUERY [-n N] [--page-token TOKEN]  [-o table|json] [--timeout SECONDS]"
+
+examples = [
+  'args=["host", "8.8.8.8"]  -> "ip          8.8.8.8\nasn         AS15169 GOOGLE\n...\nPORT    PROTOCOL  SOFTWARE\n53/udp  DNS\n443/tcp HTTP  Google ..."',
+  'args=["host", "8.8.8.8", "-o", "json"]  -> {"resource": {"ip": "8.8.8.8", "autonomous_system": {...}, "location": {...}, "services": [...]}, "extensions": {}}',
+  'args=["search", "host.services.port: 22 and host.location.country_code: \"IS\"", "-n", "10"]  -> TYPE/ASSET/DETAILS rows, then "# 10 of 5123 hit(s); next page: --page-token ..."',
+  'args=["cert", "<64 hex chars>"]  -> sha256/subject/issuer/not_before/not_after/names lines',
+]
+
+notes = """
+Needs CENSYS_API_TOKEN (and CENSYS_ORG_ID for paid plans; required for search), which the user
+sets in the shell with `settings CENSYS_API_TOKEN` / `settings CENSYS_ORG_ID`, and the
+censys-platform Python package. On a missing token, missing package, 401, 403 or 422 the tool
+error says exactly what the user must do; relay it instead of retrying. For search, pass the
+whole CenQL query as one argument. Use -o json when you will parse fields (json is the full,
+large record). Free/Starter plans allow one concurrent request."""
+
+[[args]]
+name = "COMMAND"
+description = "host, cert or search."
+values = ["host", "cert", "search"]
+
+[[args]]
+name = "TARGET..."
+description = "host: IP addresses; cert: SHA-256 fingerprints; search: the CenQL query. If omitted, read from `stdin`."
+
+[[args]]
+name = "-o / --output FORMAT"
+description = "table (default, readable summary) or json (full Censys record)."
+values = ["table", "json"]
+
+[[args]]
+name = "-n / --limit N"
+description = "search only: hits per page, 1-100 (default 25)."
+
+[[args]]
+name = "--page-token TOKEN"
+description = "search only: next-page token printed after the previous page's results."
+
+[[args]]
+name = "--timeout SECONDS"
+description = "Network timeout (default 30)."
+
+# Tests: run by tools/modtest.py, never shown to the AI.
+[[tests]]
+args = []
+error = "give a command"
+
+[[tests]]
+args = ["host"]
+error = "host needs an IP address"
+
+[[tests]]
+args = ["cert", "abc"]
+error = "not a SHA-256 fingerprint"
+
+[[tests]]
+args = ["search", "x", "-n", "500"]
+error = "--limit must be between 1 and 100"
+
+[[tests]]
+args = ["whois", "8.8.8.8"]
+error = "invalid choice"

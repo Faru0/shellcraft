@@ -33,13 +33,13 @@ shellcraft/
 │   ├── options.py          # switch metadata from .skill [[args]] and .md tables (Tab completion)
 │   ├── completer.py        # Tab completion: commands, switches, values, paths
 │   ├── output.py           # delayed spinner, error panels, auto-pager
-│   ├── settings.py         # on/off settings registry
+│   ├── settings.py         # on/off settings registry; API keys (ENV_SETTINGS) storage/export/masking
 │   ├── themes.py           # theme presets → Rich theme + prompt_toolkit style
-│   ├── config.py           # ~/.shellcraft/config.json and history paths
+│   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
 │   ├── banner.py           # startup banner
-│   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError
+│   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting
 │   └── mcp_server.py       # MCP server (stdio): one tool per module + shellcraft_pipeline
-├── modules/                # bundled modules: fetch, filter, myip (.py/.md/.skill each)
+├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, QueryCensys
 ├── templates/              # module authoring kit: guide, reference module, AI prompt
 ├── tools/
 │   ├── modtest.py          # module tester
@@ -101,6 +101,23 @@ Add a `Setting(...)` to `SETTINGS` in `core/settings.py`. Read it with `settings
 If the setting has to change the running session immediately, give it an `apply` callback. The
 `settings` builtin, its completion and its man page pick up new settings automatically.
 
+### API keys (`ENV_SETTINGS`)
+
+Modules declare the environment variables they need as `ENV_SETTINGS = [EnvSetting(NAME, label,
+description)]` (`core/modkit.py`). The pieces:
+
+| Where | What |
+| --- | --- |
+| `core/loader.py` | `_env_settings()` validates the declaration (UPPER_CASE names, non-empty text, no duplicates). A bad one makes the module fail to load with a warning. |
+| `core/settings.py` | `env_settings(registry)` collects them, labelled `module · label`. `env_set` / `env_reset` / `export_env` keep `config["env"]` and `os.environ` in sync. `_ORIGINAL_ENV` remembers the shell's own values, so a reset can restore them. `mask()` and `env_status()` produce the display text, and `redact_line()` hides values from history. |
+| `core/cli.py` | Calls `export_env()` right after loading the config, before choosing the mode, so `-c`, the REPL and `--mcp` all see the keys. |
+| `core/builtins.py` | The `settings` table rows, the hidden prompt (`prompt_toolkit.prompt(is_password=True)`, or `getpass` outside the REPL), set and reset. |
+| `core/shell.py` | `RedactingFileHistory` stores `settings NAME ••••`. |
+| `core/config.py` | `save_config()` writes with mode 600 while `"env"` is non-empty. |
+| `tools/modtest.py` | `check_env_settings()` checks that every variable is named in the `.md` and the `.skill`. |
+
+`settings` is `stateful`, so MCP clients can never read or change keys through it.
+
 ## Tests
 
 | File | Covers |
@@ -109,11 +126,16 @@ If the setting has to change the running session immediately, give it an `apply`
 | `test_pipeline.py` | chaining, failures, redirection, `cd`, restricted contexts |
 | `test_commands.py` | every ported builtin |
 | `test_settings.py` | settings, the OS-command gate, `--allow-system` |
+| `test_env_settings.py` | API keys: listing, masking, prompt, set/reset, export at startup, history redaction, completion, loader validation |
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
 | `test_mcp.py` | the MCP tools, run in-process |
-| `test_myip.py` | `myip`, with the API stubbed (offline) |
+| `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `QueryCensys` gets a fake SDK client |
 | `test_modtest.py` | the module tester and prompt builder |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python
-interpreter, so they work on every platform.
+interpreter, so they work on every platform. Tests that touch API keys use the `clean_env` fixture,
+which removes the keys from the environment for the test and restores them afterwards.
+
+For the `QueryCensys` module and its tests against the real SDK types, install the extra:
+`pip install -e ".[dev,censys]"`. Without it, those few checks are skipped.
