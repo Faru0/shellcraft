@@ -3,6 +3,17 @@
 Everything needed to run shellcraft on a machine with **no internet**.
 Copy the whole repo (including this `Install/` folder) to the lab machine.
 
+**Quick start:** install Python (below), then run the setup script from anywhere. The first run
+creates `.venv/` in the repo root and installs the wheels offline, then starts shellcraft (`main.py`).
+Later runs reuse the venv. Arguments pass through, e.g. `-c "help"` or `--mcp`.
+
+| OS      | Command |
+|---------|---------|
+| Windows | `powershell -ExecutionPolicy Bypass -File .\Install\setup.ps1` |
+| Linux   | `./Install/setup.sh` |
+
+The manual steps are below if you'd rather do it by hand.
+
 | Folder     | Contents |
 |------------|----------|
 | `windows/` | `python-3.14.7-amd64.exe`, the official python.org installer (newest stable) |
