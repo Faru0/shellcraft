@@ -102,6 +102,30 @@ PRESETS: dict[str, ThemeDef] = {
             error="#dc322f", success="#859900", warning="#b58900",
             gradient_from="#b58900", gradient_to="#d33682",
         ),
+        ThemeDef(
+            name="dracula", label="Dracula",
+            prompt="#bd93f9", path="#8be9fd", accent="#ff79c6", muted="#6272a4",
+            error="#ff5555", success="#50fa7b", warning="#f1fa8c",
+            gradient_from="#bd93f9", gradient_to="#ff79c6",
+        ),
+        ThemeDef(
+            name="gruvbox", label="Gruvbox",
+            prompt="#fe8019", path="#8ec07c", accent="#83a598", muted="#928374",
+            error="#fb4934", success="#b8bb26", warning="#fabd2f",
+            gradient_from="#fb4934", gradient_to="#fabd2f",
+        ),
+        ThemeDef(
+            name="catppuccin", label="Catppuccin Mocha",
+            prompt="#cba6f7", path="#89dceb", accent="#f5c2e7", muted="#7f849c",
+            error="#f38ba8", success="#a6e3a1", warning="#f9e2af",
+            gradient_from="#cba6f7", gradient_to="#89b4fa",
+        ),
+        ThemeDef(
+            name="tokyonight", label="Tokyo Night",
+            prompt="#7aa2f7", path="#7dcfff", accent="#bb9af7", muted="#565f89",
+            error="#f7768e", success="#9ece6a", warning="#e0af68",
+            gradient_from="#7aa2f7", gradient_to="#bb9af7",
+        ),
     )
 }
 

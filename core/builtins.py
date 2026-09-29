@@ -116,19 +116,22 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 def _man(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if len(args) != 1:
         raise CommandError("usage: man COMMAND")
-    name = args[0]
-    spec = ctx.registry.get(name)
+    doc = manual_text(ctx.registry, args[0])
+    return Markdown(doc) if ctx.ui else doc
+
+
+def manual_text(registry: Any, name: str) -> str:
+    """The Markdown man page of a module or builtin; raises CommandError when there is none."""
+    spec = registry.get(name)
     if spec is not None:
         if not spec.doc_md:
             raise CommandError(f"man: no manual entry for {name} (missing {name}.md)")
-        doc = spec.doc_md
-    elif name in BUILTINS:
+        return spec.doc_md
+    if name in BUILTINS:
         b = BUILTINS[name]
         doc = b.doc or f"# {name}\n\n{b.summary}.\n\n## Usage\n\n```\n{b.usage}\n```\n"
-        doc += "\n*ShellCraft built-in command.*\n"
-    else:
-        raise CommandError(f"man: no manual entry for {name}")
-    return Markdown(doc) if ctx.ui else doc
+        return doc + "\n*ShellCraft built-in command.*\n"
+    raise CommandError(f"man: no manual entry for {name}")
 
 
 @builtin("theme", "List color themes or switch theme", "theme [NAME]", stateful=True)

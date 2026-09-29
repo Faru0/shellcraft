@@ -13,10 +13,10 @@ Every call consumes Censys credits: don't loop over large IP lists."""
 usage = "queryCensys host IP... | cert SHA256... | search QUERY [-n N] [--page-token TOKEN]  [-o table|json] [--timeout SECONDS]"
 
 examples = [
-  'args=["host", "8.8.8.8"]  -> "ip          8.8.8.8\nasn         AS15169 GOOGLE\n...\nPORT    PROTOCOL  SOFTWARE\n53/udp  DNS\n443/tcp HTTP  Google ..."',
-  'args=["host", "8.8.8.8", "-o", "json"]  -> {"resource": {"ip": "8.8.8.8", "autonomous_system": {...}, "location": {...}, "services": [...]}, "extensions": {}}',
-  'args=["search", "host.services.port: 22 and host.location.country_code: \"IS\"", "-n", "10"]  -> TYPE/ASSET/DETAILS rows, then "# 10 of 5123 hit(s); next page: --page-token ..."',
-  'args=["cert", "<64 hex chars>"]  -> sha256/subject/issuer/not_before/not_after/names lines',
+  '{"command": "host", "targets": ["8.8.8.8"]}  -> "ip          8.8.8.8\nasn         AS15169 GOOGLE\n...\nPORT    PROTOCOL  SOFTWARE\n53/udp  DNS\n443/tcp HTTP  Google ..."',
+  '{"command": "host", "targets": ["8.8.8.8"], "output": "json"}  -> {"resource": {"ip": "8.8.8.8", "autonomous_system": {...}, "location": {...}, "services": [...]}, "extensions": {}}',
+  '{"command": "search", "targets": ["host.services.port: 22 and host.location.country_code: \"IS\""], "limit": 10}  -> TYPE/ASSET/DETAILS rows, then "# 10 of 5123 hit(s); next page: --page-token ..."',
+  '{"command": "cert", "targets": ["<64 hex chars>"]}  -> sha256/subject/issuer/not_before/not_after/names lines',
 ]
 
 notes = """
@@ -24,34 +24,50 @@ Needs CENSYS_API_TOKEN (and CENSYS_ORG_ID for paid plans; required for search), 
 sets in the shell with `settings CENSYS_API_TOKEN` / `settings CENSYS_ORG_ID`, and the
 censys-platform Python package. On a missing token, missing package, 401, 403 or 422 the tool
 error says exactly what the user must do; relay it instead of retrying. For search, pass the
-whole CenQL query as one argument. Use -o json when you will parse fields (json is the full,
+whole CenQL query as one item of `targets`. Use output json when you will parse fields (json is the full,
 large record). Free/Starter plans allow one concurrent request."""
 
-[[args]]
-name = "COMMAND"
-description = "host, cert or search."
+[[params]]
+name = "command"
+metavar = "COMMAND"
 values = ["host", "cert", "search"]
+required = true
+description = "host, cert or search."
 
-[[args]]
-name = "TARGET..."
-description = "host: IP addresses; cert: SHA-256 fingerprints; search: the CenQL query. If omitted, read from `stdin`."
+[[params]]
+name = "targets"
+type = "array"
+metavar = "TARGET"
+description = "host: IP addresses; cert: SHA-256 fingerprints; search: the CenQL query as a single item. If omitted, read from `stdin`."
 
-[[args]]
-name = "-o / --output FORMAT"
-description = "table (default, readable summary) or json (full Censys record)."
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
 values = ["table", "json"]
+description = "table (default, readable summary) or json (full Censys record)."
 
-[[args]]
-name = "-n / --limit N"
+[[params]]
+name = "limit"
+flag = "--limit"
+short = "-n"
+type = "integer"
+metavar = "N"
 description = "search only: hits per page, 1-100 (default 25)."
 
-[[args]]
-name = "--page-token TOKEN"
-description = "search only: next-page token printed after the previous page's results."
+[[params]]
+name = "page_token"
+flag = "--page-token"
+metavar = "TOKEN"
+description = "search only: the next-page token printed after the previous page's results (pass it without the --page-token prefix)."
 
-[[args]]
-name = "--timeout SECONDS"
-description = "Network timeout (default 30)."
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 30)."
 
 # Tests: run by tools/modtest.py, never shown to the AI.
 [[tests]]

@@ -79,6 +79,7 @@ exit                                  # or Ctrl-D
 | --- | --- |
 | `-c "LINE"` | Run one command line and exit. The exit code is 1 if it fails. Output is plain text when piped, so it works in scripts. |
 | `--mcp` | Run as an MCP server over stdio instead of the interactive shell. |
+| `--mcp-http HOST:PORT` | Run as an MCP server over streamable HTTP at `http://HOST:PORT/mcp`. Only addresses on this machine are allowed (`127.0.0.1`, `localhost`, `::1`). |
 | `--theme NAME` | Use a theme for this session only. |
 | `--no-banner` | Skip the startup banner. |
 | `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
@@ -173,6 +174,7 @@ default. Settings are saved in `~/.shellcraft/config.json`.
 | `pager` | on | Open output taller than the window in the scrollable viewer. |
 | `spinner` | on | Show a spinner while slow commands run. |
 | `banner` | on | Show the startup banner. |
+| `hot_reload` | on | Reload modules when their `.py`, `.md` or `.skill` files change: in the shell before the next command, and in the MCP server within a second (clients are told the tool list changed). |
 
 ### API keys
 
@@ -215,7 +217,7 @@ system, such as `git`, the error tells you how to allow it.
 
 ## Themes
 
-The presets are `cyberpunk` (Cyberpunk Neon, the default), `matrix` (Matrix Green), `nord` and `solarized`.
+The presets are `cyberpunk` (Cyberpunk Neon, the default), `matrix` (Matrix Green), `nord`, `solarized`, `dracula`, `gruvbox`, `catppuccin` (Catppuccin Mocha) and `tokyonight` (Tokyo Night).
 `theme` lists them with color swatches, and `theme NAME` switches immediately and saves your choice.
 
 You can add your own themes to `~/.shellcraft/config.json`. Any color you leave out is taken from `base`:
@@ -244,15 +246,22 @@ stops the shell from starting.
 
 ## Using ShellCraft from an AI client (MCP server)
 
-`python main.py --mcp` starts an MCP server over stdio. AI applications can then use these tools:
+`python main.py --mcp` starts an MCP server over stdio, and `python main.py --mcp-http 127.0.0.1:8765`
+serves the same tools over streamable HTTP at `http://127.0.0.1:8765/mcp`. The HTTP server only
+listens on this machine: it refuses LAN addresses such as `0.0.0.0`, because connected clients can
+read your files, and it rejects browser requests from other sites (DNS-rebinding protection).
 
-- **One tool per module** (`fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert`, `queryCensys`, and any you add). Each takes `{"args": ["..."], "stdin": "..."}`, and its description comes from the module's `.skill` file.
+AI applications can then use these tools:
+
+- **One tool per module** (`fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert`, `queryCensys`, and any you add). Its description comes from the module's `.skill` file, and its typed parameters from the `.skill` `[[params]]` tables, for example `{"pattern": "error", "ignore_case": true, "stdin": "..."}`. A module without `[[params]]` takes `{"args": ["..."], "stdin": "..."}` instead.
 - **`shellcraft_pipeline`** runs a whole command line such as `{"command": "cat notes.txt | grep -i todo | sort"}`. It can use the read-only built-in commands. For safety, it **cannot**:
   - redirect output to files
   - change files (`tee`, `cp`, `mv`, `rm`, `mkdir`, `touch`)
   - read environment variables (`env`)
   - change the shell (`cd`, `theme`, `settings`, `exit`), so an AI client can't read or change your API keys through `settings`
   - run OS programs, unless you start the server with `--allow-system`
+- **Man pages as resources:** every module's `.md` and every built-in the pipeline tool can use is readable at `shellcraft://man/<name>`, such as `shellcraft://man/fetch`.
+- **Hot reload:** with the `hot_reload` setting on (the default), editing, adding or removing a module file reloads the modules, and connected clients get `tools/list_changed` and `resources/list_changed`.
 
 > ⚠️ **Security note:** by design, connected AI clients can read any file your user account can read
 > (through `fetch`, `cat`, `grep`, …). They can't change files. `fetch` can also request any URL. Modules that use your API keys
@@ -278,6 +287,10 @@ claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shell
 ```
 
 Use absolute paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
+
+For a client that connects over HTTP, start `python main.py --mcp-http 127.0.0.1:8765` yourself and
+point the client at `http://127.0.0.1:8765/mcp`. For example, in Claude Code:
+`claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp`.
 
 To try the server by hand, use the MCP Inspector:
 `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.

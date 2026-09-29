@@ -19,7 +19,7 @@ messages and the return values carefully.
 - The returned text goes to the next pipeline stage, to a file (`>` / `>>`), or to the screen.
 - Errors are raised as `ModuleError("one-line message")`. The shell shows them in an error panel, and MCP clients receive them as tool errors.
 - The module name is the file name. Relative file paths resolve against the shell's current directory.
-- Through MCP, an AI calls the tool with `{"args": [...], "stdin": "..."}` and gets the returned text back.
+- Through MCP, an AI calls the tool with named parameters from the `.skill` `[[params]]`, such as `{"top": 3, "ignore_case": true, "stdin": "..."}`. ShellCraft turns them back into CLI args (`["--top", "3", "--ignore-case"]`) before calling `run()`, and the AI gets the returned text back.
 - A module may declare `ENV_SETTINGS = [EnvSetting("NAME", "label", "description")]`. These are API keys the user sets once with `settings NAME`, and the module reads them from `os.environ`.
 
 ## Rules for `{{MODULE_NAME}}.md`
@@ -41,15 +41,22 @@ Keep it concise and practical. Don't use HTML.
 
 ## Rules for `{{MODULE_NAME}}.skill` (TOML)
 
-- **Key order matters in TOML.** Write all plain `key = value` lines (`summary`, `when_to_use`, `usage`, `examples`, `notes`) **before** the first `[[args]]` table. A key written after a table header belongs to that table and would vanish from the description.
+- **Key order matters in TOML.** Write all plain `key = value` lines (`summary`, `when_to_use`, `usage`, `examples`, `notes`) **before** the first `[[params]]` table. A key written after a table header belongs to that table and would vanish from the description.
 - `summary`: one line of at most 200 characters. Start with a verb and say what comes back.
-- `when_to_use`: a multi-line string. Say when an AI should pick this tool, and when it should *not* (name better alternatives, such as `grep`/`filter` or `wc`). Mention whether input goes in `stdin` or in `args`.
+- `when_to_use`: a multi-line string. Say when an AI should pick this tool, and when it should *not* (name better alternatives, such as `grep`/`filter` or `wc`). Mention whether input goes in `stdin` or in a parameter.
 - `usage`: the same synopsis as the `.md`.
-- `examples`: a list of strings showing real calls in MCP shape, with their results. For example, `'args=["-n", "3"], stdin="a b a"  -> "a 2\nb 1\n"'`. Use single-quoted TOML literal strings.
+- `examples`: a list of strings showing real calls in MCP shape (named params as JSON), with their results. For example, `'{"top": 3, "stdin": "a b a"}  -> "a 2\nb 1\n"'`. Use single-quoted TOML literal strings.
 - `notes`: the output format, empty-input behavior, error behavior, limits, side effects (network access, files written), and anything an agent could get wrong. If the code declares `ENV_SETTINGS`, name each variable and say that the *user* sets it with `settings NAME`. An agent should relay a missing-key error, not retry.
-- One `[[args]]` table per positional argument and per option, with `name` in the form `"-s / --long METAVAR"` (e.g. `"-n / --top N"`) and `description` (what it means plus its default). Every flag in the parser must appear. The shell also uses these tables for Tab completion.
-- If an option accepts only a fixed set of values (`choices=[…]` in the parser, or a set the code checks against), add `values = ["a", "b", …]` to its `[[args]]` table with exactly those values.
-- Add 2–5 `[[tests]]` tables **at the end**. Each has `args` (a list of strings), an optional `stdin`, and **exactly one** of:
+- One `[[params]]` table per positional argument and per option. Every flag in the parser must appear, and every `flag`/`short` you write must exist in the parser. Keys:
+  - `name`: the JSON property name, snake_case (e.g. `min_length`). Never `stdin`, which is added automatically.
+  - `flag`: the long switch exactly as in the parser (e.g. `"--top"`). Leave it out for a positional argument.
+  - `short`: the short switch if the parser has one (e.g. `"-n"`).
+  - `metavar`: the value placeholder (e.g. `"N"`); not needed for booleans.
+  - `type`: `string` (default), `integer`, `number`, `boolean` (a `store_true` switch; needs a `flag`) or `array` (an `append` option, or a positional with `nargs="*"`/`"+"`; a positional array must be the last positional).
+  - `values`: if the option accepts only a fixed set of values (`choices=[…]` in the parser, or a set the code checks against), exactly those values.
+  - `required = true` only when the call fails without it.
+  - `description`: what it means plus its default.
+- Add 2–5 `[[tests]]` tables **at the end**. Each has `args` (a list of CLI strings) **or** `params` (an inline table of named values, e.g. `params = {top = 2}`), an optional `stdin`, and **exactly one** of:
   - `expect` (exact output)
   - `contains` (a substring)
   - `error` (a substring of the `ModuleError` message)

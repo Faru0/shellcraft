@@ -14,43 +14,62 @@ public geolocation."""
 usage = "myip [IP...] [-i | -j | -f FIELD | -p PORT] [--timeout SECONDS]"
 
 examples = [
-  'args=[]  -> the host public IP, e.g. "203.0.113.42"',
-  'args=["-j"]  -> full JSON record for the host',
-  'args=["8.8.8.8", "-j"]  -> {"ip": "8.8.8.8", "country": "United States", "asn": "AS15169", "asn_org": "Google LLC", ...}',
-  'args=["-f", "country_iso"], stdin="1.1.1.1\n8.8.8.8"  -> "1.1.1.1\tAU\n8.8.8.8\tUS"',
-  'args=["-p", "443"]  -> "203.0.113.42:443 reachable from the internet"',
+  '{}  -> the host public IP, e.g. "203.0.113.42"',
+  '{"json": true}  -> full JSON record for the host',
+  '{"ips": ["8.8.8.8"], "json": true}  -> {"ip": "8.8.8.8", "country": "United States", "asn": "AS15169", "asn_org": "Google LLC", ...}',
+  '{"field": "country_iso", "stdin": "1.1.1.1\n8.8.8.8"}  -> "1.1.1.1\tAU\n8.8.8.8\tUS"',
+  '{"port": 443}  -> "203.0.113.42:443 reachable from the internet"',
 ]
 
 notes = """
 Country and ASN are reliable; city/region/coordinates are best-effort and often absent (anycast
 addresses such as 1.1.1.1 have none). Absent fields are omitted, not null. An invalid address
 returns a tool error like 'could not parse IP: x'. Results reflect the host running ShellCraft,
-not the AI client. The API is free and unauthenticated: avoid lookup loops over large IP lists."""
+not the AI client. The API is free and unauthenticated: avoid lookup loops over large IP lists.
+Use at most one of `info`, `json`, `field` and `port`."""
 
-[[args]]
-name = "IP..."
-description = "Zero or more IPv4/IPv6 addresses. If omitted, IPs are read from `stdin` (one per line); if stdin is also empty, the host's own IP is used."
+[[params]]
+name = "ips"
+type = "array"
+metavar = "IP"
+description = "IPv4/IPv6 addresses. If omitted, IPs are read from `stdin` (one per line); if stdin is also empty, the host's own IP is used."
 
-[[args]]
-name = "-i / --info"
+[[params]]
+name = "info"
+flag = "--info"
+short = "-i"
+type = "boolean"
 description = "Aligned 'key  value' detail record (default when IPs are given)."
 
-[[args]]
-name = "-j / --json"
+[[params]]
+name = "json"
+flag = "--json"
+short = "-j"
+type = "boolean"
 description = "JSON record (a JSON array for several IPs). Best choice when you will parse the result."
 
-[[args]]
-name = "-f / --field FIELD"
-description = "Return one field only. Several IPs give 'ip<TAB>value' lines. Dashes also work (country-iso)."
+[[params]]
+name = "field"
+flag = "--field"
+short = "-f"
+metavar = "FIELD"
 values = ["ip", "hostname", "country", "country_iso", "country_eu", "region_name", "region_code", "city", "zip_code", "latitude", "longitude", "coordinates", "metro_code", "time_zone", "asn", "asn_org", "ip_decimal"]
+description = "Return one field only. Several IPs give 'ip<TAB>value' lines."
 
-[[args]]
-name = "-p / --port N"
-description = "Check whether TCP port N on the host's own public IP is reachable from the internet. Cannot be combined with an IP."
+[[params]]
+name = "port"
+flag = "--port"
+short = "-p"
+type = "integer"
+metavar = "N"
+description = "Check whether TCP port N on the host's own public IP is reachable from the internet. Cannot be combined with `ips`."
 
-[[args]]
-name = "--timeout SECONDS"
-description = "Network timeout (default 10)."
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
 
 # Tests: run by tools/modtest.py, never shown to the AI.
 [[tests]]

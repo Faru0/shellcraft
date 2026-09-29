@@ -22,6 +22,7 @@ from core.context import ShellContext, ShellExit
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
 from core.pipeline import PipelineError, run_line
+from core.watch import ModuleWatcher
 
 
 def _pretty_cwd(cwd: str | None = None, home: str | None = None) -> str:
@@ -73,6 +74,7 @@ class Shell:
         self.user_host = _user_host()
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
+        self.watcher = ModuleWatcher(ctx.registry.directory)
 
         try:
             path = history_path()
@@ -112,6 +114,7 @@ class Shell:
             except EOFError:
                 return self._goodbye(0)
 
+            self._hot_reload()
             try:
                 result = run_line(line, self.ctx)
             except ShellExit as exc:
@@ -131,6 +134,17 @@ class Shell:
                     show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"))
                 except KeyboardInterrupt:
                     pass
+
+    def _hot_reload(self) -> None:
+        """Reload modules whose files changed since the last command (the `hot_reload` setting)."""
+        changed = self.watcher.changes()  # always consumed, so turning the setting on starts fresh
+        if not changed or not settings.get(self.ctx.config, "hot_reload"):
+            return
+        self.ctx.registry.load()
+        msg = Text.assemble(("↻ ", "sc.accent"), (f"modules reloaded ({', '.join(changed)})", "sc.muted"))
+        for warning in self.ctx.registry.warnings:
+            msg.append(f"\n⚠ {warning}", style="sc.warning")
+        self.ui.console.print(msg)
 
     def _goodbye(self, code: int) -> int:
         self.ui.console.print(Text("⏻ session closed — stay curious.", style="sc.muted"))

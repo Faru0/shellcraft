@@ -18,7 +18,7 @@ python tools/modtest.py --all                           # check every bundled mo
 shellcraft/
 ├── main.py                 # launcher → core.cli.main
 ├── core/
-│   ├── cli.py              # argument parsing; chooses interactive / -c / --mcp mode
+│   ├── cli.py              # argument parsing; chooses interactive / -c / --mcp / --mcp-http mode
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
 │   ├── parser.py           # quote-aware tokenizer → Pipeline(segments, redirect)
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
@@ -30,7 +30,9 @@ shellcraft/
 │   │   ├── info.py         #   date which env
 │   │   └── _io.py          #   shared file/stdin helpers
 │   ├── loader.py           # module discovery; ModuleSpec; SkillInfo (.skill parsing)
-│   ├── options.py          # switch metadata from .skill [[args]] and .md tables (Tab completion)
+│   ├── params.py           # .skill [[params]]: validation, MCP input schema, named values → CLI args
+│   ├── watch.py            # ModuleWatcher: polls the modules folder for hot reload
+│   ├── options.py          # switch metadata from .skill [[params]]/[[args]] and .md tables (Tab completion)
 │   ├── completer.py        # Tab completion: commands, switches, values, paths
 │   ├── output.py           # delayed spinner, error panels, auto-pager
 │   ├── settings.py         # on/off settings registry; API keys (ENV_SETTINGS) storage/export/masking
@@ -38,7 +40,7 @@ shellcraft/
 │   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
 │   ├── banner.py           # startup banner
 │   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting
-│   └── mcp_server.py       # MCP server (stdio): one tool per module + shellcraft_pipeline
+│   └── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
 ├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module authoring kit: guide, reference module, AI prompt
 ├── tools/
@@ -118,6 +120,17 @@ description)]` (`core/modkit.py`). The pieces:
 
 `settings` is `stateful`, so MCP clients can never read or change keys through it.
 
+## MCP server notes
+
+- `ShellcraftMCP` (`core/mcp_server.py`) owns the lowlevel `Server`. `build_server()` returns just the `Server` for tests and simple embedding.
+- **Tools:** a module with `.skill` `[[params]]` gets `params.input_schema()`, and a call's named values go through `ModuleSpec.argv()` (`params.to_argv()`) before `run(args, stdin)`. Other modules keep `MODULE_INPUT_SCHEMA` (a raw `args` array).
+- **Change notifications reach two kinds of clients:**
+  - 2026-07-28+ clients open `subscriptions/listen`. `notify_changed()` publishes `ToolsListChanged` / `ResourcesListChanged` on the `InMemorySubscriptionBus`.
+  - Older clients get `notifications/*/list_changed` on their `Connection`. The server remembers each connection (weakly) from its requests. mcp 2.x hands handlers only a per-request `ServerSession`, so the connection is read from its private `_connection`. Recheck this when upgrading `mcp` past 2.x; `test_reload_notifies_legacy_clients` catches a break.
+- `_Server.create_initialization_options()` always advertises `listChanged`, because the streamable-HTTP manager builds its own init options.
+- **Hot reload** is a 1-second poll (`ModuleWatcher.changes()`). It's cheap for a few dozen files and needs no dependency. The shell polls before each command instead.
+- **`--mcp-http`** runs uvicorn (an mcp dependency) in the same anyio task group as the watcher. `parse_http_address()` only accepts loopback addresses, and DNS-rebinding protection is always configured.
+
 ## Tests
 
 | File | Covers |
@@ -129,9 +142,10 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_env_settings.py` | API keys: listing, masking, prompt, set/reset, export at startup, history redaction, completion, loader validation |
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
-| `test_themes.py` | custom themes: invalid colors fall back to the base preset |
-| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting |
-| `test_mcp.py` | the MCP tools, run in-process |
+| `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
+| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell |
+| `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
+| `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_modtest.py` | the module tester and prompt builder |
 

@@ -14,9 +14,9 @@ database. For certificate-based subdomain discovery use queryCert."""
 usage = "queryDns [DOMAIN...] [-t TYPE]... [-o table|hosts|ips|json] [--page N] [--timeout SECONDS]"
 
 examples = [
-  'args=["example.com", "-o", "json"]  -> {"a": [{"host": "www.example.com", "ips": [{"ip": "93.184.215.14", "asn": "15133", "asn_name": "EDGECAST", "country_code": "US", "asn_range": "93.184.215.0/24", "ptr": ""}]}], "mx": [], "ns": [...], "txt": ["v=spf1 -all"], "cname": [], "total_a_recs": 1}',
-  'args=["example.com", "-t", "a", "-o", "hosts"]  -> "example.com\nwww.example.com\n"',
-  'args=["-t", "mx", "-o", "ips"], stdin="example.com\nexample.org"  -> one IP per line',
+  '{"domains": ["example.com"], "output": "json"}  -> {"a": [{"host": "www.example.com", "ips": [{"ip": "93.184.215.14", "asn": "15133", "asn_name": "EDGECAST", "country_code": "US", "asn_range": "93.184.215.0/24", "ptr": ""}]}], "mx": [], "ns": [...], "txt": ["v=spf1 -all"], "cname": [], "total_a_recs": 1}',
+  '{"domains": ["example.com"], "type": ["a"], "output": "hosts"}  -> "example.com\nwww.example.com\n"',
+  '{"type": ["mx"], "output": "ips", "stdin": "example.com\nexample.org"}  -> one IP per line',
 ]
 
 notes = """
@@ -24,30 +24,44 @@ Needs the DNSDUMPSTER_API_KEY environment variable; the user sets it once in the
 `settings DNSDUMPSTER_API_KEY`. Without it every call returns a tool error saying so; ask the user
 to set it rather than retrying. The API allows 1 request per 2 seconds: several domains in one
 call are spaced 2 s apart automatically, so avoid calling the tool in a tight loop. Free accounts
-get at most 50 records per domain (Plus: 200, more with --page). With several domains, json
+get at most 50 records per domain (Plus: 200, more with `page`). With several domains, json
 output is an object keyed by domain."""
 
-[[args]]
-name = "DOMAIN..."
-description = "One or more domain names. If omitted, domains are read from `stdin`, one per line."
+[[params]]
+name = "domains"
+type = "array"
+metavar = "DOMAIN"
+description = "Domain names. If omitted, domains are read from `stdin`, one per line."
 
-[[args]]
-name = "-t / --type TYPE"
-description = "Record type to include; repeat or comma-separate (a,mx). Default: all types."
-values = ["a", "mx", "ns", "txt", "cname"]
+[[params]]
+name = "type"
+flag = "--type"
+short = "-t"
+type = "array"
+metavar = "TYPE"
+description = "Record types to include; each item may be comma-separated (a,mx). Default: all types."
 
-[[args]]
-name = "-o / --output FORMAT"
-description = "table (default, aligned columns), hosts (unique host names), ips (unique IPs), json (API records)."
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
 values = ["table", "hosts", "ips", "json"]
+description = "table (default, aligned columns), hosts (unique host names), ips (unique IPs), json (API records)."
 
-[[args]]
-name = "--page N"
+[[params]]
+name = "page"
+flag = "--page"
+type = "integer"
+metavar = "N"
 description = "Result page for domains with more than 200 records (DnsDumpster Plus only)."
 
-[[args]]
-name = "--timeout SECONDS"
-description = "Network timeout (default 30)."
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 30)."
 
 # Tests: run by tools/modtest.py, never shown to the AI.
 [[tests]]

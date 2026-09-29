@@ -10,41 +10,62 @@ whole large document yourself. Put the text to search in `stdin`; this tool neve
 usage = "filter [-i] [-v] [-c] [-n] [-F] [-m N] PATTERN"
 
 examples = [
-  'args=["-i", "error"], stdin="<log text>"',
-  'args=["-c", "^GET "], stdin="<access log>"',
-  'args=["-v", "-F", "#"], stdin="<config file text>"',
+  '{"pattern": "error", "ignore_case": true, "stdin": "<log text>"}',
+  '{"pattern": "^GET ", "count": true, "stdin": "<access log>"}',
+  '{"pattern": "#", "invert": true, "fixed": true, "stdin": "<config file text>"}',
 ]
 
 notes = """
 An empty result means no line matched (not an error). An invalid regex returns a tool error;
-retry with -F for literal text."""
+retry with `fixed` for literal text."""
 
-[[args]]
-name = "PATTERN"
-description = "Python regular expression (required, the last positional argument)."
+[[params]]
+name = "pattern"
+metavar = "PATTERN"
+required = true
+description = "Python regular expression (or literal text with `fixed`)."
 
-[[args]]
-name = "-i"
+[[params]]
+name = "ignore_case"
+flag = "--ignore-case"
+short = "-i"
+type = "boolean"
 description = "Case-insensitive."
 
-[[args]]
-name = "-v"
+[[params]]
+name = "invert"
+flag = "--invert"
+short = "-v"
+type = "boolean"
 description = "Invert: return lines that do NOT match."
 
-[[args]]
-name = "-c"
+[[params]]
+name = "count"
+flag = "--count"
+short = "-c"
+type = "boolean"
 description = "Return only the count of matching lines."
 
-[[args]]
-name = "-n"
+[[params]]
+name = "line_number"
+flag = "--line-number"
+short = "-n"
+type = "boolean"
 description = "Prefix lines with their 1-based line number as 'N:line'."
 
-[[args]]
-name = "-F"
-description = "Treat PATTERN as a literal string (no regex metacharacters)."
+[[params]]
+name = "fixed"
+flag = "--fixed"
+short = "-F"
+type = "boolean"
+description = "Treat the pattern as a literal string (no regex metacharacters)."
 
-[[args]]
-name = "-m N"
+[[params]]
+name = "max"
+flag = "--max"
+short = "-m"
+type = "integer"
+metavar = "N"
 description = "Stop after N matches."
 
 # Tests: run by tools/modtest.py, never shown to the AI.
@@ -67,3 +88,8 @@ expect = "1:apple\n"
 args = ["("]
 stdin = "x"
 error = "invalid pattern"
+
+[[tests]]
+params = {pattern = "b", ignore_case = true}
+stdin = "apple\nBanana\ncherry\n"
+expect = "Banana\n"

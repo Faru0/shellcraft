@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 236 tests pass.
+> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 288 tests pass.
 
 ## Assessment
 
@@ -48,7 +48,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **`show()` renders twice** (a capture pass, then a print pass) and loads huge outputs fully into Rich. Reuse the captured ANSI, and cap or stream very large outputs into the pager. — `core/output.py`
 - [x] **Windows: the prompt's `~` shortening was case-sensitive**: it now compares with `os.path.normcase`. — `core/shell.py`
 - [x] **`cd` inside a pipeline changed the real cwd** (`cd x | pwd`): `cd` is now refused unless it's alone on the line (no pipe, no redirect). — `core/pipeline.py`
-- [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
+- [ ] **Loader hygiene**: there is no parent package, so relative imports inside modules fail. *(Stale `sys.modules["shellcraft_modules.*"]` entries are now cleared on every reload.)* — `core/loader.py`
 - [x] **Switch completion**: Tab completes each command's options and option values from its `.skill` `[[args]]` (including the new `values` key) and its `.md` options table. It is modular, with no per-module code.
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
 - [ ] **Positional values aren't completed**: `queryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[args]]` entry `COMMAND` lists them in `values`. Complete the first positional from such an entry. — `core/options.py`, `core/completer.py`
@@ -64,20 +64,20 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **`ip2geo`**: use the ip-api.com batch endpoint (`POST /batch`, up to 100 IPs per request) for long lists. — `modules/ip2geo.py`
 
 - [ ] **Streaming pipelines**: allow `run()` to return an iterator of lines so that large inputs don't sit in memory, while plain `str` returns keep working. — `core/pipeline.py`, `core/loader.py`
-- [ ] **MCP improvements:**
-  - [ ] Expose each `.md` man page as an MCP **resource**.
-  - [ ] Add a streamable-HTTP transport option (`--mcp-http 127.0.0.1:8765`).
-  - [ ] Send `tools/list_changed` when modules reload.
-  - [ ] Let `.skill` declare a structured `input_schema` (named params) instead of the raw `args` array.
-- [ ] **Hot reload**: watch `modules/` and reload on change, in both the shell and the MCP server.
-- [ ] **`fetch`**: size limit, `--header`, `--method` / `--data`, `--retry`, and detection and rejection of binary content.
+- [x] **MCP improvements:**
+  - [x] Every module's `.md` and every MCP-usable builtin's manual is a resource at `shellcraft://man/<name>`.
+  - [x] Streamable-HTTP transport: `--mcp-http 127.0.0.1:8765` (loopback addresses only, DNS-rebinding protection on).
+  - [x] `tools/list_changed` and `resources/list_changed` on reload, both to `subscriptions/listen` streams and to older clients' connections.
+  - [x] `.skill` `[[params]]` declare typed, named parameters (the MCP input schema); all bundled modules and the template use them. Modules without them keep the raw `args` array. — `core/params.py`
+- [x] **Hot reload**: the modules folder is polled for `.py`/`.md`/`.skill` changes, in the shell (before each command) and the MCP server (every second). The `hot_reload` setting turns it off. — `core/watch.py`
+- [x] **`fetch`**: `--max-size` (default 10M), `-H/--header`, `-X/--method`, `-d/--data` (text, `@FILE`, `@-`), `--retry N` with backoff and `Retry-After`, and rejection of binary content.
 - [ ] **`myip`**:
   - a short-lived result cache (the API asks clients to cache)
   - parallel lookups when there are many IPs
   - comma-separated `--field` lists
   - a clear message for private-range IPs (`ip2geo` already does this)
 - [ ] **Themes**:
-  - Dracula, Gruvbox, Catppuccin and Tokyo Night presets
+  - [x] Dracula, Gruvbox, Catppuccin and Tokyo Night presets
   - `theme preview NAME` (no save)
   - light-terminal variants
   - theme validation warnings shown in the banner

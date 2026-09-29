@@ -2,16 +2,16 @@
 # ShellCraft skill file (TOML). The audience is an AI agent, not a human.
 #
 # At startup, ShellCraft turns this file into the MCP tool description, so an AI client
-# decides from this text alone WHEN to call your tool and HOW to fill in `args` and `stdin`.
+# decides from this text alone WHEN to call your tool and HOW to fill in its parameters.
 # Be concrete, and document only what the code really does.
 #
 # Supported keys: summary, when_to_use, usage, examples, notes, then the tables
-# args and tests. Any other key is appended to the description, and modtest warns about it.
+# params and tests. Any other key is appended to the description, and modtest warns about it.
 # modtest requires: summary, when_to_use, usage, examples.
 #
 # !! TOML ORDER MATTERS !!  Every plain `key = value` line must come BEFORE the first
 # table header. A key written after a table header belongs to that table, so `examples`
-# placed after the args tables would silently vanish from the description.
+# placed after the params tables would silently vanish from the description.
 #
 # Check your file with:   python tools/modtest.py modules/<name>.py --preview
 # ─────────────────────────────────────────────────────────────────────────────
@@ -23,16 +23,16 @@ summary = "Count word frequencies in text and return the top N words as 'word co
 when_to_use = """
 Use to find the most common words or terms in a document, log or web page: keyword
 extraction, spotting repeated errors, a quick summary of what a text is about.
-Pass the text in `stdin`, or give file paths in `args`.
+Pass the text in `stdin`, or give file paths in `files`.
 Do not use it for exact phrase search (use grep/filter) or for counting lines (use wc)."""
 
 # The synopsis, exactly as in the .md file.
 usage = "template [-n N] [-i] [--min-length N] [FILE...]"
 
-# Show real calls in the MCP shape (args array + stdin) and the output they produce.
+# Show real calls in the MCP shape (named params + stdin) and the output they produce.
 examples = [
-  'args=["-n", "3"], stdin="the cat and the hat and the bat"  -> "the 3\nand 2\nbat 1\n"',
-  'args=["-i", "--min-length", "4", "report.txt"]  -> top 10 words of 4+ letters from the file',
+  '{"top": 3, "stdin": "the cat and the hat and the bat"}  -> "the 3\nand 2\nbat 1\n"',
+  '{"files": ["report.txt"], "ignore_case": true, "min_length": 4}  -> top 10 words of 4+ letters from the file',
 ]
 
 # Anything else the AI must know: output format, edge cases, errors, limits, side effects.
@@ -41,34 +41,55 @@ Output is plain text, one 'word count' pair per line. Ties are sorted alphabetic
 Empty input returns an empty result (not an error). A missing file or an invalid option
 returns a tool error with a one-line message."""
 
-# ─── Arguments: one [[args]] table per positional argument and per option ────
-# Say what the value means and give its default. The AI sends these as separate
-# strings in the `args` array.
-# The same tables drive Tab completion in the shell: write `name` as
-# "-s / --long METAVAR" so both switch forms and the value placeholder are recognized.
-# For an option with a fixed set of choices, add `values`: Tab completes them after
-# the switch, and AI clients see them listed. For example:
-#     name = "--format FMT"
-#     description = "Output format."
+# ─── Parameters: one [[params]] table per positional argument and per option ─
+# Each one becomes a typed property of the MCP input schema, so an AI sends
+# {"top": 3, "ignore_case": true} and ShellCraft turns it back into the CLI args
+# your run() parses: ["--top", "3", "--ignore-case"]. Keys:
+#   name        the property name, snake_case (required)
+#   flag        the long switch, e.g. "--top"; leave it out for a positional argument
+#   short       the short switch, e.g. "-n" (Tab completion and docs)
+#   metavar     the value placeholder, e.g. "N" (Tab completion and docs)
+#   type        string (default), integer, number, boolean (a bare switch) or array
+#               (repeats the switch per item; as a positional, adds each item)
+#   values      a fixed set of choices: checked on MCP calls, completed by Tab
+#   required    true when the call can't work without it
+#   description what it means plus its default (required)
+# modtest checks that every flag here exists in the code. For example:
+#     name = "format"
+#     flag = "--format"
 #     values = ["text", "json", "csv"]
-[[args]]
-name = "FILE..."
+#     description = "Output format (default text)."
+[[params]]
+name = "files"
+type = "array"
+metavar = "FILE"
 description = "Optional file paths, relative to the server's working directory. Omit them to read `stdin`."
 
-[[args]]
-name = "-n N / --top N"
+[[params]]
+name = "top"
+flag = "--top"
+short = "-n"
+type = "integer"
+metavar = "N"
 description = "How many words to return (default 10, minimum 1)."
 
-[[args]]
-name = "-i / --ignore-case"
+[[params]]
+name = "ignore_case"
+flag = "--ignore-case"
+short = "-i"
+type = "boolean"
 description = "Treat upper and lower case as the same word. The output is lowercase."
 
-[[args]]
-name = "--min-length N"
+[[params]]
+name = "min_length"
+flag = "--min-length"
+type = "integer"
+metavar = "N"
 description = "Ignore words shorter than N characters (default 1). Use 4 or more to skip 'the', 'and', …"
 
 # ─── Tests: run by tools/modtest.py, NEVER shown to the AI ───────────────────
-# Each case calls run(args, stdin) and checks exactly ONE of:
+# Each case calls run(args, stdin). Instead of `args`, a case may give named values such as
+# `params = {top = 2}`, converted exactly as an MCP call would be. It checks exactly ONE of:
 #   expect   = exact output
 #   contains = a substring the output must contain
 #   error    = a substring of the expected ModuleError message
@@ -81,7 +102,7 @@ stdin = "b a b c a b\n"
 expect = "b 3\na 2\n"
 
 [[tests]]
-args = ["-i", "-n", "1"]
+params = {ignore_case = true, top = 1}
 stdin = "The the THE cat\n"
 expect = "the 3\n"
 

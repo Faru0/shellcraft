@@ -11,6 +11,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable
 
+from core import params as params_mod
 from core.modkit import EnvSetting
 from core.options import OptionSpec, from_markdown, from_skill, merge
 from core.settings import ENV_NAME
@@ -30,6 +31,8 @@ class SkillInfo:
     when_to_use: str = ""
     usage: str = ""
     args: list[dict[str, str]] = field(default_factory=list)
+    # [[params]]: named, typed parameters that become the MCP input schema (see core/params.py).
+    params: list[dict[str, Any]] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
     notes: str = ""
     extra: dict[str, str] = field(default_factory=dict)
@@ -54,13 +57,17 @@ class SkillInfo:
                              "values": [str(v) for v in values] if isinstance(values, list) else []})
             else:
                 args.append({"name": str(item), "description": "", "values": []})
-        known = {"summary", "when_to_use", "usage", "args", "examples", "notes", "tests"}
+        params = [p for p in data.get("params", []) if isinstance(p, dict)]
+        if params and not args:
+            args = params_mod.as_args(params)  # Tab completion and docs read [[args]]
+        known = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests"}
         return cls(
             raw=text,
             summary=str(data.get("summary", "")).strip(),
             when_to_use=str(data.get("when_to_use", "")).strip(),
             usage=str(data.get("usage", "")).strip(),
             args=args,
+            params=params,
             examples=[str(e) for e in data.get("examples", [])],
             notes=str(data.get("notes", "")).strip(),
             extra={k: str(v).strip() for k, v in data.items() if k not in known},
@@ -76,7 +83,7 @@ class SkillInfo:
             parts.append(f"When to use:\n{self.when_to_use}")
         if self.usage:
             parts.append(f"Usage: {self.usage}")
-        if self.args:
+        if self.args and not self.params:  # with params, the input schema describes each one
             lines = []
             for a in self.args:
                 line = f"  {a['name']}: {a['description']}" if a["description"] else f"  {a['name']}"
@@ -123,6 +130,17 @@ class ModuleSpec:
         return merge(from_skill(self.skill), from_markdown(self.doc_md))
 
     @property
+    def input_schema(self) -> dict[str, Any] | None:
+        """The MCP schema built from .skill [[params]], or None for the raw `args` array."""
+        if self.skill and self.skill.params:
+            return params_mod.input_schema(self.skill.params)
+        return None
+
+    def argv(self, values: dict[str, Any]) -> list[str]:
+        """CLI args for a call with named values (raises params.ParamError)."""
+        return params_mod.to_argv(self.skill.params if self.skill else [], values)
+
+    @property
     def description(self) -> str:
         if self.skill:
             return self.skill.to_description()
@@ -138,6 +156,8 @@ class ModuleRegistry:
         self.warnings: list[str] = []
 
     def load(self) -> None:
+        for stale in [k for k in sys.modules if k.startswith("shellcraft_modules.")]:
+            del sys.modules[stale]  # a deleted or renamed module must not linger after reload
         self.modules = {}
         self.warnings = []
         if not self.directory.is_dir():
@@ -173,13 +193,15 @@ class ModuleRegistry:
             raise AttributeError("missing callable run(args, stdin)")
 
         md = py.with_suffix(".md")
-        skill = py.with_suffix(".skill")
+        skill = SkillInfo.parse(text) if (text := _read(py.with_suffix(".skill"))) is not None else None
+        if skill and (errors := params_mod.problems(skill.params)):
+            raise ValueError(f"{name}.skill [[params]]: {'; '.join(errors)}")
         return ModuleSpec(
             name=name,
             path=py,
             run=run,
             doc_md=_read(md),
-            skill=SkillInfo.parse(text) if (text := _read(skill)) is not None else None,
+            skill=skill,
             spinner_text=getattr(module, "SPINNER_TEXT", None),
             module_summary=getattr(module, "SUMMARY", None) or _first_doc_line(module),
             env_settings=_env_settings(module),

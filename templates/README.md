@@ -117,10 +117,37 @@ rows. A value list can be written as ``| `--mode a\|b\|c` | … |``.
 
 ## Rules for the `.skill` (TOML)
 
-- **Keys:** `summary` (one line, ≤ 200 chars), `when_to_use` (when to use it, and when *not* to), `usage`, `examples` (MCP-shaped calls with results), `notes`, then one `[[args]]` table per argument/option (`name`, `description`, optional `values`), then `[[tests]]`. `modtest` requires `summary`, `when_to_use`, `usage` and `examples`.
-- ⚠️ **Order matters.** Put every `key = value` line *before* the first `[[args]]`. In TOML, a key written after a table header belongs to that table, so it silently disappears from the description. `modtest` catches this.
+- **Keys:** `summary` (one line, ≤ 200 chars), `when_to_use` (when to use it, and when *not* to), `usage`, `examples` (MCP-shaped calls with results), `notes`, then one `[[params]]` table per argument/option, then `[[tests]]`. `modtest` requires `summary`, `when_to_use`, `usage` and `examples`.
+- ⚠️ **Order matters.** Put every `key = value` line *before* the first `[[params]]`. In TOML, a key written after a table header belongs to that table, so it silently disappears from the description. `modtest` catches this.
 - Write for an AI reader: be concrete, give defaults, say what the output looks like, and name side effects such as network access or files written.
-- Write `[[args]]` names as `"-s / --long METAVAR"`. For options with a fixed set of choices, add `values = ["a", "b"]`.
+
+### `[[params]]`: typed parameters for AI clients
+
+Each `[[params]]` table becomes one typed property of the tool's MCP input schema. An AI calls
+`{"top": 3, "ignore_case": true, "stdin": "…"}`, and ShellCraft turns that back into the CLI args
+your `run()` already parses: `["--top", "3", "--ignore-case"]`. Your module code doesn't change.
+
+```toml
+[[params]]
+name = "output"               # the property name, snake_case (required)
+flag = "--output"             # the long switch; leave it out for a positional argument
+short = "-o"                  # the short switch (Tab completion and docs)
+metavar = "FORMAT"            # the value placeholder (Tab completion and docs)
+type = "string"               # string (default) | integer | number | boolean | array
+values = ["table", "json"]    # fixed choices: checked on MCP calls, completed by Tab
+required = false
+description = "table (default) or json."   # required
+```
+
+- A `boolean` is a bare switch, sent only when true, and it needs a `flag`.
+- An `array` repeats its `flag` once per item. As a positional, it adds each item, and it must be the last positional.
+- Switches come first in the generated args, then the positionals in the order they're declared.
+- `stdin` is added to the schema for you. Don't declare it.
+- `modtest` fails when a `flag` or `short` isn't defined in the code, since MCP calls using it would break.
+
+A module with no `[[params]]` still works. AI clients then get a raw `args` array of CLI strings,
+documented from optional `[[args]]` tables (`name = "-s / --long METAVAR"`, `description`,
+optional `values`).
 
 ### Tab completion comes free
 
@@ -131,7 +158,7 @@ The shell completes your module's switches from these files, with no completer c
 - `mymod --format <Tab>` offers the `values` from the `.skill`.
 - Switches already on the line aren't offered again.
 
-The `.skill` `[[args]]` tables are the main source; the `.md` Options table fills in the short help
+The `.skill` `[[params]]` (or `[[args]]`) tables are the main source; the `.md` Options table fills in the short help
 text, and it also works on its own. `modtest` reports how many switches it found ("Tab completion").
 
 ### `[[tests]]`: executable examples
@@ -142,6 +169,11 @@ args = ["-n", "2"]
 stdin = "b a b c a b\n"
 expect = "b 3\na 2\n"      # or contains = "…", or error = "…" (a ModuleError substring)
 network = false            # true = only run with modtest --network
+
+[[tests]]
+params = {top = 1, ignore_case = true}   # instead of args: named values, converted like an MCP call
+stdin = "The the THE cat\n"
+expect = "the 3\n"
 ```
 
 Tests are run by `modtest` and are **never** shown to AI clients.

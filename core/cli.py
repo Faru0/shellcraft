@@ -16,6 +16,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.")
     p.add_argument("-c", dest="command", metavar="CMDLINE", help="run one command line and exit")
     p.add_argument("--mcp", action="store_true", help="run as an MCP server over stdio")
+    p.add_argument("--mcp-http", metavar="HOST:PORT",
+                   help="run as an MCP server over streamable HTTP at http://HOST:PORT/mcp "
+                        "(this machine only, e.g. 127.0.0.1:8765)")
     p.add_argument("--modules", type=Path, metavar="DIR",
                    help="modules directory (default: $SHELLCRAFT_MODULES or ./modules next to main.py)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
@@ -41,10 +44,24 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config()
     settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
 
+    if args.mcp and args.mcp_http:
+        print("shellcraft: use either --mcp (stdio) or --mcp-http, not both", file=sys.stderr)
+        return 2
+    if args.mcp_http:
+        from core.mcp_server import AddressError, parse_http_address, serve_http
+
+        try:
+            host, port = parse_http_address(args.mcp_http)
+        except AddressError as exc:
+            print(f"shellcraft: {exc}", file=sys.stderr)
+            return 2
+        serve_http(registry, host, port, allow_system=args.allow_system,
+                   watch=settings.get(config, "hot_reload"))
+        return 0
     if args.mcp:
         from core.mcp_server import serve
 
-        serve(registry, allow_system=args.allow_system)
+        serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"))
         return 0
 
     from core.context import ShellContext

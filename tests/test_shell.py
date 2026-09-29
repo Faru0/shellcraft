@@ -52,3 +52,31 @@ def test_highlight_keeps_colors_and_marks_every_match():
     assert out.count("\x1b[7m") >= 2 and "\x1b[31m" in out
     assert _highlight("nothing here", "zzz") == "nothing here"
     assert _highlight("abab", "ab") == "\x1b[7mab\x1b[27m\x1b[7mab\x1b[27m"
+
+
+def test_shell_hot_reload_before_a_command(tmp_path):
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from core.loader import ModuleRegistry
+    from core.watch import ModuleWatcher
+
+    (tmp_path / "one.py").write_text("def run(args, stdin):\n    return '1'\n")
+    registry = ModuleRegistry(tmp_path)
+    registry.load()
+    console = Console(record=True, width=120)
+    fake = SimpleNamespace(watcher=ModuleWatcher(tmp_path), ui=SimpleNamespace(console=console),
+                           ctx=SimpleNamespace(registry=registry, config={}))
+
+    shell.Shell._hot_reload(fake)  # nothing changed: stays quiet
+    assert console.export_text() == ""
+    (tmp_path / "two.py").write_text("def run(args, stdin):\n    return '2'\n")
+    shell.Shell._hot_reload(fake)
+    assert "two" in registry.modules
+    assert "modules reloaded (two.py)" in console.export_text()
+
+    fake.ctx.config = {"settings": {"hot_reload": False}}
+    (tmp_path / "three.py").write_text("def run(args, stdin):\n    return '3'\n")
+    shell.Shell._hot_reload(fake)
+    assert "three" not in registry.modules  # setting off: no reload

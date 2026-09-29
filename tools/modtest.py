@@ -39,6 +39,7 @@ from rich.table import Table  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 import core.pipeline  # noqa: E402,F401 — registers every builtin so name clashes are detected
+from core import params as params_mod  # noqa: E402
 from core.builtins import BUILTINS  # noqa: E402
 from core.context import to_text  # noqa: E402
 from core.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo  # noqa: E402
@@ -47,8 +48,8 @@ from core.settings import SETTINGS  # noqa: E402
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 REQUIRED_SKILL_KEYS = ("summary", "when_to_use", "usage", "examples")
-KNOWN_SKILL_KEYS = {"summary", "when_to_use", "usage", "args", "examples", "notes", "tests"}
-TEST_KEYS = {"args", "stdin", "expect", "contains", "error", "network"}
+KNOWN_SKILL_KEYS = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests"}
+TEST_KEYS = {"args", "params", "stdin", "expect", "contains", "error", "network"}
 MAX_SUMMARY = 200
 MAX_DESCRIPTION = 3000
 BAD_FLAG = "--modtest-no-such-flag"
@@ -243,6 +244,15 @@ def check_tests(report: Report, allow_network: bool, timeout: float) -> None:
             report.add(FAIL, label, "each [[tests]] entry must be a table")
             continue
         args, stdin = case.get("args", []), case.get("stdin", "")
+        if "params" in case:  # named values, turned into args exactly as an MCP call would be
+            if "args" in case or not isinstance(case["params"], dict):
+                report.add(FAIL, label, "`params` must be a table of named values, and not combined with `args`")
+                continue
+            try:
+                args = report.spec.argv(case["params"])
+            except params_mod.ParamError as exc:
+                report.add(FAIL, label, f"params: {exc}")
+                continue
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args) or not isinstance(stdin, str):
             report.add(FAIL, label, "`args` must be a list of strings and `stdin` a string")
             continue
@@ -346,6 +356,18 @@ def check_skill(report: Report) -> None:
         elif "values" in arg and (not isinstance(arg["values"], list)
                                   or not all(isinstance(v, str) for v in arg["values"])):
             report.add(FAIL, ".skill [[args]]", f"entry #{i}: `values` must be a list of strings")
+    params = data.get("params", [])
+    if params:
+        if not isinstance(params, list):
+            report.add(FAIL, ".skill [[params]]", "`params` must be an array of tables ([[params]])")
+        elif errors := params_mod.problems(params):
+            for error in errors:
+                report.add(FAIL, ".skill [[params]]", error)
+        else:
+            report.add(PASS, ".skill [[params]]", f"{len(params)} typed parameter(s) for the MCP input schema")
+        if data.get("args"):
+            report.add(WARN, ".skill [[params]]", "both [[args]] and [[params]] are declared: MCP uses [[params]], "
+                                                  "Tab completion uses [[args]]. Keep just [[params]]")
     for i, case in enumerate(data.get("tests", []), start=1):
         if isinstance(case, dict) and (stray := sorted(set(case) - TEST_KEYS)):
             report.add(FAIL, ".skill [[tests]]", f"test #{i}: " + _misplaced(stray, "[[tests]]"))
@@ -393,6 +415,20 @@ def check_documented(report: Report, flags: list[list[str]]) -> None:
             report.add(PASS, f"options in {path.name}", f"all {len(flags)} option(s) documented")
 
 
+def check_param_flags(report: Report, flags: list[list[str]]) -> None:
+    """Every [[params]] flag must be one the code defines, or MCP calls using it would fail."""
+    params = (report.skill_data or {}).get("params")
+    if not params or not flags or not isinstance(params, list):
+        return
+    known = {flag for group in flags for flag in group}
+    unknown = [f"'{p.get('name')}' uses {p[key]}" for p in params if isinstance(p, dict)
+               for key in ("flag", "short") if isinstance(p.get(key), str) and p[key] not in known]
+    if unknown:
+        report.add(FAIL, ".skill [[params]] flags", f"{'; '.join(unknown)}, which the code doesn't define")
+    else:
+        report.add(PASS, ".skill [[params]] flags", "every flag exists in the code")
+
+
 # ── driver ───────────────────────────────────────────────────────────────────
 
 def test_module(py: Path, allow_network: bool = False, timeout: float = 10.0) -> Report:
@@ -406,6 +442,7 @@ def test_module(py: Path, allow_network: bool = False, timeout: float = 10.0) ->
     flags = source_flags(py.read_text(encoding="utf-8"))
     check_markdown(report, flags)
     check_documented(report, flags)
+    check_param_flags(report, flags)
     if not check_name(report) or not check_import(report) or not check_contract(report):
         return report
     tests = (report.skill_data or {}).get("tests") or []

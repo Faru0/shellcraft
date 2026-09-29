@@ -112,7 +112,7 @@ def test_startup_exports_saved_keys_in_every_mode(tmp_path, clean_env, capsys):
     del os.environ[KEY]
     import core.mcp_server
 
-    clean_env.setattr(core.mcp_server, "serve", lambda registry, allow_system=False: None)
+    clean_env.setattr(core.mcp_server, "serve", lambda registry, **kwargs: None)
     assert main(["--mcp"]) == 0
     assert os.environ[KEY] == SECRET
 

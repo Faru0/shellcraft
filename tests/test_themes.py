@@ -17,3 +17,12 @@ def test_color_must_work_in_rich_and_prompt_toolkit():
     assert theme.path == PRESETS["nord"].path  # prompt_toolkit only
     assert theme.muted == PRESETS["nord"].muted  # prompt_toolkit only
     assert theme.error == "red"
+
+
+def test_every_preset_color_is_valid_and_renders():
+    from core.themes import _COLOR_FIELDS, _valid_color
+
+    assert {"dracula", "gruvbox", "catppuccin", "tokyonight"} <= set(PRESETS)
+    for theme in PRESETS.values():
+        assert all(_valid_color(getattr(theme, f)) for f in _COLOR_FIELDS), theme.name
+        UI(theme)
