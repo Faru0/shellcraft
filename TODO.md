@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 288 tests pass.
+> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 325 tests pass.
 
 ## Assessment
 
@@ -12,7 +12,7 @@
 - The UX feels good: themes, ghost text, delayed spinner, auto-pager and error panels that point at the failing segment.
 
 **Biggest risks**
-1. **Security of the MCP surface.** `fetch` can request *any* URL, including loopback and private addresses. *(Reading any file the user can read is intended: see Won't do.)*
+1. **Security of the MCP surface.** `fetch` can request *any* URL, including loopback and private addresses. *(Accepted, like reading any file the user can read: see Won't do.)*
 2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error. *(Fixed: they're now rejected with a parse error.)*
 3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands. Accepted: see Won't do.)*
 4. **Only tested on Linux.** None of the Windows paths have been run yet.
@@ -30,16 +30,10 @@ Items marked **(verified)** were reproduced during the assessment.
 
 ## 🔒 Security — P0
 
-- [ ] **MCP `fetch` requests arbitrary URLs (SSRF)**, including loopback, private and cloud-metadata addresses. Add:
-  - blocking of loopback, private and link-local targets (re-checked on redirects), with an optional URL allowlist
-  - a max response size
-
-  — `modules/fetch.py`, `core/mcp_server.py`
 - [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. — `core/loader.py`, `core/mcp_server.py`
 - [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. — `core/mcp_server.py`
 - [x] **History records everything**: a line typed with a leading space is no longer saved (bash's `ignorespace`). *(Values in `settings NAME VALUE` are still redacted.)* — `core/shell.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
-- [ ] **Network modules spend the user's quota through MCP**: `queryDns` and `queryCensys` use the stored keys whenever an AI calls them. Add a per-module MCP opt-out (see *Per-module MCP exposure switch*) and mention it in the `.skill` notes. — `core/mcp_server.py`
 
 ## 🔧 Bugs / polish — P1
 
@@ -51,18 +45,13 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Loader hygiene**: there is no parent package, so relative imports inside modules fail. *(Stale `sys.modules["shellcraft_modules.*"]` entries are now cleared on every reload.)* — `core/loader.py`
 - [x] **Switch completion**: Tab completes each command's options and option values from its `.skill` `[[args]]` (including the new `values` key) and its `.md` options table. It is modular, with no per-module code.
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
-- [ ] **Positional values aren't completed**: `queryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[args]]` entry `COMMAND` lists them in `values`. Complete the first positional from such an entry. — `core/options.py`, `core/completer.py`
+- [ ] **Positional values aren't completed**: `queryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[params]]` entry `command` lists them in `values`. Complete positionals from such entries. — `core/options.py`, `core/completer.py`
 - [x] **Dead code**: `ShellContext.interactive` is now read by `settings NAME` to choose the hidden prompt.
 - [ ] **Version is defined twice** (`pyproject.toml` and `core/__init__.py`). Use a single dynamic version. — `pyproject.toml`
 
 ## ⬆️ Upgrades — P1
 
 - [x] **API-key precedence**: at startup a variable already in the environment (the user's shell, an MCP client's `env` block) now wins over the stored key, and `settings` shows `from environment (stored ••••ab12 unused)`. `settings NAME VALUE` during a session still replaces it. — `core/settings.py`
-- [ ] **`queryCensys`**: check the table layouts against a real token (only the error paths have been live-tested), and add `--at-time` for host history plus `web HOSTNAME:PORT` lookups (the SDK has `get_web_property`). — `modules/queryCensys.py`
-- [ ] **`queryDns`**: the CNAME record shape is undocumented (the example is empty). Confirm it with a domain that has CNAMEs. Also offer the Plus-only `?map=1` domain map. — `modules/queryDns.py`
-- [ ] **`queryCert`**: crt.sh often needs more than modtest's 10 s per call; add a per-test `timeout` key to `[[tests]]`. — `tools/modtest.py`
-- [ ] **`ip2geo`**: use the ip-api.com batch endpoint (`POST /batch`, up to 100 IPs per request) for long lists. — `modules/ip2geo.py`
-
 - [ ] **Streaming pipelines**: allow `run()` to return an iterator of lines so that large inputs don't sit in memory, while plain `str` returns keep working. — `core/pipeline.py`, `core/loader.py`
 - [x] **MCP improvements:**
   - [x] Every module's `.md` and every MCP-usable builtin's manual is a resource at `shellcraft://man/<name>`.
@@ -71,11 +60,6 @@ Items marked **(verified)** were reproduced during the assessment.
   - [x] `.skill` `[[params]]` declare typed, named parameters (the MCP input schema); all bundled modules and the template use them. Modules without them keep the raw `args` array. — `core/params.py`
 - [x] **Hot reload**: the modules folder is polled for `.py`/`.md`/`.skill` changes, in the shell (before each command) and the MCP server (every second). The `hot_reload` setting turns it off. — `core/watch.py`
 - [x] **`fetch`**: `--max-size` (default 10M), `-H/--header`, `-X/--method`, `-d/--data` (text, `@FILE`, `@-`), `--retry N` with backoff and `Retry-After`, and rejection of binary content.
-- [ ] **`myip`**:
-  - a short-lived result cache (the API asks clients to cache)
-  - parallel lookups when there are many IPs
-  - comma-separated `--field` lists
-  - a clear message for private-range IPs (`ip2geo` already does this)
 - [ ] **Themes**:
   - [x] Dracula, Gruvbox, Catppuccin and Tokyo Night presets
   - `theme preview NAME` (no save)
@@ -141,6 +125,16 @@ The OS-program fallback (`system_commands` / `--allow-system`) stays opt-in and 
 MCP file access is deliberately not sandboxed: the AI can read every file the user running the server can read.
 
 - **`--root DIR` sandbox for MCP file reads** (`fetch` and the read builtins `cat`, `grep`, `ls`, `find`, `tree`…). File-*changing* commands and redirects stay blocked in MCP. — `core/mcp_server.py`
+
+The bundled modules (`fetch`, `filter`, `ip2geo`, `myip`, `queryCensys`, `queryCert`, `queryDns`) stay as they are: no further fixes or improvements are planned for them.
+
+- **`fetch`: SSRF blocking over MCP.** Loopback, private, link-local and cloud-metadata URLs stay reachable, with no URL allowlist. *(Its max response size was done: `--max-size`.)* — `modules/fetch.py`
+- **`queryDns` / `queryCensys` spend the user's API quota through MCP**, with no per-module opt-out in their `.skill` notes. — `modules/queryDns.skill`, `modules/queryCensys.skill`
+- **`queryCensys`**: checking the table layouts against a real token (only the error paths were live-tested), `--at-time` for host history, and `web HOSTNAME:PORT` lookups (`get_web_property`). — `modules/queryCensys.py`
+- **`queryDns`**: confirming the CNAME record shape with a domain that has CNAMEs, and the Plus-only `?map=1` domain map. — `modules/queryDns.py`
+- **`queryCert`**: a per-test `timeout` key in `[[tests]]`, because crt.sh often needs more than modtest's 10 s. — `tools/modtest.py`
+- **`ip2geo`**: the ip-api.com batch endpoint (`POST /batch`, up to 100 IPs per request) for long lists. — `modules/ip2geo.py`
+- **`myip`**: a short-lived result cache, parallel lookups for many IPs, comma-separated `--field` lists, and a clear message for private-range IPs. — `modules/myip.py`
 
 ---
 
