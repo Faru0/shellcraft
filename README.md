@@ -100,6 +100,7 @@ exit                                  # or Ctrl-D
 - `> file` writes the final output to a file, and `>> file` appends to it.
 - Quote arguments that contain spaces or operators: `grep "a | b" notes.txt`. Backslashes are kept as typed, so Windows paths like `C:\data\log.txt` work.
 - If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.
+- `cd` only works on its own line. `cd x | pwd` is refused, because it would change the shell's directory from inside a pipeline.
 
 These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `||`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than passed on as arguments, so `rm a ; ls` never deletes a file named `ls`. Quote them to use them as text.
 
@@ -178,7 +179,8 @@ default. Settings are saved in `~/.shellcraft/config.json`.
 Some modules call services that need an API key. The module declares the key, and `settings`
 lists it after the on/off settings, labelled with the module's name, for example
 `queryDns · DnsDumpster API key`. The value is never shown in full. It says `set ••••ab12`,
-`from environment` (exported by your own shell), or `not set`.
+`from environment` (exported by your own shell), or `not set`. When both exist it says
+`from environment (stored ••••ab12 unused)`.
 
 ```
 settings DNSDUMPSTER_API_KEY          # asks for the key; typing is hidden
@@ -196,8 +198,8 @@ settings reset DNSDUMPSTER_API_KEY    # forget it
 `pip install -e ".[censys]"`.
 
 - **Where keys are stored:** in plain text under `"env"` in `~/.shellcraft/config.json`. The file is made readable by you only (mode 600).
-- **How modules get them:** ShellCraft exports the stored keys as environment variables when it starts, in every mode including `--mcp`, and right after you set one. A stored key replaces the value from your shell. After `settings reset`, your shell's own value applies again.
-- **Command history:** `settings NAME VALUE` is saved as `settings NAME ••••`. Still, prefer the prompt form, `settings NAME`.
+- **How modules get them:** ShellCraft exports the stored keys as environment variables when it starts, in every mode including `--mcp`, and right after you set one. A variable already set in your shell (or in an MCP client's `env` block) wins over the stored key at startup. Setting a key with `settings NAME` during a session replaces it for that session. After `settings reset`, your shell's own value applies again.
+- **Command history:** `settings NAME VALUE` is saved as `settings NAME ••••`. Still, prefer the prompt form, `settings NAME`. Start any line with a space to keep it out of the history entirely.
 - **Other ways to set them:** you can export the variables in your own shell instead, for example `export DNSDUMPSTER_API_KEY=…`, or in an MCP client's `env` config.
 
 ### OS commands

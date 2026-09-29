@@ -119,7 +119,7 @@ def test_startup_exports_saved_keys_in_every_mode(tmp_path, clean_env, capsys):
 
 @pytest.mark.parametrize("line, stored", [
     (f"settings {KEY} {SECRET}", f"settings {KEY} ••••"),
-    (f'  settings {KEY} "{SECRET}"', f"  settings {KEY} ••••"),
+    (f'settings  {KEY}   "{SECRET}"', f"settings  {KEY}   ••••"),
     (f"settings {KEY}", f"settings {KEY}"),
     ("settings pager off", "settings pager off"),
     (f"settings reset {KEY}", f"settings reset {KEY}"),
@@ -173,3 +173,29 @@ def test_loader_rejects_bad_declarations(tmp_path, declaration, error):
     """)
     assert registry.get("keyed") is None
     assert any(error in w for w in registry.warnings), registry.warnings
+
+
+def test_environment_wins_over_stored_key_at_startup(tmp_path, clean_env):
+    clean_env.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    clean_env.chdir(tmp_path)
+    (tmp_path / "config.json").write_text(json.dumps({"env": {KEY: SECRET}}))
+    clean_env.setenv(KEY, "from-my-shell")
+    assert main(["-c", "pwd"]) == 0
+    assert os.environ[KEY] == "from-my-shell"
+    config = {"env": {KEY: SECRET}}
+    assert settings.env_status(config, KEY) == ("environment", "from environment (stored ••••abcd unused)")
+
+
+def test_setting_a_key_in_session_replaces_the_environment(ctx):
+    os.environ[KEY] = "from-my-shell"
+    run_line(f"settings {KEY} {SECRET}", ctx)
+    assert os.environ[KEY] == SECRET
+    assert settings.env_status(ctx.config, KEY) == ("set", "set ••••abcd")
+
+
+def test_history_skips_lines_with_a_leading_space():
+    history = RedactingInMemoryHistory()
+    history.append_string(" echo secret-token")
+    history.append_string("\tsettings X y")
+    history.append_string("echo kept")
+    assert history.get_strings() == ["echo kept"]

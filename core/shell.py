@@ -24,13 +24,15 @@ from core.parser import ParseError
 from core.pipeline import PipelineError, run_line
 
 
-def _pretty_cwd() -> str:
-    cwd = os.getcwd()
-    home = str(Path.home())
-    if cwd == home:
+def _pretty_cwd(cwd: str | None = None, home: str | None = None) -> str:
+    cwd = os.getcwd() if cwd is None else cwd
+    home = str(Path.home()) if home is None else home
+    # normcase: Windows paths are case-insensitive (C:\Users\Me vs c:\users\me).
+    folded, folded_home = os.path.normcase(cwd), os.path.normcase(home)
+    if folded == folded_home:
         return "~"
-    if cwd.startswith(home + os.sep):
-        return "~" + cwd[len(home):]
+    if folded.startswith(folded_home.rstrip(os.sep) + os.sep):
+        return "~" + cwd[len(home.rstrip(os.sep)):]
     return cwd
 
 
@@ -43,9 +45,14 @@ def _user_host() -> str:
 
 
 class _RedactingHistory:
-    """Mixin: store `settings NAME ••••` instead of an API key typed on the command line."""
+    """Mixin: store `settings NAME ••••` instead of an API key typed on the command line.
+
+    A line typed with a leading space is not saved at all (bash's `ignorespace`).
+    """
 
     def append_string(self, string: str) -> None:
+        if string[:1].isspace():
+            return
         super().append_string(settings.redact_line(string))
 
 

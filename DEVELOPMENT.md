@@ -130,6 +130,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
 | `test_themes.py` | custom themes: invalid colors fall back to the base preset |
+| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting |
 | `test_mcp.py` | the MCP tools, run in-process |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_modtest.py` | the module tester and prompt builder |

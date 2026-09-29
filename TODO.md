@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 220 tests pass.
+> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 236 tests pass.
 
 ## Assessment
 
@@ -26,7 +26,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **Invalid custom theme color crashes startup**: `all_themes()` now checks each color against both Rich and prompt_toolkit, keeps the base preset's color, and the CLI prints a warning on stderr. — `core/themes.py`
 - [x] **Unsupported operators were passed on as arguments**: `rm a ; ls` also deleted a file named `ls`, and `a 2> err.txt` sent stdout to `err.txt`. `;`, `&&`, `||`, `<`, `2>`, `2>>`, `2>&1`, `&>` and `>&` now raise a `ParseError` until they are implemented (see Features). — `core/parser.py`
 - [ ] **A non-editable `pip install .` ships no modules**: `pyproject.toml` packages only `core`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. — `pyproject.toml`, `core/cli.py`
-- [ ] **Pager search `n` gets stuck on the last screen**: when a match is inside the final page, `top` is clamped to `max_top`, so the next `n` finds the same line again. Matches are also not highlighted. Fix: track `match_index` separately from `top` and highlight the match. — `core/output.py::page`
+- [x] **Pager search `n` got stuck on the last screen**: the last match is now tracked apart from the scroll position, so `n`/`N` step through every match, and matches are highlighted in reverse video. — `core/output.py::page`
 
 ## 🔒 Security — P0
 
@@ -37,7 +37,7 @@ Items marked **(verified)** were reproduced during the assessment.
   — `modules/fetch.py`, `core/mcp_server.py`
 - [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. — `core/loader.py`, `core/mcp_server.py`
 - [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. — `core/mcp_server.py`
-- [ ] **History records everything**, including secrets typed inline. Support the "leading space = not saved" convention. *(Values in `settings NAME VALUE` are already redacted.)* — `core/shell.py`
+- [x] **History records everything**: a line typed with a leading space is no longer saved (bash's `ignorespace`). *(Values in `settings NAME VALUE` are still redacted.)* — `core/shell.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
 - [ ] **Network modules spend the user's quota through MCP**: `queryDns` and `queryCensys` use the stored keys whenever an AI calls them. Add a per-module MCP opt-out (see *Per-module MCP exposure switch*) and mention it in the `.skill` notes. — `core/mcp_server.py`
 
@@ -46,8 +46,8 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Ctrl-C abandons the module worker thread**, which keeps running. Add a cooperative cancel flag in `modkit` that modules can check, or at least document the behavior. — `core/output.py::make_spinner_runner`
 - [ ] **`to_text()` flattens at a fixed width of 100**, so `help | filter` ignores the real terminal width. Pass the console width when there is one. — `core/context.py`
 - [ ] **`show()` renders twice** (a capture pass, then a print pass) and loads huge outputs fully into Rich. Reuse the captured ANSI, and cap or stream very large outputs into the pager. — `core/output.py`
-- [ ] **Windows: the prompt's `~` shortening is case-sensitive.** Use `os.path.normcase`. — `core/shell.py`
-- [ ] **`cd` inside a pipeline changes the real cwd** (`cd x | pwd`), unlike POSIX subshells. Disallow it outside a single-segment line, or document it. — `core/builtins.py`
+- [x] **Windows: the prompt's `~` shortening was case-sensitive**: it now compares with `os.path.normcase`. — `core/shell.py`
+- [x] **`cd` inside a pipeline changed the real cwd** (`cd x | pwd`): `cd` is now refused unless it's alone on the line (no pipe, no redirect). — `core/pipeline.py`
 - [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
 - [x] **Switch completion**: Tab completes each command's options and option values from its `.skill` `[[args]]` (including the new `values` key) and its `.md` options table. It is modular, with no per-module code.
 - [ ] **Completer ignores quotes**: paths containing spaces complete wrongly. — `core/completer.py`
@@ -57,7 +57,7 @@ Items marked **(verified)** were reproduced during the assessment.
 
 ## ⬆️ Upgrades — P1
 
-- [ ] **API-key precedence**: a key stored with `settings` replaces the same variable exported in the user's shell, so `DNSDUMPSTER_API_KEY=… queryDns` silently uses the stored key. Show a hint in `settings` when both exist, or let the environment win. — `core/settings.py`
+- [x] **API-key precedence**: at startup a variable already in the environment (the user's shell, an MCP client's `env` block) now wins over the stored key, and `settings` shows `from environment (stored ••••ab12 unused)`. `settings NAME VALUE` during a session still replaces it. — `core/settings.py`
 - [ ] **`queryCensys`**: check the table layouts against a real token (only the error paths have been live-tested), and add `--at-time` for host history plus `web HOSTNAME:PORT` lookups (the SDK has `get_web_property`). — `modules/queryCensys.py`
 - [ ] **`queryDns`**: the CNAME record shape is undocumented (the example is empty). Confirm it with a domain that has CNAMEs. Also offer the Plus-only `?map=1` domain map. — `modules/queryDns.py`
 - [ ] **`queryCert`**: crt.sh often needs more than modtest's 10 s per call; add a per-test `timeout` key to `[[tests]]`. — `tools/modtest.py`

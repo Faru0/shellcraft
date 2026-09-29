@@ -99,7 +99,9 @@ def page(ui: UI, rendered: str) -> None:
     """Interactive scrollable viewport for ANSI text (cross-platform, no external pager)."""
     lines = rendered.rstrip("\n").split("\n")
     plain = [_ANSI_RE.sub("", ln) for ln in lines]
-    state = {"top": 0, "searching": False, "pattern": "", "message": ""}
+    # `match` is the line of the last search hit, kept apart from `top` (which is clamped to the
+    # last screen) so that `n` keeps advancing through matches on the final page.
+    state = {"top": 0, "match": -1, "searching": False, "pattern": "", "message": ""}
     search = Buffer(multiline=False)
 
     def body_height() -> int:
@@ -112,20 +114,20 @@ def page(ui: UI, rendered: str) -> None:
         state["top"] = min(max_top(), max(0, state["top"] + delta))
 
     def find(forward: bool = True) -> None:
-        pat = state["pattern"].lower()
-        if not pat:
+        if not state["pattern"]:
             return
-        order = range(state["top"] + 1, len(lines)) if forward else range(state["top"] - 1, -1, -1)
-        for i in order:
-            if pat in plain[i].lower():
-                state["top"] = min(i, max_top()) if forward else i
-                state["message"] = ""
-                return
-        state["message"] = f"pattern not found: {state['pattern']}"
+        hit = _next_match(plain, state["pattern"], state["top"], state["match"], body_height(), forward)
+        if hit is None:
+            state["message"] = f"pattern not found: {state['pattern']}"
+            return
+        state["match"], state["top"], state["message"] = hit, min(hit, max_top()), ""
 
     def get_body():
         top = state["top"]
-        return ANSI("\n".join(lines[top: top + body_height()]))
+        shown = lines[top: top + body_height()]
+        if state["pattern"]:
+            shown = [_highlight(ln, state["pattern"]) for ln in shown]
+        return ANSI("\n".join(shown))
 
     def get_status():
         top, h = state["top"], body_height()
@@ -195,6 +197,7 @@ def page(ui: UI, rendered: str) -> None:
     def _submit_search(event):
         state["searching"] = False
         state["pattern"] = search.text
+        state["match"] = -1
         event.app.layout.focus(body_window)
         find(True)
 
@@ -214,3 +217,58 @@ def page(ui: UI, rendered: str) -> None:
     ]), focused_element=body_window)
     app: Application = Application(layout=layout, key_bindings=kb, full_screen=True, style=ui.pt_style)
     app.run()
+
+
+def _next_match(plain: list[str], pattern: str, top: int, match: int, height: int,
+                forward: bool) -> int | None:
+    """Line of the next search hit: after the last hit while it's on screen, else from the screen top."""
+    if top <= match < top + height:
+        start = match + 1 if forward else match - 1
+    else:
+        start = top if forward else top - 1
+    return _find_line(plain, pattern, start, forward)
+
+
+def _find_line(plain: list[str], pattern: str, start: int, forward: bool) -> int | None:
+    """Index of the next line (from `start`, inclusive) containing `pattern`, ignoring case."""
+    pat = pattern.lower()
+    order = range(max(start, 0), len(plain)) if forward else range(min(start, len(plain) - 1), -1, -1)
+    return next((i for i in order if pat in plain[i].lower()), None)
+
+
+_HL_ON, _HL_OFF = "\x1b[7m", "\x1b[27m"  # reverse video on/off; leaves the line's colors alone
+
+
+def _highlight(line: str, pattern: str) -> str:
+    """Reverse-video every case-insensitive occurrence of `pattern` in an ANSI-colored line."""
+    plain = _ANSI_RE.sub("", line).lower()
+    pat = pattern.lower()
+    starts, ends = set(), set()
+    pos = plain.find(pat)
+    while pat and pos != -1:
+        starts.add(pos)
+        ends.add(pos + len(pat))
+        pos = plain.find(pat, pos + len(pat))
+    if not starts:
+        return line
+    out: list[str] = []
+    p = i = 0
+    inside = False
+    while i < len(line):
+        code = _ANSI_RE.match(line, i)
+        if code:  # keep the line's own codes; a reset inside a match must not end the highlight
+            out.append(code.group() + (_HL_ON if inside else ""))
+            i = code.end()
+            continue
+        if p in ends:
+            out.append(_HL_OFF)
+            inside = False
+        if p in starts:
+            out.append(_HL_ON)
+            inside = True
+        out.append(line[i])
+        p += 1
+        i += 1
+    if inside:
+        out.append(_HL_OFF)
+    return "".join(out)

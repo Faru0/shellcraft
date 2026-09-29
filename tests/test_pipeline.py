@@ -75,3 +75,12 @@ def test_renderable_builtin_flattens_into_pipe(ctx):
 def test_system_fallback(ctx):
     ctx.allow_system = True
     assert run_line(f"echo hello | {OS_UPPER}", ctx).output.strip() == "HELLO"
+
+
+@pytest.mark.parametrize("line", ["cd sub | pwd", "echo x | cd sub", "cd sub > out.txt"])
+def test_cd_refused_inside_a_pipeline(ctx, tmp_path, line):
+    (tmp_path / "sub").mkdir()
+    with pytest.raises(PipelineError, match="cd only works on its own"):
+        run_line(line, ctx)
+    assert Path(os.getcwd()) == tmp_path.resolve()
+    assert not (tmp_path / "out.txt").exists()

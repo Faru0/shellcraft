@@ -2,7 +2,9 @@
 
 - On/off settings (SETTINGS) live under "settings".
 - API keys and other secrets that modules declare with ENV_SETTINGS live under "env". They are
-  exported to os.environ, where modules read them.
+  exported to os.environ, where modules read them. At startup a variable already set in the
+  environment (the user's shell, an MCP client's `env` block) wins over the stored value; a value
+  set with `settings NAME VALUE` during the session replaces it.
 """
 
 from __future__ import annotations
@@ -128,10 +130,11 @@ def env_reset(config: dict[str, Any], name: str) -> None:
 
 
 def export_env(config: dict[str, Any]) -> None:
-    """Put every stored value into os.environ (startup, all modes)."""
+    """Put every stored value into os.environ (startup, all modes), unless the environment has one."""
     for name, value in (config.get("env") or {}).items():
         if isinstance(name, str) and ENV_NAME.match(name) and isinstance(value, str) and value:
-            _export(name, value)
+            if not os.environ.get(name):
+                _export(name, value)
 
 
 def _export(name: str, value: str) -> None:
@@ -142,9 +145,12 @@ def _export(name: str, value: str) -> None:
 def env_status(config: dict[str, Any], name: str) -> tuple[str, str]:
     """(state, text) for display: ("set", "set ••••ab12"), ("environment", …) or ("unset", …)."""
     value = env_get(config, name)
-    if value is not None:
+    current = os.environ.get(name)
+    if value is not None and current in (None, "", value):
         return "set", f"set {mask(value)}"
-    if os.environ.get(name):
+    if current:
+        if value is not None:
+            return "environment", f"from environment (stored {mask(value)} unused)"
         return "environment", "from environment"
     return "unset", "not set"
 

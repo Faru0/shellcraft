@@ -51,6 +51,9 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
                             "file redirection is disabled in this context")
 
     total = len(pipeline.segments)
+    for index, cmd in enumerate(pipeline.segments, start=1):
+        if cmd.name == "cd" and (total > 1 or pipeline.redirect):
+            raise PipelineError(index, total, "cd", "cd only works on its own line, not in a pipeline")
     data: Any = ""
     for index, cmd in enumerate(pipeline.segments, start=1):
         stdin = to_text(data)
