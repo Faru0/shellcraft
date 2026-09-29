@@ -9,7 +9,10 @@ from pathlib import Path
 
 from core import __version__
 
-DEFAULT_MODULES_DIR = Path(__file__).resolve().parent.parent / "modules"
+# An installed copy has the modules inside the package; a source checkout has them next to core/.
+_INSTALLED_MODULES = Path(__file__).resolve().parent / "bundled_modules"
+DEFAULT_MODULES_DIR = (_INSTALLED_MODULES if _INSTALLED_MODULES.is_dir()
+                       else Path(__file__).resolve().parent.parent / "modules")
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -20,7 +23,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="run as an MCP server over streamable HTTP at http://HOST:PORT/mcp "
                         "(this machine only, e.g. 127.0.0.1:8765)")
     p.add_argument("--modules", type=Path, metavar="DIR",
-                   help="modules directory (default: $SHELLCRAFT_MODULES or ./modules next to main.py)")
+                   help="modules directory (default: $SHELLCRAFT_MODULES or the bundled modules)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
     p.add_argument("--allow-system", action="store_true",

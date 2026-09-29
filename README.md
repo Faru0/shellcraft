@@ -41,8 +41,8 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 pip install -r requirements.txt
 ```
 
-Optionally, run `pip install -e .` (with `-e`) to get a `shellcraft` command that works from any
-folder. Always use `-e`: a plain `pip install .` doesn't include the bundled modules yet.
+Optionally, run `pip install .` to get a `shellcraft` command that works from any folder. Use
+`pip install -e .` instead if you edit the bundled modules, so changes take effect without reinstalling.
 
 ## Quick start
 

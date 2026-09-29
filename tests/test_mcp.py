@@ -119,6 +119,21 @@ def test_to_argv_orders_switches_before_positionals():
     assert argv == ["--tag", "x", "--tag", "y", "--verbose", "--limit", "5", "a", "b"]
 
 
+def test_to_argv_values_starting_with_dash_stay_values():
+    declared = [
+        {"name": "pattern", "description": "d"},
+        {"name": "sep", "flag": "--sep", "description": "d"},
+        {"name": "limit", "flag": "--limit", "type": "integer", "description": "d"},
+    ]
+    argv = params.to_argv(declared, {"pattern": "-v", "sep": "--data=@secret", "limit": -1})
+    assert argv == ["--sep=--data=@secret", "--limit=-1", "--", "-v"]
+
+
+def test_filter_pattern_starting_with_dash_over_mcp(registry):
+    spec = registry.get("filter")
+    assert spec.run(spec.argv({"pattern": "-v"}), "keep -v\ndrop\n") == "keep -v\n"
+
+
 @pytest.mark.parametrize("bad, fragment", [
     ([{"name": "Bad-Name", "description": "d"}], "snake_case"),
     ([{"name": "stdin", "description": "d"}], "snake_case"),

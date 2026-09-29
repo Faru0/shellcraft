@@ -15,6 +15,8 @@ turned back into the CLI-style `args` list the module's run(args, stdin) already
 
 A boolean is passed as its bare `flag` when true. An array repeats its `flag` once per item, or,
 as a positional, adds each item. Switches come first, then positionals in declaration order.
+A value that starts with `-` can't be mistaken for a switch: it is passed as `--flag=VALUE`, and
+positionals follow a `--` separator.
 """
 
 from __future__ import annotations
@@ -131,9 +133,11 @@ def to_argv(params: list[dict[str, Any]], values: dict[str, Any]) -> list[str]:
                 switches.append(flag)
         elif flag:
             for word in words:
-                switches += [flag, word]
+                switches += [f"{flag}={word}"] if word.startswith("-") else [flag, word]
         else:
             positionals += words
+    if any(word.startswith("-") for word in positionals):
+        positionals.insert(0, "--")
     return switches + positionals
 
 

@@ -23,7 +23,15 @@ censys = ["censys-platform>=0.16"]  # for the queryCensys module
 shellcraft = "core.cli:main"
 
 [tool.setuptools]
-packages = ["core"]
+# The bundled modules/ folder is installed as core/bundled_modules (with its .md and .skill files),
+# so a plain `pip install .` works as well as an editable install.
+packages = ["core", "core.commands", "core.bundled_modules"]
+
+[tool.setuptools.package-dir]
+"core.bundled_modules" = "modules"
+
+[tool.setuptools.package-data]
+"core.bundled_modules" = ["*.md", "*.skill"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
