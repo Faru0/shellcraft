@@ -152,6 +152,10 @@ The bundled modules (`fetch`, `filter`, `ip2geo`, `myip`, `queryCensys`, `queryC
 - **`ip2geo`**: the ip-api.com batch endpoint (`POST /batch`, up to 100 IPs per request) for long lists. — `modules/ip2geo.py`
 - **`myip`**: a short-lived result cache, parallel lookups for many IPs, comma-separated `--field` lists, and a clear message for private-range IPs. — `modules/myip.py`
 
+The ShellCraft name stays fixed: integrators can't rebrand the shell.
+
+- **Custom brand / prompt name**: a `brand` block (`name`, `prompt`, `icon`, `tagline`) in `config.json` or a brand file, used by every on-screen string: the prompt, the `help` title, the banner, `--version`, `which`, the goodbye line and the MCP server title. It would need a single `core/brand.py`, a full A–Z/0–9 banner font with a one-line fallback, and validation of the value (no control characters, a length cap). Internal identifiers (`~/.shellcraft`, `SHELLCRAFT_*`, `shellcraft_pipeline`, `shellcraft://man/`) would stay unchanged. — `core/shell.py`, `core/banner.py`, `core/builtins.py`, `core/cli.py`
+
 ---
 
 **Legend:** **P0** = fix soon (correctness / security) · **P1** = next iteration · **P2** = nice to have · **Won't do** = out of scope, recorded on purpose
