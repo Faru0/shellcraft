@@ -96,7 +96,8 @@ Items marked **(verified)** were reproduced during the assessment.
   - `~user`
 - [x] **Ported builtins, first batch**: `ls`, `cat`, `grep`, `echo`, `tee`, `head`, `tail`, `wc`, `sort`, `uniq`, `date`, `mkdir`, `cp`, `mv`, `rm`, plus the `settings` command with OS commands off by default.
 - [x] **Ported builtins, second batch**: `find`, `touch`, `which`, `tree`, `cut`, `tr`, `env` (`env` is blocked in MCP as sensitive).
-- [ ] **More builtins**: `alias` / `unalias`, `history`, `source`, `sleep`, `time`, `type`, `basename` / `dirname`, `diff`, `du`.
+- [x] **`alias` / `unalias`**: saved in `config.json`, expanded per pipeline step, `\NAME` skips an alias, not applied over MCP. — `core/aliases.py`
+- [ ] **More builtins**: `history`, `source`, `sleep`, `time`, `type`, `basename` / `dirname`, `diff`, `du`.
 - [ ] **Startup rc file** `~/.shellcraft/rc` (aliases, env, theme).
 - [ ] **Input-line syntax highlighting** with a prompt_toolkit lexer: known commands green, unknown ones red, operators in the accent color. Also:
   - a bottom toolbar (cwd, git branch, last command duration)

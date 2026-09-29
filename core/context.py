@@ -34,6 +34,7 @@ class ShellContext:
     allow_stateful: bool = True  # cd / theme / exit / reload / clear / settings
     allow_writes: bool = True  # filesystem-changing builtins: tee / mkdir / cp / mv / rm / touch
     allow_sensitive: bool = True  # builtins that may reveal secrets: env
+    allow_aliases: bool = True  # expand the user's aliases (off for MCP clients)
     prev_dir: str | None = None
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import core.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
+from core import aliases
 from core.builtins import BUILTINS
 from core.context import CommandError, ShellContext, ShellExit, to_text
 from core.modkit import ModuleError
@@ -46,6 +47,8 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
 
 
 def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
+    if ctx.allow_aliases:
+        pipeline = aliases.expand(pipeline, aliases.get_all(ctx.config))
     if pipeline.redirect and not ctx.allow_redirect:
         raise PipelineError(len(pipeline.segments), len(pipeline.segments), "redirect",
                             "file redirection is disabled in this context")

@@ -7,6 +7,7 @@ import shutil
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from core import aliases
 from core.builtins import BUILTINS, builtin
 from core.commands._io import lines_out
 from core.modkit import ArgParser, ModuleError
@@ -70,12 +71,12 @@ def date(ctx: ShellContext, args: list[str], stdin: str) -> str:
 @builtin("which", "Show what a command name runs", "which [-a] NAME...", category="info", doc="""\
 # which
 
-Show what each NAME runs when you type it: a ShellCraft builtin, a module (with its file), or an
-OS program on your PATH. They are checked in that order, and the first match wins.
+Show what each NAME runs when you type it: an alias, a ShellCraft builtin, a module (with its
+file), or an OS program on your PATH. They are checked in that order, and the first match wins.
 
 | Option | Meaning |
 | --- | --- |
-| `-a` | Show every match, including OS programs hidden behind a builtin or module. |
+| `-a` | Show every match, including commands hidden behind an alias, builtin or module. |
 
 An OS program is marked *disabled* while the `system_commands` setting is off.
 
@@ -97,6 +98,8 @@ def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
     missing: list[str] = []
     for name in opts.names:
         hits: list[str] = []
+        if ctx.allow_aliases and (value := aliases.get_all(ctx.config).get(name)) is not None:
+            hits.append(f"{name}: aliased to '{value}'")
         if name in BUILTINS:
             hits.append(f"{name}: ShellCraft builtin ({BUILTINS[name].category})")
         if (spec := ctx.registry.get(name)) is not None:

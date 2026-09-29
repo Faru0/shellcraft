@@ -11,9 +11,11 @@ from typing import Iterable
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
 
+from core import aliases
 from core.builtins import BUILTINS
 from core.context import ShellContext
 from core.options import OptionSpec, builtin_options
+from core.parser import Command
 from core.settings import SETTINGS, env_settings
 from core.themes import all_themes
 
@@ -34,6 +36,9 @@ class ShellCompleter(Completer):
 
         if not before.endswith(">") and not segment:
             yield from self._commands(word)
+            return
+        if not before.endswith(">") and segment and segment[0] == "unalias":
+            yield from self._complete(word, self._aliases())
             return
         if not before.endswith(">") and len(segment) == 1 and segment[0] in ("man", "theme", "settings"):
             yield from self._arguments(segment[0], word)
@@ -62,6 +67,7 @@ class ShellCompleter(Completer):
         yield from self.paths.get_completions(Document(word, len(word)), event)
 
     def _options_for(self, command: str) -> list[OptionSpec] | tuple[OptionSpec, ...]:
+        command = aliases.expand_command(Command(command, []), self._aliases()).name  # ll -<Tab> → ls's switches
         if command in BUILTINS:
             return builtin_options(command)
         spec = self.ctx.registry.get(command)
@@ -82,6 +88,8 @@ class ShellCompleter(Completer):
         entries = {name: "builtin" for name in BUILTINS}
         for name in self.ctx.registry.names():
             entries[name] = self.ctx.registry.get(name).summary or "module"
+        for name, value in self._aliases().items():
+            entries[name] = f"alias → {value}"
         for name in sorted(entries):
             if name.startswith(word):
                 yield Completion(name, start_position=-len(word), display_meta=entries[name])
@@ -94,6 +102,9 @@ class ShellCompleter(Completer):
         else:
             options = {n: "module" for n in self.ctx.registry.names()} | {n: "builtin" for n in BUILTINS}
         yield from self._complete(word, options)
+
+    def _aliases(self) -> dict[str, str]:
+        return aliases.get_all(self.ctx.config) if self.ctx.allow_aliases else {}
 
     def _setting_names(self) -> dict[str, str]:
         keys = {name: entry.label for name, entry in env_settings(self.ctx.registry).items()}

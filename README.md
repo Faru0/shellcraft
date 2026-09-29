@@ -105,14 +105,30 @@ exit                                  # or Ctrl-D
 
 These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `||`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than passed on as arguments, so `rm a ; ls` never deletes a file named `ls`. Quote them to use them as text.
 
+### Aliases
+
+```
+alias ls='ls -a -l'     # ls now always shows hidden files, in the long format
+alias ll='ls -l'        # a shorter name for a command you type often
+alias                   # list your aliases
+unalias ll              # remove one (unalias -a removes all)
+\ls                     # a leading backslash skips the alias: the plain ls
+```
+
+An alias replaces the first word of a command, and anything you type after it is added at the
+end: `ls -r src` runs `ls -a -l -r src`. Aliases work in every step of a pipeline, are saved in
+`~/.shellcraft/config.json`, and apply in the shell and with `-c`, never to AI clients over MCP.
+An alias is one command, so it can't contain `|` or `>`. `which ls` shows whether a name is an
+alias.
+
 ### Typing helpers
 
 - **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it.
 - **Tab** completes:
-  - command names (the first word, or the first word after `|`)
+  - command names and aliases (the first word, or the first word after `|`)
   - **switches** for every command: `myip -<Tab>`, `grep --<Tab>`, `ls -<Tab>`. The menu shows what each one does, and switches already on the line aren't offered again.
   - **switch values**: `myip -f <Tab>` lists the field names, `queryDns -o <Tab>` offers the output formats, `find . -type <Tab>` offers `f`, `d` and `l`
-  - arguments for `man`, `theme` and `settings`, including API-key names
+  - arguments for `man`, `theme`, `settings` (including API-key names) and `unalias`
   - file and folder paths everywhere else, including after `>` and `>>`
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - The prompt shows `[✗]` after a command fails.
@@ -137,13 +153,13 @@ system. Each one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `modules`, `reload` |
+| Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `alias`, `unalias`, `modules`, `reload` |
 | Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee` |
 | Files | `ls`, `find`, `tree`, `touch`, `mkdir`, `cp`, `mv`, `rm` |
 | Info | `date`, `which`, `env` |
 
 - **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. When piped or redirected, they output plain text, one item per line.
-- **`which NAME`** tells you whether a name runs a builtin, a module or an OS program. `which -a` also shows OS programs that a builtin hides.
+- **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program. `which -a` also shows what an alias or builtin hides.
 - **`rm` safety:** there is no trash can. For safety, `rm` refuses a filesystem root, your home folder, and the current folder or its parents.
 - **`modules`** lists the loaded modules. **`reload`** picks up new or changed modules without restarting.
 

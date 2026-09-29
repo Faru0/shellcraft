@@ -106,7 +106,8 @@ class ShellcraftMCP:
     def __init__(self, registry: ModuleRegistry, allow_system: bool = False):
         self.registry = registry
         self.ctx = ShellContext(registry=registry, allow_redirect=False, allow_system=allow_system,
-                                allow_stateful=False, allow_writes=False, allow_sensitive=False)
+                                allow_stateful=False, allow_writes=False, allow_sensitive=False,
+                                allow_aliases=False)
         # Clients on the 2026-07-28+ protocol hear about changes through subscriptions/listen;
         # earlier clients through their connection, which we remember from their requests.
         self.bus = InMemorySubscriptionBus()

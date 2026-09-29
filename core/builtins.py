@@ -12,7 +12,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from core import settings
+from core import aliases, settings
 from core.config import save_config
 from core.context import CommandError, ShellExit
 from core.themes import all_themes
@@ -189,6 +189,98 @@ def _reload(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     msg = Text.assemble(("✓ ", "sc.success"), f"loaded {len(ctx.registry)} module(s)")
     for w in ctx.registry.warnings:
         msg.append(f"\n⚠ {w}", style="sc.warning")
+    return msg
+
+
+ALIAS_DOC = """# alias
+
+Give a command a shorter name, or change what a command does by default. Aliases are saved in
+`~/.shellcraft/config.json`, so they last across sessions.
+
+## Usage
+
+```
+alias                      # list every alias
+alias NAME                 # show one alias
+alias NAME='COMMAND ARGS'  # define (or replace) an alias
+unalias NAME...            # remove aliases
+unalias -a                 # remove every alias
+```
+
+An alias replaces the first word of a command; anything you type after it is added at the end.
+With `alias ls='ls -a -l'`, typing `ls -r src` runs `ls -a -l -r src`. It works in every step of
+a pipeline (`ls | grep py`). An alias may use its own name, as above, without looping.
+
+Put a backslash in front of a command to skip its alias: `\\ls` runs the plain `ls`.
+
+An alias is a single command: it can't contain `|`, `>` or `>>`. Aliases apply in the shell and
+with `-c`, never to AI clients over MCP. `which NAME` shows whether a name is an alias.
+
+## Examples
+
+```
+alias ls='ls -a -l'
+alias ll='ls -l'
+alias errors='grep -i error'
+fetch app.log | errors | wc -l
+unalias ll
+```
+"""
+
+
+@builtin("alias", "Define or list command aliases", "alias [NAME[=COMMAND]]", stateful=True, doc=ALIAS_DOC)
+def _alias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    defined = aliases.get_all(ctx.config)
+    if not args:
+        return "".join(f"alias {n}={_quote(v)}\n" for n, v in sorted(defined.items()))
+    if len(args) == 1 and "=" not in args[0]:
+        name = args[0]
+        if name not in defined:
+            raise CommandError(f"alias: {name}: not found")
+        return f"alias {name}={_quote(defined[name])}\n"
+    # alias NAME='ls -l' arrives as one word "NAME=ls -l"; also accept alias NAME = ls -l / NAME=ls -l
+    words = " ".join(args)
+    name, sep, value = words.partition("=")
+    name, value = name.strip(), value.strip()
+    if not sep:
+        raise CommandError("alias: usage: alias NAME='COMMAND ARGS'")
+    try:
+        aliases.set_alias(ctx.config, name, value)
+    except aliases.AliasError as exc:
+        raise CommandError(str(exc)) from None
+    return _saved(ctx, Text.assemble(("✓ ", "sc.success"), ("alias ", ""), (name, "sc.accent"),
+                                     (f" → {value}", "")))
+
+
+@builtin("unalias", "Remove command aliases", "unalias NAME... | unalias -a", stateful=True, doc=ALIAS_DOC)
+def _unalias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not args:
+        raise CommandError("unalias: usage: unalias NAME... | unalias -a")
+    if args == ["-a"]:
+        count = len(aliases.get_all(ctx.config))
+        ctx.config["aliases"] = {}
+        return _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"removed {count} alias(es)"))
+    missing = [n for n in args if not aliases.remove(ctx.config, n)]
+    removed = [n for n in args if n not in missing]
+    if removed:
+        msg = _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"removed {', '.join(removed)}"))
+    if missing:
+        raise CommandError(f"unalias: {', '.join(missing)}: not found")
+    return msg
+
+
+def _quote(value: str) -> str:
+    """Quote an alias value so the line can be pasted back into the shell."""
+    if "'" not in value:
+        return f"'{value}'"
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def _saved(ctx: ShellContext, msg: Text) -> Text:
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f" (not saved: {exc})", style="sc.warning")
     return msg
 
 

@@ -21,6 +21,7 @@ shellcraft/
 │   ├── cli.py              # argument parsing; chooses interactive / -c / --mcp / --mcp-http mode
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
 │   ├── parser.py           # quote-aware tokenizer → Pipeline(segments, redirect)
+│   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── context.py          # ShellContext (state + permission flags), Styled, to_text()
 │   ├── builtins.py         # builtin registry (@builtin) + shell builtins: cd, help, man, theme, settings…
@@ -52,7 +53,7 @@ shellcraft/
 ## How a command line runs
 
 1. `parser.parse()` splits the line into segments and an optional redirect. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. Unsupported shell operators (`;`, `&&`, `||`, `<`, `2>`…) raise a `ParseError` instead of becoming arguments.
-2. `pipeline.run_pipeline()` feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
+2. `pipeline.run_pipeline()` first expands the user's aliases (`aliases.expand()`, unless `ctx.allow_aliases` is off, as in MCP). It then feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
    1. a **builtin** (`core/builtins.py`, `core/commands/`)
    2. a **module** from `modules/`
    3. an **OS program**, only when `ctx.allow_system` is set (the `system_commands` setting or `--allow-system`)
@@ -142,6 +143,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_env_settings.py` | API keys: listing, masking, prompt, set/reset, export at startup, history redaction, completion, loader validation |
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
+| `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
