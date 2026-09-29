@@ -125,7 +125,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.14 (development happens on 3.14), plus the packaging smoke test and `modtest --all --strict`.
 - [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra.
 - [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).
-- [ ] **Docs**: a LICENSE, a README screenshot or asciinema recording, and a CHANGELOG.
+- [ ] **Docs**: a README screenshot or asciinema recording, and a CHANGELOG. *(LICENSE: MIT, added.)*
 - [ ] **Windows verification pass**: covering prompt rendering, the pager, `cmd` builtins, paths and the MCP stdio server.
 
 ## 🚫 Won't do
