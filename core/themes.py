@@ -6,6 +6,8 @@ from dataclasses import dataclass, fields, replace
 from typing import Any
 
 from prompt_toolkit.styles import Style as PTStyle
+from prompt_toolkit.styles.style import parse_color
+from rich.color import Color, ColorParseError
 from rich.console import Console
 from rich.theme import Theme as RichTheme
 
@@ -106,16 +108,37 @@ PRESETS: dict[str, ThemeDef] = {
 _COLOR_FIELDS = [f.name for f in fields(ThemeDef) if f.name not in ("name", "label")]
 
 
-def all_themes(config: dict[str, Any]) -> dict[str, ThemeDef]:
-    """Presets plus custom themes from config (each may inherit from a `base` preset)."""
+def all_themes(config: dict[str, Any], warnings: list[str] | None = None) -> dict[str, ThemeDef]:
+    """Presets plus custom themes from config (each may inherit from a `base` preset).
+
+    A color that Rich or prompt_toolkit can't parse keeps the base preset's value and adds a
+    message to `warnings` (when given) instead of crashing the UI later.
+    """
     themes = dict(PRESETS)
     for name, spec in (config.get("themes") or {}).items():
         if not isinstance(spec, dict):
             continue
         base = themes.get(spec.get("base", "nord"), PRESETS["nord"])
-        overrides = {k: v for k, v in spec.items() if k in _COLOR_FIELDS and isinstance(v, str)}
+        overrides = {}
+        for key, value in spec.items():
+            if key not in _COLOR_FIELDS or not isinstance(value, str):
+                continue
+            if _valid_color(value):
+                overrides[key] = value
+            elif warnings is not None:
+                warnings.append(f"theme '{name}': invalid color {value!r} for '{key}', "
+                                f"using {getattr(base, key)}")
         themes[name] = replace(base, name=name, label=spec.get("label", name), **overrides)
     return themes
+
+
+def _valid_color(value: str) -> bool:
+    try:
+        parse_color(value)
+        Color.parse(value)
+    except (ValueError, ColorParseError):
+        return False
+    return True
 
 
 class UI:

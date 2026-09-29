@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Checked items have been done since then.
-> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 206 tests pass.
+> **Current state:** 32 portable builtins, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), and switch completion. 220 tests pass.
 
 ## Assessment
 
@@ -12,9 +12,9 @@
 - The UX feels good: themes, ghost text, delayed spinner, auto-pager and error panels that point at the failing segment.
 
 **Biggest risks**
-1. **Security of the MCP surface.** `fetch` can read *any* file the server user can read and request *any* URL. That matters as soon as an AI client is connected.
-2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error.
-3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands.)*
+1. **Security of the MCP surface.** `fetch` can request *any* URL, including loopback and private addresses. *(Reading any file the user can read is intended: see Won't do.)*
+2. **Shell-grammar gaps fail silently.** `2>` is misparsed, and `<`, `;` and `&&` become plain arguments. Users expecting POSIX behavior can get wrong results with no error. *(Fixed: they're now rejected with a parse error.)*
+3. **The system-command fallback is capture-only.** Interactive programs misbehave, and "no match" exit codes abort the pipeline. *(Now off by default, and the ported builtins cover the common commands. Accepted: see Won't do.)*
 4. **Only tested on Linux.** None of the Windows paths have been run yet.
 
 Items marked **(verified)** were reproduced during the assessment.
@@ -23,18 +23,15 @@ Items marked **(verified)** were reproduced during the assessment.
 
 ## 🐞 Bugs — P0
 
-- [ ] **Invalid custom theme color crashes startup** *(verified)*: a bad hex such as `"prompt": "not-a-color"` in `config.json` raises `ValueError: Wrong color format` from `UI()`. Fix: validate in `all_themes()`, warn, and fall back to the base preset's color. — `core/themes.py`
-- [ ] **`2> file` is silently misparsed** *(verified)*: `a 2> err.txt` becomes arg `"2"` plus a *stdout* redirect to `err.txt`, which overwrites the file with the wrong stream. `<`, `;` and `&&` also pass through as plain args. Fix: reject them with a clear `ParseError` until they are implemented (see Features). — `core/parser.py`
-- [ ] **Nonzero exit from a system command always aborts the pipeline** *(verified; only when `system_commands` is on; the built-in `grep` already treats no match as empty output)*: `echo abc | grep zzz` shows a "failed" panel, but for grep a status of 1 just means no match. Fix: treat `returncode == 1` with empty stderr as an empty result, or add a configurable ok-codes policy. — `core/pipeline.py::_run_system`
+- [x] **Invalid custom theme color crashes startup**: `all_themes()` now checks each color against both Rich and prompt_toolkit, keeps the base preset's color, and the CLI prints a warning on stderr. — `core/themes.py`
+- [x] **Unsupported operators were passed on as arguments**: `rm a ; ls` also deleted a file named `ls`, and `a 2> err.txt` sent stdout to `err.txt`. `;`, `&&`, `||`, `<`, `2>`, `2>>`, `2>&1`, `&>` and `>&` now raise a `ParseError` until they are implemented (see Features). — `core/parser.py`
 - [ ] **A non-editable `pip install .` ships no modules**: `pyproject.toml` packages only `core`, and `DEFAULT_MODULES_DIR` points outside the package. Fix: include the bundled modules as package data, and also load the user directory `~/.shellcraft/modules`. — `pyproject.toml`, `core/cli.py`
 - [ ] **Pager search `n` gets stuck on the last screen**: when a match is inside the final page, `top` is clamped to `max_top`, so the next `n` finds the same line again. Matches are also not highlighted. Fix: track `match_index` separately from `top` and highlight the match. — `core/output.py::page`
-- [ ] **Interactive system programs misbehave** (`vim`, `top`, `ssh`, `python`), *only when `system_commands` is on*: their stdin and stdout are pipes. Fix: when a system command is the only segment and has no redirect, run it attached to the terminal (no capture, no spinner). — `core/pipeline.py`
 
 ## 🔒 Security — P0
 
-- [ ] **MCP `fetch` reads arbitrary host files** *(verified: `/etc/hostname`)* **and arbitrary URLs (SSRF)**. The read-only builtins (`cat`, `grep`, `head`, `tail`, `ls`, `find`, `tree`, `cut`) in `shellcraft_pipeline` can read any file too, so the `--root` sandbox must cover them as well. Add:
-  - `--root DIR`, which confines file reads for MCP
-  - blocking of loopback, private and link-local targets, with an optional URL allowlist
+- [ ] **MCP `fetch` requests arbitrary URLs (SSRF)**, including loopback, private and cloud-metadata addresses. Add:
+  - blocking of loopback, private and link-local targets (re-checked on redirects), with an optional URL allowlist
   - a max response size
 
   — `modules/fetch.py`, `core/mcp_server.py`
@@ -49,8 +46,6 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Ctrl-C abandons the module worker thread**, which keeps running. Add a cooperative cancel flag in `modkit` that modules can check, or at least document the behavior. — `core/output.py::make_spinner_runner`
 - [ ] **`to_text()` flattens at a fixed width of 100**, so `help | filter` ignores the real terminal width. Pass the console width when there is one. — `core/context.py`
 - [ ] **`show()` renders twice** (a capture pass, then a print pass) and loads huge outputs fully into Rich. Reuse the captured ANSI, and cap or stream very large outputs into the pager. — `core/output.py`
-- [ ] **System command stderr is dropped on success**, so warnings are lost. Print it dimmed. — `core/pipeline.py`
-- [ ] **Captured system output loses colors**: set `FORCE_COLOR` / `CLICOLOR_FORCE` when the output will be displayed and not redirected. — `core/pipeline.py`
 - [ ] **Windows: the prompt's `~` shortening is case-sensitive.** Use `os.path.normcase`. — `core/shell.py`
 - [ ] **`cd` inside a pipeline changes the real cwd** (`cd x | pwd`), unlike POSIX subshells. Disallow it outside a single-segment line, or document it. — `core/builtins.py`
 - [ ] **Loader hygiene**: stale `sys.modules["shellcraft_modules.*"]` entries survive `reload`, and there is no parent package, so relative imports inside modules fail. — `core/loader.py`
@@ -89,7 +84,6 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Exit status**:
   - a `status` builtin or `$?`
   - show the code in the prompt as `[✗ 1]`
-  - make `-c` return the failing system command's real exit code
 
 ## ✨ Features — P2
 
@@ -132,6 +126,20 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Docs**: a LICENSE, a README screenshot or asciinema recording, and a CHANGELOG.
 - [ ] **Windows verification pass**: covering prompt rendering, the pager, `cmd` builtins, paths and the MCP stdio server.
 
+## 🚫 Won't do
+
+The OS-program fallback (`system_commands` / `--allow-system`) stays opt-in and capture-only. The portable builtins and modules are the supported path.
+
+- **Nonzero exit from a system command aborts the pipeline** (for example grep's "no match" status 1). — `core/pipeline.py::_run_system`
+- **Interactive system programs misbehave** (`vim`, `top`, `ssh`, `python`) because their stdin and stdout are pipes. — `core/pipeline.py`
+- **A system command's stderr is dropped on success.** — `core/pipeline.py`
+- **Captured system output loses its colors** (no `FORCE_COLOR` / `CLICOLOR_FORCE`). — `core/pipeline.py`
+- **`-c` doesn't return the failing system command's real exit code.** — `core/cli.py`
+
+MCP file access is deliberately not sandboxed: the AI can read every file the user running the server can read.
+
+- **`--root DIR` sandbox for MCP file reads** (`fetch` and the read builtins `cat`, `grep`, `ls`, `find`, `tree`…). File-*changing* commands and redirects stay blocked in MCP. — `core/mcp_server.py`
+
 ---
 
-**Legend:** **P0** = fix soon (correctness / security) · **P1** = next iteration · **P2** = nice to have
+**Legend:** **P0** = fix soon (correctness / security) · **P1** = next iteration · **P2** = nice to have · **Won't do** = out of scope, recorded on purpose

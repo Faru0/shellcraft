@@ -101,7 +101,7 @@ exit                                  # or Ctrl-D
 - Quote arguments that contain spaces or operators: `grep "a | b" notes.txt`. Backslashes are kept as typed, so Windows paths like `C:\data\log.txt` work.
 - If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.
 
-These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)).
+These shell features aren't supported yet: `2>`, `<`, `;`, `&&`, `||`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than passed on as arguments, so `rm a ; ls` never deletes a file named `ls`. Quote them to use them as text.
 
 ### Typing helpers
 
@@ -252,10 +252,9 @@ stops the shell from starting.
   - change the shell (`cd`, `theme`, `settings`, `exit`), so an AI client can't read or change your API keys through `settings`
   - run OS programs, unless you start the server with `--allow-system`
 
-> ⚠️ **Security note:** connected AI clients can read any file your user account can read (through
-> `fetch`, `cat`, `grep`, …), and `fetch` can request any URL. Modules that use your API keys
+> ⚠️ **Security note:** by design, connected AI clients can read any file your user account can read
+> (through `fetch`, `cat`, `grep`, …). They can't change files. `fetch` can also request any URL. Modules that use your API keys
 > (`queryDns`, `queryCensys`) spend your quota or credits when an AI calls them. Only connect AI clients you trust.
-> Sandboxing is on the roadmap.
 
 ### Claude Code
 

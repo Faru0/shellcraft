@@ -48,3 +48,37 @@ def test_parse_errors(line, fragment):
     with pytest.raises(ParseError) as info:
         parse(line)
     assert fragment in info.value.message
+
+
+@pytest.mark.parametrize("line, op", [
+    ("rm a.txt ; ls", ";"),
+    ("a;b", ";"),
+    ("a && b", "&&"),
+    ("a || b", "||"),
+    ("sort < in.txt", "<"),
+    ("a 2> err.txt", "2>"),
+    ("a 2>> err.txt", "2>>"),
+    ("a 2>&1", "2>&1"),
+    ("a &> out.txt", "&>"),
+    ("echo x >&2", ">&"),
+])
+def test_unsupported_operators_are_rejected(line, op):
+    with pytest.raises(ParseError) as info:
+        parse(line)
+    assert info.value.message.startswith(f"'{op}' is not supported")
+
+
+def test_unsupported_operators_are_literal_when_quoted():
+    p = parse("filter 'a;b' \"x && y\" '<tag>' '2>'")
+    assert p.segments[0].args == ["a;b", "x && y", "<tag>", "2>"]
+
+
+def test_two_only_redirects_stderr_at_word_start():
+    p = parse("echo abc2>x")
+    assert p.segments[0].args == ["abc2"] and p.redirect.path == "x"
+    p = parse("echo 2 > x")
+    assert p.segments[0].args == ["2"] and p.redirect.path == "x"
+
+
+def test_single_ampersand_stays_in_urls():
+    assert parse("fetch https://x/?a=1&b=2").segments[0].args == ["https://x/?a=1&b=2"]

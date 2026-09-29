@@ -49,7 +49,7 @@ shellcraft/
 
 ## How a command line runs
 
-1. `parser.parse()` splits the line into segments and an optional redirect. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact.
+1. `parser.parse()` splits the line into segments and an optional redirect. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. Unsupported shell operators (`;`, `&&`, `||`, `<`, `2>`…) raise a `ParseError` instead of becoming arguments.
 2. `pipeline.run_pipeline()` feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
    1. a **builtin** (`core/builtins.py`, `core/commands/`)
    2. a **module** from `modules/`
@@ -129,6 +129,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_env_settings.py` | API keys: listing, masking, prompt, set/reset, export at startup, history redaction, completion, loader validation |
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
+| `test_themes.py` | custom themes: invalid colors fall back to the base preset |
 | `test_mcp.py` | the MCP tools, run in-process |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_modtest.py` | the module tester and prompt builder |

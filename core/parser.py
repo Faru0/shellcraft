@@ -1,6 +1,8 @@
 """Command-line tokenizer and pipeline parser.
 
 Grammar:  segment ( '|' segment )* [ ('>' | '>>') target ]
+Other shell operators (`;`, `&&`, `||`, `<`, `2>`, `2>&1`, `&>`, `>&`) are rejected with a
+ParseError instead of being passed on as arguments: `rm a ; ls` must never mean `rm a ';' ls`.
 Quotes: '...' is literal, "..." allows \\" for a quote. Backslashes are otherwise
 literal so Windows paths like C:\\data\\x.csv survive untouched.
 """
@@ -11,6 +13,8 @@ import os
 from dataclasses import dataclass
 
 OPERATORS = ("|", ">>", ">")
+# Longest first. The `2>` forms only count at the start of a word, as in POSIX shells.
+UNSUPPORTED = ("2>&1", "2>>", "2>", "&>", ">&", "&&", "||", ";", "<")
 
 
 class ParseError(Exception):
@@ -53,6 +57,9 @@ def tokenize(line: str) -> list[Token]:
         if ch.isspace():
             i += 1
             continue
+        bad = next((o for o in UNSUPPORTED if line.startswith(o, i)), None)
+        if bad:
+            raise ParseError(f"'{bad}' is not supported yet (quote it to pass it as text)", i)
         op = next((o for o in OPERATORS if line.startswith(o, i)), None)
         if op:
             tokens.append(Token(op, i, op=True))
@@ -62,7 +69,7 @@ def tokenize(line: str) -> list[Token]:
         start = i
         buf: list[str] = []
         quoted = False
-        while i < n and not line[i].isspace() and not any(line.startswith(o, i) for o in OPERATORS):
+        while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
             if ch in ("'", '"'):
                 quoted = True
@@ -87,6 +94,11 @@ def tokenize(line: str) -> list[Token]:
             word = os.path.expanduser(word)
         tokens.append(Token(word, start))
     return tokens
+
+
+def _breaks_word(line: str, i: int) -> bool:
+    """True where an operator ends an unquoted word (`2>` only starts one, so `a2>b` is `a2` `>` `b`)."""
+    return any(line.startswith(o, i) for o in OPERATORS + UNSUPPORTED if not o.startswith("2"))
 
 
 def parse(line: str) -> Pipeline | None:

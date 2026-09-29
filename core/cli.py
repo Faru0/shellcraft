@@ -50,7 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     from core.context import ShellContext
     from core.themes import UI, all_themes
 
-    themes = all_themes(config)
+    theme_warnings: list[str] = []
+    themes = all_themes(config, theme_warnings)
+    for warning in theme_warnings:
+        print(f"shellcraft: {warning}", file=sys.stderr)
     theme_name = args.theme or config.get("theme", "cyberpunk")
     if theme_name not in themes:
         print(f"shellcraft: unknown theme '{theme_name}', using cyberpunk", file=sys.stderr)
