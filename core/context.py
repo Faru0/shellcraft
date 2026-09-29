@@ -36,6 +36,7 @@ class ShellContext:
     allow_sensitive: bool = True  # builtins that may reveal secrets: env
     allow_aliases: bool = True  # expand the user's aliases (off for MCP clients)
     prev_dir: str | None = None
+    history: Any = None  # the REPL's prompt_toolkit History, when there is one (for `history`)
 
 
 @dataclass

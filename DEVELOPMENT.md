@@ -27,7 +27,8 @@ shellcraft/
 │   ├── builtins.py         # builtin registry (@builtin) + shell builtins: cd, help, man, theme, settings…
 │   ├── commands/           # portable ports registered as builtins
 │   │   ├── text.py         #   echo cat grep head tail wc sort uniq cut tr tee
-│   │   ├── files.py        #   ls find tree touch mkdir cp mv rm
+│   │   ├── files.py        #   ls find tree du touch mkdir cp mv rm
+│   │   ├── diff.py         #   diff (classic + unified, directories)
 │   │   ├── info.py         #   date which env
 │   │   └── _io.py          #   shared file/stdin helpers
 │   ├── loader.py           # module discovery; ModuleSpec; SkillInfo (.skill parsing)
@@ -144,6 +145,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
 | `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
+| `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |

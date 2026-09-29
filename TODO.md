@@ -97,7 +97,8 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **Ported builtins, first batch**: `ls`, `cat`, `grep`, `echo`, `tee`, `head`, `tail`, `wc`, `sort`, `uniq`, `date`, `mkdir`, `cp`, `mv`, `rm`, plus the `settings` command with OS commands off by default.
 - [x] **Ported builtins, second batch**: `find`, `touch`, `which`, `tree`, `cut`, `tr`, `env` (`env` is blocked in MCP as sensitive).
 - [x] **`alias` / `unalias`**: saved in `config.json`, expanded per pipeline step, `\NAME` skips an alias, not applied over MCP. — `core/aliases.py`
-- [ ] **More builtins**: `history`, `source`, `sleep`, `time`, `type`, `basename` / `dirname`, `diff`, `du`.
+- [x] **`history`, `diff`, `du`**: `history [N] | -c`; `diff` with classic and unified (`-u`/`-U N`) output, `-i -w -b -q -s -r`, directories and binary files, output identical to GNU diff; `du` with apparent sizes (`-s -h -a -d N -c -S -b`), matching GNU `du --apparent-size`.
+- [ ] **More builtins**: `source`, `sleep`, `time`, `type`, `basename` / `dirname`.
 - [ ] **Startup rc file** `~/.shellcraft/rc` (aliases, env, theme).
 - [ ] **Input-line syntax highlighting** with a prompt_toolkit lexer: known commands green, unknown ones red, operators in the accent color. Also:
   - a bottom toolbar (cwd, git branch, last command duration)

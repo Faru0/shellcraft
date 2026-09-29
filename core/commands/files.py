@@ -520,3 +520,120 @@ def touch(ctx: ShellContext, args: list[str], stdin: str) -> str:
         except OSError as exc:
             raise ModuleError(f"touch: {name}: {exc.strerror or exc}") from None
     return ""
+
+
+# ── du ───────────────────────────────────────────────────────────────────────
+
+@builtin("du", "Show how much space files and directories use", "du [-s] [-h] [-a] [-d N] [-c] [-S] [-b] [PATH...]",
+         category="files", doc="""\
+# du
+
+Show how much space each directory under PATH (default `.`) uses, including everything below it.
+Sizes are in KiB by default (rounded up). Directories are listed after their contents, and the
+last line is PATH itself.
+
+Sizes are *apparent* sizes (the total of the file sizes, like GNU `du --apparent-size`), so `du`
+gives the same numbers on every operating system. Symbolic links are not followed, and a
+hard-linked file is only counted once.
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-s` | Summary: one line per PATH, its total. |
+| `-h` | Human-readable sizes (`4.0K`, `1.2M`, `3.4G`). |
+| `-a` | List files too, not just directories. |
+| `-d N` | Only list entries at most N levels below PATH (`-d 1`: PATH's direct children). Everything is still counted. |
+| `-c` | Add a grand total at the end. |
+| `-S` | Sort by size, largest first. |
+| `-b` | Sizes in bytes. |
+
+Folders you can't read are skipped. On screen, a note says how many were skipped.
+
+## Examples
+
+```
+du -sh
+du -h -d 1 -S ~/projects
+du -a -d 1 | sort -n -r | head -5
+du -sh modules tests -c
+```
+""")
+def du(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
+    parser = ArgParser("du")
+    parser.add_argument("-s", "--summarize", action="store_true")
+    parser.add_argument("-h", "--human-readable", dest="human", action="store_true")
+    parser.add_argument("-a", "--all", action="store_true")
+    parser.add_argument("-d", "--max-depth", type=int, metavar="N")
+    parser.add_argument("-c", "--total", action="store_true")
+    parser.add_argument("-S", "--sort", action="store_true")
+    parser.add_argument("-b", "--bytes", action="store_true")
+    parser.add_argument("paths", nargs="*")
+    opts = parser.parse_args(args)
+    if opts.max_depth is not None and opts.max_depth < 0:
+        raise ModuleError("du: -d must be >= 0")
+    if opts.summarize and opts.max_depth not in (None, 0):
+        raise ModuleError("du: -s and -d N can't be combined")
+    max_depth = 0 if opts.summarize else opts.max_depth
+
+    seen: set[tuple[int, int]] = set()
+    skipped = [0]
+    rows: list[tuple[int, str, bool]] = []  # (bytes, path, is_dir)
+
+    def walk(path: Path, shown: str, depth: int) -> int:
+        try:
+            st = path.lstat()
+        except OSError:
+            skipped[0] += 1
+            return 0
+        if not stat.S_ISDIR(st.st_mode):
+            if st.st_nlink > 1:
+                if (st.st_dev, st.st_ino) in seen:
+                    return 0
+                seen.add((st.st_dev, st.st_ino))
+            if (opts.all or depth == 0) and (max_depth is None or depth <= max_depth):
+                rows.append((st.st_size, shown, False))
+            return st.st_size
+        total = 0  # only file contents count (as GNU du --apparent-size), so every OS agrees
+        try:
+            children = sorted(os.scandir(path), key=lambda e: e.name.lower())
+        except OSError:
+            skipped[0] += 1
+            children = []
+        for child in children:
+            total += walk(Path(child.path), os.path.join(shown, child.name), depth + 1)
+        if max_depth is None or depth <= max_depth:
+            rows.append((total, shown, True))
+        return total
+
+    grand = 0
+    for raw in opts.paths or ["."]:
+        path = Path(raw).expanduser()
+        if not path.exists() and not path.is_symlink():
+            raise ModuleError(f"du: {raw}: no such file or directory")
+        grand += walk(path, raw, 0)
+    if opts.sort:
+        rows.sort(key=lambda r: r[0], reverse=True)
+    if opts.total:
+        rows.append((grand, "total", False))
+
+    def size(n: int) -> str:
+        if opts.bytes:
+            return str(n)
+        if opts.human:
+            return _human(n)
+        return str(-(-n // 1024))  # KiB, rounded up like GNU du
+
+    table = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
+    table.add_column(justify="right", style="sc.accent")
+    table.add_column()
+    plain = []
+    for n, shown, is_dir in rows:
+        label = Text(shown, style="bold" if shown == "total" else ("sc.path" if is_dir else ""))
+        table.add_row(size(n), label)
+        plain.append(f"{size(n)}\t{shown}")
+    screen = [table]
+    if skipped[0]:
+        screen.append(Text(f"du: skipped {skipped[0]} unreadable entr{'y' if skipped[0] == 1 else 'ies'}",
+                           style="sc.warning"))
+    return Styled(Group(*screen), lines_out(plain))

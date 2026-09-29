@@ -153,14 +153,17 @@ system. Each one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `alias`, `unalias`, `modules`, `reload` |
-| Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee` |
-| Files | `ls`, `find`, `tree`, `touch`, `mkdir`, `cp`, `mv`, `rm` |
+| Shell | `cd`, `pwd`, `exit`, `clear`, `help`, `man`, `theme`, `settings`, `alias`, `unalias`, `history`, `modules`, `reload` |
+| Text | `echo`, `cat`, `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee`, `diff` |
+| Files | `ls`, `find`, `tree`, `du`, `touch`, `mkdir`, `cp`, `mv`, `rm` |
 | Info | `date`, `which`, `env` |
 
 - **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. When piped or redirected, they output plain text, one item per line.
 - **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program. `which -a` also shows what an alias or builtin hides.
 - **`rm` safety:** there is no trash can. For safety, `rm` refuses a filesystem root, your home folder, and the current folder or its parents.
+- **`diff`** compares files or folders. `diff -u old new` gives the Git-style format (red `-`, green `+`); `-i` ignores case, `-w` ignores white space, and `-q` only says whether they differ.
+- **`du`** shows how much space folders use: `du -sh` for a total, `du -h -d 1 -S` for the biggest folders here, largest first.
+- **`history`** lists what you typed (`history 20` for the last 20, `history | grep ssh` to find one), and `history -c` clears it.
 - **`modules`** lists the loaded modules. **`reload`** picks up new or changed modules without restarting.
 
 ## Bundled modules

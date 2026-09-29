@@ -13,8 +13,8 @@ from rich.table import Table
 from rich.text import Text
 
 from core import aliases, settings
-from core.config import save_config
-from core.context import CommandError, ShellExit
+from core.config import history_path, save_config
+from core.context import CommandError, ShellExit, Styled
 from core.themes import all_themes
 
 if TYPE_CHECKING:
@@ -282,6 +282,77 @@ def _saved(ctx: ShellContext, msg: Text) -> Text:
     except OSError as exc:
         msg.append(f" (not saved: {exc})", style="sc.warning")
     return msg
+
+
+HISTORY_DOC = """# history
+
+Show the commands you typed, oldest first and numbered, like bash's `history`. It is the same
+history that ↑ and the ghost-text suggestions use, kept in `~/.shellcraft/history`.
+
+## Usage
+
+```
+history          # every saved command
+history N        # the last N commands
+history -c       # clear the history (the file and this session's ↑ list)
+```
+
+Piped output is plain `  N  command` lines, so `history | grep ssh` finds old commands. Lines you
+typed with a leading space were never saved, and API keys typed as `settings NAME VALUE` are
+saved as `••••`.
+
+Because history can contain secrets, AI clients can't use `history` over MCP.
+
+## Examples
+
+```
+history 20
+history | grep -i docker
+history | tail -5
+```
+"""
+
+
+@builtin("history", "Show or clear the command history", "history [N] | history -c", stateful=True,
+         sensitive=True, doc=HISTORY_DOC)
+def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if args == ["-c"]:
+        if ctx.history is not None and hasattr(ctx.history, "_loaded_strings"):
+            ctx.history._loaded_strings = []  # prompt_toolkit keeps ↑ entries in memory
+        try:
+            history_path().write_text("", encoding="utf-8")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise CommandError(f"history: cannot clear {history_path()}: {exc.strerror or exc}") from None
+        return Text.assemble(("✓ ", "sc.success"), "history cleared")
+    if len(args) > 1 or (args and not args[0].isdigit()):
+        raise CommandError("history: usage: history [N] | history -c")
+    entries = _history_entries(ctx)
+    start = 0
+    if args:
+        start = max(0, len(entries) - int(args[0]))
+    width = len(str(len(entries)))
+    plain, styled = [], Text()
+    for number, command in enumerate(entries[start:], start=start + 1):
+        command = command.replace("\n", " ")
+        plain.append(f"{number:>{width + 2}}  {command}")
+        styled.append(f"{number:>{width + 2}}  ", style="sc.muted")
+        styled.append(command + "\n")
+    styled.rstrip()
+    return Styled(styled, "".join(f"{line}\n" for line in plain))
+
+
+def _history_entries(ctx: ShellContext) -> list[str]:
+    """Saved commands, oldest first: the live REPL history, or the history file (for -c mode)."""
+    if ctx.history is not None:
+        return list(ctx.history.get_strings())
+    from prompt_toolkit.history import FileHistory
+
+    path = history_path()
+    if not path.is_file():
+        return []
+    return list(reversed(list(FileHistory(str(path)).load_history_strings())))
 
 
 SETTINGS_DOC = """# settings

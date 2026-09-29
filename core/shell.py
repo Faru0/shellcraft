@@ -83,6 +83,7 @@ class Shell:
         except OSError:
             history = RedactingInMemoryHistory()
 
+        ctx.history = history
         self.session: PromptSession = PromptSession(
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
