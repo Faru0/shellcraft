@@ -19,7 +19,8 @@ shellcraft/
 ├── main.py                 # launcher → core.cli.main
 ├── core/
 │   ├── cli.py              # argument parsing; chooses interactive / -c / --mcp / --mcp-http mode
-│   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
+│   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text; Windows console (CONIN$/CONOUT$)
+│   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer → Pipeline(segments, redirect)
 │   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
@@ -60,6 +61,14 @@ shellcraft/
    3. an **OS program**, only when `ctx.allow_system` is set (the `system_commands` setting or `--allow-system`)
 3. A `CommandError` / `ModuleError`, or any exception, stops the pipeline as a `PipelineError` that names the failing segment.
 4. The final output goes to the redirect file, or to `output.show()`. `show()` renders Rich output and pages it when it's taller than the terminal.
+
+### Terminal I/O on Windows and Linux
+
+- **Interactive shell on Windows:** `core.shell.WindowsConsole` opens `CONIN$` and `CONOUT$`, turns on VT processing, and points the process's std handles at them. prompt_toolkit (`Win32Input` / a `Vt100_Output`), the pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected. prompt_toolkit's raw mode and Rich's window size look the console up with `GetStdHandle`, which is why the std handles are redirected too.
+- **Console detection:** use `core.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
+- **`-c` mode** writes results to stdout (plain text when it isn't a console), so pipes and redirects work. On a Windows console it still uses `WindowsConsole` for the pager.
+- **Encoding:** `utf8_stdio()` makes stdout/stderr UTF-8 when they aren't already (Windows pipes and files default to cp1252), unless `PYTHONIOENCODING` is set. The MCP stdio transport wraps the binary streams as UTF-8 itself.
+- **OS commands:** output is decoded as UTF-8 with `\r\n` → `\n`. `cmd.exe` internal commands run with `/u`, so their output arrives as UTF-16.
 
 `run_line()` doesn't depend on the UI. The REPL, `-c` mode, the MCP server and the tests all share it.
 
@@ -147,7 +156,8 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
-| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell |
+| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring |
+| `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, plain `-c` output, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |

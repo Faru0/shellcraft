@@ -16,6 +16,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core.stdio import utf8_stdio  # noqa: E402
+
 TEMPLATES = ROOT / "templates"
 PROMPT = TEMPLATES / "AI_MODULE_PROMPT.md"
 EXAMPLE = TEMPLATES / "module" / "template"
@@ -60,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     if opts.module.suffix != ".py" or not opts.module.is_file():
         parser.error(f"{opts.module} is not an existing .py file")
     prompt = build_prompt(opts.module, opts.existing)
+    utf8_stdio()  # `mkprompt x.py > prompt.txt` on Windows would otherwise fail on non-cp1252 text
     if opts.output:
         opts.output.write_text(prompt, encoding="utf-8")
         name = opts.module.stem

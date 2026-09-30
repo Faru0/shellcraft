@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from core.stdio import utf8_stdio
+
+    utf8_stdio()  # Windows pipes and files default to cp1252, which can't encode box drawing
     args = _parse_args(argv)
     modules_dir = args.modules or Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR))
 
@@ -78,19 +82,36 @@ def main(argv: list[str] | None = None) -> int:
     if theme_name not in themes:
         print(f"shellcraft: unknown theme '{theme_name}', using cyberpunk", file=sys.stderr)
         theme_name = "cyberpunk"
-    ui = UI(themes[theme_name])
-    ctx = ShellContext(registry=registry, ui=ui, config=config,
-                       allow_system=args.allow_system or settings.get(config, "system_commands"))
+    allow_system = args.allow_system or settings.get(config, "system_commands")
 
-    if args.command is not None:
-        return _run_once(args.command, ctx)
+    from rich.console import Console
 
-    from core.shell import Shell
+    from core.shell import Shell, open_windows_console
+    from core.stdio import is_console
 
-    shell = Shell(ctx)
-    if not args.no_banner and settings.get(config, "banner"):
-        shell.banner()
-    return shell.loop()
+    interactive = args.command is None
+    # Windows: prompt_toolkit (the prompt, the pager, the hidden API-key prompt) talks to the console
+    # itself, CONIN$ / CONOUT$ with VT sequences on, instead of trusting sys.stdin / sys.stdout and
+    # isatty(). The interactive shell's Rich output goes there too. `-c` keeps writing to stdout, so
+    # its pipes and redirects work, and only needs the console for the pager. Elsewhere this is None.
+    console = open_windows_console() if interactive or is_console(sys.stdout) else None
+    try:
+        if interactive:
+            rich = console.rich_console() if console else None
+        else:
+            rich = Console(highlight=False, force_terminal=is_console(sys.stdout))
+        ctx = ShellContext(registry=registry, ui=UI(themes[theme_name], rich), config=config,
+                           allow_system=allow_system)
+        with console.session() if console else contextlib.nullcontext():
+            if not interactive:
+                return _run_once(args.command, ctx)
+            shell = Shell(ctx)
+            if not args.no_banner and settings.get(config, "banner"):
+                shell.banner()
+            return shell.loop()
+    finally:
+        if console:
+            console.close()
 
 
 def _run_once(line: str, ctx) -> int:
@@ -107,9 +128,11 @@ def _run_once(line: str, ctx) -> int:
     except (ParseError, PipelineError) as exc:
         from rich.console import Console
 
+        from core.stdio import is_console
         from core.themes import UI
 
-        show_error(UI(ctx.ui.theme, Console(stderr=True, highlight=False)), exc, line)
+        show_error(UI(ctx.ui.theme, Console(stderr=True, highlight=False, force_terminal=is_console(sys.stderr))),
+                   exc, line)
         return 1
     if result is not None and result.output is not None:
         if isinstance(result.output, (str, Styled)) and not ctx.ui.console.is_terminal:

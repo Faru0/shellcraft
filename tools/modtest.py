@@ -38,6 +38,8 @@ from rich.panel import Panel  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.text import Text  # noqa: E402
 
+from core.stdio import utf8_stdio  # noqa: E402
+
 import core.pipeline  # noqa: E402,F401 — registers every builtin so name clashes are detected
 from core import params as params_mod  # noqa: E402
 from core.builtins import BUILTINS  # noqa: E402
@@ -497,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
     if not paths:
         parser.error("give one or more module .py files, or --all")
 
+    utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
     console = Console(highlight=False)
     failed = 0
     for py in paths:

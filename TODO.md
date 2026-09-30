@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
-> First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Second full assessment: 2026-09-28 (`main` @ 93e719b). Checked items have been done since then.
-> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 325 tests pass (1 skipped), in ~2 s on Python 3.14. About 6,400 lines of application code (core, modules, tools) and 2,500 lines of tests.
+> First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Second full assessment: 2026-09-28 (`main` @ 93e719b). Third full assessment: 2026-09-30 (`main` @ 3a74273). Checked items have been done since then.
+> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 328 tests pass, in ~2 s on Python 3.14 (with the `censys` extra). About 6,500 lines of application code (core, modules, tools) and 2,500 lines of tests. An offline `Install/` bundle (Windows installer, Ubuntu 26.04 `.deb`s, wheels for Windows/Linux × CPython 3.11–3.14, `setup.ps1` / `setup.sh`) makes air-gapped installs possible.
 
 ## Assessment
 
@@ -24,6 +24,11 @@
 - The docs are thorough and mostly in sync. The test suite is fast and broad, but it only exercises the source tree, so packaging and platform bugs slip through.
 - The main gaps are distribution (packaging, CI, license), hardening the MCP boundary (timeouts, exposure, argument handling), and exit-status semantics.
 
+**Third assessment (2026-09-30)**
+- The design is still sound, and lint is clean where it matters: ruff finds no pyflakes errors (only 35 style hints), and mypy's 41 errors are annotation-level (missing `None` narrowing, `list` vs generator), none a real bug.
+- The main new risks are another operator that slips through the parser (`&`, the same class as the fixed `;` bug), `config.json` handling (a malformed value crashes every mode, and two open shells overwrite each other's changes), and the MCP HTTP transport having no authentication, which matters on shared lab machines.
+- Offline installs were verified in a network-less Ubuntu 26.04 container. `setup.ps1` has only been syntax-checked, not run on Windows.
+
 Items marked **(verified)** were reproduced during the assessment.
 
 ---
@@ -35,6 +40,12 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **A non-editable `pip install .` crashed on startup**: `packages = ["core"]` left out `core.commands`, and the wheel had no modules. The wheel now ships `core.commands` and the bundled modules (as `core/bundled_modules`, with their `.md` and `.skill` files). An installed copy loads those modules, and a source checkout or editable install still uses `./modules`. Verified by installing the wheel into a clean venv. — `pyproject.toml`, `core/cli.py`
 - [ ] **Packaging leftovers**: load a user directory `~/.shellcraft/modules` next to the bundled ones, so an installed copy can add modules without `--modules`. `tools/` and `templates/` still work from a source checkout only. The generic top-level name `core` can collide with other packages in site-packages, so move it under a `shellcraft/` package. — `core/cli.py`, `core/loader.py`, `pyproject.toml`
 - [x] **MCP values that start with `-` became switches**: `filter` with `{"pattern": "-v"}` failed, and text from untrusted content could inject switches. `params.to_argv` now passes such a value as `--flag=VALUE` and puts `--` before the positionals. — `core/params.py`
+- [x] **Windows 11 console I/O**: the interactive shell used whatever `sys.stdin`/`sys.stdout` were and trusted `isatty()` (True for `NUL`), and prompt_toolkit could read keys from `CONIN$` while putting a different handle into raw mode. It now opens `CONIN$`/`CONOUT$` itself with VT processing on (`WindowsConsole`), `-c` uses `is_console()`, and stdout/stderr are UTF-8 for pipes and files. *(Needs a pass on a real Windows 11 machine: see the Windows verification item.)* — `core/shell.py`, `core/cli.py`, `core/stdio.py`
+- [x] **Windows: redirected output crashed on box drawing**: `-c "tree" > out.txt`, error panels on `2>` and `mkprompt > prompt.txt` raised `UnicodeEncodeError` under cp1252. — `core/stdio.py`, `tools/`
+- [x] **Windows: `dir`/`type` output was decoded as UTF-8** although `cmd.exe` writes the OEM code page; internal commands now run with `cmd /u` and are read as UTF-16. — `core/pipeline.py`
+- [ ] **`&` is still passed on as an argument** **(verified)**: `rm -f a & ls` deletes both `a` and `ls`, and `echo hi & echo there` prints `hi & echo there`. It's the same class as the fixed `;` bug. Reject an unquoted `&` with a `ParseError` until background jobs exist. — `core/parser.py`
+- [ ] **A malformed `config.json` crashes startup in every mode, MCP included** **(verified)**: `{"env": [...]}`, `{"settings": [...]}` or `{"themes": [...]}` ends in `AttributeError`. Check each section's type in `load_config()`, then drop it with a warning. — `core/config.py`, `core/settings.py`, `core/themes.py`
+- [ ] **`cp -r DIR DIR/sub` recurses into itself** **(verified)**: it creates ~500 nested `DIR/sub/DIR/sub/…` directories, then fails with `RecursionError`. Refuse a destination inside the source, as GNU `cp` does ("cannot copy a directory into itself"). — `core/commands/files.py`
 - [x] **Pager search `n` got stuck on the last screen**: the last match is now tracked apart from the scroll position, so `n`/`N` step through every match, and matches are highlighted in reverse video. — `core/output.py::page`
 
 ## 🔒 Security — P0
@@ -42,12 +53,17 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. This also closes the `fetch -d @FILE` exfiltration path and the paid-quota use of `queryDns`/`queryCensys` without touching the modules. It must apply to the `shellcraft_pipeline` tool too, not only to the per-module tools. — `core/loader.py`, `core/mcp_server.py`
 - [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. Easy triggers: `du /`, `find /`, `tree /`, or a catastrophic regex in `grep`/`filter`. — `core/mcp_server.py`
 - [x] **History records everything**: a line typed with a leading space is no longer saved (bash's `ignorespace`). *(Values in `settings NAME VALUE` are still redacted.)* — `core/shell.py`
+- [ ] **History redaction can be bypassed** **(verified)**: `redact_line()` only matches a line that starts with `settings`, so `\settings NAME VALUE`, or an alias such as `alias s=settings`, saves the API key to `~/.shellcraft/history` in plain text. Redact after alias expansion, or match any first word that resolves to `settings`. — `core/settings.py`, `core/shell.py`
+- [ ] **The MCP HTTP transport has no authentication**: loopback-only binding and DNS-rebinding checks stop browsers and remote hosts, but any other local user or process can connect to the port and read every file the server's user can read. That matters on shared lab machines. Require a bearer token (generated at startup, printed on stderr, or taken from `SHELLCRAFT_MCP_TOKEN`). — `core/mcp_server.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
 
 ## 🔧 Bugs / polish — P1
 
 - [ ] **Hot reload races with MCP calls**: `ModuleRegistry.load()` empties `self.modules` and then refills it, while tool calls run in worker threads. A call that arrives mid-reload gets "Unknown tool" or "command not found". Build the new dict first, then swap it in. — `core/loader.py`
-- [ ] **Broken pipe in `-c` mode** **(verified)**: `shellcraft -c "cat big.txt" | head -1` prints `Exception ignored … BrokenPipeError` and exits 120. Catch `BrokenPipeError`, redirect stdout to devnull and exit quietly. Ctrl-C during `-c` isn't caught either (a traceback instead of exit 130). — `core/cli.py::_run_once`
+- [ ] **Two open shells overwrite each other's config** **(verified)**: each session writes its whole in-memory config, so an alias (or API key) saved in one shell is lost when the other changes the theme. The write isn't atomic either, so a crash mid-write truncates `config.json` along with the stored keys. Re-read and merge only the changed key before saving, and write through a temp file plus `os.replace`. — `core/config.py`, `core/builtins.py`
+- [ ] **`grep -m 0` prints one line** **(verified)**: GNU grep prints nothing. `match_lines` appends before checking the limit. — `core/commands/text.py`
+- [ ] **A quoted `~` in a redirect target is still expanded** **(verified)**: `echo hi > '~/f'` writes to the home directory, although quoting keeps `~` literal everywhere else. The tokenizer already expands unquoted `~`, so drop the second `expanduser()`. — `core/pipeline.py`
+- [ ] **Broken pipe in `-c` mode** **(verified)**: `shellcraft -c "cat big.txt" | head -1` prints a `BrokenPipeError` traceback and exits 1. Catch `BrokenPipeError`, redirect stdout to devnull and exit quietly. Ctrl-C during `-c` isn't caught either (a traceback instead of exit 130). — `core/cli.py::_run_once`
 - [ ] **A redirect silently creates missing directories** **(verified)**: `echo a > typo/dir/f.txt` makes `typo/dir/`. POSIX shells fail with "No such file or directory", which catches typos. Drop the `mkdir(parents=True)`. — `core/pipeline.py`
 - [ ] **Ctrl-C abandons the module worker thread**, which keeps running. Add a cooperative cancel flag in `modkit` that modules can check, or at least document the behavior. — `core/output.py::make_spinner_runner`
 - [ ] **`to_text()` flattens at a fixed width of 100**, so `help | filter` ignores the real terminal width. Pass the console width when there is one. — `core/context.py`
@@ -123,10 +139,11 @@ Items marked **(verified)** were reproduced during the assessment.
   - the banner's narrow-terminal fallback
   - a packaging smoke test: build the wheel, install it into a clean venv, and run `shellcraft -c help` (it would have caught the `core.commands` crash)
 - [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.14 (development happens on 3.14), plus the packaging smoke test and `modtest --all --strict`.
-- [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra.
+- [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra. A trial run (2026-09-30) found no real ruff errors (35 style hints, 14 auto-fixable) and 41 annotation-level mypy errors to clear before mypy can gate CI.
+- [ ] **Offline bundle upkeep**: `Install/` adds ~112 MB of binaries to the git history, and every refresh adds more. Consider publishing it as a release asset or tracking it with Git LFS. Run `setup.ps1` on a real Windows machine (so far it's only been syntax-checked), and document how to refresh the wheels.
 - [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).
 - [ ] **Docs**: a README screenshot or asciinema recording, and a CHANGELOG. *(LICENSE: MIT, added.)*
-- [ ] **Windows verification pass**: covering prompt rendering, the pager, `cmd` builtins, paths and the MCP stdio server.
+- [ ] **Windows verification pass**: covering prompt rendering (Windows Terminal and classic conhost, where `⚡` may render one cell wide), the pager, `cmd` builtins, paths and the MCP stdio server. Also `python main.py < NUL`, `-c "help" > NUL` and `echo x | python main.py -c help`, the cases the console fixes target.
 
 ## 🚫 Won't do
 

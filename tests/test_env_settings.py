@@ -1,7 +1,6 @@
 import json
 import os
 import stat
-import sys
 import textwrap
 
 import pytest
@@ -89,7 +88,7 @@ def test_prompt_reads_hidden_value(ctx, monkeypatch):
 
 
 def test_prompt_without_terminal_explains(ctx, monkeypatch):
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+    monkeypatch.setattr("core.stdio.is_console", lambda stream: False)
     with pytest.raises(PipelineError, match=f"use: settings {KEY} VALUE"):
         run_line(f"settings {KEY}", ctx)
 

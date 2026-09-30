@@ -479,7 +479,9 @@ def _ask_secret(ctx: ShellContext, entry: settings.EnvEntry) -> str:
             from prompt_toolkit import prompt
 
             return prompt(label, is_password=True)
-        if sys.stdin.isatty():
+        from core.stdio import is_console
+
+        if is_console(sys.stdin):  # not isatty(): on Windows that is True for NUL too
             import getpass
 
             return getpass.getpass(label)

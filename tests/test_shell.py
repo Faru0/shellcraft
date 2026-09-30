@@ -80,3 +80,72 @@ def test_shell_hot_reload_before_a_command(tmp_path):
     (tmp_path / "three.py").write_text("def run(args, stdin):\n    return '3'\n")
     shell.Shell._hot_reload(fake)
     assert "three" not in registry.modules  # setting off: no reload
+
+
+# ── Windows console (CONIN$ / CONOUT$) ───────────────────────────────────────
+
+def test_windows_console_is_only_used_on_windows(monkeypatch):
+    monkeypatch.setattr(shell.sys, "platform", "linux")
+    assert shell.open_windows_console() is None
+
+
+def test_windows_console_falls_back_without_a_console(monkeypatch):
+    def no_console():
+        raise OSError("no console")
+
+    monkeypatch.setattr(shell.sys, "platform", "win32")
+    monkeypatch.setattr(shell, "WindowsConsole", no_console)
+    assert shell.open_windows_console() is None
+
+
+def test_window_size_is_the_visible_window_minus_the_wrap_column():
+    from types import SimpleNamespace as NS
+
+    info = NS(srWindow=NS(Left=0, Top=100, Right=119, Bottom=129), dwSize=NS(X=120, Y=9000))
+    assert shell._window_size(info) == shell.Size(rows=30, columns=119)
+    narrow_buffer = NS(srWindow=NS(Left=0, Top=0, Right=199, Bottom=9), dwSize=NS(X=80, Y=10))
+    assert shell._window_size(narrow_buffer).columns == 79
+
+
+def test_cli_runs_the_interactive_shell_on_the_windows_console(monkeypatch, tmp_path):
+    import io
+
+    from rich.console import Console
+
+    from core import cli
+
+    events = []
+
+    class FakeConsole:
+        console = Console(file=io.StringIO())
+
+        def rich_console(self):
+            return self.console
+
+        def session(self):
+            class Session:
+                def __enter__(self):
+                    events.append("session")
+
+                def __exit__(self, *exc):
+                    events.append("session closed")
+
+            return Session()
+
+        def close(self):
+            events.append("console closed")
+
+    class FakeShell:
+        def __init__(self, ctx):
+            events.append(("shell", ctx.ui.console is FakeConsole.console))
+
+        def loop(self):
+            raise RuntimeError("boom")
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setattr(shell, "open_windows_console", FakeConsole)
+    monkeypatch.setattr(shell, "Shell", FakeShell)
+    with pytest.raises(RuntimeError):
+        cli.main(["--no-banner", "--modules", str(tmp_path)])
+    # Rich and prompt_toolkit both use the console, and it is restored even when the shell crashes.
+    assert events == ["session", ("shell", True), "session closed", "console closed"]

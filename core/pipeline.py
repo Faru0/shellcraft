@@ -117,19 +117,32 @@ def _resolve_system(cmd: Command) -> list[str] | None:
     if exe:
         return [exe, *cmd.args]
     if sys.platform == "win32" and cmd.name.lower() in _WINDOWS_CMD_BUILTINS:
-        return ["cmd", "/d", "/c", cmd.name, *cmd.args]
+        return [*_CMD_UNICODE, cmd.name, *cmd.args]
     return None
+
+
+# cmd.exe with /u writes its internal commands' output to a pipe as UTF-16 (without /u it's the
+# OEM code page, e.g. cp437, which garbles accented file names from `dir`).
+_CMD_UNICODE = ["cmd", "/d", "/u", "/c"]
 
 
 def _run_system(argv: list[str], stdin: str) -> str:
     try:
-        proc = subprocess.run(
-            argv, input=stdin, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", cwd=os.getcwd(),
-        )
+        proc = subprocess.run(argv, input=stdin.encode("utf-8"), capture_output=True, cwd=os.getcwd())
     except OSError as exc:
         raise CommandError(str(exc)) from exc
+    utf16 = argv[:len(_CMD_UNICODE)] == _CMD_UNICODE
+    stdout, stderr = _decode(proc.stdout, utf16), _decode(proc.stderr, utf16)
     if proc.returncode != 0:
-        detail = proc.stderr.strip() or proc.stdout.strip() or "no output"
+        detail = stderr.strip() or stdout.strip() or "no output"
         raise CommandError(f"exited with status {proc.returncode}: {detail}")
-    return proc.stdout
+    return stdout
+
+
+def _decode(data: bytes, utf16: bool = False) -> str:
+    """A program's output as text with \n line ends (Windows programs write \r\n)."""
+    if utf16 and len(data) % 2 == 0 and b"\x00" in data:
+        text = data.decode("utf-16-le", errors="replace")
+    else:
+        text = data.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n")
