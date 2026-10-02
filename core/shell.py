@@ -311,6 +311,7 @@ class Shell:
 
     def _setup(self) -> None:
         ctx = self.ctx
+        self._cleanup.callback(self._stop_mcp_http)  # registered last, so it runs first on close
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         self.watcher = ModuleWatcher(ctx.registry.directory)
@@ -332,9 +333,15 @@ class Shell:
             include_default_pygments_style=False,
         )
 
+    def _stop_mcp_http(self) -> None:
+        if self.ctx.mcp_http is not None:
+            self.ctx.mcp_http.stop()
+            self.ctx.mcp_http = None
+
     def close(self) -> None:
-        """Put back the Rich console, leave the app session, restore the std handles and the
-        console mode, and close the console devices (in that order)."""
+        """Stop a server started with `mcp start`, put back the Rich console, leave the app
+        session, restore the std handles and the console mode, and close the console devices
+        (in that order)."""
         self._cleanup.close()
 
     def __enter__(self) -> Shell:

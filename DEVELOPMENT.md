@@ -43,7 +43,8 @@ shellcraft/
 │   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
 │   ├── banner.py           # startup banner
 │   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting
-│   └── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
+│   ├── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
+│   └── mcp_child.py        # `mcp start/stop`: the HTTP server as a child process of the shell
 ├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module authoring kit: guide, reference module, AI prompt
 ├── tools/
@@ -142,6 +143,7 @@ description)]` (`core/modkit.py`). The pieces:
 - `_Server.create_initialization_options()` always advertises `listChanged`, because the streamable-HTTP manager builds its own init options.
 - **Hot reload** is a 1-second poll (`ModuleWatcher.changes()`). It's cheap for a few dozen files and needs no dependency. The shell polls before each command instead.
 - **`--mcp-http`** runs uvicorn (an mcp dependency) in the same anyio task group as the watcher. `parse_http_address()` only accepts loopback addresses, and DNS-rebinding protection is always configured.
+- **`mcp start`** (`core/mcp_child.py`) runs `python -m core.cli --mcp-http` as a child process in its own process group (a new session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), so Ctrl-C at the prompt doesn't reach it. Its output goes to `~/.shellcraft/mcp-http.log`. `start()` hands the process to the shell as soon as it is spawned (`ctx.mcp_http`), before waiting for the port, so an interrupted start is still tracked; `Shell.close()` stops it.
 
 ## Tests
 
@@ -159,6 +161,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring, terminal size and truecolor, the diagnostics report, `help` printing and `man` paging |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
+| `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |

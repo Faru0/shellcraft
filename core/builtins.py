@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -386,6 +387,127 @@ def _history_entries(ctx: ShellContext) -> list[str]:
     if not path.is_file():
         return []
     return list(reversed(list(FileHistory(str(path)).load_history_strings())))
+
+
+MCP_DOC = """# mcp
+
+Run ShellCraft's MCP server over HTTP in the background while you keep using the shell, so an AI
+client (Claude Code, Claude Desktop…) can call your modules. It is the same server as
+`python main.py --mcp-http HOST:PORT`, as a child process of this shell: Ctrl-C at the prompt
+doesn't stop it, and it stops when the shell exits.
+
+## Usage
+
+```
+mcp                          # status: running or not, address, pid, uptime
+mcp start [HOST:PORT]        # start it (default 127.0.0.1:8765)
+mcp start --allow-system     # ... and let clients run OS commands
+mcp stop                     # stop it
+mcp restart                  # stop and start again at the same address
+mcp log [N]                  # the last N lines of its log (default 20)
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `--allow-system` | Let MCP clients fall back to OS programs (off by default, like `--mcp-http`). |
+
+The server only listens on this machine (`127.0.0.1`, `localhost` or `::1`). Its log is
+`~/.shellcraft/mcp-http.log`. API keys set with `settings NAME` before `mcp start` are passed
+to it; set a key later and `mcp restart` to pass it on. Point a client at the URL `mcp start`
+prints, for example: `claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp`.
+
+## Examples
+
+```
+mcp start
+mcp start 127.0.0.1:9000
+mcp log 50
+mcp stop
+```
+"""
+
+
+def _uptime(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def _mcp_running(ctx: ShellContext) -> Any:
+    """The server started with `mcp start`, or None; forgets one that has exited by itself."""
+    child = ctx.mcp_http
+    if child is not None and not child.running():
+        child.stop()
+        ctx.mcp_http = None
+        return None
+    return child
+
+
+@builtin("mcp", "Start or stop the MCP HTTP server in the background", "mcp [start [HOST:PORT] | stop | restart | log [N]]",
+         stateful=True, doc=MCP_DOC)
+def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import mcp_child
+
+    action, rest = (args[0], args[1:]) if args else ("status", [])
+    child = _mcp_running(ctx)
+
+    if action == "status" and not rest:
+        if child is None:
+            return Text.assemble(("○ ", "sc.muted"), "MCP server not running",
+                                 ("  (start it with: mcp start [HOST:PORT])", "sc.muted"))
+        return Text.assemble(("● ", "sc.success"), "MCP server running at ", (child.url, "sc.accent"),
+                             (f"  pid {child.pid}, up {_uptime(time.time() - child.started)}"
+                              f"{', OS commands allowed' if child.allow_system else ''}", "sc.muted"))
+
+    if action in ("start", "restart"):
+        allow_system = "--allow-system" in rest
+        addresses = [a for a in rest if a != "--allow-system"]
+        if len(addresses) > 1 or any(a.startswith("-") for a in addresses) or (action == "restart" and addresses):
+            raise CommandError("usage: mcp start [HOST:PORT] [--allow-system] | mcp restart")
+        if action == "restart":
+            if child is None:
+                raise CommandError("mcp: the MCP server isn't running (start it with: mcp start)")
+            address = f"{mcp_child._url_host(child.host)}:{child.port}"
+            allow_system = allow_system or child.allow_system
+            child.stop()
+            ctx.mcp_http = None
+        elif child is not None:
+            raise CommandError(f"mcp: the MCP server is already running at {child.url} (mcp stop, or mcp restart)")
+        else:
+            address = addresses[0] if addresses else mcp_child.DEFAULT_ADDRESS
+        def track(spawned: Any) -> None:
+            ctx.mcp_http = spawned
+
+        try:
+            child = ctx.runner("starting the MCP server…",
+                               lambda: mcp_child.start(address, ctx.registry.directory, allow_system, track))
+        except Exception as exc:  # StartError; AddressError from parse_http_address; OSError from Popen
+            ctx.mcp_http = None  # a failed start has already stopped its process
+            raise CommandError(f"mcp: {exc}") from None
+        ctx.mcp_http = child
+        return Text.assemble(("● ", "sc.success"), f"MCP server {action}ed at ", (child.url, "sc.accent"),
+                             (f"  pid {child.pid}{', OS commands allowed' if allow_system else ''}"
+                              f" · log: {mcp_child.log_path()}", "sc.muted"))
+
+    if action == "stop" and not rest:
+        if child is None:
+            raise CommandError("mcp: the MCP server isn't running")
+        code = child.stop()
+        ctx.mcp_http = None
+        return Text.assemble(("■ ", "sc.muted"), "MCP server stopped", (f"  (exit code {code})", "sc.muted"))
+
+    if action == "log" and len(rest) <= 1 and all(r.isdigit() for r in rest):
+        tail = mcp_child.log_tail(int(rest[0]) if rest else 20)
+        return (tail + "\n") if tail else Text("(the MCP server's log is empty)", style="sc.muted")
+
+    raise CommandError("usage: mcp [start [HOST:PORT] [--allow-system] | stop | restart | log [N]]")
 
 
 SETTINGS_DOC = """# settings
