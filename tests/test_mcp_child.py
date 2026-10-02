@@ -156,3 +156,37 @@ def test_the_shell_stops_the_server_when_it_exits(monkeypatch, tmp_path, ctx):
         process = ctx.mcp_http.process
         assert process.poll() is None
     assert process.poll() is not None and ctx.mcp_http is None
+
+
+def test_prompt_marks_a_running_server(monkeypatch, ctx):
+    from rich.console import Console
+
+    from core import shell
+    from core.themes import UI, all_themes
+
+    def marker(sh):
+        return "".join(text for style, text in sh._prompt() if style.startswith("class:mcp"))
+
+    monkeypatch.setattr(shell, "open_windows_console", lambda: None)
+    ctx.ui = UI(all_themes({})["cyberpunk"], Console(file=io.StringIO()))
+    with shell.Shell(ctx) as sh:
+        assert marker(sh) == ""
+        port = _free_port()
+        run_line(f"mcp start 127.0.0.1:{port}", ctx)
+        assert marker(sh) == f"● mcp :{port}"
+        ctx.mcp_http.process.kill()
+        ctx.mcp_http.process.wait()
+        assert marker(sh) == f"✗ mcp :{port}"  # died on its own: shown until noticed
+        run_line("mcp", ctx)
+        assert marker(sh) == ""
+
+
+def test_prompt_marker_shows_a_non_default_host(ctx):
+    from types import SimpleNamespace
+
+    from core import shell
+
+    fake = SimpleNamespace(ctx=ctx)
+    ctx.mcp_http = SimpleNamespace(host="::1", port=9000, url="http://[::1]:9000/mcp", running=lambda: True)
+    assert shell.Shell._mcp_marker(fake) == [("class:sep", " ─ "), ("class:mcp", "● mcp [::1]:9000")]
+    ctx.mcp_http = None

@@ -60,6 +60,8 @@ class ThemeDef:
                 "path": f"bold {self.path}",
                 "arrow": f"bold {self.prompt}",
                 "failed": f"bold {self.error}",
+                "mcp": self.success,  # the `mcp start` server, running
+                "mcp.down": f"bold {self.error}",  # ... or exited on its own
                 "auto-suggestion": f"italic {self.muted}",
                 "completion-menu": "bg:#1c1c1c #d0d0d0",
                 "completion-menu.completion.current": f"bg:{self.accent} #000000 bold",

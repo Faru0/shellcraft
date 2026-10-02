@@ -394,7 +394,8 @@ MCP_DOC = """# mcp
 Run ShellCraft's MCP server over HTTP in the background while you keep using the shell, so an AI
 client (Claude Code, Claude Desktop…) can call your modules. It is the same server as
 `python main.py --mcp-http HOST:PORT`, as a child process of this shell: Ctrl-C at the prompt
-doesn't stop it, and it stops when the shell exits.
+doesn't stop it, and it stops when the shell exits. While it runs, the prompt shows
+`● mcp :8765`; a red `✗ mcp :8765` means it exited on its own (`mcp log` says why).
 
 ## Usage
 

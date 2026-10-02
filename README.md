@@ -264,7 +264,7 @@ DNS-rebinding protection).
 
 To keep using the shell while the HTTP server runs, start it from inside the shell instead:
 `mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
-stop it), `mcp` shows its status, `mcp log` its log, and `mcp stop` stops it. It also stops when
+stop it, and the prompt shows `● mcp :8765` while it runs), `mcp` shows its status, `mcp log` its log, and `mcp stop` stops it. It also stops when
 you leave the shell. See `man mcp`.
 
 - **One tool per module**, with typed parameters from its `.skill` file, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.

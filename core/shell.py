@@ -355,10 +355,22 @@ class Shell:
             ("class:frame", "╭─"), ("class:name", " ⚡shellcraft "), ("class:sep", "─ "),
             ("class:user", self.user_host), ("class:sep", " ─ "), ("class:path", _pretty_cwd()),
         ]
+        parts += self._mcp_marker()
         if self.last_failed:
             parts += [("class:sep", " "), ("class:failed", "[✗]")]
         parts += [("", "\n"), ("class:frame", "╰─"), ("class:arrow", "❯ ")]
         return FormattedText(parts)
+
+    def _mcp_marker(self) -> list[tuple[str, str]]:
+        """`● mcp :8765` while a server started with `mcp start` runs; `✗ mcp :8765` if it died
+        on its own (until `mcp` or `mcp stop` notices). Nothing when there is none."""
+        child = self.ctx.mcp_http
+        if child is None:
+            return []
+        address = f":{child.port}" if child.host in ("127.0.0.1", "localhost") else child.url.split("/")[2]
+        if child.running():
+            return [("class:sep", " ─ "), ("class:mcp", f"● mcp {address}")]
+        return [("class:sep", " ─ "), ("class:mcp.down", f"✗ mcp {address}")]
 
     def banner(self) -> None:
         self.ui.console.print(render_banner(self.ui, self.ctx.registry))
