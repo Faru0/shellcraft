@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -247,8 +246,8 @@ a pipeline (`ls | grep py`). An alias may use its own name, as above, without lo
 
 Put a backslash in front of a command to skip its alias: `\\ls` runs the plain `ls`.
 
-An alias is a single command: it can't contain `|`, `>` or `>>`. Aliases apply in the shell and
-with `-c`, never to AI clients over MCP. `which NAME` shows whether a name is an alias.
+An alias is a single command: it can't contain `|`, `>` or `>>`. Aliases apply in the shell,
+never to AI clients over MCP. `which NAME` shows whether a name is an alias.
 
 ## Examples
 
@@ -378,7 +377,7 @@ def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 
 def _history_entries(ctx: ShellContext) -> list[str]:
-    """Saved commands, oldest first: the live REPL history, or the history file (for -c mode)."""
+    """Saved commands, oldest first: the live REPL history, or the history file without one."""
     if ctx.history is not None:
         return list(ctx.history.get_strings())
     from prompt_toolkit.history import FileHistory
@@ -418,7 +417,7 @@ Modules that call paid or registered APIs declare the environment variables they
 `settings` lists them after the on/off settings as *module · label*. The value is never shown:
 the table says `set ••••ab12` (stored by ShellCraft), `from environment` (exported by your own
 shell) or `not set`. A stored key is exported to the environment when ShellCraft starts
-(interactive, `-c` and `--mcp` alike) and replaces a value from your shell. `settings reset NAME`
+(the shell and `--mcp` alike) and replaces a value from your shell. `settings reset NAME`
 forgets the stored key and brings back your shell's value, if it had one.
 
 Keys are kept in plain text in `config.json`, which is made readable by you only (mode 600).
@@ -506,19 +505,13 @@ def _setting_key(key: str, keys: dict[str, settings.EnvEntry] | None = None) -> 
 
 
 def _ask_secret(ctx: ShellContext, entry: settings.EnvEntry) -> str:
-    """Read a value without echoing it; only possible in an interactive terminal."""
+    """Read a value without echoing it; only possible in the interactive shell."""
     label = f"{entry.label} ({entry.name}): "
     try:
         if ctx.interactive:
             from prompt_toolkit import prompt
 
             return prompt(label, is_password=True)
-        from core.stdio import is_console
-
-        if is_console(sys.stdin):  # not isatty(): on Windows that is True for NUL too
-            import getpass
-
-            return getpass.getpass(label)
     except (EOFError, KeyboardInterrupt):
         raise CommandError(f"settings: cancelled; {entry.name} unchanged") from None
     raise CommandError(f"settings: no terminal to ask for {entry.name}; use: settings {entry.name} VALUE")

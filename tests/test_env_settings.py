@@ -102,11 +102,11 @@ def test_errors(ctx):
         run_line("settings NOPE on", ctx)
 
 
-def test_startup_exports_saved_keys_in_every_mode(tmp_path, clean_env, capsys):
+def test_startup_exports_saved_keys_in_every_mode(tmp_path, clean_env, started):
     clean_env.setenv("SHELLCRAFT_HOME", str(tmp_path))
     clean_env.chdir(tmp_path)
     (tmp_path / "config.json").write_text(json.dumps({"env": {KEY: SECRET, "bad name": "x"}}))
-    assert main(["-c", "pwd"]) == 0
+    assert main([]) == 0
     assert os.environ[KEY] == SECRET and "bad name" not in os.environ
     del os.environ[KEY]
     import core.mcp_server
@@ -174,12 +174,12 @@ def test_loader_rejects_bad_declarations(tmp_path, declaration, error):
     assert any(error in w for w in registry.warnings), registry.warnings
 
 
-def test_environment_wins_over_stored_key_at_startup(tmp_path, clean_env):
+def test_environment_wins_over_stored_key_at_startup(tmp_path, clean_env, started):
     clean_env.setenv("SHELLCRAFT_HOME", str(tmp_path))
     clean_env.chdir(tmp_path)
     (tmp_path / "config.json").write_text(json.dumps({"env": {KEY: SECRET}}))
     clean_env.setenv(KEY, "from-my-shell")
-    assert main(["-c", "pwd"]) == 0
+    assert main([]) == 0
     assert os.environ[KEY] == "from-my-shell"
     config = {"env": {KEY: SECRET}}
     assert settings.env_status(config, KEY) == ("environment", "from environment (stored ••••abcd unused)")

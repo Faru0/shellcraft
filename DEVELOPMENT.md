@@ -18,7 +18,7 @@ python tools/modtest.py --all                           # check every bundled mo
 shellcraft/
 ├── main.py                 # launcher → core.cli.main
 ├── core/
-│   ├── cli.py              # argument parsing; chooses interactive / -c / --mcp / --mcp-http mode
+│   ├── cli.py              # argument parsing; chooses interactive / --mcp / --mcp-http mode
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text; Windows console (CONIN$/CONOUT$)
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer → Pipeline(segments, redirect)
@@ -68,11 +68,10 @@ shellcraft/
 - **Window size:** `core.shell.TerminalConsole` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree (on Windows: the visible window of `CONOUT$`, with delayed wrap). `--diag` or the `diagnostics` setting prints every size source side by side.
 - **Console detection:** use `core.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
 - **Paging:** `show()` pages output taller than the window. A command can override that by returning `Paged(value, page=True/False)` (`core.context`): `man` always pages (`man -p` prints), `help` always prints. Pipes, files and MCP see only `value`.
-- **`-c` mode** writes results to stdout (plain text when it isn't a console), so pipes and redirects work. On a Windows console it still uses `WindowsConsole` for the pager.
 - **Encoding:** `utf8_stdio()` makes stdout/stderr UTF-8 when they aren't already (Windows pipes and files default to cp1252), unless `PYTHONIOENCODING` is set. The MCP stdio transport wraps the binary streams as UTF-8 itself.
 - **OS commands:** output is decoded as UTF-8 with `\r\n` → `\n`. `cmd.exe` internal commands run with `/u`, so their output arrives as UTF-16.
 
-`run_line()` doesn't depend on the UI. The REPL, `-c` mode, the MCP server and the tests all share it.
+`run_line()` doesn't depend on the UI. The REPL, the MCP server and the tests all share it.
 
 ### Permission flags (`ShellContext`)
 
@@ -125,7 +124,7 @@ description)]` (`core/modkit.py`). The pieces:
 | --- | --- |
 | `core/loader.py` | `_env_settings()` validates the declaration (UPPER_CASE names, non-empty text, no duplicates). A bad one makes the module fail to load with a warning. |
 | `core/settings.py` | `env_settings(registry)` collects them, labelled `module · label`. `env_set` / `env_reset` / `export_env` keep `config["env"]` and `os.environ` in sync. `_ORIGINAL_ENV` remembers the shell's own values, so a reset can restore them. `mask()` and `env_status()` produce the display text, and `redact_line()` hides values from history. |
-| `core/cli.py` | Calls `export_env()` right after loading the config, before choosing the mode, so `-c`, the REPL and `--mcp` all see the keys. |
+| `core/cli.py` | Calls `export_env()` right after loading the config, before choosing the mode, so the REPL and `--mcp` both see the keys. |
 | `core/builtins.py` | The `settings` table rows, the hidden prompt (`prompt_toolkit.prompt(is_password=True)`, or `getpass` outside the REPL), set and reset. |
 | `core/shell.py` | `RedactingFileHistory` stores `settings NAME ••••`. |
 | `core/config.py` | `save_config()` writes with mode 600 while `"env"` is non-empty. |
@@ -151,7 +150,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_parser.py` | tokenizer, quoting, redirects, parse errors |
 | `test_pipeline.py` | chaining, failures, redirection, `cd`, restricted contexts |
 | `test_commands.py` | every ported builtin |
-| `test_settings.py` | settings, the OS-command gate, `--allow-system` |
+| `test_settings.py` | settings, the OS-command gate, `--allow-system`, no `-c` mode |
 | `test_env_settings.py` | API keys: listing, masking, prompt, set/reset, export at startup, history redaction, completion, loader validation |
 | `test_options.py` | switch parsing and Tab completion |
 | `test_loader.py` | module discovery, `.skill` parsing |
@@ -159,7 +158,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring, terminal size and truecolor, the diagnostics report, `help` printing and `man` paging |
-| `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, plain `-c` output, `cmd.exe` builtins read as UTF-16 |
+| `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |

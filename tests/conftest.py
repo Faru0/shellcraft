@@ -20,6 +20,36 @@ OS_UPPER = f'"{sys.executable}" -c "print(input().upper())"'
 
 
 @pytest.fixture
+def started(monkeypatch):
+    """Run cli.main() through startup with a stand-in shell; returns the contexts it was given."""
+    import core.shell
+
+    contexts: list[ShellContext] = []
+
+    class StubShell:
+        def __init__(self, ctx):
+            contexts.append(ctx)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def diagnostics(self):
+            pass
+
+        def banner(self):
+            pass
+
+        def loop(self):
+            return 0
+
+    monkeypatch.setattr(core.shell, "Shell", StubShell)
+    return contexts
+
+
+@pytest.fixture
 def registry() -> ModuleRegistry:
     reg = ModuleRegistry(MODULES_DIR)
     reg.load()

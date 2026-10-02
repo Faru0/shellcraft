@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from core import cli, pipeline
+from core import pipeline
 from core.stdio import is_console, utf8_stdio
 
 
@@ -70,12 +70,6 @@ def test_utf8_stdio_leaves_utf8_and_missing_streams_alone(monkeypatch):
     monkeypatch.setattr(sys, "stderr", None)  # pythonw.exe
     utf8_stdio()
     assert out.encoding == "UTF8"
-
-
-def test_run_once_writes_plain_text_when_stdout_is_not_a_console(capsys, tmp_path, monkeypatch):
-    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    assert cli.main(["-c", "echo a b | tr a-z A-Z", "--modules", str(tmp_path)]) == 0
-    assert capsys.readouterr().out == "A B\n"
 
 
 def test_windows_cmd_builtins_are_read_as_utf16():

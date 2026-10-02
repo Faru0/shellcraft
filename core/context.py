@@ -25,7 +25,7 @@ def _direct(label: str, fn: Callable[[], Any]) -> Any:
 @dataclass
 class ShellContext:
     registry: ModuleRegistry
-    ui: UI | None = None  # None when headless (-c without a tty, MCP)
+    ui: UI | None = None  # None when headless (MCP)
     config: dict[str, Any] = field(default_factory=dict)
     runner: Runner = _direct
     interactive: bool = False

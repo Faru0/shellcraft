@@ -2,7 +2,6 @@
 """ShellCraft launcher.
 
     python main.py                 interactive shell
-    python main.py -c "a | b > f"  run one command line
     python main.py --mcp           MCP server over stdio
 """
 

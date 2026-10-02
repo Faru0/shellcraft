@@ -32,7 +32,7 @@ cp templates/module/template.md    modules/wordfreq.md
 cp templates/module/template.skill modules/wordfreq.skill
 # rename "template" → "wordfreq" in all three files, then write your logic
 python tools/modtest.py modules/wordfreq.py          # check it
-python main.py -c "echo a b a | wordfreq"            # try it
+python main.py                                       # try it: echo a b a | wordfreq
 ```
 
 In a running shell, type `reload` to pick up a new module without restarting.

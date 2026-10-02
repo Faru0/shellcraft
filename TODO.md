@@ -6,7 +6,7 @@
 ## Assessment
 
 **What's solid**
-- The layering is clean. The parser, the pipeline executor and the UI are separate. `run_line()` is UI-agnostic and shared by the REPL, `-c` mode, the MCP server and the tests.
+- The layering is clean. The parser, the pipeline executor and the UI are separate. `run_line()` is UI-agnostic and shared by the REPL, the MCP server and the tests.
 - The three-file module contract (`.py` / `.md` / `.skill`) is simple and works well. A broken module becomes a warning, not a crash.
 - The MCP integration is safe by default: the pipeline tool can't redirect to files, can't use shell-state builtins, and can't run system commands.
 - The UX feels good: themes, ghost text, delayed spinner, auto-pager and error panels that point at the failing segment.
@@ -40,8 +40,8 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **A non-editable `pip install .` crashed on startup**: `packages = ["core"]` left out `core.commands`, and the wheel had no modules. The wheel now ships `core.commands` and the bundled modules (as `core/bundled_modules`, with their `.md` and `.skill` files). An installed copy loads those modules, and a source checkout or editable install still uses `./modules`. Verified by installing the wheel into a clean venv. — `pyproject.toml`, `core/cli.py`
 - [ ] **Packaging leftovers**: load a user directory `~/.shellcraft/modules` next to the bundled ones, so an installed copy can add modules without `--modules`. `tools/` and `templates/` still work from a source checkout only. The generic top-level name `core` can collide with other packages in site-packages, so move it under a `shellcraft/` package. — `core/cli.py`, `core/loader.py`, `pyproject.toml`
 - [x] **MCP values that start with `-` became switches**: `filter` with `{"pattern": "-v"}` failed, and text from untrusted content could inject switches. `params.to_argv` now passes such a value as `--flag=VALUE` and puts `--` before the positionals. — `core/params.py`
-- [x] **Windows 11 console I/O**: the interactive shell used whatever `sys.stdin`/`sys.stdout` were and trusted `isatty()` (True for `NUL`), and prompt_toolkit could read keys from `CONIN$` while putting a different handle into raw mode. It now opens `CONIN$`/`CONOUT$` itself with VT processing on (`WindowsConsole`), `-c` uses `is_console()`, and stdout/stderr are UTF-8 for pipes and files. `Shell` owns that session (a context manager): it enters the prompt_toolkit app session before the `PromptSession` is built, moves Rich to a truecolor VT console on `CONOUT$`, and on exit, a crash or a failed setup restores the Rich console, the app session, the std handles and the console mode in reverse order. *(Needs a pass on a real Windows 11 machine: see the Windows verification item.)* — `core/shell.py`, `core/cli.py`, `core/stdio.py`
-- [x] **Windows: redirected output crashed on box drawing**: `-c "tree" > out.txt`, error panels on `2>` and `mkprompt > prompt.txt` raised `UnicodeEncodeError` under cp1252. — `core/stdio.py`, `tools/`
+- [x] **Windows 11 console I/O**: the interactive shell used whatever `sys.stdin`/`sys.stdout` were and trusted `isatty()` (True for `NUL`), and prompt_toolkit could read keys from `CONIN$` while putting a different handle into raw mode. It now opens `CONIN$`/`CONOUT$` itself with VT processing on (`WindowsConsole`), and stdout/stderr are UTF-8 for pipes and files. `Shell` owns that session (a context manager): it enters the prompt_toolkit app session before the `PromptSession` is built, moves Rich to a truecolor VT console on `CONOUT$`, and on exit, a crash or a failed setup restores the Rich console, the app session, the std handles and the console mode in reverse order. *(Needs a pass on a real Windows 11 machine: see the Windows verification item.)* — `core/shell.py`, `core/cli.py`, `core/stdio.py`
+- [x] **Windows: redirected output crashed on box drawing**: error panels on `2>` and `mkprompt > prompt.txt` raised `UnicodeEncodeError` under cp1252. — `core/stdio.py`, `tools/`
 - [x] **Windows: `dir`/`type` output was decoded as UTF-8** although `cmd.exe` writes the OEM code page; internal commands now run with `cmd /u` and are read as UTF-16. — `core/pipeline.py`
 - [ ] **`&` is still passed on as an argument** **(verified)**: `rm -f a & ls` deletes both `a` and `ls`, and `echo hi & echo there` prints `hi & echo there`. It's the same class as the fixed `;` bug. Reject an unquoted `&` with a `ParseError` until background jobs exist. — `core/parser.py`
 - [ ] **A malformed `config.json` crashes startup in every mode, MCP included** **(verified)**: `{"env": [...]}`, `{"settings": [...]}` or `{"themes": [...]}` ends in `AttributeError`. Check each section's type in `load_config()`, then drop it with a warning. — `core/config.py`, `core/settings.py`, `core/themes.py`
@@ -63,7 +63,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Two open shells overwrite each other's config** **(verified)**: each session writes its whole in-memory config, so an alias (or API key) saved in one shell is lost when the other changes the theme. The write isn't atomic either, so a crash mid-write truncates `config.json` along with the stored keys. Re-read and merge only the changed key before saving, and write through a temp file plus `os.replace`. — `core/config.py`, `core/builtins.py`
 - [ ] **`grep -m 0` prints one line** **(verified)**: GNU grep prints nothing. `match_lines` appends before checking the limit. — `core/commands/text.py`
 - [ ] **A quoted `~` in a redirect target is still expanded** **(verified)**: `echo hi > '~/f'` writes to the home directory, although quoting keeps `~` literal everywhere else. The tokenizer already expands unquoted `~`, so drop the second `expanduser()`. — `core/pipeline.py`
-- [ ] **Broken pipe in `-c` mode** **(verified)**: `shellcraft -c "cat big.txt" | head -1` prints a `BrokenPipeError` traceback and exits 1. Catch `BrokenPipeError`, redirect stdout to devnull and exit quietly. Ctrl-C during `-c` isn't caught either (a traceback instead of exit 130). — `core/cli.py::_run_once`
+- [x] **One-shot `-c` mode removed** (2026-10-02): ShellCraft is used as the interactive shell (`python main.py`) or an MCP server, never as `shellcraft -c "…"`. Its open bugs went with it (a `BrokenPipeError` traceback when piped into `head`, no exit 130 on Ctrl-C, not passing on a system command's exit code), and so did its Windows-console-for-the-pager special case. — `core/cli.py`
 - [ ] **A redirect silently creates missing directories** **(verified)**: `echo a > typo/dir/f.txt` makes `typo/dir/`. POSIX shells fail with "No such file or directory", which catches typos. Drop the `mkdir(parents=True)`. — `core/pipeline.py`
 - [ ] **Ctrl-C abandons the module worker thread**, which keeps running. Add a cooperative cancel flag in `modkit` that modules can check, or at least document the behavior. — `core/output.py::make_spinner_runner`
 - [ ] **`to_text()` flattens at a fixed width of 100**, so `help | filter` ignores the real terminal width. Pass the console width when there is one. — `core/context.py`
@@ -100,7 +100,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [ ] **Exit status**:
   - a `status` builtin or `$?`
   - show the code in the prompt as `[✗ 1]`
-  - `grep` returns status 1 when nothing matches, so scripts can test it. Today `shellcraft -c "echo hi | grep zzz"` exits 0 **(verified)**
+  - `grep` returns status 1 when nothing matches, so `status` / `$?` and the prompt show it
 
 ## ✨ Features — P2
 
@@ -139,15 +139,14 @@ Items marked **(verified)** were reproduced during the assessment.
   - the `show()` paging threshold
   - `theme` persistence
   - custom theme parsing
-  - `-c` exit codes
   - the banner's narrow-terminal fallback
-  - a packaging smoke test: build the wheel, install it into a clean venv, and run `shellcraft -c help` (it would have caught the `core.commands` crash)
+  - a packaging smoke test: build the wheel, install it into a clean venv, and run `shellcraft --version` (it would have caught the `core.commands` crash)
 - [ ] **`.gitlab-ci.yml`**: run pytest on Linux and Windows runners, Python 3.11–3.14 (development happens on 3.14), plus the packaging smoke test and `modtest --all --strict`.
 - [ ] **Tooling**: ruff (lint and format) and mypy config in `pyproject.toml`, plus a pre-commit hook. Neither is installed in the dev environment yet; add them to the `dev` extra. A trial run (2026-09-30) found no real ruff errors (35 style hints, 14 auto-fixable) and 41 annotation-level mypy errors to clear before mypy can gate CI.
 - [ ] **Offline bundle upkeep**: `Install/` adds ~112 MB of binaries to the git history, and every refresh adds more. Consider publishing it as a release asset or tracking it with Git LFS. Run `setup.ps1` on a real Windows machine (so far it's only been syntax-checked), and document how to refresh the wheels.
 - [x] **Docs split**: README (install and usage), `templates/README.md` (module authoring), `DEVELOPMENT.md` (layout, architecture, tests).
 - [ ] **Docs**: a README screenshot or asciinema recording, and a CHANGELOG. *(LICENSE: MIT, added.)*
-- [ ] **Windows verification pass**: covering prompt rendering (Windows Terminal and classic conhost, where `⚡` may render one cell wide), the pager, `cmd` builtins, paths and the MCP stdio server. Also `python main.py < NUL`, `-c "help" > NUL` and `echo x | python main.py -c help`, the cases the console fixes target. For the window size: run `python main.py --diag` and keep the report, check that full-width panels leave no blank row after them (delayed wrap) and that `help` re-wraps after a resize, in both Windows Terminal and classic conhost.
+- [ ] **Windows verification pass**: covering prompt rendering (Windows Terminal and classic conhost, where `⚡` may render one cell wide), the pager, `cmd` builtins, paths and the MCP stdio server. Also `python main.py < NUL` and `python main.py > NUL`, the cases the console fixes target. For the window size: run `python main.py --diag` and keep the report, check that full-width panels leave no blank row after them (delayed wrap) and that `help` re-wraps after a resize, in both Windows Terminal and classic conhost.
 
 ## 🚫 Won't do
 
@@ -157,7 +156,6 @@ The OS-program fallback (`system_commands` / `--allow-system`) stays opt-in and 
 - **Interactive system programs misbehave** (`vim`, `top`, `ssh`, `python`) because their stdin and stdout are pipes. — `core/pipeline.py`
 - **A system command's stderr is dropped on success.** — `core/pipeline.py`
 - **Captured system output loses its colors** (no `FORCE_COLOR` / `CLICOLOR_FORCE`). — `core/pipeline.py`
-- **`-c` doesn't return the failing system command's real exit code.** — `core/cli.py`
 
 MCP file access is deliberately not sandboxed: the AI can read every file the user running the server can read.
 

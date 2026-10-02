@@ -4,7 +4,7 @@ An alias replaces the first word of a pipeline segment; the rest of the segment'
 appended, so with the alias above `ls -r src` runs `ls -a -l -r src`. Expansion repeats while the
 new first word is another alias it hasn't used yet, so `ls` may alias to `ls …` without looping.
 A leading backslash (`\\ls`) runs the command itself, skipping its alias. Aliases apply to the
-interactive shell and `-c`, never to MCP clients (ShellContext.allow_aliases).
+interactive shell, never to MCP clients (ShellContext.allow_aliases).
 """
 
 from __future__ import annotations

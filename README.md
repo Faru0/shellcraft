@@ -59,7 +59,6 @@ instead if you edit the bundled modules, so changes take effect without reinstal
 
 ```bash
 python main.py                                        # start the interactive shell
-python main.py -c "cat notes.txt | grep -i todo"      # run one command line and exit
 python main.py --mcp                                  # run as an MCP server
 ```
 
@@ -112,7 +111,7 @@ unalias ll              # remove one (unalias -a removes all)
 
 An alias replaces the first word of a command, and anything you type after it is added at the end.
 Aliases work in every step of a pipeline, are saved in `~/.shellcraft/config.json`, and apply in the
-shell and with `-c`, never to AI clients over MCP. `which ls` shows whether a name is an alias.
+shell, never to AI clients over MCP. `which ls` shows whether a name is an alias.
 
 ### Long output
 
@@ -125,7 +124,6 @@ matches, and `q` closes it. Turn it off with `settings pager off`.
 
 | Option | Meaning |
 | --- | --- |
-| `-c "LINE"` | Run one command line and exit. The exit code is 1 if it fails. Output is plain text when piped, so it works in scripts. |
 | `--mcp` | Run as an MCP server over stdio instead of the interactive shell. |
 | `--mcp-http HOST:PORT` | Run as an MCP server over streamable HTTP at `http://HOST:PORT/mcp`. Only addresses on this machine are allowed (`127.0.0.1`, `localhost`, `::1`). |
 | `--theme NAME` | Use a theme for this session only. |
