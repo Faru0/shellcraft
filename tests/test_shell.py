@@ -1,8 +1,10 @@
+import contextlib
 import ntpath
 
 import pytest
 
 from core import shell
+from core.context import ShellContext
 from core.output import _find_line, _highlight, _next_match
 
 
@@ -98,54 +100,159 @@ def test_windows_console_falls_back_without_a_console(monkeypatch):
     assert shell.open_windows_console() is None
 
 
-def test_window_size_is_the_visible_window_minus_the_wrap_column():
+def test_window_size_is_the_visible_window_not_the_buffer():
     from types import SimpleNamespace as NS
 
-    info = NS(srWindow=NS(Left=0, Top=100, Right=119, Bottom=129), dwSize=NS(X=120, Y=9000))
-    assert shell._window_size(info) == shell.Size(rows=30, columns=119)
+    # conhost: a 9001-row scrollback, scrolled down; only srWindow is the visible window.
+    info = NS(srWindow=NS(Left=0, Top=100, Right=119, Bottom=129), dwSize=NS(X=120, Y=9001))
+    assert shell._window_size(info) == shell.Size(rows=30, columns=120)
+    # Without delayed wrap, writing the last column wraps at once, so it is left out.
+    assert shell._window_size(info, full_width=False) == shell.Size(rows=30, columns=119)
+    # A buffer wider than the window (horizontal scrollbar): the window counts.
+    wide_buffer = NS(srWindow=NS(Left=0, Top=0, Right=99, Bottom=9), dwSize=NS(X=300, Y=10))
+    assert shell._window_size(wide_buffer).columns == 100
     narrow_buffer = NS(srWindow=NS(Left=0, Top=0, Right=199, Bottom=9), dwSize=NS(X=80, Y=10))
-    assert shell._window_size(narrow_buffer).columns == 79
+    assert shell._window_size(narrow_buffer).columns == 80
 
 
-def test_cli_runs_the_interactive_shell_on_the_windows_console(monkeypatch, tmp_path):
+def _sized_output(rows, columns):
+    from prompt_toolkit.output import DummyOutput
+
+    output = DummyOutput()
+    output.get_size = lambda: shell.Size(rows=rows, columns=columns)
+    return output
+
+
+def test_terminal_console_measures_like_the_prompt(monkeypatch):
     import io
 
+    from prompt_toolkit.application.current import create_app_session
+
+    monkeypatch.setenv("COLUMNS", "300")  # a stale snapshot must not win over the live size
+    monkeypatch.setenv("LINES", "99")
+    sizes = [(30, 120)]
+    output = _sized_output(0, 0)
+    output.get_size = lambda: shell.Size(*sizes[0])
+    console = shell.TerminalConsole(file=io.StringIO(), force_terminal=True)
+    with create_app_session(output=output):
+        assert (console.width, console.height) == (120, 30)
+        sizes[0] = (40, 90)  # the window was resized
+        assert console.size == (90, 40)
+        console.width = 50  # an explicit width still wins
+        assert console.size == (50, 40)
+
+
+def test_terminal_console_falls_back_to_rich_without_an_output(monkeypatch):
+    import io
+
+    from prompt_toolkit.application.current import create_app_session
+
+    output = _sized_output(0, 0)
+
+    def broken():
+        raise OSError("not a terminal")
+
+    output.get_size = broken
+    monkeypatch.setenv("COLUMNS", "77")
+    console = shell.TerminalConsole(file=io.StringIO(), force_terminal=True)
+    with create_app_session(output=output):
+        assert console.width == 77
+
+
+class _FakeWindowsConsole:
+    def __init__(self, events):
+        import io
+
+        self.events = events
+        self.stream = io.StringIO()
+
+    @contextlib.contextmanager
+    def session(self):
+        from prompt_toolkit.application.current import create_app_session
+
+        self.events.append("session")
+        try:
+            with create_app_session(output=_sized_output(30, 120)):  # a 120x30 window
+                yield
+        finally:
+            self.events.append("session closed")
+
+    def close(self):
+        self.events.append("console closed")
+
+
+def _windows_ui():
     from rich.console import Console
 
+    from core.themes import UI, all_themes
+
+    return UI(all_themes({})["cyberpunk"], Console(highlight=False))
+
+
+def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path):
+    from core.loader import ModuleRegistry
+
+    events = []
+    console = _FakeWindowsConsole(events)
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setattr(shell, "open_windows_console", lambda: console)
+    ui = _windows_ui()
+    original = ui.console
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
+
+    with shell.Shell(ctx) as sh:
+        assert events == ["session"]
+        assert ui.console.file is console.stream
+        assert ui.console.is_terminal and not ui.console.legacy_windows
+        assert ui.console.color_system == "truecolor"
+        assert ui.console.size == (120, 30)  # measured like the prompt: from the console window
+        sh.ui.console.print("[sc.accent]hi[/]")  # the theme is on the new console
+        assert "hi" in console.stream.getvalue()
+    # The Rich console comes back first, then the session ends, then the console closes.
+    assert ui.console is original
+    assert events == ["session", "session closed", "console closed"]
+
+
+def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_path):
+    from core.loader import ModuleRegistry
+
+    events = []
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setattr(shell, "open_windows_console", lambda: _FakeWindowsConsole(events))
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(shell, "PromptSession", broken)
+    ui = _windows_ui()
+    original = ui.console
+    with pytest.raises(RuntimeError):
+        shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=ui))
+    assert ui.console is original
+    assert events == ["session", "session closed", "console closed"]
+
+
+def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
     from core import cli
 
     events = []
 
-    class FakeConsole:
-        console = Console(file=io.StringIO())
-
-        def rich_console(self):
-            return self.console
-
-        def session(self):
-            class Session:
-                def __enter__(self):
-                    events.append("session")
-
-                def __exit__(self, *exc):
-                    events.append("session closed")
-
-            return Session()
-
-        def close(self):
-            events.append("console closed")
-
     class FakeShell:
         def __init__(self, ctx):
-            events.append(("shell", ctx.ui.console is FakeConsole.console))
+            console = ctx.ui.console
+            events.append(("shell", console.is_terminal, console.color_system, console.legacy_windows))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            events.append("shell closed")
 
         def loop(self):
             raise RuntimeError("boom")
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    monkeypatch.setattr(shell, "open_windows_console", FakeConsole)
     monkeypatch.setattr(shell, "Shell", FakeShell)
     with pytest.raises(RuntimeError):
         cli.main(["--no-banner", "--modules", str(tmp_path)])
-    # Rich and prompt_toolkit both use the console, and it is restored even when the shell crashes.
-    assert events == ["session", ("shell", True), "session closed", "console closed"]
+    assert events == [("shell", True, "truecolor", False), "shell closed"]

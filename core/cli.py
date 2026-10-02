@@ -86,29 +86,29 @@ def main(argv: list[str] | None = None) -> int:
 
     from rich.console import Console
 
-    from core.shell import Shell, open_windows_console
+    from core.shell import Shell, TerminalConsole, open_windows_console
     from core.stdio import is_console
 
-    interactive = args.command is None
-    # Windows: prompt_toolkit (the prompt, the pager, the hidden API-key prompt) talks to the console
-    # itself, CONIN$ / CONOUT$ with VT sequences on, instead of trusting sys.stdin / sys.stdout and
-    # isatty(). The interactive shell's Rich output goes there too. `-c` keeps writing to stdout, so
-    # its pipes and redirects work, and only needs the console for the pager. Elsewhere this is None.
-    console = open_windows_console() if interactive or is_console(sys.stdout) else None
-    try:
-        if interactive:
-            rich = console.rich_console() if console else None
-        else:
-            rich = Console(highlight=False, force_terminal=is_console(sys.stdout))
-        ctx = ShellContext(registry=registry, ui=UI(themes[theme_name], rich), config=config,
-                           allow_system=allow_system)
-        with console.session() if console else contextlib.nullcontext():
-            if not interactive:
-                return _run_once(args.command, ctx)
-            shell = Shell(ctx)
+    if args.command is None:
+        # The interactive shell is always on a terminal. On Windows, Shell opens the console session
+        # (CONIN$ / CONOUT$ with VT sequences on) and moves this UI's Rich output there. Rich takes
+        # the terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
+        ui = UI(themes[theme_name], TerminalConsole(highlight=False, force_terminal=True, legacy_windows=False,
+                                                   color_system="truecolor"))
+        ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
+        with Shell(ctx) as shell:
             if not args.no_banner and settings.get(config, "banner"):
                 shell.banner()
             return shell.loop()
+
+    # `-c` keeps writing to stdout, so its pipes and redirects get plain text, and only needs the
+    # Windows console for the pager. Elsewhere open_windows_console() is None.
+    ui = UI(themes[theme_name], Console(highlight=False, force_terminal=is_console(sys.stdout)))
+    ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
+    console = open_windows_console() if is_console(sys.stdout) else None
+    try:
+        with console.session() if console else contextlib.nullcontext():
+            return _run_once(args.command, ctx)
     finally:
         if console:
             console.close()

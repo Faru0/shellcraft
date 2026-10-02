@@ -174,6 +174,14 @@ class UI:
         self.pt_style = theme.pt_style()
         self.console.push_theme(theme.rich_theme())
 
+    def use_console(self, console: Console) -> Console:
+        """Switch to another Rich console with the current theme on it; returns the previous one."""
+        previous = self.console
+        if previous is not console:
+            console.push_theme(self.theme.rich_theme())
+            self.console = console
+        return previous
+
     def set_theme(self, theme: ThemeDef) -> None:
         self.console.pop_theme()
         self.console.push_theme(theme.rich_theme())

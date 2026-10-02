@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import getpass
 import os
 import socket
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.application.current import create_app_session, get_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.formatted_text import FormattedText
@@ -18,7 +19,7 @@ from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.output.color_depth import ColorDepth
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.styles import DynamicStyle
-from rich.console import Console
+from rich.console import Console, ConsoleDimensions
 from rich.text import Text
 
 from core import settings
@@ -77,13 +78,51 @@ class RedactingInMemoryHistory(_RedactingHistory, InMemoryHistory):
 _STD_INPUT_HANDLE, _STD_OUTPUT_HANDLE = -10, -11
 # Output mode flags: process \n etc., wrap at the last column, and interpret VT escape sequences.
 _VT_OUTPUT_MODE = 0x0001 | 0x0002 | 0x0004
+# DISABLE_NEWLINE_AUTO_RETURN: delayed wrap, as on a VT terminal. Writing the last column leaves the
+# cursor there until the next character, so a full-width line followed by \r\n is one row, not two.
+# A bare \n then no longer returns the carriage, but every writer here sends \r\n: prompt_toolkit's
+# renderer does, and Python's text streams on Windows translate \n.
+_DELAYED_WRAP = 0x0008
 
 
-def _window_size(info: Any) -> Size:
-    """The visible console window from GetConsoleScreenBufferInfo, as prompt_toolkit's Win32Output
-    measures it: one column less than the window, because writing the last column makes Windows wrap."""
-    return Size(rows=max(1, info.srWindow.Bottom - info.srWindow.Top + 1),
-                columns=max(1, min(info.dwSize.X - 1, info.srWindow.Right - info.srWindow.Left)))
+def _window_size(info: Any, full_width: bool = True) -> Size:
+    """The visible console window from GetConsoleScreenBufferInfo: srWindow, not dwSize, whose height
+    is the whole scrollback (9001 rows in conhost) and whose width can exceed the window. Without
+    delayed wrap, writing the last column moves the cursor at once, so that column is left out."""
+    window = info.srWindow
+    columns = min(info.dwSize.X, window.Right - window.Left + 1)
+    return Size(rows=max(1, window.Bottom - window.Top + 1),
+                columns=max(1, columns if full_width else columns - 1))
+
+
+class TerminalConsole(Console):
+    """A Rich console that measures the terminal the way prompt_toolkit does, by asking the current
+    app session's output, so the prompt and Rich always agree on the size and follow resizes.
+
+    Rich alone tries stdin, stdout, then stderr (only stdout and stderr on Windows) and lets COLUMNS /
+    LINES override them, which are a snapshot from when the shell started if something exported them.
+    On Windows the session's output is WindowsConsole, which reads CONOUT$ directly, whatever the
+    std handles or file descriptors point at. Elsewhere it is stdout's terminal (TIOCGWINSZ).
+    """
+
+    def __init__(self, *args: Any, width: int | None = None, height: int | None = None, **kwargs: Any):
+        super().__init__(*args, width=width, height=height, **kwargs)
+        # Rich's __init__ turns COLUMNS / LINES into a fixed size; only an explicit one stays fixed.
+        self._width, self._height = width, height
+
+    @property
+    def size(self) -> ConsoleDimensions:
+        if self._width is not None and self._height is not None:
+            return super().size
+        try:
+            size = get_app_session().output.get_size()
+        except Exception:  # noqa: BLE001 — no usable output: Rich's own lookup
+            return super().size
+        return ConsoleDimensions(self._width or size.columns, self._height or size.rows)
+
+    @size.setter
+    def size(self, new_size: tuple[int, int]) -> None:
+        Console.size.fset(self, new_size)  # type: ignore[attr-defined]
 
 
 class _ConsoleOutput(Vt100_Output):
@@ -109,8 +148,8 @@ class WindowsConsole:
     included), so prompt_toolkit can end up reading keys from CONIN$ while it puts the std input
     handle into raw mode, which leaves echo and line input on. Here both sides always use the
     console devices, and the process's std handles point at them too, because prompt_toolkit
-    (raw mode, its VT-input check) and Rich (the window size) look the console up with GetStdHandle.
-    Raises OSError when there is no console or it can't process VT sequences (before Windows 10).
+    (raw mode, its VT-input check) looks the console up with GetStdHandle. The size is always read
+    from CONOUT$ itself (see size() and TerminalConsole). Raises OSError when there is no console or it can't process VT sequences (before Windows 10).
     """
 
     def __init__(self) -> None:
@@ -143,7 +182,11 @@ class WindowsConsole:
             conin, self._conout = device("CONIN$"), device("CONOUT$")
             mode = wintypes.DWORD()
             check(k32.GetConsoleMode(self._conout, ctypes.byref(mode)))
-            check(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE))
+            # Prefer delayed wrap, so the whole window width is usable; without it (older consoles
+            # refuse the flag) the size leaves out the last column, as Win32Output does.
+            self.full_width = bool(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE | _DELAYED_WRAP))
+            if not self.full_width:
+                check(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE))
             self._undo.append(lambda: k32.SetConsoleMode(self._conout, mode.value))
             for which, handle in ((_STD_INPUT_HANDLE, conin), (_STD_OUTPUT_HANDLE, self._conout)):
                 previous = k32.GetStdHandle(which)
@@ -171,12 +214,7 @@ class WindowsConsole:
 
     def size(self) -> Size:
         info = self.buffer_info()
-        return Size(rows=24, columns=80) if info is None else _window_size(info)
-
-    def rich_console(self) -> Console:
-        # VT processing is on, so Rich writes plain escape sequences (no legacy Win32 console calls).
-        return Console(file=self.stream, force_terminal=True, legacy_windows=False,
-                       color_system="truecolor", highlight=False)
+        return Size(rows=24, columns=80) if info is None else _window_size(info, self.full_width)
 
     def session(self) -> Any:
         """Context manager: prompt_toolkit apps inside it (prompt, pager, password prompt) use this console."""
@@ -213,12 +251,41 @@ def open_windows_console() -> WindowsConsole | None:
 
 
 class Shell:
+    """The interactive REPL. Use it as a context manager: on Windows it owns the console session
+    (see _open_console), and leaving the `with` block restores the console whatever happened."""
+
     def __init__(self, ctx: ShellContext):
         assert ctx.ui is not None
         self.ctx = ctx
         self.ui = ctx.ui
         self.last_failed = False
         self.user_host = _user_host()
+        self._cleanup = contextlib.ExitStack()
+        try:
+            self._open_console()
+            self._setup()
+        except BaseException:
+            self.close()
+            raise
+
+    def _open_console(self) -> None:
+        """Windows: run on CONIN$ / CONOUT$ (WindowsConsole). The app session must be current before
+        the PromptSession is built, because prompt_toolkit binds an Application's input and output
+        when it is created; the pager and the hidden API-key prompt pick it up the same way."""
+        console = open_windows_console()
+        if console is None:
+            return
+        self._cleanup.callback(console.close)
+        self._cleanup.enter_context(console.session())
+        console_file = console.stream
+        # VT processing is on, so Rich writes plain escape sequences (no legacy Win32 console calls).
+        # Its size comes from CONOUT$, the same as the prompt's, so it follows resizes.
+        previous = self.ui.use_console(TerminalConsole(file=console_file, highlight=False, force_terminal=True,
+                                                       legacy_windows=False, color_system="truecolor"))
+        self._cleanup.callback(self.ui.use_console, previous)
+
+    def _setup(self) -> None:
+        ctx = self.ctx
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         self.watcher = ModuleWatcher(ctx.registry.directory)
@@ -239,6 +306,17 @@ class Shell:
             style=DynamicStyle(lambda: self.ui.pt_style),
             include_default_pygments_style=False,
         )
+
+    def close(self) -> None:
+        """Put back the Rich console, leave the app session, restore the std handles and the
+        console mode, and close the console devices (in that order)."""
+        self._cleanup.close()
+
+    def __enter__(self) -> Shell:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def _prompt(self) -> FormattedText:
         parts = [
