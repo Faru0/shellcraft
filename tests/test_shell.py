@@ -1,4 +1,5 @@
 import contextlib
+import io
 import ntpath
 
 import pytest
@@ -256,3 +257,114 @@ def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         cli.main(["--no-banner", "--modules", str(tmp_path)])
     assert events == [("shell", True, "truecolor", False), "shell closed"]
+
+
+# ── Console diagnostics ──────────────────────────────────────────────────────
+
+def test_diagnostics_report_lists_every_size_source(monkeypatch):
+    import io
+
+    from prompt_toolkit.application.current import create_app_session
+
+    from core.diagnostics import console_report
+
+    monkeypatch.setenv("COLUMNS", "300")
+    ui = _windows_ui()
+    ui.use_console(shell.TerminalConsole(file=io.StringIO(), force_terminal=True, color_system="truecolor"))
+    with create_app_session(output=_sized_output(30, 120)):
+        report = console_report(ui)
+    lines = report.splitlines()
+    assert lines[0].startswith("----- shellcraft console diagnostics")
+    assert lines[-1].startswith("----- end of shellcraft console diagnostics")
+    assert "prompt_toolkit get_size() = Size(rows=30, columns=120)" in report
+    assert "rich ui.console.size = (120, 30)" in report
+    assert "COLUMNS='300'" in report
+    assert "color_system=truecolor" in report
+    assert "\x1b" not in report  # plain text, to paste into a bug report
+
+
+def test_diagnostics_report_never_raises():
+    from core.diagnostics import _flags, _try
+
+    assert _try(lambda: 1 / 0) == "<ZeroDivisionError: division by zero>"
+    assert _flags(0x0007, {1: "A", 2: "B", 4: "C"}) == "0x0007 A | B | C"
+    assert _flags(0x0021, {1: "A"}) == "0x0021 A | 0x20"
+    assert _flags(None, {}) == "<unknown>"
+
+
+@pytest.mark.parametrize("argv, setting, printed", [
+    (["--diag"], False, True), ([], True, True), ([], False, False),
+])
+def test_cli_prints_diagnostics_first_when_asked(monkeypatch, tmp_path, argv, setting, printed):
+    import json
+
+    from core import cli
+
+    events = []
+
+    class FakeShell:
+        def __init__(self, ctx):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def diagnostics(self):
+            events.append("diagnostics")
+
+        def banner(self):
+            events.append("banner")
+
+        def loop(self):
+            return 0
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    (tmp_path / "config.json").write_text(json.dumps({"settings": {"diagnostics": setting}}))
+    monkeypatch.setattr(shell, "Shell", FakeShell)
+    assert cli.main([*argv, "--modules", str(tmp_path)]) == 0
+    assert events == (["diagnostics", "banner"] if printed else ["banner"])
+
+
+# ── Truecolor prompt on Linux ────────────────────────────────────────────────
+
+class _Tty(io.StringIO):
+    def isatty(self):
+        return True
+
+
+@pytest.mark.parametrize("env, tty, expected", [
+    ({"COLORTERM": "truecolor"}, True, "DEPTH_24_BIT"),
+    ({"COLORTERM": "24bit"}, True, "DEPTH_24_BIT"),
+    ({}, True, None),                                            # 256 colors: prompt_toolkit's default
+    ({"COLORTERM": "truecolor"}, False, None),                   # stdout isn't a terminal
+    ({"COLORTERM": "truecolor", "NO_COLOR": "1"}, True, None),   # NO_COLOR still wins
+    ({"COLORTERM": "truecolor", "PROMPT_TOOLKIT_COLOR_DEPTH": "DEPTH_4_BIT"}, True, None),
+])
+def test_prompt_uses_truecolor_when_the_terminal_says_so(monkeypatch, env, tty, expected):
+    for name in ("COLORTERM", "NO_COLOR", "PROMPT_TOOLKIT_COLOR_DEPTH"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(shell.sys, "stdout", _Tty() if tty else io.StringIO())
+    output = shell._truecolor_output()
+    assert (output and output.get_default_color_depth().name) == expected
+
+
+def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
+    from prompt_toolkit.application.current import get_app_session
+
+    from core.loader import ModuleRegistry
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PROMPT_TOOLKIT_COLOR_DEPTH", raising=False)
+    monkeypatch.setattr(shell, "open_windows_console", lambda: None)
+    monkeypatch.setattr(shell.sys, "stdout", _Tty())
+    before = get_app_session()
+    with shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())) as sh:
+        assert sh.session.app.output.get_default_color_depth().name == "DEPTH_24_BIT"
+    assert get_app_session() is before  # the session ends with the shell

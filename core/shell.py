@@ -168,6 +168,7 @@ class WindowsConsole:
         self._fds: list[int] = []
         self._undo: list[Callable[[], Any]] = []
         self.stream: Any = None
+        self.output_mode_before: int | None = None  # for the diagnostics report
 
         def check(ok: Any) -> None:
             if not ok:
@@ -180,8 +181,10 @@ class WindowsConsole:
 
         try:
             conin, self._conout = device("CONIN$"), device("CONOUT$")
+            self.conin = conin
             mode = wintypes.DWORD()
             check(k32.GetConsoleMode(self._conout, ctypes.byref(mode)))
+            self.output_mode_before = mode.value
             # Prefer delayed wrap, so the whole window width is usable; without it (older consoles
             # refuse the flag) the size leaves out the last column, as Win32Output does.
             self.full_width = bool(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE | _DELAYED_WRAP))
@@ -250,6 +253,22 @@ def open_windows_console() -> WindowsConsole | None:
         return None
 
 
+def _truecolor_output() -> Vt100_Output | None:
+    """A truecolor prompt_toolkit output on stdout when COLORTERM says the terminal has 24-bit color.
+
+    prompt_toolkit only looks at TERM and stays at 256 colors otherwise, while Rich reads COLORTERM,
+    so the prompt and the pager showed the theme's colors rounded off next to exact Rich output.
+    None leaves prompt_toolkit's default: no such terminal, stdout isn't one, or NO_COLOR /
+    PROMPT_TOOLKIT_COLOR_DEPTH choose the depth.
+    """
+    if os.environ.get("COLORTERM", "").lower() not in ("truecolor", "24bit"):
+        return None
+    if ColorDepth.from_env() is not None or not sys.stdout.isatty():
+        return None
+    return Vt100_Output.from_pty(sys.stdout, term=os.environ.get("TERM"),
+                                 default_color_depth=ColorDepth.TRUE_COLOR)
+
+
 class Shell:
     """The interactive REPL. Use it as a context manager: on Windows it owns the console session
     (see _open_console), and leaving the `with` block restores the console whatever happened."""
@@ -261,6 +280,7 @@ class Shell:
         self.last_failed = False
         self.user_host = _user_host()
         self._cleanup = contextlib.ExitStack()
+        self.windows_console: WindowsConsole | None = None
         try:
             self._open_console()
             self._setup()
@@ -269,13 +289,18 @@ class Shell:
             raise
 
     def _open_console(self) -> None:
-        """Windows: run on CONIN$ / CONOUT$ (WindowsConsole). The app session must be current before
-        the PromptSession is built, because prompt_toolkit binds an Application's input and output
-        when it is created; the pager and the hidden API-key prompt pick it up the same way."""
+        """Windows: run on CONIN$ / CONOUT$ (WindowsConsole). Elsewhere: stdout, in truecolor when the
+        terminal says it supports it. The app session must be current before the PromptSession is
+        built, because prompt_toolkit binds an Application's input and output when it is created;
+        the pager and the hidden API-key prompt pick it up the same way."""
         console = open_windows_console()
         if console is None:
+            output = _truecolor_output()
+            if output is not None:
+                self._cleanup.enter_context(create_app_session(output=output))
             return
         self._cleanup.callback(console.close)
+        self.windows_console = console
         self._cleanup.enter_context(console.session())
         console_file = console.stream
         # VT processing is on, so Rich writes plain escape sequences (no legacy Win32 console calls).
@@ -330,6 +355,14 @@ class Shell:
 
     def banner(self) -> None:
         self.ui.console.print(render_banner(self.ui, self.ctx.registry))
+
+    def diagnostics(self) -> None:
+        """Print the console diagnostics report (the `diagnostics` setting, or --diag)."""
+        from core.diagnostics import console_report
+
+        # Plain text, not wrapped, so it can be copied into a bug report as is.
+        self.ui.console.print(console_report(self.ui, self.windows_console),
+                              markup=False, highlight=False, soft_wrap=True)
 
     def loop(self) -> int:
         while True:

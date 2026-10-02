@@ -47,6 +47,9 @@ SETTINGS: dict[str, Setting] = {
                 "Show an animated spinner while a slow command runs."),
         Setting("banner", "Startup banner", True,
                 "Show the ShellCraft banner when the shell starts."),
+        Setting("diagnostics", "Console diagnostics", False,
+                "Print a plain-text report at startup: window and console sizes from every source, "
+                "color detection, console modes and code pages. Copy it into a bug report."),
         Setting("hot_reload", "Hot reload", True,
                 "Reload modules when their .py, .md or .skill files change, in the shell and "
                 "the MCP server (which then tells clients the tool list changed)."),

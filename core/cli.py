@@ -27,6 +27,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="modules directory (default: $SHELLCRAFT_MODULES or the bundled modules)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
+    p.add_argument("--diag", action="store_true",
+                   help="print the console diagnostics report at startup (like the diagnostics setting)")
     p.add_argument("--allow-system", action="store_true",
                    help="allow OS commands for this session (overrides the system_commands setting)")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
@@ -97,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
                                                    color_system="truecolor"))
         ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
         with Shell(ctx) as shell:
+            if args.diag or settings.get(config, "diagnostics"):
+                shell.diagnostics()  # first, so it is there even if the banner is what breaks
             if not args.no_banner and settings.get(config, "banner"):
                 shell.banner()
             return shell.loop()
