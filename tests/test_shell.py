@@ -368,3 +368,82 @@ def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
     with shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())) as sh:
         assert sh.session.app.output.get_default_color_depth().name == "DEPTH_24_BIT"
     assert get_app_session() is before  # the session ends with the shell
+
+
+# ── help prints, man pages ───────────────────────────────────────────────────
+
+def _screen(monkeypatch, height=10):
+    from rich.console import Console
+
+    from core import output
+    from core.themes import UI, all_themes
+
+    paged = []
+    monkeypatch.setattr(output, "page", lambda ui, rendered: paged.append(rendered))
+    console = Console(file=io.StringIO(), force_terminal=True, width=100, height=height)
+    return UI(all_themes({})["cyberpunk"], console), paged
+
+
+@pytest.mark.parametrize("line, pager_setting, paged", [
+    ("man echo", True, True),    # shorter than the screen, still paged
+    ("help", True, False),       # taller than the screen, still printed
+    ("man echo", False, False),  # `settings pager off` still means never
+])
+def test_help_prints_and_man_pages(monkeypatch, tmp_path, line, pager_setting, paged):
+    from core.loader import ModuleRegistry
+    from core.output import show
+    from core.pipeline import run_line
+
+    ui, pages = _screen(monkeypatch)
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
+    show(ui, run_line(line, ctx).output, pager=pager_setting)
+    assert bool(pages) is paged
+    assert bool(ui.console.file.getvalue()) is not paged
+
+
+def test_auto_pager_still_pages_tall_output(monkeypatch):
+    from core.output import show
+
+    ui, pages = _screen(monkeypatch, height=10)
+    show(ui, "\n".join(map(str, range(50))))
+    show(ui, "short")
+    assert len(pages) == 1
+
+
+def test_paged_output_is_plain_for_pipes(tmp_path):
+    from core.context import to_text
+    from core.loader import ModuleRegistry
+    from core.pipeline import run_line
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())
+    assert to_text(run_line("man echo", ctx).output).lstrip().startswith("echo")
+    assert "echo" in to_text(run_line("help | grep echo", ctx).output)
+
+
+@pytest.mark.parametrize("line", ["man -p echo", "man --print echo", "man echo -p"])
+def test_man_p_prints_without_the_pager(monkeypatch, tmp_path, line):
+    from core.loader import ModuleRegistry
+    from core.output import show
+    from core.pipeline import run_line
+
+    ui, pages = _screen(monkeypatch)
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
+    show(ui, run_line(line, ctx).output)
+    assert not pages
+    assert "echo" in ui.console.file.getvalue()
+
+
+@pytest.mark.parametrize("line", ["man", "man -p", "man echo grep", "man -x echo"])
+def test_man_usage_errors(tmp_path, line):
+    from core.loader import ModuleRegistry
+    from core.pipeline import PipelineError, run_line
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())
+    with pytest.raises(PipelineError, match=r"usage: man \[-p\] COMMAND"):
+        run_line(line, ctx)
+
+
+def test_man_p_completes(tmp_path):
+    from core.options import builtin_options
+
+    assert any("-p" in o.flags and "--print" in o.flags for o in builtin_options("man"))

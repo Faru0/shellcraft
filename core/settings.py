@@ -42,7 +42,7 @@ SETTINGS: dict[str, Setting] = {
                 "ShellCraft builtin or module matches. Off keeps behavior identical on "
                 "Windows and Linux.", _apply_system_commands),
         Setting("pager", "Auto-pager", True,
-                "Open output taller than the terminal in the scrollable viewer."),
+                "Open man pages, and output taller than the terminal, in the scrollable viewer."),
         Setting("spinner", "Live spinners", True,
                 "Show an animated spinner while a slow command runs."),
         Setting("banner", "Startup banner", True,

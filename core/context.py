@@ -47,6 +47,15 @@ class Styled:
     text: str
 
 
+@dataclass
+class Paged:
+    """Output that chooses how the screen shows it, whatever its height: `page=True` always opens
+    the pager (man pages), `page=False` always prints (help). Pipes, files and MCP see `value`."""
+
+    value: Any
+    page: bool
+
+
 class ShellExit(Exception):
     def __init__(self, code: int = 0):
         super().__init__(code)
@@ -59,6 +68,8 @@ class CommandError(Exception):
 
 def to_text(value: Any, width: int = 100) -> str:
     """Flatten a str or Rich renderable into plain text (for pipes, files, MCP)."""
+    if isinstance(value, Paged):
+        value = value.value
     if value is None:
         return ""
     if isinstance(value, str):

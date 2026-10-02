@@ -64,8 +64,10 @@ shellcraft/
 
 ### Terminal I/O on Windows and Linux
 
-- **Interactive shell on Windows:** `core.shell.WindowsConsole` opens `CONIN$` and `CONOUT$`, turns on VT processing, and points the process's std handles at them. prompt_toolkit (`Win32Input` / a `Vt100_Output`), the pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected. prompt_toolkit's raw mode and Rich's window size look the console up with `GetStdHandle`, which is why the std handles are redirected too.
+- **Interactive shell on Windows:** `core.shell.WindowsConsole` opens `CONIN$` and `CONOUT$`, turns on VT processing, and points the process's std handles at them. prompt_toolkit (`Win32Input` / a `Vt100_Output`), the pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected. prompt_toolkit's raw mode looks the console up with `GetStdHandle`, which is why the std handles are redirected too. `Shell` owns this session and restores it on exit.
+- **Window size:** `core.shell.TerminalConsole` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree (on Windows: the visible window of `CONOUT$`, with delayed wrap). `--diag` or the `diagnostics` setting prints every size source side by side.
 - **Console detection:** use `core.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
+- **Paging:** `show()` pages output taller than the window. A command can override that by returning `Paged(value, page=True/False)` (`core.context`): `man` always pages (`man -p` prints), `help` always prints. Pipes, files and MCP see only `value`.
 - **`-c` mode** writes results to stdout (plain text when it isn't a console), so pipes and redirects work. On a Windows console it still uses `WindowsConsole` for the pager.
 - **Encoding:** `utf8_stdio()` makes stdout/stderr UTF-8 when they aren't already (Windows pipes and files default to cp1252), unless `PYTHONIOENCODING` is set. The MCP stdio transport wraps the binary streams as UTF-8 itself.
 - **OS commands:** output is decoded as UTF-8 with `\r\n` → `\n`. `cmd.exe` internal commands run with `/u`, so their output arrives as UTF-16.
@@ -156,7 +158,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
-| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring |
+| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring, terminal size and truecolor, the diagnostics report, `help` printing and `man` paging |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, plain `-c` output, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |

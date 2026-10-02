@@ -14,7 +14,7 @@ from rich.text import Text
 
 from core import aliases, settings
 from core.config import history_path, save_config
-from core.context import CommandError, ShellExit, Styled
+from core.context import CommandError, Paged, ShellExit, Styled
 from core.themes import all_themes
 
 if TYPE_CHECKING:
@@ -109,15 +109,49 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         (" / ", "sc.muted"), (">> file", "sc.accent"), ("   docs ", "sc.muted"), ("man <command>", "sc.accent"),
         ("   complete ", "sc.muted"), ("Tab", "sc.accent"), ("   accept suggestion ", "sc.muted"), ("→", "sc.accent"),
     )
-    return Group(table, tips)
+    return Paged(Group(table, tips), page=False)  # printed in full, to scroll back to
 
 
-@builtin("man", "Show the manual page for a command", "man COMMAND")
+MAN_DOC = """# man
+
+Show the manual page of a builtin or module. It opens in the scrollable viewer (`/` searches,
+`q` closes it), however short the page is; `-p` prints it on the screen instead.
+
+## Usage
+
+```
+man COMMAND
+man -p COMMAND
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-p`, `--print` | Print the page on the screen instead of opening the viewer. |
+
+Piped or redirected, the page is plain text either way, so `man grep | grep -- -i` works.
+With `settings pager off`, pages are always printed.
+
+## Examples
+
+```
+man grep
+man -p echo
+man fetch > fetch.txt
+```
+"""
+
+
+@builtin("man", "Show the manual page for a command", "man [-p] COMMAND", doc=MAN_DOC)
 def _man(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    if len(args) != 1:
-        raise CommandError("usage: man COMMAND")
-    doc = manual_text(ctx.registry, args[0])
-    return Markdown(doc) if ctx.ui else doc
+    print_it = any(a in ("-p", "--print") for a in args)
+    names = [a for a in args if a not in ("-p", "--print")]
+    if len(names) != 1 or any(n.startswith("-") for n in names):
+        raise CommandError("usage: man [-p] COMMAND")
+    doc = manual_text(ctx.registry, names[0])
+    # Like man(1), the viewer whatever the page's height; -p prints it.
+    return Paged(Markdown(doc), page=not print_it) if ctx.ui else doc
 
 
 def manual_text(registry: Any, name: str) -> str:

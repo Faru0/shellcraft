@@ -116,7 +116,7 @@ shell and with `-c`, never to AI clients over MCP. `which ls` shows whether a na
 
 ### Long output
 
-Output taller than the window opens a scrollable viewer: `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
+`man <command>` always opens in a scrollable viewer (`man -p <command>` prints it instead), and so does any other output taller than the window (`help` is the exception: it is printed in full, so you can scroll back to it): `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
 page, `g`/`G` jump to the top or end, `/` searches (matches are highlighted), `n`/`N` step through
 matches, and `q` closes it. Turn it off with `settings pager off`.
 
@@ -183,7 +183,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `system_commands` | off | Allow OS programs from your `PATH` (see [OS commands](#os-commands)). |
-| `pager` | on | Open output taller than the window in the scrollable viewer. |
+| `pager` | on | Open man pages, and output taller than the window, in the scrollable viewer. |
 | `spinner` | on | Show a spinner while slow commands run. |
 | `banner` | on | Show the startup banner. |
 | `hot_reload` | on | Reload modules when their `.py`, `.md` or `.skill` files change, in the shell and in the MCP server. |

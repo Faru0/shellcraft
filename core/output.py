@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from core import settings
-from core.context import ShellContext, Styled
+from core.context import Paged, ShellContext, Styled
 from core.parser import ParseError
 from core.pipeline import PipelineError
 from core.themes import UI
@@ -56,7 +56,11 @@ def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]],
 
 
 def show(ui: UI, value: Any, pager: bool = True) -> None:
-    """Print a command's final output, paging it if it is taller than the terminal."""
+    """Print a command's final output, paging it if it is taller than the terminal, or as a
+    Paged value asks (the `pager` setting off still means never)."""
+    forced: bool | None = None
+    if isinstance(value, Paged):
+        value, forced = value.value, value.page
     if isinstance(value, Styled):
         if not value.text:
             return
@@ -65,13 +69,13 @@ def show(ui: UI, value: Any, pager: bool = True) -> None:
         return
     renderable = Text.from_ansi(value.rstrip("\n")) if isinstance(value, str) else value
     console = ui.console
-    if not console.is_terminal or not pager:
+    if not console.is_terminal or not pager or forced is False:
         console.print(renderable)
         return
     with console.capture() as capture:
         console.print(renderable)
     rendered = capture.get()
-    if rendered.count("\n") > console.height - 2:
+    if forced or rendered.count("\n") > console.height - 2:
         page(ui, rendered)
     else:
         console.print(renderable)
