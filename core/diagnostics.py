@@ -157,7 +157,7 @@ def _windows_lines(console: Any) -> list[str]:
         f"shell size = {_try(console.size)} (full_width={console.full_width}: "
         f"{'delayed wrap on, whole width used' if console.full_width else 'last column left out'})",
         f"CONOUT$ mode before = {_flags(console.output_mode_before, _OUTPUT_FLAGS)}",
-        f"CONOUT$ mode now    = {_flags(mode(console._conout), _OUTPUT_FLAGS)}",
+        f"CONOUT$ mode now    = {_flags(mode(console.conout), _OUTPUT_FLAGS)}",
         f"CONIN$ mode now     = {_flags(mode(console.conin), _INPUT_FLAGS)}",
         f"code pages: input {k32.GetConsoleCP()} output {k32.GetConsoleOutputCP()} (65001 = UTF-8)",
     ]
@@ -166,7 +166,7 @@ def _windows_lines(console: Any) -> list[str]:
         # GetFileType: 1 disk file, 2 character device (console or NUL), 3 pipe.
         lines.append(f"{name} handle={handle} file_type={k32.GetFileType(handle)} "
                      f"console_mode={_flags(mode(handle), _OUTPUT_FLAGS if which != -10 else _INPUT_FLAGS)}")
-    lines.append(f"CONIN$ handle={console.conin.value} CONOUT$ handle={console._conout.value}")
+    lines.append(f"CONIN$ handle={console.conin.value} CONOUT$ handle={console.conout.value}")
     lines.append(f"console window hwnd={k32.GetConsoleWindow()} "
                  f"(Windows Terminal: {'yes' if 'WT_SESSION' in os.environ else 'no'})")
     return lines

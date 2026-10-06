@@ -89,16 +89,8 @@ def test_shell_hot_reload_before_a_command(tmp_path):
 
 def test_windows_console_is_only_used_on_windows(monkeypatch):
     monkeypatch.setattr(shell.sys, "platform", "linux")
-    assert shell.open_windows_console() is None
-
-
-def test_windows_console_falls_back_without_a_console(monkeypatch):
-    def no_console():
-        raise OSError("no console")
-
-    monkeypatch.setattr(shell.sys, "platform", "win32")
-    monkeypatch.setattr(shell, "WindowsConsole", no_console)
-    assert shell.open_windows_console() is None
+    with contextlib.ExitStack() as cleanup:
+        assert shell.open_windows_console(cleanup) is None
 
 
 def test_window_size_is_the_visible_window_not_the_buffer():
@@ -160,26 +152,17 @@ def test_terminal_console_falls_back_to_rich_without_an_output(monkeypatch):
         assert console.width == 77
 
 
-class _FakeWindowsConsole:
-    def __init__(self, events):
-        import io
+def _fake_windows_console(events):
+    """Stands in for open_windows_console: a 120x30 console whose closing is recorded."""
+    from prompt_toolkit.input import DummyInput
 
-        self.events = events
-        self.stream = io.StringIO()
+    def open_console(cleanup):
+        events.append("console opened")
+        cleanup.callback(events.append, "console closed")
+        return shell.WindowsConsole(input=DummyInput(), output=_sized_output(30, 120), stream=io.StringIO(),
+                                    conin=None, conout=None, output_mode_before=0, full_width=True)
 
-    @contextlib.contextmanager
-    def session(self):
-        from prompt_toolkit.application.current import create_app_session
-
-        self.events.append("session")
-        try:
-            with create_app_session(output=_sized_output(30, 120)):  # a 120x30 window
-                yield
-        finally:
-            self.events.append("session closed")
-
-    def close(self):
-        self.events.append("console closed")
+    return open_console
 
 
 def _windows_ui():
@@ -191,35 +174,44 @@ def _windows_ui():
 
 
 def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path):
+    from prompt_toolkit.application.current import get_app_session
+
     from core.loader import ModuleRegistry
 
     events = []
-    console = _FakeWindowsConsole(events)
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    monkeypatch.setattr(shell, "open_windows_console", lambda: console)
+    monkeypatch.setattr(shell, "open_windows_console", _fake_windows_console(events))
     ui = _windows_ui()
     original = ui.console
+    before = get_app_session()
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
 
     with shell.Shell(ctx) as sh:
-        assert events == ["session"]
+        console = sh.windows_console
+        assert events == ["console opened"]
+        # The prompt reads and writes the console devices, not stdin / stdout.
+        assert sh.session.app.input is console.input
+        assert sh.session.app.output is console.output
         assert ui.console.file is console.stream
         assert ui.console.is_terminal and not ui.console.legacy_windows
         assert ui.console.color_system == "truecolor"
         assert ui.console.size == (120, 30)  # measured like the prompt: from the console window
         sh.ui.console.print("[sc.accent]hi[/]")  # the theme is on the new console
         assert "hi" in console.stream.getvalue()
-    # The Rich console comes back first, then the session ends, then the console closes.
+    # The Rich console comes back, the session ends, then the console is restored.
     assert ui.console is original
-    assert events == ["session", "session closed", "console closed"]
+    assert get_app_session() is before
+    assert events == ["console opened", "console closed"]
 
 
 def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_path):
+    from prompt_toolkit.application.current import get_app_session
+
     from core.loader import ModuleRegistry
 
     events = []
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    monkeypatch.setattr(shell, "open_windows_console", lambda: _FakeWindowsConsole(events))
+    monkeypatch.setattr(shell, "open_windows_console", _fake_windows_console(events))
 
     def broken(*args, **kwargs):
         raise RuntimeError("boom")
@@ -227,10 +219,12 @@ def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_pa
     monkeypatch.setattr(shell, "PromptSession", broken)
     ui = _windows_ui()
     original = ui.console
+    before = get_app_session()
     with pytest.raises(RuntimeError):
         shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=ui))
     assert ui.console is original
-    assert events == ["session", "session closed", "console closed"]
+    assert get_app_session() is before
+    assert events == ["console opened", "console closed"]
 
 
 def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
@@ -362,7 +356,7 @@ def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
     monkeypatch.setenv("COLORTERM", "truecolor")
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("PROMPT_TOOLKIT_COLOR_DEPTH", raising=False)
-    monkeypatch.setattr(shell, "open_windows_console", lambda: None)
+    monkeypatch.setattr(shell, "open_windows_console", lambda cleanup: None)
     monkeypatch.setattr(shell.sys, "stdout", _Tty())
     before = get_app_session()
     with shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())) as sh:

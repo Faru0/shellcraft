@@ -146,7 +146,7 @@ def test_mcp_clients_cannot_start_servers(ctx):
 def test_the_shell_stops_the_server_when_it_exits(monkeypatch, tmp_path, ctx):
     from core import shell
 
-    monkeypatch.setattr(shell, "open_windows_console", lambda: None)
+    monkeypatch.setattr(shell, "open_windows_console", lambda cleanup: None)
     from core.themes import UI, all_themes
     from rich.console import Console
 
@@ -167,7 +167,7 @@ def test_prompt_marks_a_running_server(monkeypatch, ctx):
     def marker(sh):
         return "".join(text for style, text in sh._prompt() if style.startswith("class:mcp"))
 
-    monkeypatch.setattr(shell, "open_windows_console", lambda: None)
+    monkeypatch.setattr(shell, "open_windows_console", lambda cleanup: None)
     ctx.ui = UI(all_themes({})["cyberpunk"], Console(file=io.StringIO()))
     with shell.Shell(ctx) as sh:
         assert marker(sh) == ""

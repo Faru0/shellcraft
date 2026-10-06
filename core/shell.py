@@ -7,8 +7,9 @@ import getpass
 import os
 import socket
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import create_app_session, get_app_session
@@ -74,15 +75,20 @@ class RedactingInMemoryHistory(_RedactingHistory, InMemoryHistory):
 
 
 # ── Windows console ──────────────────────────────────────────────────────────
+#
+# On Windows the interactive shell talks to the console devices directly: keys come from CONIN$
+# through prompt_toolkit's Win32Input, and output goes to CONOUT$ as VT sequences through a
+# Vt100_Output. sys.stdin / sys.stdout and the process's std handles are never used or changed, so
+# a redirected stdin or stdout (or NUL, for which isatty() is True) can't reach the prompt.
 
-_STD_INPUT_HANDLE, _STD_OUTPUT_HANDLE = -10, -11
-# Output mode flags: process \n etc., wrap at the last column, and interpret VT escape sequences.
-_VT_OUTPUT_MODE = 0x0001 | 0x0002 | 0x0004
-# DISABLE_NEWLINE_AUTO_RETURN: delayed wrap, as on a VT terminal. Writing the last column leaves the
-# cursor there until the next character, so a full-width line followed by \r\n is one row, not two.
-# A bare \n then no longer returns the carriage, but every writer here sends \r\n: prompt_toolkit's
-# renderer does, and Python's text streams on Windows translate \n.
-_DELAYED_WRAP = 0x0008
+_ENABLE_PROCESSED_OUTPUT, _ENABLE_WRAP_AT_EOL_OUTPUT = 0x0001, 0x0002
+_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+# Delayed wrap, as on a VT terminal: writing the last column leaves the cursor there until the next
+# character, so a full-width line followed by \r\n is one row, not two. Every writer here sends
+# \r\n (prompt_toolkit's renderer, and Python's text streams on Windows translate \n).
+_DISABLE_NEWLINE_AUTO_RETURN = 0x0008
+_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+_VT_OUTPUT_MODE = _ENABLE_PROCESSED_OUTPUT | _ENABLE_WRAP_AT_EOL_OUTPUT | _ENABLE_VIRTUAL_TERMINAL_PROCESSING
 
 
 def _window_size(info: Any, full_width: bool = True) -> Size:
@@ -101,8 +107,8 @@ class TerminalConsole(Console):
 
     Rich alone tries stdin, stdout, then stderr (only stdout and stderr on Windows) and lets COLUMNS /
     LINES override them, which are a snapshot from when the shell started if something exported them.
-    On Windows the session's output is WindowsConsole, which reads CONOUT$ directly, whatever the
-    std handles or file descriptors point at. Elsewhere it is stdout's terminal (TIOCGWINSZ).
+    On Windows the session's output reads the size from CONOUT$ itself. Elsewhere it is stdout's
+    terminal (TIOCGWINSZ).
     """
 
     def __init__(self, *args: Any, width: int | None = None, height: int | None = None, **kwargs: Any):
@@ -125,130 +131,146 @@ class TerminalConsole(Console):
         Console.size.fset(self, new_size)  # type: ignore[attr-defined]
 
 
-class _ConsoleOutput(Vt100_Output):
-    """VT output to CONOUT$ that can also report the rows below the cursor, like Win32Output does,
-    so completion menus get the room they need."""
-
-    def __init__(self, console: WindowsConsole):
-        super().__init__(console.stream, console.size, enable_cpr=False,  # no CPR: the input is Win32
-                         default_color_depth=ColorDepth.from_env() or ColorDepth.TRUE_COLOR)
-        self._console = console
-
-    def get_rows_below_cursor_position(self) -> int:
-        info = self._console.buffer_info()
-        if info is None:
-            raise NotImplementedError  # the renderer then falls back to the window height
-        return info.srWindow.Bottom - info.dwCursorPosition.Y + 1
-
-
+@dataclass
 class WindowsConsole:
-    """The interactive shell's terminal on Windows: CONIN$ for keys, CONOUT$ with VT sequences on.
+    """What open_windows_console() opened: prompt_toolkit's input and output, the CONOUT$ text
+    stream for Rich, and the raw handles and modes for the diagnostics report."""
 
-    sys.stdin / sys.stdout may be redirected, and isatty() is True for any character device (NUL
-    included), so prompt_toolkit can end up reading keys from CONIN$ while it puts the std input
-    handle into raw mode, which leaves echo and line input on. Here both sides always use the
-    console devices, and the process's std handles point at them too, because prompt_toolkit
-    (raw mode, its VT-input check) looks the console up with GetStdHandle. The size is always read
-    from CONOUT$ itself (see size() and TerminalConsole). Raises OSError when there is no console or it can't process VT sequences (before Windows 10).
-    """
-
-    def __init__(self) -> None:
-        import ctypes
-        import msvcrt
-        from ctypes import wintypes
-
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.GetStdHandle.argtypes = [wintypes.DWORD]
-        k32.GetStdHandle.restype = wintypes.HANDLE
-        k32.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
-        k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        k32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
-        self._k32, self._ctypes = k32, ctypes
-        self._fds: list[int] = []
-        self._undo: list[Callable[[], Any]] = []
-        self.stream: Any = None
-        self.output_mode_before: int | None = None  # for the diagnostics report
-
-        def check(ok: Any) -> None:
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-
-        def device(name: str) -> Any:
-            fd = os.open(name, os.O_RDWR | os.O_BINARY)  # type: ignore[attr-defined]  # Windows only
-            self._fds.append(fd)
-            return wintypes.HANDLE(msvcrt.get_osfhandle(fd))  # type: ignore[attr-defined]
-
-        try:
-            conin, self._conout = device("CONIN$"), device("CONOUT$")
-            self.conin = conin
-            mode = wintypes.DWORD()
-            check(k32.GetConsoleMode(self._conout, ctypes.byref(mode)))
-            self.output_mode_before = mode.value
-            # Prefer delayed wrap, so the whole window width is usable; without it (older consoles
-            # refuse the flag) the size leaves out the last column, as Win32Output does.
-            self.full_width = bool(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE | _DELAYED_WRAP))
-            if not self.full_width:
-                check(k32.SetConsoleMode(self._conout, mode.value | _VT_OUTPUT_MODE))
-            self._undo.append(lambda: k32.SetConsoleMode(self._conout, mode.value))
-            for which, handle in ((_STD_INPUT_HANDLE, conin), (_STD_OUTPUT_HANDLE, self._conout)):
-                previous = k32.GetStdHandle(which)
-                check(k32.SetStdHandle(which, handle))
-                self._undo.append(lambda w=which, h=previous: k32.SetStdHandle(w, h))
-            # By name, Python opens CONOUT$ as a console stream (WriteConsoleW), so Unicode is safe
-            # whatever the console code page is.
-            self.stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-
-            from prompt_toolkit.input.win32 import Win32Input
-
-            self.input = Win32Input()  # created after SetStdHandle, so it reads CONIN$
-            self.output = _ConsoleOutput(self)
-        except BaseException:
-            self.close()
-            raise
+    input: Any                  # Win32Input on CONIN$
+    output: Vt100_Output        # VT sequences to CONOUT$
+    stream: Any                 # CONOUT$ as a text stream (WriteConsoleW: any Unicode, any code page)
+    conin: Any                  # HANDLE
+    conout: Any                 # HANDLE
+    output_mode_before: int
+    full_width: bool            # delayed wrap is on, so the last column is usable
 
     def buffer_info(self) -> Any:
-        from prompt_toolkit.win32_types import CONSOLE_SCREEN_BUFFER_INFO
-
-        info = CONSOLE_SCREEN_BUFFER_INFO()
-        if not self._k32.GetConsoleScreenBufferInfo(self._conout, self._ctypes.byref(info)):
-            return None
-        return info
+        return _buffer_info(self.conout)
 
     def size(self) -> Size:
-        info = self.buffer_info()
-        return Size(rows=24, columns=80) if info is None else _window_size(info, self.full_width)
-
-    def session(self) -> Any:
-        """Context manager: prompt_toolkit apps inside it (prompt, pager, password prompt) use this console."""
-        return create_app_session(input=self.input, output=self.output)
-
-    def close(self) -> None:
-        """Restore the std handles and the console mode, and close the console devices."""
-        if getattr(self, "input", None) is not None:
-            self.input.close()
-            self.input = None
-        if self.stream is not None:
-            try:
-                self.stream.close()
-            except OSError:
-                pass
-            self.stream = None
-        while self._undo:
-            self._undo.pop()()
-        while self._fds:
-            try:
-                os.close(self._fds.pop())
-            except OSError:
-                pass
+        return _console_size(self.conout, self.full_width)
 
 
-def open_windows_console() -> WindowsConsole | None:
-    """The console I/O for the interactive shell on Windows; None elsewhere, or without a usable console."""
+def _kernel32() -> Any:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows only
+    k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    return k32
+
+
+def _buffer_info(conout: Any) -> Any:
+    import ctypes
+
+    from prompt_toolkit.win32_types import CONSOLE_SCREEN_BUFFER_INFO
+
+    info = CONSOLE_SCREEN_BUFFER_INFO()
+    return info if _kernel32().GetConsoleScreenBufferInfo(conout, ctypes.byref(info)) else None
+
+
+def _console_size(conout: Any, full_width: bool) -> Size:
+    info = _buffer_info(conout)
+    return Size(rows=24, columns=80) if info is None else _window_size(info, full_width)
+
+
+def _console_input(conin_fd: int) -> Any:
+    """prompt_toolkit's Win32Input, bound to our CONIN$ handle.
+
+    Win32Input finds the console with GetStdHandle(STD_INPUT_HANDLE) in three places: the key
+    reader, raw / cooked mode and the VT-input check. Each one is pointed at CONIN$ here instead, so
+    the handle that reads the keys is the handle that is put into raw mode.
+    """
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    from prompt_toolkit.input import win32
+
+    conin = wintypes.HANDLE(msvcrt.get_osfhandle(conin_fd))  # type: ignore[attr-defined]  # Windows only
+
+    def vt_input_supported() -> bool:
+        k32 = _kernel32()
+        mode = wintypes.DWORD()
+        if not k32.GetConsoleMode(conin, ctypes.byref(mode)):
+            return False
+        try:
+            return bool(k32.SetConsoleMode(conin, _ENABLE_VIRTUAL_TERMINAL_INPUT))
+        finally:
+            k32.SetConsoleMode(conin, mode.value)
+
+    class ConsoleInput(win32.Win32Input):
+        def __init__(self) -> None:
+            win32._Win32InputBase.__init__(self)  # not Win32Input's: it looks at the std handle
+            self._use_virtual_terminal_input = vt_input_supported()
+            reader = (win32.Vt100ConsoleInputReader() if self._use_virtual_terminal_input
+                      else win32.ConsoleInputReader())
+            reader.close()  # it opens its own CONIN$ when sys.stdin isn't a tty
+            reader._fdcon = None
+            reader.handle = conin
+            self.console_input_reader = reader
+
+        def _on_conin(self, mode: Any) -> Any:
+            mode.handle = conin
+            return mode
+
+        def raw_mode(self) -> Any:
+            return self._on_conin(win32.raw_mode(
+                use_win10_virtual_terminal_input=self._use_virtual_terminal_input))
+
+        def cooked_mode(self) -> Any:
+            return self._on_conin(win32.cooked_mode())
+
+        def fileno(self) -> int:
+            return conin_fd
+
+        def close(self) -> None:
+            pass  # the shell closes CONIN$
+
+    return ConsoleInput(), conin
+
+
+def open_windows_console(cleanup: contextlib.ExitStack) -> WindowsConsole | None:
+    """Open CONIN$ / CONOUT$ with VT output on, for the interactive shell on Windows; None elsewhere,
+    or without a usable console (none at all, or one that can't process VT sequences: before
+    Windows 10). Everything opened or changed is undone by `cleanup`, in reverse order."""
     if sys.platform != "win32":
         return None
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    k32 = _kernel32()
     try:
-        return WindowsConsole()
+        with contextlib.ExitStack() as opened:
+            conin_fd = os.open("CONIN$", os.O_RDWR | os.O_BINARY)  # type: ignore[attr-defined]
+            opened.callback(os.close, conin_fd)
+            # By name, Python opens CONOUT$ as a console stream (WriteConsoleW), so Unicode is safe
+            # whatever the console code page is.
+            stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+            opened.callback(stream.close)
+            conout = wintypes.HANDLE(msvcrt.get_osfhandle(stream.fileno()))  # type: ignore[attr-defined]
+
+            mode = wintypes.DWORD()
+            if not k32.GetConsoleMode(conout, ctypes.byref(mode)):
+                raise ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
+            before = mode.value
+            # Prefer delayed wrap, so the whole width is usable; consoles that refuse it get the
+            # last column left out of the size instead.
+            full_width = bool(k32.SetConsoleMode(conout, before | _VT_OUTPUT_MODE | _DISABLE_NEWLINE_AUTO_RETURN))
+            if not full_width and not k32.SetConsoleMode(conout, before | _VT_OUTPUT_MODE):
+                raise ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
+            opened.callback(k32.SetConsoleMode, conout, before)
+
+            console_input, conin = _console_input(conin_fd)
+            # No CPR: Win32Input may not be reading VT input, so a reply could arrive as keys.
+            output = Vt100_Output(stream, lambda: _console_size(conout, full_width), enable_cpr=False,
+                                  default_color_depth=ColorDepth.from_env() or ColorDepth.TRUE_COLOR)
+            cleanup.push(opened.pop_all())
+            return WindowsConsole(input=console_input, output=output, stream=stream, conin=conin,
+                                  conout=conout, output_mode_before=before, full_width=full_width)
     except OSError:
         return None
 
@@ -289,23 +311,21 @@ class Shell:
             raise
 
     def _open_console(self) -> None:
-        """Windows: run on CONIN$ / CONOUT$ (WindowsConsole). Elsewhere: stdout, in truecolor when the
-        terminal says it supports it. The app session must be current before the PromptSession is
-        built, because prompt_toolkit binds an Application's input and output when it is created;
-        the pager and the hidden API-key prompt pick it up the same way."""
-        console = open_windows_console()
+        """Windows: run on CONIN$ / CONOUT$ directly (Win32Input + Vt100_Output). Elsewhere: stdout,
+        in truecolor when the terminal says it supports it. The app session must be current before
+        the PromptSession is built, because prompt_toolkit binds an Application's input and output
+        when it is created; the pager and the hidden API-key prompt pick it up the same way."""
+        console = open_windows_console(self._cleanup)
         if console is None:
             output = _truecolor_output()
             if output is not None:
                 self._cleanup.enter_context(create_app_session(output=output))
             return
-        self._cleanup.callback(console.close)
         self.windows_console = console
-        self._cleanup.enter_context(console.session())
-        console_file = console.stream
+        self._cleanup.enter_context(create_app_session(input=console.input, output=console.output))
         # VT processing is on, so Rich writes plain escape sequences (no legacy Win32 console calls).
-        # Its size comes from CONOUT$, the same as the prompt's, so it follows resizes.
-        previous = self.ui.use_console(TerminalConsole(file=console_file, highlight=False, force_terminal=True,
+        # Its size comes from the session's output, the same as the prompt's, so it follows resizes.
+        previous = self.ui.use_console(TerminalConsole(file=console.stream, highlight=False, force_terminal=True,
                                                        legacy_windows=False, color_system="truecolor"))
         self._cleanup.callback(self.ui.use_console, previous)
 
@@ -340,8 +360,7 @@ class Shell:
 
     def close(self) -> None:
         """Stop a server started with `mcp start`, put back the Rich console, leave the app
-        session, restore the std handles and the console mode, and close the console devices
-        (in that order)."""
+        session, restore the console mode and close CONIN$ / CONOUT$ (in that order)."""
         self._cleanup.close()
 
     def __enter__(self) -> Shell:
