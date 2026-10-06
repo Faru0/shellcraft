@@ -38,6 +38,12 @@ class ShellContext:
     prev_dir: str | None = None
     history: Any = None  # the REPL's prompt_toolkit History, when there is one (for `history`)
     mcp_http: Any = None  # the MCP HTTP server started with `mcp start` (core.mcp_child.McpHttpChild)
+    last_status: int = 0  # exit status of the last command: `$?`, and the prompt's [✗ N]
+    # Where a script (`for`, `if`, `a ; b`) sends each statement's output and errors as it runs.
+    # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
+    # collected and returned as one text.
+    emit: Callable[[Any], None] | None = None
+    emit_error: Callable[[Exception, str], None] | None = None
 
 
 @dataclass
@@ -57,6 +63,15 @@ class Paged:
     page: bool
 
 
+@dataclass
+class WithStatus:
+    """A command's output together with a nonzero exit status that is not an error, such as
+    `grep` finding nothing (status 1). Only the pipeline sees it; it never reaches the screen."""
+
+    value: Any
+    status: int
+
+
 class ShellExit(Exception):
     def __init__(self, code: int = 0):
         super().__init__(code)
@@ -64,7 +79,11 @@ class ShellExit(Exception):
 
 
 class CommandError(Exception):
-    """A command failed with a message meant for the user."""
+    """A command failed with a message meant for the user. `status` becomes `$?` (default 1)."""
+
+    def __init__(self, message: str = "", status: int = 1):
+        super().__init__(message)
+        self.status = status
 
 
 def to_text(value: Any, width: int = 100) -> str:

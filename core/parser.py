@@ -5,16 +5,24 @@ Other shell operators (`;`, `&&`, `||`, `<`, `2>`, `2>&1`, `&>`, `>&`) are rejec
 ParseError instead of being passed on as arguments: `rm a ; ls` must never mean `rm a ';' ls`.
 Quotes: '...' is literal, "..." allows \\" for a quote. Backslashes are otherwise
 literal so Windows paths like C:\\data\\x.csv survive untouched.
+
+Variables: given a `variables` mapping, `$?`, `$name` and `${name}` expand outside single quotes
+(`$?` is the last exit status, `$name` a `for` loop variable). An expansion never splits into
+several words, so a value with spaces stays one argument. A name that isn't defined stays as
+typed (`$HOME` is not the environment variable).
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from typing import Mapping
 
 OPERATORS = ("|", ">>", ">")
 # Longest first. The `2>` forms only count at the start of a word, as in POSIX shells.
 UNSUPPORTED = ("2>&1", "2>>", "2>", "&>", ">&", "&&", "||", ";", "<")
+_VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class ParseError(Exception):
@@ -49,7 +57,29 @@ class Pipeline:
     redirect: Redirect | None = None
 
 
-def tokenize(line: str) -> list[Token]:
+def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> tuple[str, int] | None:
+    """At a `$` (line[i]): (value, index after the reference) for a defined variable, else None."""
+    if not variables or i + 1 >= len(line):
+        return None
+    nxt = line[i + 1]
+    if nxt == "?":
+        name, end = "?", i + 2
+    elif nxt == "{":
+        close = line.find("}", i + 2)
+        if close == -1:
+            return None
+        name, end = line[i + 2:close], close + 1
+    else:
+        match = _VAR_NAME.match(line, i + 1)
+        if not match:
+            return None
+        name, end = match.group(), match.end()
+    if name not in variables:
+        return None
+    return variables[name], end
+
+
+def tokenize(line: str, variables: Mapping[str, str] | None = None) -> list[Token]:
     tokens: list[Token] = []
     i, n = 0, len(line)
     while i < n:
@@ -68,9 +98,14 @@ def tokenize(line: str) -> list[Token]:
 
         start = i
         buf: list[str] = []
-        quoted = False
+        quoted = expanded = False
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
+            if ch == "$" and (var := expand_variable(line, i, variables)) is not None:
+                buf.append(var[0])
+                i = var[1]
+                expanded = True
+                continue
             if ch in ("'", '"'):
                 quoted = True
                 end = i + 1
@@ -83,6 +118,10 @@ def tokenize(line: str) -> list[Token]:
                         continue
                     if line[end] == ch:
                         break
+                    if ch == '"' and line[end] == "$" and (var := expand_variable(line, end, variables)):
+                        buf.append(var[0])
+                        end = var[1]
+                        continue
                     buf.append(line[end])
                     end += 1
                 i = end + 1
@@ -90,6 +129,8 @@ def tokenize(line: str) -> list[Token]:
                 buf.append(ch)
                 i += 1
         word = "".join(buf)
+        if expanded and not quoted and not word:
+            continue  # an unquoted variable that expanded to nothing is no argument at all
         if not quoted and (word == "~" or word.startswith("~/") or word.startswith("~\\")):
             word = os.path.expanduser(word)
         tokens.append(Token(word, start))
@@ -101,9 +142,9 @@ def _breaks_word(line: str, i: int) -> bool:
     return any(line.startswith(o, i) for o in OPERATORS + UNSUPPORTED if not o.startswith("2"))
 
 
-def parse(line: str) -> Pipeline | None:
+def parse(line: str, variables: Mapping[str, str] | None = None) -> Pipeline | None:
     """Parse a command line. Returns None for blank lines."""
-    tokens = tokenize(line)
+    tokens = tokenize(line, variables)
     if not tokens:
         return None
 

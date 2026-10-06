@@ -14,36 +14,79 @@ from typing import Any
 import core.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
 from core import aliases
 from core.builtins import BUILTINS
-from core.context import CommandError, ShellContext, ShellExit, to_text
+from core.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from core.modkit import ModuleError
-from core.parser import Command, Pipeline, parse
+from core.parser import Command, ParseError, Pipeline, parse
 
 # cmd.exe built-ins that have no executable on PATH.
 _WINDOWS_CMD_BUILTINS = {"dir", "type", "copy", "del", "erase", "move", "ren", "rename",
                          "md", "rmdir", "rd", "ver", "vol", "set"}
 
 
+# Exit statuses, as in POSIX shells.
+STATUS_ERROR = 1
+STATUS_SYNTAX = 2
+STATUS_NOT_FOUND = 127
+STATUS_INTERRUPTED = 130
+
+
 class PipelineError(Exception):
-    def __init__(self, index: int, total: int, name: str, message: str):
+    def __init__(self, index: int, total: int, name: str, message: str, status: int = STATUS_ERROR):
         super().__init__(message)
         self.index = index  # 1-based
         self.total = total
         self.name = name
         self.message = message
+        self.status = status  # becomes `$?`
 
 
 @dataclass
 class PipelineResult:
     output: Any  # str or a Rich renderable; None when redirected
     redirected_to: Path | None = None
+    status: int = 0  # the last segment's exit status (`$?`)
 
 
 def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
-    """Parse and execute one command line. Raises ParseError / PipelineError / ShellExit."""
-    pipeline = parse(line)
+    """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
+    Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
+    from core import script
+
+    try:
+        program = script.parse_script(line)
+    except ParseError:
+        ctx.last_status = STATUS_SYNTAX
+        raise
+    if program is None:
+        return None
+    if program.is_simple:
+        return run_simple(line, ctx)
+    return script.execute(program, ctx)
+
+
+def run_simple(line: str, ctx: ShellContext) -> PipelineResult | None:
+    """One pipeline, with `$?` (and any `variables`) expanded; sets ctx.last_status."""
+    return _run_parsed(line, ctx, {"?": str(ctx.last_status)})
+
+
+def _run_parsed(line: str, ctx: ShellContext, variables: dict[str, str]) -> PipelineResult | None:
+    try:
+        pipeline = parse(line, variables)
+    except ParseError:
+        ctx.last_status = STATUS_SYNTAX
+        raise
     if pipeline is None:
         return None
-    return run_pipeline(pipeline, ctx)
+    try:
+        result = run_pipeline(pipeline, ctx)
+    except PipelineError as exc:
+        ctx.last_status = exc.status
+        raise
+    except KeyboardInterrupt:
+        ctx.last_status = STATUS_INTERRUPTED
+        raise
+    ctx.last_status = result.status
+    return result
 
 
 def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
@@ -58,16 +101,23 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
         if cmd.name == "cd" and (total > 1 or pipeline.redirect):
             raise PipelineError(index, total, "cd", "cd only works on its own line, not in a pipeline")
     data: Any = ""
+    status = 0
     for index, cmd in enumerate(pipeline.segments, start=1):
         stdin = to_text(data)
         try:
             data = _run_command(cmd, stdin, ctx)
         except (ShellExit, KeyboardInterrupt):
             raise
-        except (CommandError, ModuleError) as exc:
+        except CommandError as exc:
+            raise PipelineError(index, total, cmd.name, str(exc), exc.status) from exc
+        except ModuleError as exc:
             raise PipelineError(index, total, cmd.name, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — surface module bugs as styled errors
             raise PipelineError(index, total, cmd.name, f"{type(exc).__name__}: {exc}") from exc
+        # Like a shell without pipefail, the status is the last command's.
+        status = data.status if isinstance(data, WithStatus) else 0
+        if isinstance(data, WithStatus):
+            data = data.value
 
     if pipeline.redirect:
         target = Path(pipeline.redirect.path).expanduser()
@@ -80,8 +130,8 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext) -> PipelineResult:
                 fh.write(text)
         except OSError as exc:
             raise PipelineError(total, total, pipeline.redirect.path, f"cannot write file: {exc}") from exc
-        return PipelineResult(output=None, redirected_to=target.resolve())
-    return PipelineResult(output=data)
+        return PipelineResult(output=None, redirected_to=target.resolve(), status=status)
+    return PipelineResult(output=data, status=status)
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
@@ -104,12 +154,15 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
             return ctx.runner(f"running {cmd.name}…", lambda: _run_system(argv, stdin))
         if ctx.allow_stateful:  # only suggest the setting where the user can change it
             raise CommandError(f"command not found: {cmd.name} "
-                               f"(OS commands are off — run: settings system_commands on)")
+                               f"(OS commands are off — run: settings system_commands on)", STATUS_NOT_FOUND)
 
+    if ctx.registry.is_disabled(cmd.name):
+        hint = f" — run: modules enable {cmd.name}" if ctx.allow_stateful else ""
+        raise CommandError(f"module '{cmd.name}' is disabled{hint}", STATUS_NOT_FOUND)
     known = list(BUILTINS) + ctx.registry.names()
     hint = difflib.get_close_matches(cmd.name, known, n=1)
     suffix = f" — did you mean '{hint[0]}'?" if hint else ""
-    raise CommandError(f"command not found: {cmd.name}{suffix}")
+    raise CommandError(f"command not found: {cmd.name}{suffix}", STATUS_NOT_FOUND)
 
 
 def _resolve_system(cmd: Command) -> list[str] | None:
@@ -135,7 +188,7 @@ def _run_system(argv: list[str], stdin: str) -> str:
     stdout, stderr = _decode(proc.stdout, utf16), _decode(proc.stderr, utf16)
     if proc.returncode != 0:
         detail = stderr.strip() or stdout.strip() or "no output"
-        raise CommandError(f"exited with status {proc.returncode}: {detail}")
+        raise CommandError(f"exited with status {proc.returncode}: {detail}", proc.returncode)
     return stdout
 
 

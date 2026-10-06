@@ -83,6 +83,11 @@ def _pipeline_description(registry: ModuleRegistry) -> str:
         "take CLI-style switches (see each module's usage). File redirection (`>`, `>>`), "
         "file-changing commands (tee, cp, mv, rm, mkdir, touch), env, and shell-state commands "
         "(cd, theme, settings, exit) are disabled. Run `man <command>` inside a pipeline for a command's manual.\n\n"
+        "The command line may also be a small script: statements separated by `;`, loops such as "
+        "`for h in (cat hosts.txt) { queryDns $h }` or `for n in 1..5 { … }`, and conditions such as "
+        "`if (ip.startswith(\"10.\")) { … } else { … }` or `if grep -q x $f { … }` (see `man for` and "
+        "`man if`). A failing statement in a script shows as a `✗ name: message` line and the script "
+        "goes on.\n\n"
         f"Modules:\n{modules}\n\nBuilt-in commands: {', '.join(_usable_builtins())}"
     )
 

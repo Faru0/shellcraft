@@ -100,10 +100,14 @@ def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
         hits: list[str] = []
         if ctx.allow_aliases and (value := aliases.get_all(ctx.config).get(name)) is not None:
             hits.append(f"{name}: aliased to '{value}'")
-        if name in BUILTINS:
+        if name in ("for", "if"):
+            hits.append(f"{name}: ShellCraft shell keyword (man {name})")
+        elif name in BUILTINS:
             hits.append(f"{name}: ShellCraft builtin ({BUILTINS[name].category})")
         if (spec := ctx.registry.get(name)) is not None:
             hits.append(f"{name}: ShellCraft module ({spec.path})")
+        elif ctx.registry.is_disabled(name):
+            hits.append(f"{name}: ShellCraft module, disabled ({ctx.registry.files[name]})")
         if (path := shutil.which(name)) is not None:
             notes = [n for n, on in (("shadowed", bool(hits)), ("disabled: OS commands are off",
                                                                  not ctx.allow_system)) if on]

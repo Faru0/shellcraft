@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import os
 import time
 from dataclasses import dataclass
@@ -161,6 +162,8 @@ def manual_text(registry: Any, name: str) -> str:
         if not spec.doc_md:
             raise CommandError(f"man: no manual entry for {name} (missing {name}.md)")
         return spec.doc_md
+    if registry.is_disabled(name):
+        raise CommandError(f"man: module '{name}' is disabled (modules enable {name})")
     if name in BUILTINS:
         b = BUILTINS[name]
         doc = b.doc or f"# {name}\n\n{b.summary}.\n\n## Usage\n\n```\n{b.usage}\n```\n"
@@ -198,23 +201,292 @@ def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return Text.assemble(("✓ ", "sc.success"), ("theme set to ", ""), (themes[name].label, "sc.accent"))
 
 
-@builtin("modules", "List loaded modules and their files", "modules")
+MODULES_DOC = """# modules
+
+List the modules in the modules folder, and turn them on or off. A disabled module is not
+imported at all: it is not a command, not an MCP tool and has no man page until you enable it
+again. The choice is saved in `~/.shellcraft/config.json`, so it lasts across sessions and also
+applies to `--mcp` / `--mcp-http` (`mcp restart` passes a change on to a running server).
+
+## Usage
+
+```
+modules                      # the enabled modules (the default)
+modules -a                   # every module, enabled and disabled, with its state
+modules enable NAME...       # turn modules on (loads them now)
+modules disable NAME...      # turn modules off
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-a`, `--all` | Show disabled modules too, with an *on/off* column. `modules all` works as well. |
+
+A module whose file changes is reloaded as usual (`hot_reload`), and stays disabled if it was.
+Running a disabled module says so, and how to enable it. AI clients over MCP can list modules
+but not enable or disable them.
+
+## Examples
+
+```
+modules
+modules -a
+modules disable queryCensys queryDns
+modules enable queryDns
+```
+"""
+
+
+@builtin("modules", "List modules; enable or disable them", "modules [-a] | modules enable|disable NAME...",
+         doc=MODULES_DOC)
 def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    table = Table(title=f"Modules in {ctx.registry.directory}", title_style="sc.prompt",
-                  border_style="sc.border", header_style="sc.accent")
+    if args and args[0] in ("enable", "disable"):
+        return _modules_toggle(ctx, args[0], args[1:])
+    if args not in ([], ["-a"], ["--all"], ["all"]):
+        raise CommandError("usage: modules [-a] | modules enable NAME... | modules disable NAME...")
+    show_all = bool(args)
+    registry = ctx.registry
+    names = registry.all_names() if show_all else registry.names()
+    disabled = registry.disabled_names()
+    title = f"{'All modules' if show_all else 'Modules'} in {registry.directory}"
+    table = Table(title=title, title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    if show_all:
+        table.add_column("state", justify="center")
     table.add_column("name", style="sc.path")
     table.add_column(".py", justify="center")
     table.add_column(".md", justify="center")
     table.add_column(".skill", justify="center")
     table.add_column("summary")
     ok, missing = Text("✓", style="sc.success"), Text("·", style="sc.muted")
-    for name in ctx.registry.names():
-        spec = ctx.registry.get(name)
-        table.add_row(name, ok, ok if spec.doc_md else missing, ok if spec.skill else missing, spec.summary)
-    if not ctx.registry.warnings:
-        return table
-    warnings = Text("\n".join(f"⚠ {w}" for w in ctx.registry.warnings), style="sc.warning")
-    return Group(table, warnings)
+    plain: list[str] = []
+    for name in names:
+        py = registry.files.get(name)
+        spec = registry.get(name)
+        has_md = bool(spec.doc_md) if spec else bool(py and py.with_suffix(".md").is_file())
+        has_skill = bool(spec.skill) if spec else bool(py and py.with_suffix(".skill").is_file())
+        summary = registry.describe(name)
+        row = [name, ok, ok if has_md else missing, ok if has_skill else missing, summary]
+        if show_all:
+            if name in disabled:
+                state = Text("○ off", style="sc.muted")
+            elif spec is None:
+                state = Text("⚠ error", style="sc.warning")  # enabled, but failed to load
+            else:
+                state = Text("● on", style="sc.success")
+            row.insert(0, state)
+            plain.append(f"{state.plain[2:]:<5}  {name}  {summary}".rstrip())
+        else:
+            plain.append(f"{name}  {summary}".rstrip())
+        table.add_row(*row, style="sc.muted" if name in disabled else None)
+    parts: list[Any] = [table]
+    notes: list[str] = []
+    if not show_all and disabled:
+        notes.append(f"{len(disabled)} disabled: {', '.join(disabled)}  (modules -a shows all, "
+                     f"modules enable NAME turns one on)")
+        parts.append(Text(notes[-1], style="sc.muted"))
+    if registry.warnings:
+        warning_text = "\n".join(f"⚠ {w}" for w in registry.warnings)
+        notes.append(warning_text)
+        parts.append(Text(warning_text, style="sc.warning"))
+    text = "".join(f"{line}\n" for line in plain + notes)
+    return Styled(Group(*parts) if len(parts) > 1 else table, text)
+
+
+def _modules_toggle(ctx: ShellContext, action: str, names: list[str]) -> Any:
+    if not ctx.allow_stateful:
+        raise CommandError(f"modules {action} is not available in this context")
+    if not names:
+        raise CommandError(f"usage: modules {action} NAME...")
+    registry = ctx.registry
+    unknown = [n for n in names if n not in registry.files]
+    if unknown:
+        hints = []
+        for name in unknown:
+            if name in BUILTINS:
+                hints.append(f"{name} is a builtin, not a module")
+            else:
+                close = difflib.get_close_matches(name, registry.all_names(), n=1)
+                hints.append(f"no module '{name}'" + (f" — did you mean '{close[0]}'?" if close else ""))
+        raise CommandError(f"modules {action}: {'; '.join(hints)}")
+
+    msg = Text()
+    changed: list[str] = []
+    failed: list[str] = []
+    for name in dict.fromkeys(names):  # each once, in the order given
+        if action == "disable":
+            if registry.is_disabled(name):
+                msg.append(f"• {name} is already disabled\n", style="sc.muted")
+                continue
+            registry.disable(name)
+            changed.append(name)
+        else:
+            was_disabled = registry.is_disabled(name)
+            if not was_disabled and registry.get(name) is not None:
+                msg.append(f"• {name} is already enabled\n", style="sc.muted")
+                continue
+            try:
+                registry.enable(name)
+            except Exception as exc:  # noqa: BLE001 — enabled, but it doesn't import: say why
+                failed.append(f"{name}: {type(exc).__name__}: {exc}")
+            else:
+                if not was_disabled:  # it was on but had failed to load: this was a retry
+                    msg.append(f"✓ {name} loaded\n", style="sc.success")
+            if was_disabled:
+                changed.append(name)
+    ctx.config["disabled_modules"] = registry.disabled_names()
+    if changed:
+        mark = ("✓ ", "sc.success") if action == "enable" else ("○ ", "sc.muted")
+        msg.append_text(Text.assemble(mark, f"{action}d ", (", ".join(changed), "sc.accent")))
+    for line in failed:
+        msg.append(f"\n⚠ enabled, but it failed to load — {line}", style="sc.warning")
+    msg.rstrip()
+    if changed:
+        return _saved(ctx, msg)
+    return msg
+
+
+BANNER_DOC = """# banner
+
+Show the ShellCraft welcome banner (the one printed when the shell starts) again, with the
+version, theme, module count and any module warnings, in the current theme.
+
+## Usage
+
+```
+banner
+banner -c
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-c`, `--clear` | Clear the screen first, like a fresh login. |
+
+`settings banner off` only stops it at startup; the `banner` command always shows it.
+"""
+
+
+@builtin("banner", "Show the ShellCraft welcome banner", "banner [-c]", stateful=True, doc=BANNER_DOC)
+def _banner(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core.banner import render_banner
+
+    if any(a not in ("-c", "--clear") for a in args):
+        raise CommandError("usage: banner [-c]")
+    if ctx.ui is None:
+        raise CommandError("banner: needs the interactive shell")
+    if args:
+        ctx.ui.console.clear()
+    return Paged(render_banner(ctx.ui, ctx.registry), page=False)
+
+
+FOR_DOC = """# for
+
+Run commands once for each item of a list. ShellCraft parses the loop itself, so the body needs
+no escaping: `$name` is the current item as **one** argument, whatever it contains (spaces,
+quotes, `;`), and quotes mean what they mean on any command line.
+
+## Usage
+
+```
+for NAME in ITEM... { COMMANDS }
+```
+
+COMMANDS are separated by `;` or new lines. Braces must be words of their own: `{ echo $x }`,
+not `{echo $x}` (inside a block, write a literal `}` as `'}'`).
+
+## Items
+
+| Item | Gives |
+| --- | --- |
+| `a b "c d"` | Each word (quotes keep spaces in one item). |
+| `1..5`, `5..1`, `0..100..10` | Whole numbers, both ends included (an optional step). |
+| `*.log`, `src/*.py` | Matching file names, sorted (the word itself when nothing matches). |
+| `(COMMAND)` or `$(COMMAND)` | Each non-empty line of the command's output, e.g. `(cat hosts.txt)`. |
+| `$x` | The value of an outer loop variable. |
+
+## Inside the body
+
+- `$NAME` or `${NAME}`: the loop variable. `$?`: the last command's exit status.
+- `if` / `elif` / `else` (see `man if`), and nested `for` loops.
+- `break` leaves the loop, `continue` goes on to the next item.
+- A command that fails shows its error and the loop goes on (`$?` is set), as in other shells.
+- Redirect inside the body to collect output: `for h in (cat hosts) { queryDns $h >> dns.txt }`.
+  A whole loop can't be piped or redirected yet.
+
+In the shell, a line that ends inside `{ … }` asks for more lines (`┆ …`), so a loop can be
+typed over several lines; Ctrl-C cancels it. Ctrl-C while it runs stops the loop.
+
+## Examples
+
+```
+for ip in 1.1.1.1 8.8.8.8 { ip2geo $ip }
+for h in (cat hosts.txt) { queryDns $h >> dns.txt }
+for n in 1..5 { echo $n }
+for f in *.log { if grep -q ERROR $f { echo $f } }
+for ip in (cat ips.txt) { if (ip.startswith("10.")) { echo internal $ip } else { myip $ip } }
+```
+"""
+
+IF_DOC = """# if
+
+Run commands when a condition holds, inside a `for` loop or on its own.
+
+## Usage
+
+```
+if CONDITION { COMMANDS }
+if CONDITION { … } elif CONDITION { … } else { … }
+```
+
+`elif` and `else` follow the closing `}` (on the same line, or after `;` / a new line inside a
+block).
+
+## Conditions
+
+**A command**: true when its exit status is 0. Put `!` (then a space) in front to negate it.
+
+```
+if grep -q TODO $f { echo $f }
+if ! grep -q "^#" $f { echo "no comments in $f" }
+```
+
+**A Python expression in parentheses**: loop variables are plain names (or `$name`), `status`
+(or `$?`) is the last exit status as a number. Loop variables are text: use `int(n)` for
+numbers.
+
+```
+if (ip.startswith("10.") and not ip.endswith(".1")) { … }
+if (int(n) % 2 == 0) { … }
+if (host in ("a.com", "b.com")) { … }
+if ($? != 0) { echo "failed" }
+if (match(r"^\\d+\\.\\d+", ver)) { … }
+```
+
+Expressions are checked before anything runs and evaluated without `eval`: comparisons,
+`and` / `or` / `not`, `in`, arithmetic (`+ - * / // %`), indexing and slicing, `x if c else y`,
+these string methods: `startswith endswith lower upper casefold title strip lstrip rstrip split
+rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
+isalpha isalnum isspace islower isupper`, and these functions: `len int float str bool abs min
+max`, `match(PATTERN, TEXT)` (a regex search), `exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
+Imports, other attributes, other calls and names starting with `_` are refused.
+
+A condition that fails to evaluate (an unknown name, comparing text with a number) stops the
+whole script with an error, since it would fail the same way on every item.
+"""
+
+
+def _keyword(name: str) -> Callable[[ShellContext, list[str], str], Any]:
+    def run(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+        raise CommandError(f"{name}: a shell keyword, not a command here (see: man {name})")
+    return run
+
+
+builtin("for", "Loop over items: for x in a b (cmd) 1..5 { … }", "for NAME in ITEM... { COMMANDS }",
+        doc=FOR_DOC)(_keyword("for"))
+builtin("if", "Run commands when a condition holds", "if (EXPR) | COMMAND { … } [elif … { … }] [else { … }]",
+        doc=IF_DOC)(_keyword("if"))
 
 
 @builtin("reload", "Re-scan the modules directory", "reload", stateful=True)

@@ -24,8 +24,10 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **37 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`… written in Python, so they behave the same on every OS. |
-| 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. |
+| 🧰 **39 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`… written in Python, so they behave the same on every OS. |
+| 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
+| 🔁 **Loops & conditions** | `for h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: parsed by ShellCraft, so no escaping, and conditions are sandboxed Python expressions. |
+| ↩️ **Shell habits** | `$?`, `!!`, `!$` and `;`, with the exit status in the prompt. |
 | ⌨️ **Smart input** | Ghost-text suggestions from history, and Tab completion for commands, switches (with descriptions), switch values and paths. |
 | 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search and highlighting. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, or your own. |
@@ -88,16 +90,61 @@ history 20                                    # what you typed
 - If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.
 - `cd` only works on its own line. `cd x | pwd` is refused, because it would change the shell's directory from inside a pipeline.
 
-Not supported yet: `2>`, `<`, `;`, `&&`, `||`, `$VAR` and `*` globbing (see [TODO.md](TODO.md)).
-They're rejected with a parse error rather than passed on as arguments, so `rm a ; ls` never
-deletes a file named `ls`. Quote them to use them as text.
+- `a ; b` runs one command after the other; `b` runs even if `a` failed (see [Loops and conditions](#loops-and-conditions)).
+
+Not supported yet: `2>`, `<`, `&&`, `||`, environment variables (`$HOME`) and `*` globbing outside
+`for` lists (see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than
+passed on as arguments. Quote them to use them as text.
+
+### Loops and conditions
+
+ShellCraft parses loops itself, so there is none of the quoting and escaping a loop needs when
+it is passed through another shell: `$x` is the current item as **one** argument, whatever it
+contains.
+
+```
+for ip in 1.1.1.1 8.8.8.8 { ip2geo $ip }
+for h in (cat hosts.txt) { queryDns $h >> dns.txt }        # each line of a command's output
+for n in 1..5 { echo $n }                                  # ranges: 5..1, 0..100..10
+for f in *.log { if grep -q ERROR $f { echo $f } }         # globs; a command as the condition
+
+for ip in (cat ips.txt) {                                  # an open { continues on the next line
+  if (ip.startswith("10.")) { echo internal $ip }
+  elif (ip in ("8.8.8.8", "1.1.1.1")) { echo dns $ip }
+  else { ip2geo $ip }
+}
+```
+
+- **Conditions** are either a command (true when it succeeds; `if ! cmd` negates it), or a
+  Python expression in parentheses: loop variables are names (`ip`, or `$ip`), `status` is `$?`,
+  and you get comparisons, `and`/`or`/`not`, `in`, slicing, string methods (`startswith`,
+  `split`, `isdigit`…), `len`, `int`, `match(regex, text)`, `exists(path)` and a few more.
+  Expressions are checked and evaluated by ShellCraft (no `eval`), so imports, other attributes
+  and other functions are refused. Loop variables are text: compare numbers with `int(n) > 3`.
+- `break` and `continue` work in loops; statements are separated by `;` or new lines.
+- A failing command shows its error and the loop goes on, as in bash; `$?` holds its status.
+- Braces are words of their own: `{ echo $x }`. A loop's output can be redirected per command
+  (`>> file` inside the body), not as a whole yet.
+
+`man for` and `man if` have the details. Loops also work over MCP (with the same restrictions).
+
+### Exit status and history
+
+- `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,
+  127 for an unknown or disabled command, 130 after Ctrl-C, and an OS program's own code. `grep`
+  returns 1 when nothing matches, without an error panel, so `if grep -q …` works.
+- The prompt shows `[✗ 127]` after a command fails.
+- `!!` is the previous command and `!$` its last word, as in bash: `sudo !!`, `cat !$`. The
+  expanded line is printed before it runs and saved in the history (not inside single quotes;
+  `!=` and `hi!` are left alone).
 
 ### Typing helpers
 
 - **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it.
-- **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), arguments for `man`, `theme`, `settings` and `unalias`, and paths everywhere else.
+- **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), arguments for `man`, `theme`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
-- The prompt shows `[✗]` after a command fails.
+- A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
+- `banner` shows the welcome banner again (`banner -c` clears the screen first).
 
 ### Aliases
 
@@ -148,7 +195,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `settings` `alias` `unalias` `history` `modules` `reload` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp`, and the keywords `for` `if` |
 | Text | `echo` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` |
 | Info | `date` `which` `env` |
@@ -171,6 +218,19 @@ one has a manual: `man ls`, `man grep`, …
 | `queryCensys` | Open ports and software on a host, certificate details, or Censys searches (Censys Platform; **needs a token** and `pip install censys-platform`). |
 
 See `man <module>` for details, e.g. `man queryDns`.
+
+### Turning modules on and off
+
+```
+modules                        # the enabled modules (the default)
+modules -a                     # every module, with an on/off column
+modules disable queryCensys    # off: not a command, not an MCP tool, never imported
+modules enable queryCensys     # back on, loaded right away
+```
+
+The choice is saved in `~/.shellcraft/config.json` and applies to the MCP server as well
+(`mcp restart` passes a change on to one that's already running). Running a disabled module says
+how to enable it. MCP clients can list modules but can't enable or disable them.
 
 ## Settings
 

@@ -21,7 +21,9 @@ shellcraft/
 │   ├── cli.py              # argument parsing; chooses interactive / --mcp / --mcp-http mode
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text; Windows console (CONIN$/CONOUT$)
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
-│   ├── parser.py           # quote-aware tokenizer → Pipeline(segments, redirect)
+│   ├── parser.py           # quote-aware tokenizer ($? / $name expansion) → Pipeline(segments, redirect)
+│   ├── script.py           # for / if / ; scripts: block parser, runner, sandboxed Python conditions
+│   ├── histexpand.py       # !! and !$ (interactive shell only)
 │   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── context.py          # ShellContext (state + permission flags), Styled, to_text()
@@ -32,7 +34,7 @@ shellcraft/
 │   │   ├── diff.py         #   diff (classic + unified, directories)
 │   │   ├── info.py         #   date which env
 │   │   └── _io.py          #   shared file/stdin helpers
-│   ├── loader.py           # module discovery; ModuleSpec; SkillInfo (.skill parsing)
+│   ├── loader.py           # module discovery, enable/disable; ModuleSpec; SkillInfo (.skill parsing)
 │   ├── params.py           # .skill [[params]]: validation, MCP input schema, named values → CLI args
 │   ├── watch.py            # ModuleWatcher: polls the modules folder for hot reload
 │   ├── options.py          # switch metadata from .skill [[params]]/[[args]] and .md tables (Tab completion)
@@ -55,13 +57,15 @@ shellcraft/
 
 ## How a command line runs
 
-1. `parser.parse()` splits the line into segments and an optional redirect. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. Unsupported shell operators (`;`, `&&`, `||`, `<`, `2>`…) raise a `ParseError` instead of becoming arguments.
-2. `pipeline.run_pipeline()` first expands the user's aliases (`aliases.expand()`, unless `ctx.allow_aliases` is off, as in MCP). It then feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
+1. The REPL first joins continuation lines (while `script.incomplete()` says a `{` or `(` is open) and expands `!!` / `!$` (`histexpand.expand()`), then saves the result to the history itself (the prompt's own history append is switched off).
+2. `run_line()` calls `script.parse_script()`. A single plain pipeline (the usual case) goes on exactly as before; anything else (`;`, `for`, `if`) is run by `script.execute()`, which runs each statement as in steps 3–5 with the loop variables, prints its output through `ctx.emit` (or collects it when there is none, as in MCP), reports a failing statement and goes on.
+3. `parser.parse(line, variables)` splits the line into segments and an optional redirect, expanding `$?` and `$name` (never splitting a value into several words). Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. Unsupported shell operators (`&&`, `||`, `<`, `2>`…, and `;`, which only `script.py` splits on) raise a `ParseError` instead of becoming arguments.
+4. `pipeline.run_pipeline()` first expands the user's aliases (`aliases.expand()`, unless `ctx.allow_aliases` is off, as in MCP). It then feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
    1. a **builtin** (`core/builtins.py`, `core/commands/`)
    2. a **module** from `modules/`
    3. an **OS program**, only when `ctx.allow_system` is set (the `system_commands` setting or `--allow-system`)
-3. A `CommandError` / `ModuleError`, or any exception, stops the pipeline as a `PipelineError` that names the failing segment.
-4. The final output goes to the redirect file, or to `output.show()`. `show()` renders Rich output and pages it when it's taller than the terminal.
+5. A `CommandError` / `ModuleError`, or any exception, stops the pipeline as a `PipelineError` that names the failing segment and carries its exit status (`CommandError(msg, status)`; 127 for not found). A command returns `WithStatus(value, n)` for a nonzero status that isn't an error (`grep` with no match). `ctx.last_status` (`$?`) is set from the result.
+6. The final output goes to the redirect file, or to `output.show()`. `show()` renders Rich output and pages it when it's taller than the terminal.
 
 ### Terminal I/O on Windows and Linux
 
@@ -79,7 +83,7 @@ shellcraft/
 | Flag | Blocks | Off in MCP |
 | --- | --- | --- |
 | `allow_redirect` | `>` / `>>` | yes |
-| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `settings`, `exit`, `reload`, `clear`) | yes |
+| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `settings`, `exit`, `reload`, `clear`, `banner`), and `modules enable` / `disable` | yes |
 | `allow_writes` | builtins marked `writes` (`tee`, `mkdir`, `cp`, `mv`, `rm`, `touch`) | yes |
 | `allow_sensitive` | builtins marked `sensitive` (`env`) | yes |
 | `allow_system` | the OS program fallback | unless `--allow-system` |
@@ -109,6 +113,13 @@ def wc(ctx, args, stdin):
 - The `doc` Markdown is the `man` page, **and** its options table (``| `-x`, `--long N` | … |``) is what Tab completion reads. Keep every switch in that table.
 - New files in `core/commands/` must be imported in `core/commands/__init__.py`.
 - Add tests to `tests/test_commands.py`.
+
+### Scripts (`core/script.py`)
+
+- **Grammar:** `stmt (; | NEWLINE) stmt…`, where a statement is `for NAME in ITEM… { … }`, `if COND { … } [elif COND { … }] [else { … }]`, `break`, `continue` or a pipeline. Pipelines are kept as raw text and syntax-checked with `parser.parse()` before anything runs, so a typo in the tenth statement stops the script before the first one runs. `{` is structural at the start of a word, `}` only as a word of its own, and only inside a block, so plain lines like `echo {a} }` parse as before.
+- **Conditions:** `( … )` is Python, vetted by `_vet()` (an allow-list of AST nodes, functions in `FUNCTIONS` and methods in `STR_METHODS`) and evaluated by `_eval()`, a tree walker: never `eval`/`compile`. `*` is capped (`MAX_SEQUENCE`) and `**` isn't allowed. Anything else is a pipeline, true when its status is 0.
+- **Errors:** a failing statement is reported (`ctx.emit_error`, or a `✗ name: message` line) and the script goes on; a condition that can't be evaluated stops the script (`_Abort`). `IncompleteError` (a `ParseError`) tells the REPL to read another line, and how to join it.
+- **Permissions:** every statement runs through `run_pipeline()` with the same `ShellContext`, so MCP restrictions hold inside loops.
 
 ## Adding a setting
 
@@ -150,6 +161,9 @@ description)]` (`core/modkit.py`). The pieces:
 | File | Covers |
 | --- | --- |
 | `test_parser.py` | tokenizer, quoting, redirects, parse errors |
+| `test_script.py` | `$?`/`$name` expansion, exit statuses, `;`, `for` items (words, ranges, globs, command output), `if` with commands and Python conditions, the condition sandbox, break/continue, syntax errors, continuation detection |
+| `test_histexpand.py` | `!!` / `!$` rules, and the REPL loop: printing, saving the expanded line, joined continuation lines, `[✗ N]` |
+| `test_modules_cmd.py` | `modules`, `-a`, `enable`/`disable`: never importing disabled modules, saving to config, startup, MCP tool list, `man`/`which`, completion |
 | `test_pipeline.py` | chaining, failures, redirection, `cd`, restricted contexts |
 | `test_commands.py` | every ported builtin |
 | `test_settings.py` | settings, the OS-command gate, `--allow-system`, no `-c` mode |

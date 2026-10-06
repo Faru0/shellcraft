@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Second full assessment: 2026-09-28 (`main` @ 93e719b). Third full assessment: 2026-09-30 (`main` @ 3a74273). Checked items have been done since then.
-> **Current state:** 37 builtins (including `alias`, `history`, `diff` and `du`), a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 355 tests pass, in ~2.5 s on Python 3.14 (with the `censys` extra). About 6,500 lines of application code (core, modules, tools) and 2,500 lines of tests. An offline `Install/` bundle (Windows installer, Ubuntu 26.04 `.deb`s, wheels for Windows/Linux × CPython 3.11–3.14, `setup.ps1` / `setup.sh`) makes air-gapped installs possible.
+> **Current state:** 39 builtins (including `alias`, `history`, `diff`, `du` and `banner`) and the `for` / `if` keywords, `;` sequences, `$?`, `!!` / `!$`, `modules enable/disable`, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 476 tests pass on Python 3.13 (2026-10-06) (with the `censys` extra). About 6,500 lines of application code (core, modules, tools) and 2,500 lines of tests. An offline `Install/` bundle (Windows installer, Ubuntu 26.04 `.deb`s, wheels for Windows/Linux × CPython 3.11–3.14, `setup.ps1` / `setup.sh`) makes air-gapped installs possible.
 
 ## Assessment
 
@@ -50,16 +50,16 @@ Items marked **(verified)** were reproduced during the assessment.
 
 ## 🔒 Security — P0
 
-- [ ] **Per-module MCP exposure switch**: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. This also closes the `fetch -d @FILE` exfiltration path and the paid-quota use of `queryDns`/`queryCensys` without touching the modules. It must apply to the `shellcraft_pipeline` tool too, not only to the per-module tools. — `core/loader.py`, `core/mcp_server.py`
+- [ ] **Per-module MCP exposure switch** *(partly covered: `modules disable NAME` now removes a module everywhere, MCP included; a local-only switch is still open)*: `expose = false` in `.skill`, and a `--expose name,...` CLI flag, so sensitive modules stay local-only. This also closes the `fetch -d @FILE` exfiltration path and the paid-quota use of `queryDns`/`queryCensys` without touching the modules. It must apply to the `shellcraft_pipeline` tool too, not only to the per-module tools. — `core/loader.py`, `core/mcp_server.py`
 - [ ] **No timeout on MCP tool calls**: a hung module holds a worker thread forever. Add a per-call timeout (`anyio.fail_after`) and caps on stdin and output size. Easy triggers: `du /`, `find /`, `tree /`, or a catastrophic regex in `grep`/`filter`. — `core/mcp_server.py`
 - [x] **History records everything**: a line typed with a leading space is no longer saved (bash's `ignorespace`). *(Values in `settings NAME VALUE` are still redacted.)* — `core/shell.py`
-- [ ] **History redaction can be bypassed** **(verified)**: `redact_line()` only matches a line that starts with `settings`, so `\settings NAME VALUE`, or an alias such as `alias s=settings`, saves the API key to `~/.shellcraft/history` in plain text. Redact after alias expansion, or match any first word that resolves to `settings`. — `core/settings.py`, `core/shell.py`
+- [ ] **History redaction can be bypassed** **(verified)**: `redact_line()` only matches a line that starts with `settings`, so `\settings NAME VALUE`, an alias such as `alias s=settings`, or a script (`echo x ; settings NAME VALUE`, a `for` body) saves the API key to `~/.shellcraft/history` in plain text. Redact after alias expansion, or match any first word that resolves to `settings`. — `core/settings.py`, `core/shell.py`
 - [ ] **The MCP HTTP transport has no authentication**: loopback-only binding and DNS-rebinding checks stop browsers and remote hosts, but any other local user or process can connect to the port and read every file the server's user can read. That matters on shared lab machines. Require a bearer token (generated at startup, printed on stderr, or taken from `SHELLCRAFT_MCP_TOKEN`). — `core/mcp_server.py`
 - [ ] **API keys are stored in plain text** in `config.json` (mode 600, which doesn't protect them on Windows). Offer the OS keyring (`keyring` package) as an optional backend. — `core/settings.py`
 
 ## 🔧 Bugs / polish — P1
 
-- [ ] **Hot reload races with MCP calls**: `ModuleRegistry.load()` empties `self.modules` and then refills it, while tool calls run in worker threads. A call that arrives mid-reload gets "Unknown tool" or "command not found". Build the new dict first, then swap it in. — `core/loader.py`
+- [x] **Hot reload races with MCP calls**: `ModuleRegistry.load()` emptied `self.modules` and then refilled it, while tool calls run in worker threads. A call that arrives mid-reload gets "Unknown tool" or "command not found". *(Fixed 2026-10-06: the new dicts are built aside and swapped in at the end.)* — `core/loader.py`
 - [ ] **Two open shells overwrite each other's config** **(verified)**: each session writes its whole in-memory config, so an alias (or API key) saved in one shell is lost when the other changes the theme. The write isn't atomic either, so a crash mid-write truncates `config.json` along with the stored keys. Re-read and merge only the changed key before saving, and write through a temp file plus `os.replace`. — `core/config.py`, `core/builtins.py`
 - [ ] **`grep -m 0` prints one line** **(verified)**: GNU grep prints nothing. `match_lines` appends before checking the limit. — `core/commands/text.py`
 - [ ] **A quoted `~` in a redirect target is still expanded** **(verified)**: `echo hi > '~/f'` writes to the home directory, although quoting keeps `~` literal everywhere else. The tokenizer already expands unquoted `~`, so drop the second `expanduser()`. — `core/pipeline.py`
@@ -97,19 +97,21 @@ Items marked **(verified)** were reproduced during the assessment.
   - `theme preview NAME` (no save)
   - light-terminal variants
   - theme validation warnings shown in the banner
-- [ ] **Exit status**:
-  - a `status` builtin or `$?`
-  - show the code in the prompt as `[✗ 1]`
-  - `grep` returns status 1 when nothing matches, so `status` / `$?` and the prompt show it
+- [x] **Exit status**: `$?` (0, 1, 2 for syntax errors, 127 not found / disabled, 130 Ctrl-C, an OS program's own code), the prompt shows `[✗ N]`, and `grep` returns 1 when nothing matches (plus `grep -q`). Commands return `WithStatus(value, n)` for a nonzero status that isn't an error. — `core/pipeline.py`, `core/context.py`, `core/commands/text.py`
+- [x] **Loops and conditions**: `for NAME in ITEMS { … }` over words, `N..M[..STEP]` ranges, globs and `(command)` output lines; `if` / `elif` / `else` with a command's status or a sandboxed Python expression (AST-vetted, walked without `eval`); `break` / `continue`; `;` and new lines between statements; continuation lines while a `{` or `(` is open. Statements keep the context's permission flags, so MCP gets loops with the same restrictions. — `core/script.py`
+- [x] **History expansion**: `!!` and `!$`, printed before running and saved expanded. — `core/histexpand.py`, `core/shell.py`
+- [x] **`modules -a` / `modules enable|disable NAME…`**: disabled modules are never imported, saved in `config.json` (`disabled_modules`), and skipped by `--mcp` / `--mcp-http` too. — `core/loader.py`, `core/builtins.py`
+- [x] **`banner [-c]`** shows the startup banner again. — `core/builtins.py`
+- [ ] **Scripts, next steps**: piping or redirecting a whole loop (`for … { … } | sort`), `while`, assigning variables (`set x=…`), `!N` / `!prefix` / `!*`, and keeping a loop's variables after it ends.
 
 ## ✨ Features — P2
 
 - [ ] **Shell grammar**:
   - `<` input redirect
   - `2>` / `2>&1`
-  - `;`, `&&`, `||`
+  - `&&`, `||` *(`;` is done)*
   - `$VAR` / `%VAR%` expansion with `export`
-  - glob expansion (`*.log`)
+  - glob expansion (`*.log`) for every command *(done in `for` item lists)*
   - `~user`
 - [x] **Ported builtins, first batch**: `ls`, `cat`, `grep`, `echo`, `tee`, `head`, `tail`, `wc`, `sort`, `uniq`, `date`, `mkdir`, `cp`, `mv`, `rm`, plus the `settings` command with OS commands off by default.
 - [x] **Ported builtins, second batch**: `find`, `touch`, `which`, `tree`, `cut`, `tr`, `env` (`env` is blocked in MCP as sensitive).

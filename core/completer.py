@@ -6,6 +6,7 @@ builtin's doc), so new modules get completion without any code here.
 
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
@@ -22,6 +23,19 @@ from core.themes import all_themes
 _BREAK_CHARS = " \t|>"
 
 
+def _current_segment(before: str) -> list[str]:
+    """The words of the command being typed: a new one starts after `|` or `;`, after a `{` or
+    `}` word (a for / if block), and after `if`, `elif` or `!` (a condition is a command)."""
+    words = re.split(r"[|;]", before)[-1].split()
+    for i in range(len(words) - 1, -1, -1):
+        if words[i] in ("{", "}"):
+            words = words[i + 1:]
+            break
+    while words and words[0] in ("if", "elif", "else", "!"):
+        words = words[1:]
+    return words
+
+
 class ShellCompleter(Completer):
     def __init__(self, ctx: ShellContext):
         self.ctx = ctx
@@ -32,10 +46,13 @@ class ShellCompleter(Completer):
         start = max(text.rfind(c) for c in _BREAK_CHARS) + 1
         word = text[start:]
         before = text[:start].rstrip()
-        segment = before[before.rfind("|") + 1:].split() if "|" in before else before.split()
+        segment = _current_segment(before)
 
         if not before.endswith(">") and not segment:
             yield from self._commands(word)
+            return
+        if not before.endswith(">") and segment and segment[0] == "modules":
+            yield from self._modules(segment, word)
             return
         if not before.endswith(">") and segment and segment[0] == "unalias":
             yield from self._complete(word, self._aliases())
@@ -102,6 +119,19 @@ class ShellCompleter(Completer):
         else:
             options = {n: "module" for n in self.ctx.registry.names()} | {n: "builtin" for n in BUILTINS}
         yield from self._complete(word, options)
+
+    def _modules(self, segment: list[str], word: str) -> Iterable[Completion]:
+        """modules <Tab>: the subcommands; modules enable/disable <Tab>: the modules it applies to."""
+        registry = self.ctx.registry
+        if len(segment) == 1:
+            yield from self._complete(word, {"enable": "turn modules on", "disable": "turn modules off",
+                                             "-a": "show disabled modules too"})
+        elif segment[1] == "enable":
+            yield from self._complete(word, {n: registry.describe(n) or "disabled module"
+                                             for n in registry.disabled_names() if n not in segment[2:]})
+        elif segment[1] == "disable":
+            yield from self._complete(word, {n: registry.describe(n) or "module"
+                                             for n in registry.names() if n not in segment[2:]})
 
     def _aliases(self) -> dict[str, str]:
         return aliases.get_all(self.ctx.config) if self.ctx.allow_aliases else {}

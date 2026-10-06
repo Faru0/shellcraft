@@ -23,14 +23,14 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.console import Console, ConsoleDimensions
 from rich.text import Text
 
-from core import settings
+from core import histexpand, script, settings
 from core.banner import render_banner
 from core.completer import ShellCompleter
 from core.config import history_path
 from core.context import ShellContext, ShellExit
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
-from core.pipeline import PipelineError, run_line
+from core.pipeline import STATUS_INTERRUPTED, STATUS_SYNTAX, PipelineError, run_line
 from core.watch import ModuleWatcher
 
 
@@ -299,7 +299,6 @@ class Shell:
         assert ctx.ui is not None
         self.ctx = ctx
         self.ui = ctx.ui
-        self.last_failed = False
         self.user_host = _user_host()
         self._cleanup = contextlib.ExitStack()
         self.windows_console: WindowsConsole | None = None
@@ -334,6 +333,9 @@ class Shell:
         self._cleanup.callback(self._stop_mcp_http)  # registered last, so it runs first on close
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
+        # A script (`for`, `if`, `a ; b`) prints each statement's output and errors as it runs.
+        ctx.emit = lambda value: show(self.ui, value, pager=False)
+        ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
         self.watcher = ModuleWatcher(ctx.registry.directory)
 
         try:
@@ -352,6 +354,9 @@ class Shell:
             style=DynamicStyle(lambda: self.ui.pt_style),
             include_default_pygments_style=False,
         )
+        # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
+        # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
+        self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -375,10 +380,14 @@ class Shell:
             ("class:user", self.user_host), ("class:sep", " ─ "), ("class:path", _pretty_cwd()),
         ]
         parts += self._mcp_marker()
-        if self.last_failed:
-            parts += [("class:sep", " "), ("class:failed", "[✗]")]
+        if self.ctx.last_status:
+            parts += [("class:sep", " "), ("class:failed", f"[✗ {self.ctx.last_status}]")]
         parts += [("", "\n"), ("class:frame", "╰─"), ("class:arrow", "❯ ")]
         return FormattedText(parts)
+
+    @staticmethod
+    def _continuation_prompt() -> FormattedText:
+        return FormattedText([("class:frame", "  ┆ "), ("class:arrow", "… ")])
 
     def _mcp_marker(self) -> list[tuple[str, str]]:
         """`● mcp :8765` while a server started with `mcp start` runs; `✗ mcp :8765` if it died
@@ -406,10 +415,23 @@ class Shell:
         while True:
             try:
                 line = self.session.prompt(self._prompt)
+                line = self._read_continuation(line)
             except KeyboardInterrupt:
                 continue
             except EOFError:
                 return self._goodbye(0)
+            if line is None:
+                continue
+
+            try:
+                line, expanded = histexpand.expand(line, self._previous_command())
+            except ParseError as exc:
+                show_error(self.ui, exc, line)
+                self.ctx.last_status = STATUS_SYNTAX
+                continue
+            if expanded:
+                self.ui.console.print(Text(line, style="sc.muted"), markup=False, highlight=False)
+            self._remember(line)
 
             self._hot_reload()
             try:
@@ -418,19 +440,59 @@ class Shell:
                 return self._goodbye(exc.code)
             except KeyboardInterrupt:
                 self.ui.console.print(Text("^C interrupted", style="sc.warning"))
-                self.last_failed = True
+                self.ctx.last_status = STATUS_INTERRUPTED
                 continue
             except (ParseError, PipelineError) as exc:
                 show_error(self.ui, exc, line)
-                self.last_failed = True
                 continue
 
-            self.last_failed = False
             if result is not None:
                 try:
                     show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"))
                 except KeyboardInterrupt:
                     pass
+
+    def _read_continuation(self, line: str) -> str | None:
+        """While a `{` or `(` is still open, read more lines (with a `┆ …` prompt) and join them
+        into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing."""
+        while (join := script.incomplete(line)) is not None:
+            try:
+                more = self.session.prompt(self._continuation_prompt)
+            except KeyboardInterrupt:
+                self.ctx.last_status = STATUS_INTERRUPTED
+                return None
+            except EOFError:
+                try:
+                    script.parse_script(line)
+                except ParseError as exc:
+                    show_error(self.ui, ParseError(f"{exc.message} (end of input)", exc.pos), line)
+                self.ctx.last_status = STATUS_SYNTAX
+                return None
+            more = more.strip()
+            if more:
+                # `{` then a new line, or a line starting with } / else / elif, needs no `;`.
+                if join.strip() and (line.rstrip().endswith("{") or more.split()[0] in ("}", "else", "elif")):
+                    join = " "
+                line = line.rstrip() + join + more
+        return line
+
+    def _previous_command(self) -> str | None:
+        """The last saved command, for `!!` and `!$` (from earlier sessions too, as in bash)."""
+        history = self.ctx.history
+        strings = history.get_strings()
+        if strings:
+            return strings[-1]
+        if not getattr(history, "_loaded", True):  # the prompt loads the file in the background
+            return next(iter(history.load_history_strings()), None)
+        return None
+
+    def _remember(self, line: str) -> None:
+        """Save a command to the history (what prompt_toolkit would do, after our expansion)."""
+        if not line.strip():
+            return
+        strings = self.ctx.history.get_strings()
+        if not strings or strings[-1] != line:
+            self.ctx.history.append_string(line)
 
     def _hot_reload(self) -> None:
         """Reload modules whose files changed since the last command (the `hot_reload` setting)."""

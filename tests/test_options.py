@@ -50,7 +50,7 @@ def test_merge_prefers_markdown_help_and_skill_values():
 
 
 def test_builtin_options_come_from_docs():
-    assert [o.short for o in builtin_options("grep")] == ["-i", "-v", "-c", "-n", "-F", "-l", "-m"]
+    assert [o.short for o in builtin_options("grep")] == ["-i", "-v", "-c", "-n", "-F", "-l", "-q", "-m"]
     assert "-1" in {o.short for o in builtin_options("ls")}
     assert builtin_options("pwd") == ()
 
@@ -76,7 +76,7 @@ def complete(registry):
     ("myip -i -", ["-j", "-f", "-p", "--timeout"]),
     ("myip -f co", ["coordinates", "country", "country_eu", "country_iso"]),
     ("echo x | myip --i", ["--info"]),
-    ("grep -", ["-i", "-v", "-c", "-n", "-F", "-l", "-m"]),
+    ("grep -", ["-i", "-v", "-c", "-n", "-F", "-l", "-q", "-m"]),
     ("find . -type ", ["d", "f", "l"]),
     ("head -n ", []),
 ])

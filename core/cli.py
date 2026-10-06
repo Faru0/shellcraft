@@ -54,16 +54,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     modules_dir = args.modules or Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR))
 
-    from core.loader import ModuleRegistry
-
-    registry = ModuleRegistry(modules_dir)
-    registry.load()
-
     from core import settings
     from core.config import load_config
+    from core.loader import ModuleRegistry
 
     config = load_config()
     settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
+
+    # Modules turned off with `modules disable` are skipped in every mode, the MCP server included.
+    disabled = config.get("disabled_modules")
+    registry = ModuleRegistry(modules_dir, disabled if isinstance(disabled, list) else ())
+    registry.load()
 
     if args.mcp and args.mcp_http:
         print("shellcraft: use either --mcp (stdio) or --mcp-http, not both", file=sys.stderr)

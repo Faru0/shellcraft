@@ -9,7 +9,7 @@ import tomllib
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from core import params as params_mod
 from core.modkit import EnvSetting
@@ -148,32 +148,44 @@ class ModuleSpec:
 
 
 class ModuleRegistry:
-    """Loads every valid module in a directory; broken modules become warnings, not crashes."""
+    """Loads every valid, enabled module in a directory; broken modules become warnings, not crashes.
 
-    def __init__(self, directory: Path):
+    A disabled module (`modules disable NAME`, saved in config.json) is never imported: it isn't
+    a command, an MCP tool or a man page until it is enabled again. `files` still lists it.
+    """
+
+    def __init__(self, directory: Path, disabled: Iterable[str] = ()):
         self.directory = Path(directory)
-        self.modules: dict[str, ModuleSpec] = {}
+        self.modules: dict[str, ModuleSpec] = {}  # loaded and enabled
+        self.files: dict[str, Path] = {}  # every module file with a valid name, enabled or not
+        self.disabled: set[str] = set(disabled)
         self.warnings: list[str] = []
 
     def load(self) -> None:
         for stale in [k for k in sys.modules if k.startswith("shellcraft_modules.")]:
             del sys.modules[stale]  # a deleted or renamed module must not linger after reload
-        self.modules = {}
-        self.warnings = []
+        # Built aside and swapped in at the end, so a reload never shows a half-empty registry.
+        modules: dict[str, ModuleSpec] = {}
+        files: dict[str, Path] = {}
+        warnings: list[str] = []
         if not self.directory.is_dir():
-            self.warnings.append(f"modules directory not found: {self.directory}")
-            return
-        for py in sorted(self.directory.glob("*.py")):
-            name = py.stem
-            if name.startswith("_"):
-                continue
-            if not VALID_NAME.match(name) or name in RESERVED_NAMES:
-                self.warnings.append(f"{py.name}: invalid module name, skipped")
-                continue
-            try:
-                self.modules[name] = self.load_file(name, py)
-            except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
-                self.warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
+            warnings.append(f"modules directory not found: {self.directory}")
+        else:
+            for py in sorted(self.directory.glob("*.py")):
+                name = py.stem
+                if name.startswith("_"):
+                    continue
+                if not VALID_NAME.match(name) or name in RESERVED_NAMES:
+                    warnings.append(f"{py.name}: invalid module name, skipped")
+                    continue
+                files[name] = py
+                if name in self.disabled:
+                    continue
+                try:
+                    modules[name] = self.load_file(name, py)
+                except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
+                    warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
+        self.modules, self.files, self.warnings = modules, files, warnings
 
     def load_file(self, name: str, py: Path) -> ModuleSpec:
         """Import one module file (as the shell does) and return its spec; raises on failure."""
@@ -206,6 +218,53 @@ class ModuleRegistry:
             module_summary=getattr(module, "SUMMARY", None) or _first_doc_line(module),
             env_settings=_env_settings(module),
         )
+
+    def enable(self, name: str) -> None:
+        """Enable a module and import it now; raises KeyError (no such module) or the import error
+        (the module is then enabled but not loaded, with a warning, as at startup)."""
+        if name not in self.files:
+            raise KeyError(name)
+        self.disabled.discard(name)
+        if name in self.modules:
+            return
+        self.warnings = [w for w in self.warnings if not w.startswith(f"{self.files[name].name}:")]
+        try:
+            self.modules[name] = self.load_file(name, self.files[name])
+        except Exception as exc:
+            self.warnings.append(f"{self.files[name].name}: {type(exc).__name__}: {exc}")
+            raise
+
+    def disable(self, name: str) -> None:
+        """Disable a module: it stops being a command right away. Raises KeyError for no such module."""
+        if name not in self.files:
+            raise KeyError(name)
+        self.disabled.add(name)
+        self.modules.pop(name, None)
+        sys.modules.pop(f"shellcraft_modules.{name}", None)
+        self.warnings = [w for w in self.warnings if not w.startswith(f"{self.files[name].name}:")]
+
+    def is_disabled(self, name: str) -> bool:
+        return name in self.disabled and name in self.files
+
+    def disabled_names(self) -> list[str]:
+        return sorted(n for n in self.files if n in self.disabled)
+
+    def all_names(self) -> list[str]:
+        return sorted(self.files)
+
+    def describe(self, name: str) -> str:
+        """A module's summary without importing it (for disabled modules): .skill, then .md."""
+        if (spec := self.modules.get(name)) is not None:
+            return spec.summary
+        py = self.files.get(name)
+        if py is None:
+            return ""
+        if (text := _read(py.with_suffix(".skill"))) is not None and (summary := SkillInfo.parse(text).summary):
+            return summary
+        for line in (_read(py.with_suffix(".md")) or "").splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                return line.strip()
+        return ""
 
     def get(self, name: str) -> ModuleSpec | None:
         return self.modules.get(name)

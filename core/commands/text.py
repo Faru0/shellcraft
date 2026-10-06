@@ -11,7 +11,7 @@ from rich.text import Text
 
 from core.builtins import builtin
 from core.commands._io import expand_count, joined, lines_out, sources
-from core.context import Styled
+from core.context import Styled, WithStatus
 from core.modkit import ArgParser, ModuleError
 
 if TYPE_CHECKING:
@@ -109,7 +109,7 @@ def cat(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 # ── grep ─────────────────────────────────────────────────────────────────────
 
-@builtin("grep", "Print lines matching a pattern", "grep [-i -v -c -n -F -l -m N] PATTERN [FILE...]",
+@builtin("grep", "Print lines matching a pattern", "grep [-i -v -c -n -F -l -q -m N] PATTERN [FILE...]",
          category="text", doc="""\
 # grep
 
@@ -126,9 +126,14 @@ on screen. Piped or redirected output is plain text.
 | `-n` | Prefix each line with its line number. |
 | `-F` | Treat PATTERN as a literal string. |
 | `-l` | Print only the names of files with a match. |
+| `-q`, `--quiet` | Print nothing; only the exit status says whether a line matched. |
 | `-m N` | Stop after N matches (per file). |
 
-With several FILEs, each line is prefixed with `file:`. No match gives empty output, which is not an error.
+With several FILEs, each line is prefixed with `file:`.
+
+The exit status (`$?`) is 0 when a line was selected and 1 when none was, as in GNU grep. No
+match is not an error: there is no error panel, but the prompt shows `[✗ 1]`. That makes grep a
+condition: `if grep -q TODO $f { echo $f }`.
 
 ## Examples
 
@@ -136,6 +141,7 @@ With several FILEs, each line is prefixed with `file:`. No match gives empty out
 grep -i error app.log
 cat app.log | grep -v DEBUG | grep -c timeout
 grep -l TODO main.py core/shell.py
+for f in *.py { if grep -q TODO $f { echo $f } }
 ```
 """)
 def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
@@ -148,6 +154,7 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     parser.add_argument("-n", "--line-number", action="store_true")
     parser.add_argument("-F", "--fixed-strings", action="store_true")
     parser.add_argument("-l", "--files-with-matches", action="store_true")
+    parser.add_argument("-q", "--quiet", "--silent", action="store_true")
     parser.add_argument("-m", "--max-count", type=int, metavar="N")
     opts = parser.parse_args(args)
 
@@ -157,8 +164,14 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
 
     plain: list[str] = []
     styled = Text()
+    selected = False
     for name, text in inputs:
         found = match_lines(text.splitlines(), regex, opts.invert_match, opts.max_count)
+        selected = selected or bool(found)
+        if opts.quiet:
+            if selected:
+                break
+            continue
         if opts.files_with_matches:
             if found:
                 plain.append(name)
@@ -179,7 +192,8 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
             styled.append_text(body)
             styled.append("\n")
     styled.rstrip()
-    return Styled(styled, lines_out(plain))
+    output = Styled(styled, lines_out(plain))
+    return output if selected else WithStatus(output, 1)
 
 
 # ── head / tail ──────────────────────────────────────────────────────────────
