@@ -24,14 +24,15 @@ _BREAK_CHARS = " \t|>"
 
 
 def _current_segment(before: str) -> list[str]:
-    """The words of the command being typed: a new one starts after `|` or `;`, after a `{` or
-    `}` word (a for / if block), and after `if`, `elif` or `!` (a condition is a command)."""
-    words = re.split(r"[|;]", before)[-1].split()
+    """The words of the command being typed: a new one starts after `|`, `;`, `&&` or `||`,
+    after a `{` or `}` word (a -py block), and after `if`, `elif`, `else`, `then`, `do`, `-py` or
+    `!` (a condition is a command)."""
+    words = re.split(r"&&|\|\||[|;]", before)[-1].split()
     for i in range(len(words) - 1, -1, -1):
         if words[i] in ("{", "}"):
             words = words[i + 1:]
             break
-    while words and words[0] in ("if", "elif", "else", "!"):
+    while words and words[0] in ("if", "elif", "else", "then", "do", "-py", "!"):
         words = words[1:]
     return words
 

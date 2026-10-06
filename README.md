@@ -24,10 +24,10 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **39 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`… written in Python, so they behave the same on every OS. |
+| 🧰 **44 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
-| 🔁 **Loops & conditions** | `for h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: parsed by ShellCraft, so no escaping, and conditions are sandboxed Python expressions. |
-| ↩️ **Shell habits** | `$?`, `!!`, `!$` and `;`, with the exit status in the prompt. |
+| 🔁 **Loops & conditions** | Bash's `for …; do …; done` and `if [ … ]; then …; fi`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. |
+| ↩️ **Shell habits** | `$?`, `!!`, `!$`, `;`, `&&`, `\|\|`, `test` / `[ ]` / `[[ ]]`, with the exit status in the prompt. |
 | ⌨️ **Smart input** | Ghost-text suggestions from history, and Tab completion for commands, switches (with descriptions), switch values and paths. |
 | 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search and highlighting. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, or your own. |
@@ -90,43 +90,58 @@ history 20                                    # what you typed
 - If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.
 - `cd` only works on its own line. `cd x | pwd` is refused, because it would change the shell's directory from inside a pipeline.
 
-- `a ; b` runs one command after the other; `b` runs even if `a` failed (see [Loops and conditions](#loops-and-conditions)).
+- `a ; b` runs one command after the other; `a && b` runs `b` only if `a` succeeded, `a || b` only if it failed; `! a` negates (see [Loops and conditions](#loops-and-conditions)).
 
-Not supported yet: `2>`, `<`, `&&`, `||`, environment variables (`$HOME`) and `*` globbing outside
-`for` lists (see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than
+Not supported yet: `2>`, `<`, environment variables (`$HOME`), and `*` globbing or `$(…)` on a
+plain command line (they work inside `for` / `if` blocks; see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than
 passed on as arguments. Quote them to use them as text.
 
 ### Loops and conditions
 
-ShellCraft parses loops itself, so there is none of the quoting and escaping a loop needs when
-it is passed through another shell: `$x` is the current item as **one** argument, whatever it
-contains.
+Two syntaxes. **Bash** is the default, and works the way you'd type it in bash:
 
 ```
-for ip in 1.1.1.1 8.8.8.8 { ip2geo $ip }
-for h in (cat hosts.txt) { queryDns $h >> dns.txt }        # each line of a command's output
-for n in 1..5 { echo $n }                                  # ranges: 5..1, 0..100..10
-for f in *.log { if grep -q ERROR $f { echo $f } }         # globs; a command as the condition
+for ip in 1.1.1.1 8.8.8.8; do ip2geo $ip; done
+for h in $(cat hosts.txt); do queryDns $h >> dns.txt; done
+for n in {1..5}; do echo $n; done                         # {a,b}, {01..10}, {a..e} too
+for f in *.log; do if grep -q ERROR "$f"; then echo "$f"; fi; done
 
-for ip in (cat ips.txt) {                                  # an open { continues on the next line
+for n in {1..10}                                          # an unfinished loop continues on the next line
+do
+  if [ $n -gt 5 ]; then echo big $n; elif [[ $n == 1* ]]; then echo ten-ish; else echo $n; fi
+done
+
+[ -f hosts.txt ] && echo found || echo missing
+```
+
+- Expansion inside these blocks is bash's: an unquoted `$x` or `$(…)` is split at whitespace
+  (quote it: `"$x"`), and the `for` list gets brace expansion and globs.
+- Conditions are commands: `[ … ]`, `[[ … ]]` (with `==` patterns and `=~` regexes), `test`,
+  `grep -q`, `true`/`false`. `!`, `&&` and `||` work anywhere. `man test` lists the tests.
+
+**`-py`** is ShellCraft's own syntax for when quoting gets in the way: the loop is parsed by
+ShellCraft, `$x` is always **one** argument whatever it contains, and conditions are Python.
+
+```
+for -py ip in (cat ips.txt) {                              # one item per line of output
   if (ip.startswith("10.")) { echo internal $ip }
   elif (ip in ("8.8.8.8", "1.1.1.1")) { echo dns $ip }
   else { ip2geo $ip }
 }
+for -py n in 1..5 { if (int(n) % 2 == 0) { echo even $n } }
+if -py (match(r"^v\d+", ver)) { echo versioned }
 ```
 
-- **Conditions** are either a command (true when it succeeds; `if ! cmd` negates it), or a
-  Python expression in parentheses: loop variables are names (`ip`, or `$ip`), `status` is `$?`,
-  and you get comparisons, `and`/`or`/`not`, `in`, slicing, string methods (`startswith`,
-  `split`, `isdigit`…), `len`, `int`, `match(regex, text)`, `exists(path)` and a few more.
-  Expressions are checked and evaluated by ShellCraft (no `eval`), so imports, other attributes
-  and other functions are refused. Loop variables are text: compare numbers with `int(n) > 3`.
-- `break` and `continue` work in loops; statements are separated by `;` or new lines.
-- A failing command shows its error and the loop goes on, as in bash; `$?` holds its status.
-- Braces are words of their own: `{ echo $x }`. A loop's output can be redirected per command
-  (`>> file` inside the body), not as a whole yet.
+- Python conditions are checked and evaluated by ShellCraft (no `eval`): comparisons,
+  `and`/`or`/`not`, `in`, slicing, string methods, `len`, `int`, `match(regex, text)`,
+  `exists(path)` and a few more; imports and other functions are refused. `status` is `$?`.
+- Inside a `-py` block, nested `for`/`if` use the same syntax without the flag.
 
-`man for` and `man if` have the details. Loops also work over MCP (with the same restrictions).
+In both: `break`/`continue`; a failing command shows its error and the loop goes on, as in bash;
+redirect per command inside the body (`>> file`), since a whole loop can't be piped or
+redirected yet. Not supported: `while`, assigning variables (`x=1`), `$((…))`, and environment
+variables (`$HOME`). `man for` and `man if` have the details. Loops also work over MCP, with the
+same restrictions.
 
 ### Exit status and history
 
@@ -195,7 +210,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp`, and the keywords `for` `if` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `test` `[` `[[` `true` `false`, and the keywords `for` `if` |
 | Text | `echo` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` |
 | Info | `date` `which` `env` |

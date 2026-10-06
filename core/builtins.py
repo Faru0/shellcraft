@@ -383,85 +383,101 @@ def _banner(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 FOR_DOC = """# for
 
-Run commands once for each item of a list. ShellCraft parses the loop itself, so the body needs
-no escaping: `$name` is the current item as **one** argument, whatever it contains (spaces,
-quotes, `;`), and quotes mean what they mean on any command line.
+Run commands once for each item of a list. Two syntaxes: **bash** (the default), and
+**`-py`**, ShellCraft's own, where nothing needs quoting and conditions are Python.
 
-## Usage
+## Bash syntax
 
 ```
-for NAME in ITEM... { COMMANDS }
+for NAME in WORD...; do COMMANDS; done
 ```
 
-COMMANDS are separated by `;` or new lines. Braces must be words of their own: `{ echo $x }`,
-not `{echo $x}` (inside a block, write a literal `}` as `'}'`).
+`;` and new lines separate commands. Expansion works as in bash:
 
-## Items
-
-| Item | Gives |
+| In the list | Gives |
 | --- | --- |
 | `a b "c d"` | Each word (quotes keep spaces in one item). |
-| `1..5`, `5..1`, `0..100..10` | Whole numbers, both ends included (an optional step). |
+| `{1..5}`, `{5..1}`, `{0..100..10}`, `{01..10}`, `{a..e}`, `x{a,b}` | Brace expansion. |
 | `*.log`, `src/*.py` | Matching file names, sorted (the word itself when nothing matches). |
-| `(COMMAND)` or `$(COMMAND)` | Each non-empty line of the command's output, e.g. `(cat hosts.txt)`. |
-| `$x` | The value of an outer loop variable. |
+| `$(COMMAND)` | The command's output, split into words at whitespace (`"$(COMMAND)"`: one item). |
+| `$x` | An outer loop variable, split at whitespace unless quoted (`"$x"`). |
 
-## Inside the body
+In the body, an unquoted `$x` or `$(…)` is split into words at whitespace, as in bash: write
+`"$x"` to keep it one argument. `$?` is the last exit status. Conditions use `if …; then …; fi`
+(see `man if`), `&&`, `||` and `!`.
 
-- `$NAME` or `${NAME}`: the loop variable. `$?`: the last command's exit status.
-- `if` / `elif` / `else` (see `man if`), and nested `for` loops.
+## -py syntax
+
+```
+for -py NAME in ITEM... { COMMANDS }
+```
+
+Parsed by ShellCraft: `$NAME` is always **one** argument, whatever it holds (spaces, quotes,
+`;`), so nothing needs quoting or escaping. Items: words, `1..5` / `5..1` / `0..100..10`
+ranges, globs, and `(COMMAND)` (one item per non-empty output line). Conditions inside are
+`if (python-expression) { … }` or `if COMMAND { … }` (see `man if`). Inside a `-py` block,
+nested `for` and `if` use this syntax too. Braces must be words of their own: `{ echo $x }`.
+
+## Both
+
 - `break` leaves the loop, `continue` goes on to the next item.
-- A command that fails shows its error and the loop goes on (`$?` is set), as in other shells.
-- Redirect inside the body to collect output: `for h in (cat hosts) { queryDns $h >> dns.txt }`.
-  A whole loop can't be piped or redirected yet.
-
-In the shell, a line that ends inside `{ … }` asks for more lines (`┆ …`), so a loop can be
-typed over several lines; Ctrl-C cancels it. Ctrl-C while it runs stops the loop.
+- A command that fails shows its error and the loop goes on (`$?` is set), as in bash.
+- Redirect inside the body to collect output: `… >> out.txt`. A whole loop can't be piped or
+  redirected yet (`done | sort`).
+- A line that ends inside a loop (no `done` / `}` yet) asks for more lines (`┆ …`); the whole
+  loop is saved to the history as one line. Ctrl-C cancels it, or stops it while it runs.
+- Environment variables (`$HOME`) are not expanded, and variables can't be assigned (`x=1`);
+  `$( … )` and word splitting apply inside bash-syntax loops and ifs, not on plain lines.
 
 ## Examples
 
 ```
-for ip in 1.1.1.1 8.8.8.8 { ip2geo $ip }
-for h in (cat hosts.txt) { queryDns $h >> dns.txt }
-for n in 1..5 { echo $n }
-for f in *.log { if grep -q ERROR $f { echo $f } }
-for ip in (cat ips.txt) { if (ip.startswith("10.")) { echo internal $ip } else { myip $ip } }
+for ip in 1.1.1.1 8.8.8.8; do ip2geo $ip; done
+for h in $(cat hosts.txt); do queryDns $h >> dns.txt; done
+for n in {1..5}; do echo $n; done
+for f in *.log; do if grep -q ERROR "$f"; then echo "$f"; fi; done
+for -py ip in (cat ips.txt) { if (ip.startswith("10.")) { echo internal $ip } else { myip $ip } }
 ```
 """
 
-IF_DOC = """# if
+IF_DOC = r"""# if
 
-Run commands when a condition holds, inside a `for` loop or on its own.
+Run commands when a condition holds, in a loop or on its own. Two syntaxes, as for `for`.
 
-## Usage
-
-```
-if CONDITION { COMMANDS }
-if CONDITION { … } elif CONDITION { … } else { … }
-```
-
-`elif` and `else` follow the closing `}` (on the same line, or after `;` / a new line inside a
-block).
-
-## Conditions
-
-**A command**: true when its exit status is 0. Put `!` (then a space) in front to negate it.
+## Bash syntax
 
 ```
-if grep -q TODO $f { echo $f }
-if ! grep -q "^#" $f { echo "no comments in $f" }
+if COMMANDS; then COMMANDS; [elif COMMANDS; then COMMANDS;] [else COMMANDS;] fi
 ```
 
-**A Python expression in parentheses**: loop variables are plain names (or `$name`), `status`
-(or `$?`) is the last exit status as a number. Loop variables are text: use `int(n)` for
-numbers.
+The condition is commands: true when the last one's exit status is 0. Usual conditions:
+`[ … ]`, `[[ … ]]` and `test` (see `man test`), `grep -q`, `true` / `false`, or any command.
+`! cmd` negates; `a && b` and `a || b` work anywhere.
 
 ```
-if (ip.startswith("10.") and not ip.endswith(".1")) { … }
-if (int(n) % 2 == 0) { … }
-if (host in ("a.com", "b.com")) { … }
-if ($? != 0) { echo "failed" }
-if (match(r"^\\d+\\.\\d+", ver)) { … }
+if [ "$n" -gt 3 ]; then echo big; fi
+if [[ $host == *.gov ]]; then queryDns $host; else echo skip; fi
+if ! grep -q TODO "$f"; then echo "$f is done"; fi
+[ -f hosts.txt ] && echo found || echo missing
+```
+
+## -py syntax
+
+```
+if -py CONDITION { … } [elif CONDITION { … }] [else { … }]
+```
+
+`elif` and `else` follow the closing `}`. A CONDITION is a command (true when it succeeds;
+`!` then a space negates it), or a **Python expression in parentheses**: loop variables are
+plain names (or `$name`), `status` (or `$?`) is the last exit status as a number. Loop
+variables are text: use `int(n)` for numbers.
+
+```
+if -py (ip.startswith("10.") and not ip.endswith(".1")) { … }
+if -py (int(n) % 2 == 0) { … }
+if -py (host in ("a.com", "b.com")) { … }
+if -py ($? != 0) { echo "failed" }
+if -py (match(r"^\d+\.\d+", ver)) { … }
 ```
 
 Expressions are checked before anything runs and evaluated without `eval`: comparisons,
@@ -470,10 +486,10 @@ these string methods: `startswith endswith lower upper casefold title strip lstr
 rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
 isalpha isalnum isspace islower isupper`, and these functions: `len int float str bool abs min
 max`, `match(PATTERN, TEXT)` (a regex search), `exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
-Imports, other attributes, other calls and names starting with `_` are refused.
+Imports, other attributes, other calls and names starting with `_` are refused. A condition
+that fails to evaluate (an unknown name, comparing text with a number) stops the whole script.
 
-A condition that fails to evaluate (an unknown name, comparing text with a number) stops the
-whole script with an error, since it would fail the same way on every item.
+Inside a `-py` block, a nested `if` uses this syntax without the flag.
 """
 
 
@@ -483,9 +499,10 @@ def _keyword(name: str) -> Callable[[ShellContext, list[str], str], Any]:
     return run
 
 
-builtin("for", "Loop over items: for x in a b (cmd) 1..5 { … }", "for NAME in ITEM... { COMMANDS }",
+builtin("for", "Loop over items (bash syntax, or -py)", "for NAME in WORD...; do …; done | for -py NAME in ITEM... { … }",
         doc=FOR_DOC)(_keyword("for"))
-builtin("if", "Run commands when a condition holds", "if (EXPR) | COMMAND { … } [elif … { … }] [else { … }]",
+builtin("if", "Run commands when a condition holds (bash syntax, or -py)",
+        "if …; then …; [elif …; then …;] [else …;] fi | if -py (EXPR) | COMMAND { … }",
         doc=IF_DOC)(_keyword("if"))
 
 

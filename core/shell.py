@@ -455,7 +455,7 @@ class Shell:
     def _read_continuation(self, line: str) -> str | None:
         """While a `{` or `(` is still open, read more lines (with a `┆ …` prompt) and join them
         into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing."""
-        while (join := script.incomplete(line)) is not None:
+        while script.incomplete(line) is not None:
             try:
                 more = self.session.prompt(self._continuation_prompt)
             except KeyboardInterrupt:
@@ -468,12 +468,8 @@ class Shell:
                     show_error(self.ui, ParseError(f"{exc.message} (end of input)", exc.pos), line)
                 self.ctx.last_status = STATUS_SYNTAX
                 return None
-            more = more.strip()
-            if more:
-                # `{` then a new line, or a line starting with } / else / elif, needs no `;`.
-                if join.strip() and (line.rstrip().endswith("{") or more.split()[0] in ("}", "else", "elif")):
-                    join = " "
-                line = line.rstrip() + join + more
+            if more.strip():
+                line = script.join_continuation(line, more)  # adds `;` only where one is needed
         return line
 
     def _previous_command(self) -> str | None:

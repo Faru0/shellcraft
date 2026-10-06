@@ -69,9 +69,10 @@ def run_simple(line: str, ctx: ShellContext) -> PipelineResult | None:
     return _run_parsed(line, ctx, {"?": str(ctx.last_status)})
 
 
-def _run_parsed(line: str, ctx: ShellContext, variables: dict[str, str]) -> PipelineResult | None:
+def _run_parsed(line: str, ctx: ShellContext, variables: dict[str, str], split: bool = False,
+                substitute: Any = None) -> PipelineResult | None:
     try:
-        pipeline = parse(line, variables)
+        pipeline = parse(line, variables, split, substitute)
     except ParseError:
         ctx.last_status = STATUS_SYNTAX
         raise

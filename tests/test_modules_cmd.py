@@ -166,4 +166,4 @@ def test_completion_offers_subcommands_and_the_right_modules(mods):
     assert complete("modules enable ") == ["myip"]
     assert complete("modules disable ") == ["filter", "noisy"]
     assert complete("modules disable filter ") == ["noisy"]
-    assert complete("for x in a { if gr") == ["grep"]
+    assert complete("for -py x in a { if gr") == ["grep"]

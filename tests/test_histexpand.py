@@ -20,7 +20,7 @@ def test_expansions(line, previous, expected):
     assert expand(line, previous) == (expected, True)
 
 
-@pytest.mark.parametrize("line", ["echo '!!'", "echo hi!", "if (a != b) { echo }", "echo ! x", "echo \"it's\" !x"])
+@pytest.mark.parametrize("line", ["echo '!!'", "echo hi!", "if -py (a != b) { echo }", "echo ! x", "echo \"it's\" !x"])
 def test_left_alone(line):
     assert expand(line, "prev") == (line, False)
 
@@ -32,7 +32,7 @@ def test_event_not_found():
 
 
 def test_last_word():
-    assert last_word("for x in a { echo $x }") == "}"
+    assert last_word("for -py x in a { echo $x }") == "}"
     assert last_word("   ") is None
 
 
@@ -86,13 +86,13 @@ def test_shell_event_not_found(repl):
 
 
 def test_shell_joins_continuation_lines_into_one_history_entry(repl):
-    sh, text = repl("for x in a b {", "if (x == 'a') { echo A }", "else { echo B }", "}")
+    sh, text = repl("for -py x in a b {", "if -py (x == 'a') { echo A }", "else { echo B }", "}")
     assert "A\nB\n" in text
-    assert sh.ctx.history.get_strings()[-1] == "for x in a b { if (x == 'a') { echo A } else { echo B } }"
+    assert sh.ctx.history.get_strings()[-1] == "for -py x in a b { if -py (x == 'a') { echo A } else { echo B } }"
 
 
 def test_shell_reports_an_unfinished_script_at_end_of_input(repl):
-    sh, text = repl("for x in a {", "echo $x")
+    sh, text = repl("for -py x in a {", "echo $x")
     assert "missing '}' (end of input)" in text and sh.ctx.last_status == 2
 
 

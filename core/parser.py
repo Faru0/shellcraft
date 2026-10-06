@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Callable, Mapping
 
 OPERATORS = ("|", ">>", ">")
 # Longest first. The `2>` forms only count at the start of a word, as in POSIX shells.
@@ -79,7 +79,37 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
     return variables[name], end
 
 
-def tokenize(line: str, variables: Mapping[str, str] | None = None) -> list[Token]:
+def find_closing_paren(line: str, i: int) -> int | None:
+    """With line[i] just after a `(`: the index of the matching `)`, skipping quoted text."""
+    level, quote, n = 1, None, len(line)
+    while i < n:
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "(":
+            level += 1
+        elif ch == ")":
+            level -= 1
+            if level == 0:
+                return i
+        i += 1
+    return None
+
+
+def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool = False,
+             substitute: Callable[[str], str] | None = None) -> list[Token]:
+    """Split a line into words and operators.
+
+    `split` and `substitute` give bash's behavior inside bash-style `for` / `if` blocks: an
+    unquoted expansion is split into words at whitespace (quote it, "$x", to keep it one word),
+    and `$(command)` is replaced by the command's output (`substitute(command)`), minus trailing
+    new lines."""
     tokens: list[Token] = []
     i, n = 0, len(line)
     while i < n:
@@ -99,12 +129,35 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None) -> list[Toke
         start = i
         buf: list[str] = []
         quoted = expanded = False
+
+        def expansion(at: int) -> tuple[str, int] | None:
+            if substitute is not None and line.startswith("$(", at):
+                close = find_closing_paren(line, at + 2)
+                if close is None:
+                    raise ParseError("missing ')' for '$('", at)
+                return substitute(line[at + 2:close]).rstrip("\n"), close + 1
+            return expand_variable(line, at, variables)
+
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
-            if ch == "$" and (var := expand_variable(line, i, variables)) is not None:
-                buf.append(var[0])
-                i = var[1]
+            if ch == "$" and (var := expansion(i)) is not None:
+                value, i = var
                 expanded = True
+                if not split or not any(c.isspace() for c in value):
+                    buf.append(value)
+                    continue
+                pieces = value.split()
+                if value[:1].isspace() and (buf or quoted):
+                    tokens.append(Token("".join(buf), start))
+                    buf, quoted = [], False
+                for k, piece in enumerate(pieces):
+                    if k:
+                        tokens.append(Token("".join(buf), start))
+                        buf, quoted = [], False
+                    buf.append(piece)
+                if value[-1:].isspace() and pieces:
+                    tokens.append(Token("".join(buf), start))
+                    buf, quoted, expanded = [], False, True
                 continue
             if ch in ("'", '"'):
                 quoted = True
@@ -118,7 +171,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None) -> list[Toke
                         continue
                     if line[end] == ch:
                         break
-                    if ch == '"' and line[end] == "$" and (var := expand_variable(line, end, variables)):
+                    if ch == '"' and line[end] == "$" and (var := expansion(end)) is not None:
                         buf.append(var[0])
                         end = var[1]
                         continue
@@ -130,7 +183,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None) -> list[Toke
                 i += 1
         word = "".join(buf)
         if expanded and not quoted and not word:
-            continue  # an unquoted variable that expanded to nothing is no argument at all
+            continue  # an unquoted expansion that came to nothing is no argument at all
         if not quoted and (word == "~" or word.startswith("~/") or word.startswith("~\\")):
             word = os.path.expanduser(word)
         tokens.append(Token(word, start))
@@ -142,9 +195,10 @@ def _breaks_word(line: str, i: int) -> bool:
     return any(line.startswith(o, i) for o in OPERATORS + UNSUPPORTED if not o.startswith("2"))
 
 
-def parse(line: str, variables: Mapping[str, str] | None = None) -> Pipeline | None:
+def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = False,
+          substitute: Callable[[str], str] | None = None) -> Pipeline | None:
     """Parse a command line. Returns None for blank lines."""
-    tokens = tokenize(line, variables)
+    tokens = tokenize(line, variables, split, substitute)
     if not tokens:
         return None
 

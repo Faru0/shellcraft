@@ -3,4 +3,4 @@
 Importing this package registers every command in core.builtins.BUILTINS.
 """
 
-from core.commands import diff, files, info, text  # noqa: F401
+from core.commands import cond, diff, files, info, text  # noqa: F401

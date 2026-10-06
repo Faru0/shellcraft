@@ -1,7 +1,7 @@
 # ShellCraft — TODO
 
 > First assessment: v0.1.0 (`main` @ 72a9897), when there were 42 tests. Second full assessment: 2026-09-28 (`main` @ 93e719b). Third full assessment: 2026-09-30 (`main` @ 3a74273). Checked items have been done since then.
-> **Current state:** 39 builtins (including `alias`, `history`, `diff`, `du` and `banner`) and the `for` / `if` keywords, `;` sequences, `$?`, `!!` / `!$`, `modules enable/disable`, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 476 tests pass on Python 3.13 (2026-10-06) (with the `censys` extra). About 6,500 lines of application code (core, modules, tools) and 2,500 lines of tests. An offline `Install/` bundle (Windows installer, Ubuntu 26.04 `.deb`s, wheels for Windows/Linux × CPython 3.11–3.14, `setup.ps1` / `setup.sh`) makes air-gapped installs possible.
+> **Current state:** 44 builtins (including `alias`, `history`, `diff`, `du`, `banner`, `test` / `[` / `[[`) and the `for` / `if` keywords (bash syntax, or `-py`), `;` / `&&` / `||`, `$?`, `!!` / `!$`, `modules enable/disable`, a settings system (OS commands off by default) with API keys for modules (`ENV_SETTINGS`), modules `fetch`, `filter`, `myip`, `ip2geo`, `queryDns`, `queryCert` and `queryCensys`, the module authoring kit (`templates/`, `tools/modtest.py`, `tools/mkprompt.py`), switch completion, typed MCP parameters, man-page resources, hot reload and an HTTP transport. 560 tests pass on Python 3.13 (2026-10-06) (with the `censys` extra). About 6,500 lines of application code (core, modules, tools) and 2,500 lines of tests. An offline `Install/` bundle (Windows installer, Ubuntu 26.04 `.deb`s, wheels for Windows/Linux × CPython 3.11–3.14, `setup.ps1` / `setup.sh`) makes air-gapped installs possible.
 
 ## Assessment
 
@@ -98,18 +98,18 @@ Items marked **(verified)** were reproduced during the assessment.
   - light-terminal variants
   - theme validation warnings shown in the banner
 - [x] **Exit status**: `$?` (0, 1, 2 for syntax errors, 127 not found / disabled, 130 Ctrl-C, an OS program's own code), the prompt shows `[✗ N]`, and `grep` returns 1 when nothing matches (plus `grep -q`). Commands return `WithStatus(value, n)` for a nonzero status that isn't an error. — `core/pipeline.py`, `core/context.py`, `core/commands/text.py`
-- [x] **Loops and conditions**: `for NAME in ITEMS { … }` over words, `N..M[..STEP]` ranges, globs and `(command)` output lines; `if` / `elif` / `else` with a command's status or a sandboxed Python expression (AST-vetted, walked without `eval`); `break` / `continue`; `;` and new lines between statements; continuation lines while a `{` or `(` is open. Statements keep the context's permission flags, so MCP gets loops with the same restrictions. — `core/script.py`
+- [x] **Loops and conditions**, two syntaxes: bash (`for …; do …; done`, `if …; then …; elif …; else …; fi`, with bash word splitting, `$( … )`, brace expansion and globs inside blocks, plus `test` / `[` / `[[` / `true` / `false`) and `-py` (`for -py NAME in … { … }`, `if -py (python) { … }`: no splitting, AST-vetted Python conditions walked without `eval`). `break` / `continue`; `;`, `&&`, `||`, `!` everywhere; continuation lines while a block is open. Statements keep the context's permission flags, so MCP gets loops with the same restrictions. — `core/script.py`, `core/commands/cond.py`
 - [x] **History expansion**: `!!` and `!$`, printed before running and saved expanded. — `core/histexpand.py`, `core/shell.py`
 - [x] **`modules -a` / `modules enable|disable NAME…`**: disabled modules are never imported, saved in `config.json` (`disabled_modules`), and skipped by `--mcp` / `--mcp-http` too. — `core/loader.py`, `core/builtins.py`
 - [x] **`banner [-c]`** shows the startup banner again. — `core/builtins.py`
-- [ ] **Scripts, next steps**: piping or redirecting a whole loop (`for … { … } | sort`), `while`, assigning variables (`set x=…`), `!N` / `!prefix` / `!*`, and keeping a loop's variables after it ends.
+- [ ] **Scripts, next steps**: piping or redirecting a whole loop (`done | sort`, `} > out`), `while` / `until`, `case`, assigning variables (`x=1`) and `$((…))`, `$( … )` and globbing on plain command lines, `&&` / `||` inside `[[ ]]`, `!N` / `!prefix` / `!*`.
 
 ## ✨ Features — P2
 
 - [ ] **Shell grammar**:
   - `<` input redirect
   - `2>` / `2>&1`
-  - `&&`, `||` *(`;` is done)*
+  - *(`;`, `&&`, `||` are done)*
   - `$VAR` / `%VAR%` expansion with `export`
   - glob expansion (`*.log`) for every command *(done in `for` item lists)*
   - `~user`
