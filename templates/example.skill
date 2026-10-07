@@ -6,14 +6,14 @@
 # Be concrete, and document only what the code really does.
 #
 # Supported keys: summary, when_to_use, usage, examples, notes, then the tables
-# params and tests. Any other key is appended to the description, and modtest warns about it.
-# modtest requires: summary, when_to_use, usage, examples.
+# params and tests. Any other key is appended to the description, and the checker warns about it.
+# Required: summary, when_to_use, usage, examples.
 #
 # !! TOML ORDER MATTERS !!  Every plain `key = value` line must come BEFORE the first
 # table header. A key written after a table header belongs to that table, so `examples`
 # placed after the params tables would silently vanish from the description.
 #
-# Check your file with:   python tools/modtest.py modules/<name>.py --preview
+# Check your file with:   python -m tools.ingest check modules/<name>.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 # One line, at most 200 characters. Start with a verb and say what comes back.
@@ -27,7 +27,7 @@ Pass the text in `stdin`, or give file paths in `files`.
 Do not use it for exact phrase search (use grep/filter) or for counting lines (use wc)."""
 
 # The synopsis, exactly as in the .md file.
-usage = "template [-n N] [-i] [--min-length N] [FILE...]"
+usage = "example [-n N] [-i] [--min-length N] [FILE...]"
 
 # Show real calls in the MCP shape (named params + stdin) and the output they produce.
 examples = [
@@ -54,7 +54,7 @@ returns a tool error with a one-line message."""
 #   values      a fixed set of choices: checked on MCP calls, completed by Tab
 #   required    true when the call can't work without it
 #   description what it means plus its default (required)
-# modtest checks that every flag here exists in the code. For example:
+# The checker verifies that every flag here exists in the code. For example:
 #     name = "format"
 #     flag = "--format"
 #     values = ["text", "json", "csv"]
@@ -87,14 +87,14 @@ type = "integer"
 metavar = "N"
 description = "Ignore words shorter than N characters (default 1). Use 4 or more to skip 'the', 'and', …"
 
-# ─── Tests: run by tools/modtest.py, NEVER shown to the AI ───────────────────
+# ─── Tests: run by `python -m tools.ingest check`, NEVER shown to the AI ─────
 # Each case calls run(args, stdin). Instead of `args`, a case may give named values such as
 # `params = {top = 2}`, converted exactly as an MCP call would be. It checks exactly ONE of:
 #   expect   = exact output
 #   contains = a substring the output must contain
 #   error    = a substring of the expected ModuleError message
 # Add network = true for cases that need the internet (skipped unless --network).
-# modtest also treats a module with any network test as network-using, and skips its
+# The checker also treats a module with any network test as network-using, and skips its
 # plain smoke calls unless you pass --network.
 [[tests]]
 args = ["-n", "2"]

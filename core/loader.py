@@ -36,7 +36,7 @@ class SkillInfo:
     examples: list[str] = field(default_factory=list)
     notes: str = ""
     extra: dict[str, str] = field(default_factory=dict)
-    # [[tests]] cases for tools/modtest.py; never part of the MCP description.
+    # [[tests]] cases for `tools/ingest check`; never part of the MCP description.
     tests: list[dict[str, Any]] = field(default_factory=list)
     parsed: bool = True
 

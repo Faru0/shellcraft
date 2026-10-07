@@ -1,52 +1,40 @@
-#!/usr/bin/env python3
-"""modtest — check that a ShellCraft module works with the framework.
+"""Check that a module works with ShellCraft (the last step of the wizard, and usable on its own).
 
-    python tools/modtest.py modules/mymod.py            # one module (its .md/.skill sit next to it)
-    python tools/modtest.py --all                       # every module in ./modules
-    python tools/modtest.py modules/myip.py --network   # also run tests that need the internet
-    python tools/modtest.py modules/mymod.py --preview  # show the MCP description + rendered man page
+    python -m tools.ingest check modules/mymod.py          # one module (.md/.skill next to it)
+    python -m tools.ingest check --all [--strict]          # every module in ./modules
+    python -m tools.ingest check modules/x.py --network    # also run [[tests]] that need the internet
 
-It checks the files and name, the import, the run(args, stdin) contract, runtime behavior
-(no printing, no sys.exit, sane errors), the [[tests]] cases in the .skill file, the
-structure of the .md and .skill files, and that every option and API key is documented.
-The exit code is 1 if any check FAILs (with --strict, WARNs count too).
+It checks the name and files, the import, the run(args, stdin) contract, runtime behavior (no
+direct printing, no sys.exit, sane errors), the .skill and .md structure, that every option and
+API key is documented, and the [[tests]] cases in the .skill file.
 """
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import difflib
 import inspect
 import io
 import re
 import shutil
-import sys
 import threading
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
-from rich.console import Console  # noqa: E402
-from rich.markdown import Markdown  # noqa: E402
-from rich.panel import Panel  # noqa: E402
-from rich.table import Table  # noqa: E402
-from rich.text import Text  # noqa: E402
-
-from core.stdio import utf8_stdio  # noqa: E402
-
-import core.pipeline  # noqa: E402,F401 — registers every builtin so name clashes are detected
-from core import params as params_mod  # noqa: E402
-from core.builtins import BUILTINS  # noqa: E402
-from core.context import to_text  # noqa: E402
-from core.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo  # noqa: E402
-from core.modkit import ModuleError  # noqa: E402
-from core.settings import SETTINGS  # noqa: E402
+import core.pipeline  # noqa: F401 — registers every builtin, so name clashes are detected
+from core import params as params_mod
+from core.builtins import BUILTINS
+from core.context import to_text
+from core.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo
+from core.modkit import ModuleError
+from core.settings import SETTINGS
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 REQUIRED_SKILL_KEYS = ("summary", "when_to_use", "usage", "examples")
@@ -54,7 +42,7 @@ KNOWN_SKILL_KEYS = {"summary", "when_to_use", "usage", "args", "params", "exampl
 TEST_KEYS = {"args", "params", "stdin", "expect", "contains", "error", "network"}
 MAX_SUMMARY = 200
 MAX_DESCRIPTION = 3000
-BAD_FLAG = "--modtest-no-such-flag"
+BAD_FLAG = "--ingest-no-such-flag"
 
 _ADD_ARGUMENT = re.compile(r"add_argument\(([^)]*)\)", re.S)
 _FLAG_LITERAL = re.compile(r"""["'](-{1,2}[A-Za-z0-9][\w-]*)["']""")
@@ -81,6 +69,10 @@ class Report:
     def count(self, status: str) -> int:
         return sum(c.status == status for c in self.checks)
 
+    @property
+    def failed(self) -> bool:
+        return self.count(FAIL) > 0
+
 
 @dataclass
 class Outcome:
@@ -90,10 +82,8 @@ class Outcome:
     timed_out: bool = False
 
 
-# ── running module code safely ───────────────────────────────────────────────
-
 def invoke(fn: Callable[[list[str], str], Any], args: list[str], stdin: str, timeout: float) -> Outcome:
-    """Call fn(args, stdin) in a worker thread, capturing stdout and enforcing a timeout."""
+    """Call fn(args, stdin) in a worker thread (like the shell does), capturing stray prints."""
     outcome = Outcome()
 
     def target() -> None:
@@ -112,43 +102,42 @@ def invoke(fn: Callable[[list[str], str], Any], args: list[str], stdin: str, tim
     return outcome
 
 
-# ── individual checks ────────────────────────────────────────────────────────
+def name_problem(name: str) -> str | None:
+    """Why `name` can't be a module name, or None."""
+    if not VALID_NAME.match(name) or name in RESERVED_NAMES:
+        return f"'{name}' is not a valid module name (letters, digits, _ or -; it must start with a letter)"
+    if name in BUILTINS:
+        return f"'{name}' is a builtin command; builtins win, so the module could never run"
+    return None
+
+
+# ── checks ──────────────────────────────────────────────────────────────────
 
 def check_name(report: Report) -> bool:
-    name = report.name
-    if not VALID_NAME.match(name) or name in RESERVED_NAMES:
-        report.add(FAIL, "name", f"'{name}' is not a valid module name (letters, digits, _ or -; "
-                                 "must start with a letter)")
+    if problem := name_problem(report.name):
+        report.add(FAIL, "name", problem)
         return False
-    if name in BUILTINS:
-        report.add(FAIL, "name", f"'{name}' is a builtin; builtins win, so this module could never run. "
-                                 "Pick another name.")
-        return False
-    os_program = shutil.which(name)
-    if os_program:
+    if os_program := shutil.which(report.name):
         report.add(WARN, "name", f"shadows the OS program {os_program} (the module will win)")
     else:
-        report.add(PASS, "name", f"`{name}` is free")
+        report.add(PASS, "name", f"`{report.name}` is free")
     return True
 
 
 def check_files(report: Report) -> None:
     for suffix, why in ((".md", "`man` shows nothing"), (".skill", "MCP clients get only a one-line summary")):
         path = report.path.with_suffix(suffix)
-        if path.is_file():
-            report.add(PASS, f"file {path.name}", "present")
-        else:
-            report.add(WARN, f"file {path.name}", f"missing: {why}")
+        report.add(PASS if path.is_file() else WARN, f"file {path.name}", "present" if path.is_file()
+                   else f"missing: {why}")
 
 
 def check_import(report: Report) -> bool:
-    registry = ModuleRegistry(report.path.parent)
     try:
-        report.spec = registry.load_file(report.name, report.path)
+        report.spec = ModuleRegistry(report.path.parent).load_file(report.name, report.path)
     except BaseException as exc:  # noqa: BLE001 — includes SystemExit at import time
         report.add(FAIL, "import", f"{type(exc).__name__}: {exc}")
         return False
-    report.add(PASS, "import", "module loads like the shell loads it")
+    report.add(PASS, "import", "loads the way the shell loads it")
     return True
 
 
@@ -160,58 +149,51 @@ def check_contract(report: Report) -> bool:
         report.add(FAIL, "run() signature", f"run{inspect.signature(spec.run)} can't be called as run(args, stdin)")
         return False
     except ValueError:
-        pass  # builtins/C functions without a signature: let the behavior checks decide
+        pass  # C functions without a signature: the behavior checks decide
     report.add(PASS, "run() signature", "run(args, stdin)")
-    options = spec.options
-    source_has_flags = bool(source_flags(report.path.read_text(encoding="utf-8")))
-    if options:
-        labels = ", ".join(o.short or o.long for o in options)
-        valued = sum(bool(o.values) for o in options)
-        report.add(PASS, "Tab completion", f"{len(options)} switch(es): {labels}"
-                                           + (f"; {valued} with value lists" if valued else ""))
-    elif source_has_flags:
-        report.add(WARN, "Tab completion", "the code defines options, but neither the .skill [[args]] nor an "
-                                           ".md options table lists them, so Tab can't complete them")
+    if spec.options:
+        labels = ", ".join(o.short or o.long for o in spec.options)
+        report.add(PASS, "Tab completion", f"{len(spec.options)} switch(es): {labels}")
+    elif source_flags(report.path.read_text(encoding="utf-8")):
+        report.add(WARN, "Tab completion", "the code defines options, but neither the .skill nor the .md "
+                                           "Options table lists them")
     check_env_settings(report)
-    if spec.module_summary:
-        report.add(PASS, "SUMMARY", spec.module_summary)
+    if spec.summary:
+        report.add(PASS, "summary", spec.summary)
     else:
-        report.add(WARN, "SUMMARY", "no SUMMARY or module docstring (help/Tab completion show nothing)")
+        report.add(WARN, "summary", "no .skill summary, SUMMARY or docstring (help shows nothing)")
     return True
 
 
 def check_env_settings(report: Report) -> None:
-    """ENV_SETTINGS were validated on import; here: each variable is documented for users and AIs."""
     declared = report.spec.env_settings
     if not declared:
         return
     names = [s.name for s in declared]
-    clash = [n for n in names if n.lower() in SETTINGS]
-    if clash:
+    if clash := [n for n in names if n.lower() in SETTINGS]:
         report.add(FAIL, "API keys", f"{', '.join(clash)} clashes with an on/off setting name")
         return
-    report.add(PASS, "API keys", ", ".join(f"{s.name} ({report.name} · {s.label})" for s in declared))
+    report.add(PASS, "API keys", ", ".join(f"{s.name} ({s.label})" for s in declared))
     for suffix in (".md", ".skill"):
         path = report.path.with_suffix(suffix)
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
-        missing = [n for n in names if n not in text]
-        if missing:
-            report.add(WARN, f"API keys in {path.name}", f"not mentioned: {', '.join(missing)} "
-                                                         f"(say how to set it: settings {missing[0]})")
-        else:
-            report.add(PASS, f"API keys in {path.name}", "every variable is documented")
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            if missing := [n for n in names if n not in text]:
+                report.add(WARN, f"API keys in {path.name}", f"not mentioned: {', '.join(missing)} "
+                                                             f"(say how to set it: settings {missing[0]})")
+            else:
+                report.add(PASS, f"API keys in {path.name}", "every variable is documented")
 
 
 def _judge(report: Report, label: str, outcome: Outcome, timeout: float, bad_flag: bool = False) -> None:
     if outcome.timed_out:
         report.add(FAIL, label, f"did not finish within {timeout:g}s")
     elif outcome.printed:
-        report.add(FAIL, label, "printed to stdout; return your output instead "
-                                f"(printing breaks pipes and MCP): {outcome.printed[:80]!r}")
+        report.add(FAIL, label, "printed to stdout instead of returning its output (use @script, or return the "
+                                f"text): {outcome.printed[:80]!r}")
     elif isinstance(outcome.error, SystemExit):
-        report.add(FAIL, label, "called sys.exit(). Plain argparse does this; use core.modkit.ArgParser")
+        report.add(FAIL, label, "called sys.exit(); decorate run() with @script from core.modkit, or raise "
+                                "ModuleError")
     elif isinstance(outcome.error, ModuleError):
         report.add(PASS, label, f"clean error: {outcome.error}")
     elif outcome.error is not None:
@@ -225,20 +207,15 @@ def _judge(report: Report, label: str, outcome: Outcome, timeout: float, bad_fla
         report.add(PASS, label, "returns text")
 
 
-def check_behavior(report: Report, uses_network: bool, allow_network: bool, timeout: float) -> None:
-    if uses_network and not allow_network:
-        report.add(SKIP, "smoke tests", "module uses the network (a [[tests]] case has network = true); "
-                                        "run with --network")
-        return
-    run = report.spec.run
-    _judge(report, "run([], \"\")", invoke(run, [], "", timeout), timeout)
-    _judge(report, "unknown option", invoke(run, [BAD_FLAG], "", timeout), timeout, bad_flag=True)
+def check_behavior(report: Report, timeout: float) -> None:
+    _judge(report, 'run([], "")', invoke(report.spec.run, [], "", timeout), timeout)
+    _judge(report, "unknown option", invoke(report.spec.run, [BAD_FLAG], "", timeout), timeout, bad_flag=True)
 
 
 def check_tests(report: Report, allow_network: bool, timeout: float) -> None:
     tests = (report.skill_data or {}).get("tests")
     if not tests:
-        report.add(WARN, "[[tests]]", "no test cases in the .skill file (add a few; see templates/module/template.skill)")
+        report.add(WARN, "[[tests]]", "no test cases in the .skill file (add a few at the end)")
         return
     for i, case in enumerate(tests, start=1):
         label = f"test #{i}"
@@ -310,15 +287,8 @@ def check_markdown(report: Report, flags: list[list[str]]) -> None:
     if flags:
         wanted.append(("Options", {"options", "arguments", "flags"}))
     for label, names in wanted:
-        if headings & names:
-            report.add(PASS, f".md ## {label}", "present")
-        else:
-            report.add(WARN, f".md ## {label}", f"no '## {label}' section")
-    try:
-        to_text(Markdown(text))
-        report.add(PASS, ".md renders", "man page renders")
-    except Exception as exc:  # noqa: BLE001
-        report.add(FAIL, ".md renders", f"{type(exc).__name__}: {exc}")
+        report.add(PASS if headings & names else WARN, f".md ## {label}",
+                   "present" if headings & names else f"no '## {label}' section")
 
 
 def check_skill(report: Report) -> None:
@@ -329,21 +299,17 @@ def check_skill(report: Report) -> None:
     try:
         data = tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
-        report.add(FAIL, ".skill TOML", f"invalid TOML ({exc}). It would be used as raw text, "
-                                        "and [[tests]] would be ignored")
+        report.add(FAIL, ".skill TOML", f"invalid TOML ({exc}); it would be used as raw text and "
+                                        "[[tests]] would be ignored")
         return
     report.skill_data = data
     report.add(PASS, ".skill TOML", "parses")
-
-    missing = [k for k in REQUIRED_SKILL_KEYS if not data.get(k)]
-    if missing:
+    if missing := [k for k in REQUIRED_SKILL_KEYS if not data.get(k)]:
         report.add(FAIL, ".skill keys", f"missing or empty: {', '.join(missing)}")
     else:
         report.add(PASS, ".skill keys", ", ".join(REQUIRED_SKILL_KEYS))
-    unknown = sorted(set(data) - KNOWN_SKILL_KEYS)
-    if unknown:
+    if unknown := sorted(set(data) - KNOWN_SKILL_KEYS):
         report.add(WARN, ".skill keys", f"unknown keys {unknown} will be appended to the description as-is")
-
     summary = str(data.get("summary", ""))
     if summary and ("\n" in summary.strip() or len(summary) > MAX_SUMMARY):
         report.add(WARN, ".skill summary", f"keep it to one line of at most {MAX_SUMMARY} characters "
@@ -364,16 +330,14 @@ def check_skill(report: Report) -> None:
             report.add(FAIL, ".skill [[params]]", "`params` must be an array of tables ([[params]])")
         elif errors := params_mod.problems(params):
             for error in errors:
-                report.add(FAIL, ".skill [[params]]", error)
+                report.add(FAIL, ".skill [[params]]", _misplaced_param(error))
         else:
             report.add(PASS, ".skill [[params]]", f"{len(params)} typed parameter(s) for the MCP input schema")
         if data.get("args"):
-            report.add(WARN, ".skill [[params]]", "both [[args]] and [[params]] are declared: MCP uses [[params]], "
-                                                  "Tab completion uses [[args]]. Keep just [[params]]")
+            report.add(WARN, ".skill [[params]]", "both [[args]] and [[params]] are declared; keep just [[params]]")
     for i, case in enumerate(data.get("tests", []), start=1):
         if isinstance(case, dict) and (stray := sorted(set(case) - TEST_KEYS)):
             report.add(FAIL, ".skill [[tests]]", f"test #{i}: " + _misplaced(stray, "[[tests]]"))
-
     description = SkillInfo.parse(raw).to_description()
     if len(description) > MAX_DESCRIPTION:
         report.add(WARN, ".skill length", f"description is {len(description)} characters; "
@@ -383,20 +347,24 @@ def check_skill(report: Report) -> None:
 
 
 def _misplaced(keys: list[str], table: str) -> str:
-    top_level = [k for k in keys if k in KNOWN_SKILL_KEYS]
-    if top_level:
+    if top_level := [k for k in keys if k in KNOWN_SKILL_KEYS]:
         return (f"{', '.join(top_level)} ended up inside a {table} table. In TOML, a key written after a "
-                "table header belongs to that table: move plain `key = value` lines above the first [[args]]")
+                "table header belongs to that table: move plain `key = value` lines above the first table")
     return f"unknown key(s) {', '.join(keys)} in {table}"
+
+
+def _misplaced_param(error: str) -> str:
+    keys = re.search(r"unknown key\(s\) (.+)$", error)
+    if keys and any(k.strip() in KNOWN_SKILL_KEYS for k in keys.group(1).split(",")):
+        return error + " (a top-level key written after [[params]] belongs to it; move it above the first table)"
+    return error
 
 
 def source_flags(py_text: str) -> list[list[str]]:
     """Option groups from add_argument("-x", "--long", …) calls, e.g. [["-n", "--top"], ["-i"]]."""
     groups = []
     for call in _ADD_ARGUMENT.findall(py_text):
-        head = call.split("=", 1)[0]  # only positional string args name the option
-        flags = _FLAG_LITERAL.findall(head)
-        if flags:
+        if flags := _FLAG_LITERAL.findall(call.split("=", 1)[0]):
             groups.append(flags)
     return groups
 
@@ -407,10 +375,8 @@ def check_documented(report: Report, flags: list[list[str]]) -> None:
         if not path.is_file() or not flags:
             continue
         text = path.read_text(encoding="utf-8")
-        undocumented = [
-            " / ".join(group) for group in flags
-            if not any(re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", text) for flag in group)
-        ]
+        undocumented = [" / ".join(group) for group in flags
+                        if not any(re.search(rf"(?<![\w-]){re.escape(f)}(?![\w-])", text) for f in group)]
         if undocumented:
             report.add(WARN, f"options in {path.name}", f"not documented: {', '.join(undocumented)}")
         else:
@@ -418,7 +384,7 @@ def check_documented(report: Report, flags: list[list[str]]) -> None:
 
 
 def check_param_flags(report: Report, flags: list[list[str]]) -> None:
-    """Every [[params]] flag must be one the code defines, or MCP calls using it would fail."""
+    """Every [[params]] flag must exist in the code, or MCP calls using it would fail."""
     params = (report.skill_data or {}).get("params")
     if not params or not flags or not isinstance(params, list):
         return
@@ -431,25 +397,32 @@ def check_param_flags(report: Report, flags: list[list[str]]) -> None:
         report.add(PASS, ".skill [[params]] flags", "every flag exists in the code")
 
 
-# ── driver ───────────────────────────────────────────────────────────────────
+# ── driver ──────────────────────────────────────────────────────────────────
 
-def test_module(py: Path, allow_network: bool = False, timeout: float = 10.0) -> Report:
+def check_module(py: Path, allow_network: bool = False, timeout: float = 10.0, smoke: bool = True) -> Report:
+    """Run every check. smoke=False skips calling run() (the code is not executed, only imported)."""
     report = Report(path=py, name=py.stem)
     if not py.is_file() or py.suffix != ".py":
         report.add(FAIL, "file", f"{py} is not a .py file")
         return report
     report.add(PASS, f"file {py.name}", "present")
     check_files(report)
-    check_skill(report)  # parsed early: [[tests]] tell us whether the module uses the network
+    check_skill(report)  # parsed early: [[tests]] say whether the module uses the network
     flags = source_flags(py.read_text(encoding="utf-8"))
     check_markdown(report, flags)
     check_documented(report, flags)
     check_param_flags(report, flags)
     if not check_name(report) or not check_import(report) or not check_contract(report):
         return report
+    if not smoke:
+        report.add(SKIP, "run() calls", "skipped: the code was not run")
+        return report
     tests = (report.skill_data or {}).get("tests") or []
-    uses_network = any(isinstance(t, dict) and t.get("network") for t in tests)
-    check_behavior(report, uses_network, allow_network, timeout)
+    if any(isinstance(t, dict) and t.get("network") for t in tests) and not allow_network:
+        report.add(SKIP, "smoke tests", "the module uses the network (a [[tests]] case has network = true); "
+                                        "run with --network")
+    else:
+        check_behavior(report, timeout)
     check_tests(report, allow_network, timeout)
     return report
 
@@ -467,50 +440,8 @@ def render(console: Console, report: Report) -> None:
     for check in sorted(report.checks, key=lambda c: order[c.status]):
         table.add_row(Text(f"{ICON[check.status]} {check.status}", style=STYLE[check.status]),
                       Text(check.name), Text(check.detail))
-    verdict = "FAILED" if report.count(FAIL) else "PASSED"
-    title = Text.assemble((f"{report.name} ", "bold"), (verdict, STYLE[FAIL if report.count(FAIL) else PASS]),
+    verdict = "FAILED" if report.failed else "PASSED"
+    title = Text.assemble((f"{report.name} ", "bold"), (verdict, STYLE[FAIL if report.failed else PASS]),
                           (f"  {report.count(PASS)} pass · {report.count(WARN)} warn · "
                            f"{report.count(FAIL)} fail · {report.count(SKIP)} skipped", "dim"))
-    console.print(Panel(table, title=title, title_align="left", border_style="red" if report.count(FAIL) else "green"))
-
-
-def preview(console: Console, report: Report) -> None:
-    if report.spec is None:
-        return
-    console.print(Panel(Text(report.spec.description), title="MCP tool description (what AI clients read)",
-                        border_style="cyan"))
-    if report.spec.doc_md:
-        console.print(Panel(Markdown(report.spec.doc_md), title=f"man {report.name}", border_style="cyan"))
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="modtest", description="Check ShellCraft modules against the framework.")
-    parser.add_argument("paths", nargs="*", type=Path, help="module .py files")
-    parser.add_argument("--all", action="store_true", help="test every module in ./modules")
-    parser.add_argument("--network", action="store_true", help="also run checks that need the internet")
-    parser.add_argument("--preview", action="store_true", help="show the MCP description and man page")
-    parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
-    parser.add_argument("--timeout", type=float, default=10.0, help="seconds per call (default 10)")
-    opts = parser.parse_args(argv)
-
-    paths = list(opts.paths)
-    if opts.all:
-        paths += sorted(p for p in (ROOT / "modules").glob("*.py") if not p.name.startswith("_"))
-    if not paths:
-        parser.error("give one or more module .py files, or --all")
-
-    utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
-    console = Console(highlight=False)
-    failed = 0
-    for py in paths:
-        report = test_module(py, allow_network=opts.network, timeout=opts.timeout)
-        render(console, report)
-        if opts.preview:
-            preview(console, report)
-        failed += report.count(FAIL) + (report.count(WARN) if opts.strict else 0) > 0
-    console.print(Text(f"{len(paths) - failed}/{len(paths)} module(s) passed", style="bold red" if failed else "bold green"))
-    return 1 if failed else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    console.print(Panel(table, title=title, title_align="left", border_style="red" if report.failed else "green"))

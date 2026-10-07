@@ -9,7 +9,7 @@ write a module, see [templates/README.md](templates/README.md).
 python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"                                 # editable install + pytest
 pytest                                                  # full test suite
-python tools/modtest.py --all                           # check every bundled module
+python tools/ingest check --all                         # check every bundled module
 ```
 
 ## Project layout
@@ -45,14 +45,19 @@ shellcraft/
 │   ├── themes.py           # theme presets → Rich theme + prompt_toolkit style
 │   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
 │   ├── banner.py           # startup banner
-│   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting
+│   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting, @script
 │   ├── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
 │   └── mcp_child.py        # `mcp start/stop`: the HTTP server as a child process of the shell
 ├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
-├── templates/              # module authoring kit: guide, reference module, AI prompt
+├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
-│   ├── modtest.py          # module tester
-│   └── mkprompt.py         # builds the AI prompt for writing a module's .md/.skill
+│   └── ingest/             # standalone script → module wizard (python tools/ingest), not a shell command
+│       ├── __main__.py     # the wizard and the `check` sub-command
+│       ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
+│       ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
+│       ├── docs.py         # offline .md / .skill drafts
+│       ├── ai.py           # Claude / OpenAI over requests; prompts/ holds the prompt texts
+│       └── check.py        # the module checker
 └── tests/                  # pytest suite
 ```
 
@@ -143,7 +148,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `core/builtins.py` | The `settings` table rows, the hidden prompt (`prompt_toolkit.prompt(is_password=True)`, or `getpass` outside the REPL), set and reset. |
 | `core/shell.py` | `RedactingFileHistory` stores `settings NAME ••••`. |
 | `core/config.py` | `save_config()` writes with mode 600 while `"env"` is non-empty. |
-| `tools/modtest.py` | `check_env_settings()` checks that every variable is named in the `.md` and the `.skill`. |
+| `tools/ingest/check.py` | `check_env_settings()` checks that every variable is named in the `.md` and the `.skill`. |
 
 `settings` is `stateful`, so MCP clients can never read or change keys through it.
 
@@ -183,7 +188,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
-| `test_modtest.py` | the module tester and prompt builder |
+| `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script` |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python
 interpreter, so they work on every platform. Tests that touch API keys use the `clean_env` fixture,
