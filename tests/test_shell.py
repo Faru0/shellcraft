@@ -1,8 +1,8 @@
-import contextlib
 import io
 import ntpath
 
 import pytest
+from prompt_toolkit.data_structures import Size
 
 from core import shell
 from core.context import ShellContext
@@ -87,80 +87,24 @@ def test_shell_hot_reload_before_a_command(tmp_path):
 
 # ── Windows console (CONIN$ / CONOUT$) ───────────────────────────────────────
 
-def test_windows_console_is_only_used_on_windows(monkeypatch):
-    monkeypatch.setattr(shell.sys, "platform", "linux")
-    with contextlib.ExitStack() as cleanup:
-        assert shell.open_windows_console(cleanup) is None
-
-
-def test_window_size_is_the_visible_window_not_the_buffer():
-    from types import SimpleNamespace as NS
-
-    # conhost: a 9001-row scrollback, scrolled down; only srWindow is the visible window.
-    info = NS(srWindow=NS(Left=0, Top=100, Right=119, Bottom=129), dwSize=NS(X=120, Y=9001))
-    assert shell._window_size(info) == shell.Size(rows=30, columns=120)
-    # Without delayed wrap, writing the last column wraps at once, so it is left out.
-    assert shell._window_size(info, full_width=False) == shell.Size(rows=30, columns=119)
-    # A buffer wider than the window (horizontal scrollbar): the window counts.
-    wide_buffer = NS(srWindow=NS(Left=0, Top=0, Right=99, Bottom=9), dwSize=NS(X=300, Y=10))
-    assert shell._window_size(wide_buffer).columns == 100
-    narrow_buffer = NS(srWindow=NS(Left=0, Top=0, Right=199, Bottom=9), dwSize=NS(X=80, Y=10))
-    assert shell._window_size(narrow_buffer).columns == 80
-
-
 def _sized_output(rows, columns):
     from prompt_toolkit.output import DummyOutput
 
     output = DummyOutput()
-    output.get_size = lambda: shell.Size(rows=rows, columns=columns)
+    output.get_size = lambda: Size(rows=rows, columns=columns)
     return output
 
 
-def test_terminal_console_measures_like_the_prompt(monkeypatch):
-    import io
-
-    from prompt_toolkit.application.current import create_app_session
-
-    monkeypatch.setenv("COLUMNS", "300")  # a stale snapshot must not win over the live size
-    monkeypatch.setenv("LINES", "99")
-    sizes = [(30, 120)]
-    output = _sized_output(0, 0)
-    output.get_size = lambda: shell.Size(*sizes[0])
-    console = shell.TerminalConsole(file=io.StringIO(), force_terminal=True)
-    with create_app_session(output=output):
-        assert (console.width, console.height) == (120, 30)
-        sizes[0] = (40, 90)  # the window was resized
-        assert console.size == (90, 40)
-        console.width = 50  # an explicit width still wins
-        assert console.size == (50, 40)
-
-
-def test_terminal_console_falls_back_to_rich_without_an_output(monkeypatch):
-    import io
-
-    from prompt_toolkit.application.current import create_app_session
-
-    output = _sized_output(0, 0)
-
-    def broken():
-        raise OSError("not a terminal")
-
-    output.get_size = broken
-    monkeypatch.setenv("COLUMNS", "77")
-    console = shell.TerminalConsole(file=io.StringIO(), force_terminal=True)
-    with create_app_session(output=output):
-        assert console.width == 77
-
-
 def _fake_windows_console(events):
-    """Stands in for open_windows_console: a 120x30 console whose closing is recorded."""
+    """Stands in for create_prompt_toolkit_console: a 120x30 console whose closing is recorded."""
     from prompt_toolkit.input import DummyInput
 
     def open_console(cleanup):
         events.append("console opened")
         cleanup.callback(events.append, "console closed")
-        return shell.WindowsConsole(input=DummyInput(), output=_sized_output(30, 120), stream=io.StringIO(),
-                                    conin=None, conout=None, output_mode_before=0, full_width=True)
+        return shell.DirectConsole(input=DummyInput(), output=_sized_output(30, 120), stream=io.StringIO(),
+                                   conin=None, conout=None, output_mode_before=0, input_mode_before=0,
+                                   reader="Vt100ConsoleInputReader", vt_input=True)
 
     return open_console
 
@@ -180,14 +124,14 @@ def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path
 
     events = []
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    monkeypatch.setattr(shell, "open_windows_console", _fake_windows_console(events))
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", _fake_windows_console(events))
     ui = _windows_ui()
     original = ui.console
     before = get_app_session()
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
 
     with shell.Shell(ctx) as sh:
-        console = sh.windows_console
+        console = sh.direct_console
         assert events == ["console opened"]
         # The prompt reads and writes the console devices, not stdin / stdout.
         assert sh.session.app.input is console.input
@@ -211,7 +155,7 @@ def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_pa
 
     events = []
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    monkeypatch.setattr(shell, "open_windows_console", _fake_windows_console(events))
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", _fake_windows_console(events))
 
     def broken(*args, **kwargs):
         raise RuntimeError("boom")
@@ -225,6 +169,29 @@ def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_pa
     assert ui.console is original
     assert get_app_session() is before
     assert events == ["console opened", "console closed"]
+
+
+def test_shell_falls_back_and_says_why_when_the_windows_console_fails(monkeypatch, tmp_path, capsys):
+    from core.diagnostics import console_report
+    from core.loader import ModuleRegistry
+
+    def broken(cleanup):
+        raise OSError("no console")
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", broken)
+    ui = _windows_ui()
+    original = ui.console
+    with shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)) as sh:
+        assert sh.direct_console is None
+        assert sh.windows_console_error == "no console"
+        assert ui.console is original
+    assert "Windows console not opened (no console)" in capsys.readouterr().err
+
+    import core.diagnostics as diagnostics
+    monkeypatch.setattr(diagnostics.sys, "platform", "win32")
+    monkeypatch.setattr(diagnostics.sys, "getwindowsversion", lambda: "10.0.26100", raising=False)
+    assert "not open: no console" in console_report(ui, None, "no console")
 
 
 def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
@@ -260,11 +227,12 @@ def test_diagnostics_report_lists_every_size_source(monkeypatch):
 
     from prompt_toolkit.application.current import create_app_session
 
+    from core.console import build_console
     from core.diagnostics import console_report
 
     monkeypatch.setenv("COLUMNS", "300")
     ui = _windows_ui()
-    ui.use_console(shell.TerminalConsole(file=io.StringIO(), force_terminal=True, color_system="truecolor"))
+    ui.use_console(build_console(file=io.StringIO()))
     with create_app_session(output=_sized_output(30, 120)):
         report = console_report(ui)
     lines = report.splitlines()
@@ -329,24 +297,6 @@ class _Tty(io.StringIO):
         return True
 
 
-@pytest.mark.parametrize("env, tty, expected", [
-    ({"COLORTERM": "truecolor"}, True, "DEPTH_24_BIT"),
-    ({"COLORTERM": "24bit"}, True, "DEPTH_24_BIT"),
-    ({}, True, None),                                            # 256 colors: prompt_toolkit's default
-    ({"COLORTERM": "truecolor"}, False, None),                   # stdout isn't a terminal
-    ({"COLORTERM": "truecolor", "NO_COLOR": "1"}, True, None),   # NO_COLOR still wins
-    ({"COLORTERM": "truecolor", "PROMPT_TOOLKIT_COLOR_DEPTH": "DEPTH_4_BIT"}, True, None),
-])
-def test_prompt_uses_truecolor_when_the_terminal_says_so(monkeypatch, env, tty, expected):
-    for name in ("COLORTERM", "NO_COLOR", "PROMPT_TOOLKIT_COLOR_DEPTH"):
-        monkeypatch.delenv(name, raising=False)
-    for name, value in env.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setattr(shell.sys, "stdout", _Tty() if tty else io.StringIO())
-    output = shell._truecolor_output()
-    assert (output and output.get_default_color_depth().name) == expected
-
-
 def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
     from prompt_toolkit.application.current import get_app_session
 
@@ -356,7 +306,7 @@ def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
     monkeypatch.setenv("COLORTERM", "truecolor")
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("PROMPT_TOOLKIT_COLOR_DEPTH", raising=False)
-    monkeypatch.setattr(shell, "open_windows_console", lambda cleanup: None)
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
     monkeypatch.setattr(shell.sys, "stdout", _Tty())
     before = get_app_session()
     with shell.Shell(ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())) as sh:

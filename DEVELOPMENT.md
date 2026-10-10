@@ -19,7 +19,8 @@ shellcraft/
 ├── main.py                 # launcher → core.cli.main
 ├── core/
 │   ├── cli.py              # argument parsing; chooses interactive / --mcp / --mcp-http mode
-│   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text; Windows console (CONIN$/CONOUT$)
+│   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
+│   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer ($? / $name expansion) → Pipeline(segments, redirect)
 │   ├── script.py           # scripts: bash for/if/&&/|| and -py blocks; bash word expansion; Python conditions
@@ -51,7 +52,8 @@ shellcraft/
 ├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
-│   └── ingest/             # standalone script → module wizard (python tools/ingest), not a shell command
+│   ├── ingest/             # standalone script → module wizard (python tools/ingest), not a shell command
+│   └── winconsole_probe.py # live key / console-mode / size check of the shell's console setup
 │       ├── __main__.py     # the wizard and the `check` sub-command
 │       ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
 │       ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
@@ -75,8 +77,10 @@ shellcraft/
 
 ### Terminal I/O on Windows and Linux
 
-- **Interactive shell on Windows:** `Shell` opens `CONIN$` and `CONOUT$` directly (`core.shell.open_windows_console`) and turns on VT processing. Keys come from prompt_toolkit's `Win32Input`, bound to the `CONIN$` handle for reading, raw/cooked mode and the VT-input check (prompt_toolkit would otherwise use `GetStdHandle`). Output is a plain `Vt100_Output` on `CONOUT$`. The pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected; the process's std handles are never changed. `Shell` owns this session and restores the console mode on exit.
-- **Window size:** `core.shell.TerminalConsole` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree (on Windows: the visible window of `CONOUT$`, with delayed wrap). `--diag` or the `diagnostics` setting prints every size source side by side.
+- **Interactive shell on Windows:** `Shell` calls `core.console.create_prompt_toolkit_console()`, which opens `CONIN$` and `CONOUT$` directly. Keys come from prompt_toolkit's `Win32Input`, bound to the `CONIN$` handle for reading, raw/cooked mode and the VT-input check (prompt_toolkit would otherwise use `GetStdHandle`). Output is `DirectOutput`, prompt_toolkit's `Windows10_Output` bound to `CONOUT$`: each flush writes with the screen buffer in exactly `PROCESSED_OUTPUT | VIRTUAL_TERMINAL_PROCESSING` (no wrap, no delayed wrap) and restores the mode; between prompts it rests in `PROCESSED | WRAP_AT_EOL | VT`. CPR is off and the rows below the cursor come from the screen buffer, so the completion menu gets its room. `Shell` then rebuilds Rich with `core.console.build_console(file=<CONOUT$ stream>)`. The `Win32Input` internals this relies on are checked up front and prompt_toolkit is pinned to 3.0.x; if the console can't be opened, the shell says why on stderr (and in `--diag`) and falls back to prompt_toolkit's own console handling. The pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected; the process's std handles are never changed. Both console modes are restored on exit.
+  - **Why not delayed wrap:** until 2026-10-09 `CONOUT$` was kept in `DISABLE_NEWLINE_AUTO_RETURN` with the full window width. In Windows Terminal (ConPTY) the shell then showed a garbled prompt, and Backspace and Tab completion seemed to do nothing. The likely cause is the cursor drifting from prompt_toolkit's picture of the screen (ConPTY has known delayed-wrap quirks); it is the one setting that every earlier attempt shared and that stock prompt_toolkit never uses, so it's gone. Confirm with the probe below.
+  - **`SHELLCRAFT_CONSOLE`** compares setups on a machine where something is wrong: `direct` (default), `legacy-keys` (direct, with the classic key reader and no VT input) or `native` (prompt_toolkit's own console handling). `python tools/winconsole_probe.py` runs a shell-like prompt on the same setup and shows every key received, the console modes and the size, live.
+- **Window size:** `core.console.build_console()` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree. On Windows that is prompt_toolkit's `Win32Output` size: the visible window of `CONOUT$` without its last column, so a full-width line never wraps early. `--diag` or the `diagnostics` setting prints every size source side by side.
 - **Console detection:** use `core.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
 - **Paging:** `show()` pages output taller than the window. A command can override that by returning `Paged(value, page=True/False)` (`core.context`): `man` always pages (`man -p` prints), `help` always prints. Pipes, files and MCP see only `value`.
 - **Encoding:** `utf8_stdio()` makes stdout/stderr UTF-8 when they aren't already (Windows pipes and files default to cp1252), unless `PYTHONIOENCODING` is set. The MCP stdio transport wraps the binary streams as UTF-8 itself.
@@ -182,7 +186,8 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
-| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the Windows console wiring, terminal size and truecolor, the diagnostics report, `help` printing and `man` paging |
+| `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the console session wiring and its restore order, the diagnostics report, `help` printing and `man` paging |
+| `test_console.py` | `core.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |

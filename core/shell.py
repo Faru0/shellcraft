@@ -7,26 +7,21 @@ import getpass
 import os
 import socket
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application.current import create_app_session, get_app_session
+from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.data_structures import Size
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory, InMemoryHistory
-from prompt_toolkit.output.color_depth import ColorDepth
-from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.styles import DynamicStyle
-from rich.console import Console, ConsoleDimensions
 from rich.text import Text
 
 from core import histexpand, script, settings
 from core.banner import render_banner
 from core.completer import ShellCompleter
 from core.config import history_path
+from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
@@ -74,223 +69,6 @@ class RedactingInMemoryHistory(_RedactingHistory, InMemoryHistory):
     pass
 
 
-# ── Windows console ──────────────────────────────────────────────────────────
-#
-# On Windows the interactive shell talks to the console devices directly: keys come from CONIN$
-# through prompt_toolkit's Win32Input, and output goes to CONOUT$ as VT sequences through a
-# Vt100_Output. sys.stdin / sys.stdout and the process's std handles are never used or changed, so
-# a redirected stdin or stdout (or NUL, for which isatty() is True) can't reach the prompt.
-
-_ENABLE_PROCESSED_OUTPUT, _ENABLE_WRAP_AT_EOL_OUTPUT = 0x0001, 0x0002
-_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-# Delayed wrap, as on a VT terminal: writing the last column leaves the cursor there until the next
-# character, so a full-width line followed by \r\n is one row, not two. Every writer here sends
-# \r\n (prompt_toolkit's renderer, and Python's text streams on Windows translate \n).
-_DISABLE_NEWLINE_AUTO_RETURN = 0x0008
-_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
-_VT_OUTPUT_MODE = _ENABLE_PROCESSED_OUTPUT | _ENABLE_WRAP_AT_EOL_OUTPUT | _ENABLE_VIRTUAL_TERMINAL_PROCESSING
-
-
-def _window_size(info: Any, full_width: bool = True) -> Size:
-    """The visible console window from GetConsoleScreenBufferInfo: srWindow, not dwSize, whose height
-    is the whole scrollback (9001 rows in conhost) and whose width can exceed the window. Without
-    delayed wrap, writing the last column moves the cursor at once, so that column is left out."""
-    window = info.srWindow
-    columns = min(info.dwSize.X, window.Right - window.Left + 1)
-    return Size(rows=max(1, window.Bottom - window.Top + 1),
-                columns=max(1, columns if full_width else columns - 1))
-
-
-class TerminalConsole(Console):
-    """A Rich console that measures the terminal the way prompt_toolkit does, by asking the current
-    app session's output, so the prompt and Rich always agree on the size and follow resizes.
-
-    Rich alone tries stdin, stdout, then stderr (only stdout and stderr on Windows) and lets COLUMNS /
-    LINES override them, which are a snapshot from when the shell started if something exported them.
-    On Windows the session's output reads the size from CONOUT$ itself. Elsewhere it is stdout's
-    terminal (TIOCGWINSZ).
-    """
-
-    def __init__(self, *args: Any, width: int | None = None, height: int | None = None, **kwargs: Any):
-        super().__init__(*args, width=width, height=height, **kwargs)
-        # Rich's __init__ turns COLUMNS / LINES into a fixed size; only an explicit one stays fixed.
-        self._width, self._height = width, height
-
-    @property
-    def size(self) -> ConsoleDimensions:
-        if self._width is not None and self._height is not None:
-            return super().size
-        try:
-            size = get_app_session().output.get_size()
-        except Exception:  # noqa: BLE001 — no usable output: Rich's own lookup
-            return super().size
-        return ConsoleDimensions(self._width or size.columns, self._height or size.rows)
-
-    @size.setter
-    def size(self, new_size: tuple[int, int]) -> None:
-        Console.size.fset(self, new_size)  # type: ignore[attr-defined]
-
-
-@dataclass
-class WindowsConsole:
-    """What open_windows_console() opened: prompt_toolkit's input and output, the CONOUT$ text
-    stream for Rich, and the raw handles and modes for the diagnostics report."""
-
-    input: Any                  # Win32Input on CONIN$
-    output: Vt100_Output        # VT sequences to CONOUT$
-    stream: Any                 # CONOUT$ as a text stream (WriteConsoleW: any Unicode, any code page)
-    conin: Any                  # HANDLE
-    conout: Any                 # HANDLE
-    output_mode_before: int
-    full_width: bool            # delayed wrap is on, so the last column is usable
-
-    def buffer_info(self) -> Any:
-        return _buffer_info(self.conout)
-
-    def size(self) -> Size:
-        return _console_size(self.conout, self.full_width)
-
-
-def _kernel32() -> Any:
-    import ctypes
-    from ctypes import wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows only
-    k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-    k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
-    return k32
-
-
-def _buffer_info(conout: Any) -> Any:
-    import ctypes
-
-    from prompt_toolkit.win32_types import CONSOLE_SCREEN_BUFFER_INFO
-
-    info = CONSOLE_SCREEN_BUFFER_INFO()
-    return info if _kernel32().GetConsoleScreenBufferInfo(conout, ctypes.byref(info)) else None
-
-
-def _console_size(conout: Any, full_width: bool) -> Size:
-    info = _buffer_info(conout)
-    return Size(rows=24, columns=80) if info is None else _window_size(info, full_width)
-
-
-def _console_input(conin_fd: int) -> Any:
-    """prompt_toolkit's Win32Input, bound to our CONIN$ handle.
-
-    Win32Input finds the console with GetStdHandle(STD_INPUT_HANDLE) in three places: the key
-    reader, raw / cooked mode and the VT-input check. Each one is pointed at CONIN$ here instead, so
-    the handle that reads the keys is the handle that is put into raw mode.
-    """
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    from prompt_toolkit.input import win32
-
-    conin = wintypes.HANDLE(msvcrt.get_osfhandle(conin_fd))  # type: ignore[attr-defined]  # Windows only
-
-    def vt_input_supported() -> bool:
-        k32 = _kernel32()
-        mode = wintypes.DWORD()
-        if not k32.GetConsoleMode(conin, ctypes.byref(mode)):
-            return False
-        try:
-            return bool(k32.SetConsoleMode(conin, _ENABLE_VIRTUAL_TERMINAL_INPUT))
-        finally:
-            k32.SetConsoleMode(conin, mode.value)
-
-    class ConsoleInput(win32.Win32Input):
-        def __init__(self) -> None:
-            win32._Win32InputBase.__init__(self)  # not Win32Input's: it looks at the std handle
-            self._use_virtual_terminal_input = vt_input_supported()
-            reader = (win32.Vt100ConsoleInputReader() if self._use_virtual_terminal_input
-                      else win32.ConsoleInputReader())
-            reader.close()  # it opens its own CONIN$ when sys.stdin isn't a tty
-            reader._fdcon = None
-            reader.handle = conin
-            self.console_input_reader = reader
-
-        def _on_conin(self, mode: Any) -> Any:
-            mode.handle = conin
-            return mode
-
-        def raw_mode(self) -> Any:
-            return self._on_conin(win32.raw_mode(
-                use_win10_virtual_terminal_input=self._use_virtual_terminal_input))
-
-        def cooked_mode(self) -> Any:
-            return self._on_conin(win32.cooked_mode())
-
-        def fileno(self) -> int:
-            return conin_fd
-
-        def close(self) -> None:
-            pass  # the shell closes CONIN$
-
-    return ConsoleInput(), conin
-
-
-def open_windows_console(cleanup: contextlib.ExitStack) -> WindowsConsole | None:
-    """Open CONIN$ / CONOUT$ with VT output on, for the interactive shell on Windows; None elsewhere,
-    or without a usable console (none at all, or one that can't process VT sequences: before
-    Windows 10). Everything opened or changed is undone by `cleanup`, in reverse order."""
-    if sys.platform != "win32":
-        return None
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    k32 = _kernel32()
-    try:
-        with contextlib.ExitStack() as opened:
-            conin_fd = os.open("CONIN$", os.O_RDWR | os.O_BINARY)  # type: ignore[attr-defined]
-            opened.callback(os.close, conin_fd)
-            # By name, Python opens CONOUT$ as a console stream (WriteConsoleW), so Unicode is safe
-            # whatever the console code page is.
-            stream = open("CONOUT$", "w", encoding="utf-8", errors="replace")  # noqa: SIM115
-            opened.callback(stream.close)
-            conout = wintypes.HANDLE(msvcrt.get_osfhandle(stream.fileno()))  # type: ignore[attr-defined]
-
-            mode = wintypes.DWORD()
-            if not k32.GetConsoleMode(conout, ctypes.byref(mode)):
-                raise ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
-            before = mode.value
-            # Prefer delayed wrap, so the whole width is usable; consoles that refuse it get the
-            # last column left out of the size instead.
-            full_width = bool(k32.SetConsoleMode(conout, before | _VT_OUTPUT_MODE | _DISABLE_NEWLINE_AUTO_RETURN))
-            if not full_width and not k32.SetConsoleMode(conout, before | _VT_OUTPUT_MODE):
-                raise ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
-            opened.callback(k32.SetConsoleMode, conout, before)
-
-            console_input, conin = _console_input(conin_fd)
-            # No CPR: Win32Input may not be reading VT input, so a reply could arrive as keys.
-            output = Vt100_Output(stream, lambda: _console_size(conout, full_width), enable_cpr=False,
-                                  default_color_depth=ColorDepth.from_env() or ColorDepth.TRUE_COLOR)
-            cleanup.push(opened.pop_all())
-            return WindowsConsole(input=console_input, output=output, stream=stream, conin=conin,
-                                  conout=conout, output_mode_before=before, full_width=full_width)
-    except OSError:
-        return None
-
-
-def _truecolor_output() -> Vt100_Output | None:
-    """A truecolor prompt_toolkit output on stdout when COLORTERM says the terminal has 24-bit color.
-
-    prompt_toolkit only looks at TERM and stays at 256 colors otherwise, while Rich reads COLORTERM,
-    so the prompt and the pager showed the theme's colors rounded off next to exact Rich output.
-    None leaves prompt_toolkit's default: no such terminal, stdout isn't one, or NO_COLOR /
-    PROMPT_TOOLKIT_COLOR_DEPTH choose the depth.
-    """
-    if os.environ.get("COLORTERM", "").lower() not in ("truecolor", "24bit"):
-        return None
-    if ColorDepth.from_env() is not None or not sys.stdout.isatty():
-        return None
-    return Vt100_Output.from_pty(sys.stdout, term=os.environ.get("TERM"),
-                                 default_color_depth=ColorDepth.TRUE_COLOR)
-
-
 class Shell:
     """The interactive REPL. Use it as a context manager: on Windows it owns the console session
     (see _open_console), and leaving the `with` block restores the console whatever happened."""
@@ -301,7 +79,8 @@ class Shell:
         self.ui = ctx.ui
         self.user_host = _user_host()
         self._cleanup = contextlib.ExitStack()
-        self.windows_console: WindowsConsole | None = None
+        self.direct_console: DirectConsole | None = None
+        self.windows_console_error: str | None = None  # why CONIN$ / CONOUT$ couldn't be used
         try:
             self._open_console()
             self._setup()
@@ -310,22 +89,29 @@ class Shell:
             raise
 
     def _open_console(self) -> None:
-        """Windows: run on CONIN$ / CONOUT$ directly (Win32Input + Vt100_Output). Elsewhere: stdout,
-        in truecolor when the terminal says it supports it. The app session must be current before
-        the PromptSession is built, because prompt_toolkit binds an Application's input and output
-        when it is created; the pager and the hidden API-key prompt pick it up the same way."""
-        console = open_windows_console(self._cleanup)
+        """Windows: run on CONIN$ / CONOUT$ directly (core.console.create_prompt_toolkit_console).
+        Elsewhere: stdout, in truecolor when the terminal says it supports it. The app session must be
+        current before the PromptSession is built, because prompt_toolkit binds an Application's input
+        and output when it is created; the pager and the hidden API-key prompt pick it up the same way."""
+        try:
+            console = create_prompt_toolkit_console(self._cleanup)
+        except OSError as exc:
+            # Still usable through prompt_toolkit's own console handling, but say so: redirected
+            # stdin / stdout are no longer handled.
+            console = None
+            self.windows_console_error = str(exc) or type(exc).__name__
+            print(f"shellcraft: Windows console not opened ({self.windows_console_error}); "
+                  "using stdin/stdout", file=sys.stderr)
         if console is None:
-            output = _truecolor_output()
+            output = truecolor_output()
             if output is not None:
                 self._cleanup.enter_context(create_app_session(output=output))
             return
-        self.windows_console = console
+        self.direct_console = console
         self._cleanup.enter_context(create_app_session(input=console.input, output=console.output))
-        # VT processing is on, so Rich writes plain escape sequences (no legacy Win32 console calls).
-        # Its size comes from the session's output, the same as the prompt's, so it follows resizes.
-        previous = self.ui.use_console(TerminalConsole(file=console.stream, highlight=False, force_terminal=True,
-                                                       legacy_windows=False, color_system="truecolor"))
+        # Rich is rebuilt on the CONOUT$ stream. It measures itself from the session's output, the
+        # same as the prompt, so both agree on the width and follow resizes.
+        previous = self.ui.use_console(build_console(file=console.stream))
         self._cleanup.callback(self.ui.use_console, previous)
 
     def _setup(self) -> None:
@@ -408,7 +194,7 @@ class Shell:
         from core.diagnostics import console_report
 
         # Plain text, not wrapped, so it can be copied into a bug report as is.
-        self.ui.console.print(console_report(self.ui, self.windows_console),
+        self.ui.console.print(console_report(self.ui, self.direct_console, self.windows_console_error),
                               markup=False, highlight=False, soft_wrap=True)
 
     def loop(self) -> int:

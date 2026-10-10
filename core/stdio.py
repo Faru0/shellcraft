@@ -6,7 +6,8 @@
   ANSI code page (cp1252) there, which can't encode the box drawing in `tree`, tables and error
   panels, and the write fails with UnicodeEncodeError. It also matches the UTF-8 that `>` writes.
 
-The interactive shell's Windows console (CONIN$ / CONOUT$) is opened by core.shell.open_windows_console.
+The interactive shell's Windows console (CONIN$ / CONOUT$) is opened by
+core.console.create_prompt_toolkit_console.
 """
 
 from __future__ import annotations

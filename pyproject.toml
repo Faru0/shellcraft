@@ -9,7 +9,7 @@ description = "A modular, pipe-friendly Python shell with Rich output and an emb
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "prompt_toolkit>=3.0.40",
+    "prompt_toolkit>=3.0.40,<3.1",
     "rich>=13.7",
     "mcp>=2.0,<3",
     "requests>=2.31",

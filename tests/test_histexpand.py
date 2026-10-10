@@ -61,7 +61,7 @@ def repl(monkeypatch, tmp_path):
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(shell, "open_windows_console", lambda cleanup: None)
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
     console = Console(record=True, width=120, force_terminal=False, color_system=None)
     ui = UI(all_themes({})["nord"], console)
 

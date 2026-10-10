@@ -101,14 +101,14 @@ def main(argv: list[str] | None = None) -> int:
         theme_name = "cyberpunk"
     allow_system = args.allow_system or settings.get(config, "system_commands")
 
-    from core.shell import Shell, TerminalConsole
+    from core.console import build_console
+    from core.shell import Shell
 
     # The interactive shell is always on a terminal. On Linux that is stdout. On Windows, Shell
-    # opens CONIN$ / CONOUT$ itself (Win32Input for keys, Vt100_Output with VT processing on) and
-    # moves this UI's Rich output to CONOUT$, whatever stdin and stdout are redirected to. Rich
-    # takes the terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
-    ui = UI(themes[theme_name], TerminalConsole(highlight=False, force_terminal=True, legacy_windows=False,
-                                               color_system="truecolor"))
+    # opens CONIN$ / CONOUT$ itself (core.console: Win32Input for keys, VT output) and rebuilds this
+    # UI's Rich console on CONOUT$, whatever stdin and stdout are redirected to. Rich takes the
+    # terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
+    ui = UI(themes[theme_name], build_console())
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
     with Shell(ctx) as shell:
         if args.diag or settings.get(config, "diagnostics"):

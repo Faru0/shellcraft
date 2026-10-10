@@ -13,6 +13,7 @@ import os
 import platform
 import shutil
 import sys
+from importlib import metadata
 from typing import Any, Callable
 
 from core import __version__
@@ -62,8 +63,9 @@ def _section(title: str, lines: list[str]) -> list[str]:
     return [f"[{title}]", *(f"  {line}" for line in lines)]
 
 
-def console_report(ui: Any, windows_console: Any = None) -> str:
-    """The report as plain text; `windows_console` is the shell's WindowsConsole, if any."""
+def console_report(ui: Any, direct_console: Any = None, windows_console_error: str | None = None) -> str:
+    """The report as plain text; `direct_console` is the shell's core.console.DirectConsole, if any,
+    and `windows_console_error` why it couldn't be opened."""
     from prompt_toolkit.application.current import get_app_session
     from prompt_toolkit.output.color_depth import ColorDepth
     from rich.console import Console
@@ -72,6 +74,7 @@ def console_report(ui: Any, windows_console: Any = None) -> str:
 
     out += _section("system", [
         f"shellcraft {__version__}",
+        f"prompt_toolkit {_try(lambda: metadata.version('prompt_toolkit'))} rich {_try(lambda: metadata.version('rich'))}",
         f"python {sys.version.split()[0]} ({platform.python_implementation()}) {sys.executable}",
         f"platform {platform.platform()} sys.platform={sys.platform}",
         *([f"windows version {_try(sys.getwindowsversion)}"] if sys.platform == "win32" else []),
@@ -115,10 +118,10 @@ def console_report(ui: Any, windows_console: Any = None) -> str:
         f"(from env: {_try(ColorDepth.from_env)})",
     ])
 
-    if windows_console is not None:
-        out += _section("windows console (CONOUT$ / CONIN$)", _windows_lines(windows_console))
+    if direct_console is not None:
+        out += _section("windows console (CONOUT$ / CONIN$)", _windows_lines(direct_console))
     elif sys.platform == "win32":
-        out += _section("windows console", ["not open: CONIN$/CONOUT$ could not be used, "
+        out += _section("windows console", [f"not open: {windows_console_error or 'CONIN$/CONOUT$ could not be used'}, "
                                             "so the shell runs on sys.stdin/sys.stdout"])
 
     out.append("----- end of shellcraft console diagnostics -----")
@@ -153,12 +156,19 @@ def _windows_lines(console: Any) -> list[str]:
             f"cursor = column {info.dwCursorPosition.X} row {info.dwCursorPosition.Y}, "
             f"max window = {info.dwMaximumWindowSize.X} x {info.dwMaximumWindowSize.Y}",
         ]
+    from core.console import FLUSH_OUTPUT_MODE
+
     lines += [
-        f"shell size = {_try(console.size)} (full_width={console.full_width}: "
-        f"{'delayed wrap on, whole width used' if console.full_width else 'last column left out'})",
+        f"SHELLCRAFT_CONSOLE = {console.mode} (direct | legacy-keys | native)",
+        f"shell size = {_try(console.size)} (visible window without its last column, as prompt_toolkit's "
+        "Win32Output)",
         f"CONOUT$ mode before = {_flags(console.output_mode_before, _OUTPUT_FLAGS)}",
         f"CONOUT$ mode now    = {_flags(mode(console.conout), _OUTPUT_FLAGS)}",
-        f"CONIN$ mode now     = {_flags(mode(console.conin), _INPUT_FLAGS)}",
+        f"CONOUT$ mode while the prompt writes = {_flags(FLUSH_OUTPUT_MODE, _OUTPUT_FLAGS)}",
+        f"CONIN$ mode before  = {_flags(console.input_mode_before, _INPUT_FLAGS)}",
+        f"CONIN$ mode now     = {_flags(mode(console.conin), _INPUT_FLAGS)} (raw mode applies only while "
+        "a prompt is open)",
+        f"key reader = {console.reader} (VT input {'on' if console.vt_input else 'off'})",
         f"code pages: input {k32.GetConsoleCP()} output {k32.GetConsoleOutputCP()} (65001 = UTF-8)",
     ]
     for name, which in (("STD_INPUT", -10), ("STD_OUTPUT", -11), ("STD_ERROR", -12)):
@@ -167,6 +177,8 @@ def _windows_lines(console: Any) -> list[str]:
         lines.append(f"{name} handle={handle} file_type={k32.GetFileType(handle)} "
                      f"console_mode={_flags(mode(handle), _OUTPUT_FLAGS if which != -10 else _INPUT_FLAGS)}")
     lines.append(f"CONIN$ handle={console.conin.value} CONOUT$ handle={console.conout.value}")
+    lines.append(f"rows below cursor = {_try(console.output.get_rows_below_cursor_position)} "
+                 "(room the completion menu gets)")
     lines.append(f"console window hwnd={k32.GetConsoleWindow()} "
                  f"(Windows Terminal: {'yes' if 'WT_SESSION' in os.environ else 'no'})")
     return lines
