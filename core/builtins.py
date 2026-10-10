@@ -35,15 +35,16 @@ class Builtin:
     category: str = "shell"
     doc: str | None = None  # Markdown manual shown by `man`
     sensitive: bool = False  # may reveal secrets (e.g. env vars); disabled for MCP pipelines
+    hidden: bool = False  # left out of `help` (still runs and has a man page)
 
 
 BUILTINS: dict[str, Builtin] = {}
 
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
-            category: str = "shell", doc: str | None = None, sensitive: bool = False):
+            category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False):
     def register(fn):
-        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive)
+        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden)
         return fn
     return register
 
@@ -100,7 +101,7 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     table.add_column("kind", style="sc.muted")
     table.add_column("description")
     for category in CATEGORIES:
-        names = sorted(n for n, b in BUILTINS.items() if b.category == category)
+        names = sorted(n for n, b in BUILTINS.items() if b.category == category and not b.hidden)
         for i, name in enumerate(names):
             table.add_row(name, category, BUILTINS[name].summary, end_section=i == len(names) - 1)
     for name in ctx.registry.names():

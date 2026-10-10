@@ -170,12 +170,14 @@ if [ "$n" -gt 3 -a -d out ]; then echo big; fi
 """
 
 
-@builtin("test", "Check a condition (exit status 0 or 1)", "test EXPRESSION", category="shell", doc=TEST_DOC)
+@builtin("test", "Check a condition (exit status 0 or 1); also [ ... ] and [[ ... ]]", "test EXPRESSION",
+         category="shell", doc=TEST_DOC)
 def _test(ctx: Any, args: list[str], stdin: str) -> WithStatus:
     return _evaluate("test", args)
 
 
-@builtin("[", "Check a condition: [ EXPRESSION ]", "[ EXPRESSION ]", category="shell", doc=TEST_DOC)
+@builtin("[", "Check a condition: [ EXPRESSION ]", "[ EXPRESSION ]", category="shell", doc=TEST_DOC,
+         hidden=True)
 def _bracket(ctx: Any, args: list[str], stdin: str) -> WithStatus:
     if not args or args[-1] != "]":
         raise CommandError("[: missing ']'", status=2)
@@ -183,7 +185,7 @@ def _bracket(ctx: Any, args: list[str], stdin: str) -> WithStatus:
 
 
 @builtin("[[", "Check a condition, with patterns: [[ EXPRESSION ]]", "[[ EXPRESSION ]]", category="shell",
-         doc=TEST_DOC)
+         doc=TEST_DOC, hidden=True)
 def _double_bracket(ctx: Any, args: list[str], stdin: str) -> WithStatus:
     if not args or args[-1] != "]]":
         raise CommandError("[[: missing ']]'", status=2)
