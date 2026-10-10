@@ -6,8 +6,11 @@
 """
 
 import sys
-
+import os 
 from core.cli import main
+
+os.system('cls' if os.name == 'nt' else 'clear')
+
 
 if __name__ == "__main__":
     sys.exit(main())
