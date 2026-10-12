@@ -307,10 +307,10 @@ class AddressError(ValueError):
 
 
 def parse_http_address(value: str) -> tuple[str, int]:
-    """'127.0.0.1:8765', 'localhost:8765', '[::1]:8765' or ':8765' → (host, port); loopback only."""
+    """'127.0.0.1:38765', 'localhost:38765', '[::1]:38765' or ':38765' → (host, port); loopback only."""
     host, sep, port = value.rpartition(":")
     if not sep or not port.isdigit() or not 0 < int(port) < 65536:
-        raise AddressError(f"invalid address '{value}' (expected HOST:PORT, e.g. 127.0.0.1:8765)")
+        raise AddressError(f"invalid address '{value}' (expected HOST:PORT, e.g. 127.0.0.1:38765)")
     host = host.strip("[]") or "127.0.0.1"
     if host != "localhost":
         try:

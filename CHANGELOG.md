@@ -3,6 +3,17 @@
 All notable changes to ShellCraft. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and the project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The default `--mcp-http` / `mcp start` address is `127.0.0.1:38765` (was `:8765`), to stay
+  clear of the ports other local tools commonly take.
+
+### Fixed
+
+- `help` printed `Paged(value=...)` instead of the command table.
+
 ## [0.2.0] — 2026-10-12
 
 The fourth assessment ([UPGRADE-ASSESSMENT.md](UPGRADE-ASSESSMENT.md)) in one release: every crash

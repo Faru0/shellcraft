@@ -280,7 +280,7 @@ class Shell:
         return FormattedText([("class:frame", "  ┆ "), ("class:arrow", "… ")])
 
     def _mcp_marker(self) -> list[tuple[str, str]]:
-        """`● mcp :8765` while a server started with `mcp start` runs; `✗ mcp :8765` if it died
+        """`● mcp :38765` while a server started with `mcp start` runs; `✗ mcp :38765` if it died
         on its own (until `mcp` or `mcp stop` notices). Nothing when there is none."""
         child = self.ctx.mcp_http
         if child is None:

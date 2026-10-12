@@ -20,7 +20,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--mcp", action="store_true", help="run as an MCP server over stdio")
     p.add_argument("--mcp-http", metavar="HOST:PORT",
                    help="run as an MCP server over streamable HTTP at http://HOST:PORT/mcp "
-                        "(this machine only, e.g. 127.0.0.1:8765)")
+                        "(this machine only, e.g. 127.0.0.1:38765)")
     p.add_argument("--modules", type=Path, metavar="DIR",
                    help="modules directory (default: $SHELLCRAFT_MODULES or the bundled modules)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")

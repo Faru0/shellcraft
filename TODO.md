@@ -95,7 +95,7 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **Streaming pipelines**, first step: `run()` may return an iterator of lines (`pipeline._collect()`); plain `str` returns keep working. Concurrent segments are the open item above. *(2026-10-12)* — `core/pipeline.py`
 - [x] **MCP improvements:**
   - [x] Every module's `.md` and every MCP-usable builtin's manual is a resource at `shellcraft://man/<name>`.
-  - [x] Streamable-HTTP transport: `--mcp-http 127.0.0.1:8765` (loopback addresses only, DNS-rebinding protection on).
+  - [x] Streamable-HTTP transport: `--mcp-http 127.0.0.1:38765` (loopback addresses only, DNS-rebinding protection on).
   - [x] `tools/list_changed` and `resources/list_changed` on reload, both to `subscriptions/listen` streams and to older clients' connections.
   - [x] `.skill` `[[params]]` declare typed, named parameters (the MCP input schema); all bundled modules and the template use them. Modules without them keep the raw `args` array. — `core/params.py`
 - [x] **Hot reload**: the modules folder is polled for `.py`/`.md`/`.skill` changes, in the shell (before each command) and the MCP server (every second). The `hot_reload` setting turns it off. — `core/watch.py`

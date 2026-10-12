@@ -106,7 +106,7 @@ def test_a_port_in_use_is_refused(server_ctx):
 
 
 @pytest.mark.parametrize("line, error", [
-    ("mcp start 0.0.0.0:8765", "only binds to this machine"),
+    ("mcp start 0.0.0.0:38765", "only binds to this machine"),
     ("mcp start nonsense", "invalid address"),
     ("mcp start a:1 b:2", "usage"),
     ("mcp restart", "isn't running"),

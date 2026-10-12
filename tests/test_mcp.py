@@ -257,19 +257,19 @@ def test_watcher_reports_added_changed_and_removed_files(tmp_path):
 # ── HTTP transport address ───────────────────────────────────────────────────
 
 @pytest.mark.parametrize("value, expected", [
-    ("127.0.0.1:8765", ("127.0.0.1", 8765)),
+    ("127.0.0.1:38765", ("127.0.0.1", 38765)),
     ("localhost:9000", ("localhost", 9000)),
-    ("[::1]:8765", ("::1", 8765)),
-    (":8765", ("127.0.0.1", 8765)),
+    ("[::1]:38765", ("::1", 38765)),
+    (":38765", ("127.0.0.1", 38765)),
 ])
 def test_http_address_loopback(value, expected):
     assert parse_http_address(value) == expected
 
 
 @pytest.mark.parametrize("value, fragment", [
-    ("0.0.0.0:8765", "refusing to listen on 0.0.0.0"),
-    ("192.168.1.10:8765", "refusing"),
-    ("myhost.lan:8765", "refusing"),
+    ("0.0.0.0:38765", "refusing to listen on 0.0.0.0"),
+    ("192.168.1.10:38765", "refusing"),
+    ("myhost.lan:38765", "refusing"),
     ("127.0.0.1", "invalid address"),
     ("127.0.0.1:99999", "invalid address"),
 ])

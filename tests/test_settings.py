@@ -72,7 +72,7 @@ def test_there_is_no_one_shot_mode(capsys):
     assert "unrecognized arguments: -c" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("flag", [["--mcp"], ["--mcp-http", "127.0.0.1:8765"]])
+@pytest.mark.parametrize("flag", [["--mcp"], ["--mcp-http", "127.0.0.1:38765"]])
 def test_mcp_without_the_mcp_package_explains_instead_of_crashing(tmp_path, monkeypatch, capsys, flag):
     import importlib.util
 

@@ -935,13 +935,13 @@ Run ShellCraft's MCP server over HTTP in the background while you keep using the
 client (Claude Code, Claude Desktop…) can call your modules. It is the same server as
 `python main.py --mcp-http HOST:PORT`, as a child process of this shell: Ctrl-C at the prompt
 doesn't stop it, and it stops when the shell exits. While it runs, the prompt shows
-`● mcp :8765`; a red `✗ mcp :8765` means it exited on its own (`mcp log` says why).
+`● mcp :38765`; a red `✗ mcp :38765` means it exited on its own (`mcp log` says why).
 
 ## Usage
 
 ```
 mcp                          # status: running or not, address, pid, uptime
-mcp start [HOST:PORT]        # start it (default 127.0.0.1:8765)
+mcp start [HOST:PORT]        # start it (default 127.0.0.1:38765)
 mcp start --allow-system     # ... and let clients run OS commands
 mcp stop                     # stop it
 mcp restart                  # stop and start again at the same address
@@ -959,7 +959,7 @@ must carry a **bearer token** that `mcp start` generates and prints (`mcp` shows
 other local users and processes can't use it. Its log is `~/.shellcraft/mcp-http.log`. API keys
 set with `settings NAME` before `mcp start` are passed to it; set a key later and `mcp restart`
 to pass it on. Point a client at the URL and token `mcp start` prints, for example:
-`claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp --header "Authorization: Bearer TOKEN"`.
+`claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer TOKEN"`.
 The server exits by itself when the shell that started it is gone, even after `kill -9`.
 
 ## Examples

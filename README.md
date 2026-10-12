@@ -180,7 +180,7 @@ Loops also work over MCP, with the same restrictions.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
 - `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
-- **The prompt** shows `user@host`, the directory, `⎇ branch` in a git repository, `● mcp :8765` while `mcp start` runs, `[✗ N]` after a failure and `⏱` after a slow command. `prompt name path git status` picks the segments, `prompt -r clock` adds a right-hand clock, `prompt reset` goes back (`man prompt`). `settings transient_prompt on` collapses the two-line prompt to `❯ command` after Enter, so the scrollback stays dense.
+- **The prompt** shows `user@host`, the directory, `⎇ branch` in a git repository, `● mcp :38765` while `mcp start` runs, `[✗ N]` after a failure and `⏱` after a slow command. `prompt name path git status` picks the segments, `prompt -r clock` adds a right-hand clock, `prompt reset` goes back (`man prompt`). `settings transient_prompt on` collapses the two-line prompt to `❯ command` after Enter, so the scrollback stays dense.
 
 ### Aliases
 
@@ -370,8 +370,8 @@ the banner.
 
 ## Use it from an AI client (MCP)
 
-`python main.py --mcp` starts an MCP server over stdio; `python main.py --mcp-http 127.0.0.1:8765`
-serves the same tools over streamable HTTP at `http://127.0.0.1:8765/mcp` (this machine only, with
+`python main.py --mcp` starts an MCP server over stdio; `python main.py --mcp-http 127.0.0.1:38765`
+serves the same tools over streamable HTTP at `http://127.0.0.1:38765/mcp` (this machine only, with
 DNS-rebinding protection).
 
 The HTTP server requires a **bearer token** on every request, because any local user or process
@@ -380,7 +380,7 @@ one (printed at startup), or turn it off with `--no-token`.
 
 To keep using the shell while the HTTP server runs, start it from inside the shell instead:
 `mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
-stop it, and the prompt shows `● mcp :8765` while it runs), generates a token and prints the
+stop it, and the prompt shows `● mcp :38765` while it runs), generates a token and prints the
 `claude mcp add … --header "Authorization: Bearer …"` line to use; `mcp` shows its status and
 the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when you leave the
 shell, even if the shell is killed outright. See `man mcp`.
@@ -412,7 +412,7 @@ claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shell
 ```
 
 Use absolute paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
-Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp --header "Authorization: Bearer TOKEN"`.
+Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer TOKEN"`.
 To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
 
 > [!WARNING]
