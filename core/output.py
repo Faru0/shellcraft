@@ -52,7 +52,8 @@ def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]],
         started = time.monotonic()
         threading.Thread(target=target, daemon=True, name=f"shellcraft:{label}").start()
         if not done.wait(SPINNER_DELAY) and settings.get(ctx.config, "spinner"):
-            with ui.console.status(Text(label, style="sc.accent"), spinner="dots12", spinner_style="sc.accent") as status:
+            with ui.console.status(Text(label, style="sc.accent"), spinner="dots12",
+                                   spinner_style="sc.accent") as status:
                 shown = label
                 while not done.wait(0.05):
                     text = spinner_label(label, time.monotonic() - started)
@@ -136,7 +137,7 @@ PAGER_KEYS = [
 ]
 
 
-def page(ui: UI, rendered: str, title: str | None = None) -> None:
+def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
     """Interactive scrollable viewport for ANSI text (cross-platform, no external pager)."""
     lines = rendered.rstrip("\n").split("\n")
     plain = [_ANSI_RE.sub("", ln) for ln in lines]
@@ -240,11 +241,14 @@ def page(ui: UI, rendered: str, title: str | None = None) -> None:
 
     @kb.add("q", filter=not_searching)
     @kb.add("escape", filter=not_searching)
-    @kb.add("c-c")
     def _quit(event):
         if state["help"]:
-            state["help"] = False
+            state["help"] = False  # the first q closes the key help
             return
+        event.app.exit()
+
+    @kb.add("c-c")
+    def _interrupt(event):
         event.app.exit()
 
     @kb.add("?", filter=not_searching)
@@ -357,6 +361,7 @@ def page(ui: UI, rendered: str, title: str | None = None) -> None:
     app: Application = Application(layout=layout, key_bindings=kb, full_screen=True, style=ui.pt_style,
                                    mouse_support=True)
     app.run()
+    return state  # for tests: where the viewer was when it closed
 
 
 def _short(text: str, width: int) -> str:

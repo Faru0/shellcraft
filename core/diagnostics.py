@@ -74,7 +74,8 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
 
     out += _section("system", [
         f"shellcraft {__version__}",
-        f"prompt_toolkit {_try(lambda: metadata.version('prompt_toolkit'))} rich {_try(lambda: metadata.version('rich'))}",
+        f"prompt_toolkit {_try(lambda: metadata.version('prompt_toolkit'))} "
+        f"rich {_try(lambda: metadata.version('rich'))}",
         f"python {sys.version.split()[0]} ({platform.python_implementation()}) {sys.executable}",
         f"platform {platform.platform()} sys.platform={sys.platform}",
         *([f"windows version {_try(sys.getwindowsversion)}"] if sys.platform == "win32" else []),

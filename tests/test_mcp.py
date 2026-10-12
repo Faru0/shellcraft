@@ -5,8 +5,15 @@ from mcp.shared.exceptions import MCPError
 
 from core import params
 from core.loader import ModuleRegistry
-from core.mcp_server import (MAN_URI, MODULE_INPUT_SCHEMA, PIPELINE_TOOL, AddressError, ShellcraftMCP,
-                             build_server, parse_http_address)
+from core.mcp_server import (
+    MAN_URI,
+    MODULE_INPUT_SCHEMA,
+    PIPELINE_TOOL,
+    AddressError,
+    ShellcraftMCP,
+    build_server,
+    parse_http_address,
+)
 from core.watch import ModuleWatcher
 from tests.conftest import OS_UPPER
 

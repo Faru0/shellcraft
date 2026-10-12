@@ -46,7 +46,14 @@ extend-exclude = ["Install", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM"]
-ignore = ["E741", "SIM108", "SIM102", "B007", "B905", "UP007", "UP035", "UP038", "B008", "SIM117", "E731"]
+ignore = ["E741", "SIM108", "SIM102", "SIM105", "SIM114", "B007", "B023", "B905", "UP007", "UP035", "B008",
+          "SIM117", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+"tools/ingest/__main__.py" = ["E402"]  # sys.path is set up before the imports
+"tools/**" = ["E501"]
+"tests/**" = ["E501"]
+"core/commands/*.py" = ["E501"]  # man pages hold Markdown tables, whose rows can't wrap
 
 [tool.ruff.lint.isort]
 known-first-party = ["core", "tools", "tests"]

@@ -428,7 +428,8 @@ def _prompt(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return Styled(Group(table, current), f"prompt {' '.join(left)}\nprompt -r {' '.join(right)}\n")
     if args == ["reset"]:
         ctx.config.pop("prompt", None)
-        return _saved(ctx, Text.assemble(("✓ ", "sc.success"), "prompt reset to ", (" ".join(DEFAULT_LEFT), "sc.accent")))
+        return _saved(ctx, Text.assemble(("✓ ", "sc.success"), "prompt reset to ",
+                                         (" ".join(DEFAULT_LEFT), "sc.accent")))
     side = "left"
     if args[0] in ("-r", "--right"):
         side, args = "right", args[1:]
@@ -749,8 +750,8 @@ def _keyword(name: str) -> Callable[[ShellContext, list[str], str], Any]:
     return run
 
 
-builtin("for", "Loop over items (bash syntax, or -py)", "for NAME in WORD...; do …; done | for -py NAME in ITEM... { … }",
-        doc=FOR_DOC)(_keyword("for"))
+builtin("for", "Loop over items (bash syntax, or -py)",
+        "for NAME in WORD...; do …; done | for -py NAME in ITEM... { … }", doc=FOR_DOC)(_keyword("for"))
 builtin("if", "Run commands when a condition holds (bash syntax, or -py)",
         "if …; then …; [elif …; then …;] [else …;] fi | if -py (EXPR) | COMMAND { … }",
         doc=IF_DOC)(_keyword("if"))
@@ -953,10 +954,13 @@ mcp log [N]                  # the last N lines of its log (default 20)
 | --- | --- |
 | `--allow-system` | Let MCP clients fall back to OS programs (off by default, like `--mcp-http`). |
 
-The server only listens on this machine (`127.0.0.1`, `localhost` or `::1`). Its log is
-`~/.shellcraft/mcp-http.log`. API keys set with `settings NAME` before `mcp start` are passed
-to it; set a key later and `mcp restart` to pass it on. Point a client at the URL `mcp start`
-prints, for example: `claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp`.
+The server only listens on this machine (`127.0.0.1`, `localhost` or `::1`), and every request
+must carry a **bearer token** that `mcp start` generates and prints (`mcp` shows it again), so
+other local users and processes can't use it. Its log is `~/.shellcraft/mcp-http.log`. API keys
+set with `settings NAME` before `mcp start` are passed to it; set a key later and `mcp restart`
+to pass it on. Point a client at the URL and token `mcp start` prints, for example:
+`claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp --header "Authorization: Bearer TOKEN"`.
+The server exits by itself when the shell that started it is gone, even after `kill -9`.
 
 ## Examples
 
@@ -990,8 +994,8 @@ def _mcp_running(ctx: ShellContext) -> Any:
     return child
 
 
-@builtin("mcp", "Start or stop the MCP HTTP server in the background", "mcp [start [HOST:PORT] | stop | restart | log [N]]",
-         stateful=True, doc=MCP_DOC)
+@builtin("mcp", "Start or stop the MCP HTTP server in the background",
+         "mcp [start [HOST:PORT] | stop | restart | log [N]]", stateful=True, doc=MCP_DOC)
 def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from core import mcp_child
 
@@ -1004,18 +1008,22 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
                                  ("  (start it with: mcp start [HOST:PORT])", "sc.muted"))
         return Text.assemble(("● ", "sc.success"), "MCP server running at ", (child.url, "sc.accent"),
                              (f"  pid {child.pid}, up {_uptime(time.time() - child.started)}"
-                              f"{', OS commands allowed' if child.allow_system else ''}", "sc.muted"))
+                              f"{', OS commands allowed' if child.allow_system else ''}\n", "sc.muted"),
+                             ("  token ", "sc.muted"), (child.token, "sc.accent"),
+                             ("  (header: Authorization: Bearer …)", "sc.muted"))
 
     if action in ("start", "restart"):
         allow_system = "--allow-system" in rest
         addresses = [a for a in rest if a != "--allow-system"]
         if len(addresses) > 1 or any(a.startswith("-") for a in addresses) or (action == "restart" and addresses):
             raise CommandError("usage: mcp start [HOST:PORT] [--allow-system] | mcp restart")
+        token = None
         if action == "restart":
             if child is None:
                 raise CommandError("mcp: the MCP server isn't running (start it with: mcp start)")
             address = f"{mcp_child._url_host(child.host)}:{child.port}"
             allow_system = allow_system or child.allow_system
+            token = child.token  # clients keep working after a restart
             child.stop()
             ctx.mcp_http = None
         elif child is not None:
@@ -1027,14 +1035,18 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
         try:
             child = ctx.runner("starting the MCP server…",
-                               lambda: mcp_child.start(address, ctx.registry.directory, allow_system, track))
+                               lambda: mcp_child.start(address, ctx.registry.directory, allow_system, track, token))
         except Exception as exc:  # StartError; AddressError from parse_http_address; OSError from Popen
             ctx.mcp_http = None  # a failed start has already stopped its process
             raise CommandError(f"mcp: {exc}") from None
         ctx.mcp_http = child
         return Text.assemble(("● ", "sc.success"), f"MCP server {action}ed at ", (child.url, "sc.accent"),
                              (f"  pid {child.pid}{', OS commands allowed' if allow_system else ''}"
-                              f" · log: {mcp_child.log_path()}", "sc.muted"))
+                              f" · log: {mcp_child.log_path()}\n", "sc.muted"),
+                             ("  token ", "sc.muted"), (child.token, "sc.accent"),
+                             ("   add it to a client with:\n  ", "sc.muted"),
+                             (f"claude mcp add --transport http shellcraft {child.url} "
+                              f"--header \"Authorization: Bearer {child.token}\"", "sc.path"))
 
     if action == "stop" and not rest:
         if child is None:

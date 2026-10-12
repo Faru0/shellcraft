@@ -100,7 +100,7 @@ def test_flush_writes_in_windows10_outputs_mode_and_restores_it(monkeypatch):
     output.write("hello")
     output.flush()
     flush_mode = console.ENABLE_PROCESSED_OUTPUT | console.ENABLE_VIRTUAL_TERMINAL_PROCESSING
-    assert console.FLUSH_OUTPUT_MODE == flush_mode
+    assert flush_mode == console.FLUSH_OUTPUT_MODE
     assert events[0] == ("mode", flush_mode)
     assert ("write", flush_mode) in events  # written with no wrap and no delayed wrap
     assert events[-1] == ("mode", 0x0007 | console.DISABLE_NEWLINE_AUTO_RETURN)  # restored

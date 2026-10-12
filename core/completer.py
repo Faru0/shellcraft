@@ -162,7 +162,8 @@ class ShellCompleter(Completer):
     def _commands(self, word: str) -> Iterable[Completion]:
         entries = {name: b.summary or "builtin" for name, b in BUILTINS.items() if not b.hidden}
         for name in self.ctx.registry.names():
-            entries[name] = self.ctx.registry.get(name).summary or "module"
+            spec = self.ctx.registry.get(name)
+            entries[name] = (spec.summary if spec else "") or "module"
         for name, value in self._aliases().items():
             entries[name] = f"alias → {value}"
         for name in sorted(entries):

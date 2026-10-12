@@ -7,10 +7,17 @@ write a module, see [templates/README.md](templates/README.md).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
-pip install -e ".[dev]"                                 # editable install + pytest
+pip install -e ".[dev]"                                 # editable install + pytest, ruff, mypy, build
 pytest                                                  # full test suite
-python tools/ingest check --all                         # check every bundled module
+ruff check core tools tests main.py                     # lint (CI gates on it)
+mypy core tools                                         # types (informational for now)
+python tools/ingest check --all --strict                # check every bundled module
+python -m build --wheel                                 # the packaging smoke test installs this into a clean venv
 ```
+
+CI (`.gitlab-ci.yml`, mirrored in `.github/workflows/ci.yml`) runs the lint, the module checker,
+pytest on Linux and Windows for Python 3.11–3.14, and the packaging smoke test. Releases are
+listed in [CHANGELOG.md](CHANGELOG.md); the version lives in `core/__init__.py` only.
 
 ## Project layout
 
@@ -22,9 +29,12 @@ shellcraft/
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
 │   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
-│   ├── parser.py           # quote-aware tokenizer ($? / $name expansion) → Pipeline(segments, redirect)
-│   ├── script.py           # scripts: bash for/if/&&/|| and -py blocks; bash word expansion; Python conditions
-│   ├── histexpand.py       # !! and !$ (interactive shell only)
+│   ├── parser.py           # quote-aware tokenizer ($name, $(( )), $( ), globs) → Pipeline(segments, redirects)
+│   ├── arith.py            # $(( … )) integer arithmetic, evaluated from the AST (no eval)
+│   ├── script.py           # scripts: bash for/while/until/if/case/&&/|| and -py blocks; piped blocks; conditions
+│   ├── histexpand.py       # !!, !$, !*, !N, !prefix (interactive shell only)
+│   ├── highlight.py        # syntax highlighting of the input line (a prompt_toolkit Lexer)
+│   ├── gitinfo.py          # the git branch for the prompt, read from .git/HEAD
 │   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── context.py          # ShellContext (state + permission flags), Styled, to_text()
@@ -34,6 +44,7 @@ shellcraft/
 │   │   ├── files.py        #   ls find tree du touch mkdir cp mv rm
 │   │   ├── diff.py         #   diff (classic + unified, directories)
 │   │   ├── info.py         #   date which env
+│   │   ├── misc.py         #   printf seq xargs basename dirname realpath stat whoami hostname uname sleep time type export unset
 │   │   ├── cond.py         #   test [ [[ true false (exit status only)
 │   │   └── _io.py          #   shared file/stdin helpers
 │   ├── loader.py           # module discovery, enable/disable; ModuleSpec; SkillInfo (.skill parsing)
@@ -41,7 +52,7 @@ shellcraft/
 │   ├── watch.py            # ModuleWatcher: polls the modules folder for hot reload
 │   ├── options.py          # switch metadata from .skill [[params]]/[[args]] and .md tables (Tab completion)
 │   ├── completer.py        # Tab completion: commands, switches, values, paths
-│   ├── output.py           # delayed spinner, error panels, auto-pager
+│   ├── output.py           # delayed spinner (with elapsed time), error panels, the pager
 │   ├── settings.py         # on/off settings registry; API keys (ENV_SETTINGS) storage/export/masking
 │   ├── themes.py           # theme presets → Rich theme + prompt_toolkit style
 │   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
@@ -53,21 +64,23 @@ shellcraft/
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
 │   ├── ingest/             # standalone script → module wizard (python tools/ingest), not a shell command
+│   │   ├── __main__.py     # the wizard and the `check` sub-command
+│   │   ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
+│   │   ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
+│   │   ├── docs.py         # offline .md / .skill drafts
+│   │   ├── ai.py           # Claude / OpenAI over requests; prompts/ holds the prompt texts
+│   │   └── check.py        # the module checker
 │   └── winconsole_probe.py # live key / console-mode / size check of the shell's console setup
-│       ├── __main__.py     # the wizard and the `check` sub-command
-│       ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
-│       ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
-│       ├── docs.py         # offline .md / .skill drafts
-│       ├── ai.py           # Claude / OpenAI over requests; prompts/ holds the prompt texts
-│       └── check.py        # the module checker
-└── tests/                  # pytest suite
+├── tests/                  # pytest suite
+├── .gitlab-ci.yml          # CI: lint, module checker, pytest (Linux + Windows, 3.11–3.14), packaging smoke test
+└── .github/workflows/      # the same CI for the GitHub mirror
 ```
 
 ## How a command line runs
 
 1. The REPL first joins continuation lines (while `script.incomplete()` says a `{` or `(` is open) and expands `!!` / `!$` (`histexpand.expand()`), then saves the result to the history itself (the prompt's own history append is switched off).
 2. `run_line()` calls `script.parse_script()`. A single plain pipeline (the usual case) goes on exactly as before; anything else (`;`, `for`, `if`) is run by `script.execute()`, which runs each statement as in steps 3–5 with the loop variables, prints its output through `ctx.emit` (or collects it when there is none, as in MCP), reports a failing statement and goes on.
-3. `parser.parse(line, variables)` splits the line into segments and an optional redirect, expanding `$?` and `$name` (never splitting a value into several words). Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. Unsupported shell operators (`&&`, `||`, `<`, `2>`…, and `;`, which only `script.py` splits on) raise a `ParseError` instead of becoming arguments.
+3. `parser.parse(line, variables, …)` splits the line into segments and redirections (`>`, `>>`, `<`, `2>`, `2>>`, `2>&1`, `&>`), expanding `$?`, `$name` (shell, loop and, in the interactive shell, environment variables; never split into several words on a plain line), `$(( … ))` (`core/arith.py`), `$( … )` and globs. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. A lone `&` and `>&` (and `;`, `&&`, `||`, which only `script.py` splits on) raise a `ParseError` instead of becoming arguments. `x=1` on its own sets a shell variable (`ctx.variables`).
 4. `pipeline.run_pipeline()` first expands the user's aliases (`aliases.expand()`, unless `ctx.allow_aliases` is off, as in MCP). It then feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
    1. a **builtin** (`core/builtins.py`, `core/commands/`)
    2. a **module** from `modules/`
@@ -93,10 +106,12 @@ shellcraft/
 | Flag | Blocks | Off in MCP |
 | --- | --- | --- |
 | `allow_redirect` | `>` / `>>` | yes |
-| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `settings`, `exit`, `reload`, `clear`, `banner`), and `modules enable` / `disable` | yes |
+| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `prompt`, `settings`, `exit`, `reload`, `clear`, `banner`, `alias`, `unalias`, `history`, `mcp`, `time`, `export`, `unset`), and `modules enable` / `disable` | yes |
 | `allow_writes` | builtins marked `writes` (`tee`, `mkdir`, `cp`, `mv`, `rm`, `touch`) | yes |
-| `allow_sensitive` | builtins marked `sensitive` (`env`) | yes |
+| `allow_sensitive` | builtins marked `sensitive` (`env`, `history`), and `$NAME` reading the environment | yes |
+| `allow_aliases` | the user's aliases | yes |
 | `allow_system` | the OS program fallback | unless `--allow-system` |
+| `module_filter` | modules the context may run (MCP: those a `.skill` doesn't mark `expose = false`, narrowed by `--expose`) | set |
 
 ### Two-faced output (`Styled`)
 
@@ -126,9 +141,9 @@ def wc(ctx, args, stdin):
 
 ### Scripts (`core/script.py`)
 
-- **Two syntaxes.** Bash (default): `for NAME in WORD…; do …; done`, `if LIST; then …; [elif …; then …;] [else …;] fi`. `-py`: `for -py NAME in ITEM… { … }`, `if -py COND { … } [elif …] [else …]`. The parser tracks a mode ("top", "sh", "py"); a `-py` block's nested `for`/`if` inherit "py". `parse_list(end)` reads statements up to the end of the text, a `}` or a set of bash keywords, and returns which one ended it. `a && b || c` is a `Chain`; `! cmd` sets `Simple.negate`.
+- **Two syntaxes.** Bash (default): `for NAME in WORD…; do …; done`, `while` / `until LIST; do …; done`, `if LIST; then …; [elif …; then …;] [else …;] fi`, `case WORD in PAT) …;; esac`. `-py`: `for -py NAME in ITEM… { … }`, `while -py COND { … }`, `if -py COND { … } [elif …] [else …]`. The parser tracks a mode ("top", "sh", "py"); a `-py` block's nested `for`/`if` inherit "py". `parse_list(end)` reads statements up to the end of the text, a `}`, `;;` or a set of bash keywords, and returns which one ended it. `a && b || c` is a `Chain`; `! cmd` sets `Simple.negate`. A block followed by `| …` or a redirection becomes a `Piped` statement: the block runs with its output collected, which then feeds the tail pipeline (`parse(..., allow_leading_pipe=True)`).
 - **Pipelines are kept as raw text** and syntax-checked with `parser.parse()` before anything runs (including the commands inside `$( … )`), so a typo in the tenth statement stops the script before the first one runs. Each `Simple` carries its mode: "top" statements (a plain line, or `a ; b` outside any block) parse exactly as before; "sh" ones get `parse(split=True, substitute=runner.substitute)`, i.e. bash word splitting and `$( … )` (not inside `[[ ]]`); "py" ones never split.
-- **Bash `for` lists** go through `expand_sh_word()`: `brace_expand()`, then `$x` / `$( … )` (split when unquoted), quote removal, globbing of unquoted `*?[`. Undefined variables stay as typed (the environment is never read, so MCP can't print secrets with `$NAME`).
+- **Bash `for` lists** go through `expand_sh_word()`: `brace_expand()`, then `$x` / `$( … )` (split when unquoted), quote removal, globbing of unquoted `*?[`. Undefined variables stay as typed. Variables resolve through `pipeline.Variables`: `$?`, loop variables, `ctx.variables` (`x=1`, which the top-level `_Runner` writes straight to), then the environment only when `ctx.allow_sensitive` (so MCP can't print secrets with `$NAME`).
 - **`-py` conditions:** `( … )` is Python, vetted by `_vet()` (an allow-list of AST nodes, functions in `FUNCTIONS` and methods in `STR_METHODS`) and evaluated by `_eval()`, a tree walker: never `eval`/`compile`. `*` is capped (`MAX_SEQUENCE`) and `**` isn't allowed. Anything else is a pipeline, true when its status is 0.
 - **Errors:** a failing statement is reported (`ctx.emit_error`, or a `✗ name: message` line) and the script goes on; a `-py` condition that can't be evaluated stops the script (`_Abort`). `IncompleteError` (a `ParseError`) tells the REPL to read another line; `join_continuation()` decides whether the lines need a `;` between them.
 - **Permissions:** every statement, and every `$( … )`, runs through `run_pipeline()` with the same `ShellContext`, so MCP restrictions hold inside loops.
@@ -164,7 +179,10 @@ description)]` (`core/modkit.py`). The pieces:
   - 2026-07-28+ clients open `subscriptions/listen`. `notify_changed()` publishes `ToolsListChanged` / `ResourcesListChanged` on the `InMemorySubscriptionBus`.
   - Older clients get `notifications/*/list_changed` on their `Connection`. The server remembers each connection (weakly) from its requests. mcp 2.x hands handlers only a per-request `ServerSession`, so the connection is read from its private `_connection`. Recheck this when upgrading `mcp` past 2.x; `test_reload_notifies_legacy_clients` catches a break.
 - `_Server.create_initialization_options()` always advertises `listChanged`, because the streamable-HTTP manager builds its own init options.
-- **Hot reload** is a 1-second poll (`ModuleWatcher.changes()`). It's cheap for a few dozen files and needs no dependency. The shell polls before each command instead.
+- **Hot reload** is a 1-second poll (`ModuleWatcher.changes()`). It's cheap for a few dozen files and needs no dependency. The shell polls before each command instead. `ModuleRegistry.reload(changed)` reloads only the changed modules and re-reads a `.md` without re-importing.
+- **Lazy loading:** with `ModuleRegistry(lazy=True)` (the `lazy_modules` setting, on by default) `load()` reads only the `.skill` / `.md` files and a `ModuleSpec.loader` imports the `.py` on first use (`spec.load()`); `settings.env_settings()` loads every module so API keys are listed before first use. Tests build registries eagerly.
+- **Limits and exposure:** every tool call runs under `anyio.fail_after(CALL_TIMEOUT)` (`SHELLCRAFT_MCP_TIMEOUT`); stdin and output are capped (`MAX_STDIN`, `MAX_OUTPUT`). A `.skill` with `expose = false` keeps a module out of the tool list, the man-page resources and `shellcraft_pipeline` (`ctx.module_filter`); `--expose NAME,...` narrows further.
+- **`--mcp-http` authentication:** `require_bearer()` wraps the ASGI app; every request must send `Authorization: Bearer <token>` (`--token`, `$SHELLCRAFT_MCP_TOKEN`, or a generated token logged at startup; `--no-token` turns it off). `mcp start` generates one per server, prints it, and passes `--parent-pid` so the child exits when the shell dies (`mcp_child.watch_parent()`).
 - **`--mcp-http`** runs uvicorn (an mcp dependency) in the same anyio task group as the watcher. `parse_http_address()` only accepts loopback addresses, and DNS-rebinding protection is always configured.
 - **`mcp start`** (`core/mcp_child.py`) runs `python -m core.cli --mcp-http` as a child process in its own process group (a new session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), so Ctrl-C at the prompt doesn't reach it. Its output goes to `~/.shellcraft/mcp-http.log`. `start()` hands the process to the shell as soon as it is spawned (`ctx.mcp_http`), before waiting for the port, so an interrupted start is still tracked; `Shell.close()` stops it.
 
@@ -187,6 +205,11 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
 | `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the console session wiring and its restore order, the diagnostics report, `help` printing and `man` paging |
+| `test_robustness.py` | the fourth assessment's crashes: `main.py --version`, the screen clear, `~nosuchuser`, a quoted `~`, missing redirect directories, `&`, `cp -r` into itself, `grep -m 0`, `sort -u -k`, `wc -c/-m`, a deleted cwd, usage lines in switch errors, `help NAME` / `-k`, config validation, merging and atomic writes, history redaction, the loop's last-resort catch |
+| `test_scripting_more.py` | shell variables, `export` / `unset`, `$(( ))`, `while` / `until` / `case`, piped and redirected blocks, `<` / `2>` / `2>&1` / `&>`, globs on plain lines, `!N` / `!prefix` / `!*` |
+| `test_commands_more.py` | the new switches (`grep -r/-A/-B/-C/-w/-x/-o`, `ls -t/-S/-R/-d`, `find -size/-mtime/-newer/-empty/-not`, `sort -h/-V/-s`, `cat -s/-A`, `head/tail -c`, `tail -f`, `tree -I/--du`) and builtins (`printf`, `seq`, `xargs`, `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`, `type`) |
+| `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
+| `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_console.py` | `core.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |

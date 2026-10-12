@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import sys
+import urllib.error
 import urllib.request
 
 import pytest
@@ -33,12 +34,14 @@ def out(line, ctx):
     return to_text(run_line(line, ctx).output)
 
 
-def _initialize(url: str) -> dict:
+def _initialize(url: str, token: str | None = None) -> dict:
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                        "clientInfo": {"name": "test", "version": "1"}}}
-    request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
-        "Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
     with urllib.request.urlopen(request, timeout=10) as response:
         text = response.read().decode()
     data = next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text
@@ -53,9 +56,16 @@ def test_start_status_log_stop(server_ctx):
     url = f"http://127.0.0.1:{port}/mcp"
     assert url in started and f"pid {ctx.mcp_http.pid}" in started
 
-    # A real MCP server answers at that URL, serving the shell's modules.
-    reply = _initialize(url)
+    # A real MCP server answers at that URL, serving the shell's modules, to clients with the token.
+    token = ctx.mcp_http.token
+    assert token in started and f"Bearer {token}" in started
+    reply = _initialize(url, token)
     assert reply["result"]["serverInfo"]["name"].startswith("shellcraft")
+    with pytest.raises(urllib.error.HTTPError) as denied:
+        _initialize(url)
+    assert denied.value.code == 401
+    with pytest.raises(urllib.error.HTTPError):
+        _initialize(url, "wrong-token")
     status = out("mcp", ctx)
     assert "running at " + url in status and "up " in status
     assert "streamable HTTP on " + url in out("mcp log", ctx)
@@ -74,9 +84,9 @@ def test_restart_keeps_the_address(server_ctx):
     ctx = server_ctx
     port = _free_port()
     run_line(f"mcp start 127.0.0.1:{port}", ctx)
-    first = ctx.mcp_http.pid
+    first, token = ctx.mcp_http.pid, ctx.mcp_http.token
     assert f"restarted at http://127.0.0.1:{port}/mcp" in out("mcp restart", ctx)
-    assert ctx.mcp_http.pid != first
+    assert ctx.mcp_http.pid != first and ctx.mcp_http.token == token
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX sessions here")
@@ -147,8 +157,9 @@ def test_the_shell_stops_the_server_when_it_exits(monkeypatch, tmp_path, ctx):
     from core import shell
 
     monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
-    from core.themes import UI, all_themes
     from rich.console import Console
+
+    from core.themes import UI, all_themes
 
     ctx.ui = UI(all_themes({})["cyberpunk"], Console(file=io.StringIO()))
     with shell.Shell(ctx):

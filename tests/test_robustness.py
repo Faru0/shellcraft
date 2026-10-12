@@ -15,7 +15,6 @@ from core.parser import ParseError, parse
 from core.pipeline import PipelineError, run_line
 from tests.conftest import ROOT
 
-
 # ── the launchers ────────────────────────────────────────────────────────────
 
 def test_main_py_version_prints_only_the_version():

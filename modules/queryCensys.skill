@@ -69,7 +69,7 @@ type = "number"
 metavar = "SECONDS"
 description = "Network timeout in seconds (default 30)."
 
-# Tests: run by tools/modtest.py, never shown to the AI.
+# Tests: run by `python tools/ingest check`, never shown to the AI.
 [[tests]]
 args = []
 error = "give a command"

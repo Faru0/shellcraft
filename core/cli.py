@@ -29,6 +29,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="print the console diagnostics report at startup (like the diagnostics setting)")
     p.add_argument("--allow-system", action="store_true",
                    help="allow OS commands for this session (overrides the system_commands setting)")
+    p.add_argument("--token", metavar="TOKEN",
+                   help="with --mcp-http: the bearer token clients must send (default: $SHELLCRAFT_MCP_TOKEN, "
+                        "or a random one printed at startup)")
+    p.add_argument("--no-token", action="store_true",
+                   help="with --mcp-http: no bearer token (any local process may connect)")
+    p.add_argument("--expose", metavar="NAME,...",
+                   help="with --mcp / --mcp-http: offer only these modules as tools (a .skill with "
+                        "`expose = false` is never offered)")
+    p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p.parse_args(argv)
 
@@ -63,8 +72,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Modules turned off with `modules disable` are skipped in every mode, the MCP server included.
     disabled = config.get("disabled_modules")
-    registry = ModuleRegistry(modules_dir, disabled if isinstance(disabled, list) else ())
+    registry = ModuleRegistry(modules_dir, disabled if isinstance(disabled, list) else (),
+                              lazy=settings.get(config, "lazy_modules"))
     registry.load()
+    expose = [n.strip() for n in args.expose.split(",") if n.strip()] if args.expose else None
+    if args.parent_pid:
+        from core.mcp_child import watch_parent
+
+        watch_parent(args.parent_pid)
 
     if args.mcp and args.mcp_http:
         print("shellcraft: use either --mcp (stdio) or --mcp-http, not both", file=sys.stderr)
@@ -79,13 +94,16 @@ def main(argv: list[str] | None = None) -> int:
         except AddressError as exc:
             print(f"shellcraft: {exc}", file=sys.stderr)
             return 2
+        from core.mcp_server import resolve_token
+
         serve_http(registry, host, port, allow_system=args.allow_system,
-                   watch=settings.get(config, "hot_reload"))
+                   watch=settings.get(config, "hot_reload"), token=resolve_token(args.token, args.no_token),
+                   expose=expose)
         return 0
     if args.mcp:
         from core.mcp_server import serve
 
-        serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"))
+        serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"), expose=expose)
         return 0
 
     from core.context import ShellContext

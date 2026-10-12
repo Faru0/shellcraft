@@ -35,6 +35,8 @@ class ShellContext:
     allow_writes: bool = True  # filesystem-changing builtins: tee / mkdir / cp / mv / rm / touch
     allow_sensitive: bool = True  # builtins that may reveal secrets: env
     allow_aliases: bool = True  # expand the user's aliases (off for MCP clients)
+    # When set, a module runs only if this says so (MCP: modules with `expose = false` stay local).
+    module_filter: Callable[[str], bool] | None = None
     prev_dir: str | None = None
     history: Any = None  # the REPL's prompt_toolkit History, when there is one (for `history`)
     mcp_http: Any = None  # the MCP HTTP server started with `mcp start` (core.mcp_child.McpHttpChild)

@@ -38,6 +38,7 @@ class SkillInfo:
     extra: dict[str, str] = field(default_factory=dict)
     # [[tests]] cases for `tools/ingest check`; never part of the MCP description.
     tests: list[dict[str, Any]] = field(default_factory=list)
+    expose: bool = True  # `expose = false`: a local-only module, never an MCP tool
     parsed: bool = True
 
     @classmethod
@@ -60,7 +61,7 @@ class SkillInfo:
         params = [p for p in data.get("params", []) if isinstance(p, dict)]
         if params and not args:
             args = params_mod.as_args(params)  # Tab completion and docs read [[args]]
-        known = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests"}
+        known = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests", "expose"}
         return cls(
             raw=text,
             summary=str(data.get("summary", "")).strip(),
@@ -72,6 +73,7 @@ class SkillInfo:
             notes=str(data.get("notes", "")).strip(),
             extra={k: str(v).strip() for k, v in data.items() if k not in known},
             tests=[t for t in data.get("tests", []) if isinstance(t, dict)],
+            expose=data.get("expose", True) is not False,
         )
 
     def to_description(self) -> str:
@@ -110,6 +112,33 @@ class ModuleSpec:
     spinner_text: str | None = None
     module_summary: str | None = None
     env_settings: tuple[EnvSetting, ...] = ()  # API keys etc. set with `settings NAME`
+    # A lazily loaded module (the `lazy_modules` setting): its .py is imported on first use. Until
+    # then only the .skill / .md are read, which is all help, completion and MCP listing need.
+    loader: Callable[[], ModuleSpec] | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def loaded(self) -> bool:
+        return self.loader is None
+
+    def load(self) -> None:
+        """Import the module now (a no-op once loaded); raises what the import raised."""
+        if self.loader is None:
+            return
+        loader, self.loader = self.loader, None
+        try:
+            full = loader()
+        except BaseException:
+            self.loader = loader
+            raise
+        self.run, self.spinner_text = full.run, full.spinner_text
+        self.module_summary, self.env_settings = full.module_summary, full.env_settings
+        self.__dict__.pop("options", None)
+
+    @property
+    def exposed(self) -> bool:
+        """False for a module whose .skill says `expose = false`: it is not an MCP tool, and the
+        pipeline tool can't run it either."""
+        return self.skill is None or self.skill.expose
 
     @property
     def summary(self) -> str:
@@ -154,11 +183,12 @@ class ModuleRegistry:
     a command, an MCP tool or a man page until it is enabled again. `files` still lists it.
     """
 
-    def __init__(self, directory: Path, disabled: Iterable[str] = ()):
+    def __init__(self, directory: Path, disabled: Iterable[str] = (), lazy: bool = False):
         self.directory = Path(directory)
         self.modules: dict[str, ModuleSpec] = {}  # loaded and enabled
         self.files: dict[str, Path] = {}  # every module file with a valid name, enabled or not
         self.disabled: set[str] = set(disabled)
+        self.lazy = lazy  # read .skill / .md at startup, import the .py on first use
         self.warnings: list[str] = []
 
     def reload(self, changed: Iterable[str]) -> None:
@@ -223,7 +253,39 @@ class ModuleRegistry:
         self.modules, self.files, self.warnings = modules, files, warnings
 
     def load_file(self, name: str, py: Path) -> ModuleSpec:
-        """Import one module file (as the shell does) and return its spec; raises on failure."""
+        """Import one module file (as the shell does) and return its spec; raises on failure.
+        With `lazy`, the spec is built from the .skill and .md only and the import happens on
+        first use (an import error then becomes the command's error, and a warning)."""
+        if self.lazy:
+            return self._lazy_spec(name, py)
+        return self.import_file(name, py)
+
+    def _lazy_spec(self, name: str, py: Path) -> ModuleSpec:
+        skill = SkillInfo.parse(text) if (text := _read(py.with_suffix(".skill"))) is not None else None
+        if skill and (errors := params_mod.problems(skill.params)):
+            raise ValueError(f"{name}.skill [[params]]: {'; '.join(errors)}")
+        spec = ModuleSpec(name=name, path=py, run=lambda args, stdin: "", doc_md=_read(py.with_suffix(".md")),
+                          skill=skill)
+
+        def load() -> ModuleSpec:
+            try:
+                return self.import_file(name, py)
+            except Exception as exc:
+                warning = f"{py.name}: {type(exc).__name__}: {exc}"
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
+                raise
+
+        spec.loader = load
+
+        def run(args: list[str], stdin: str) -> Any:
+            spec.load()
+            return spec.run(args, stdin)
+
+        spec.run = run
+        return spec
+
+    def import_file(self, name: str, py: Path) -> ModuleSpec:
         import_name = f"shellcraft_modules.{name}"
         spec = importlib.util.spec_from_file_location(import_name, py)
         if spec is None or spec.loader is None:

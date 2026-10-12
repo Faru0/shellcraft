@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from typing import TYPE_CHECKING, Any, Iterable
 
 if TYPE_CHECKING:
@@ -150,7 +150,7 @@ def positional_values(spec: Any, index: int) -> tuple[str, ...]:
     return tuple(str(v) for v in positionals[index].get("values") or ())
 
 
-@lru_cache(maxsize=None)
+@cache
 def builtin_options(name: str) -> tuple[OptionSpec, ...]:
     from core.builtins import BUILTINS
 

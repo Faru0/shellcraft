@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
+import secrets
 import sys
 import weakref
-from typing import Any
+from typing import Any, Callable, Iterable
 
 import anyio
 import mcp_types as types
@@ -38,6 +40,11 @@ log = logging.getLogger("shellcraft.mcp")
 PIPELINE_TOOL = "shellcraft_pipeline"
 MAN_URI = "shellcraft://man/"
 WATCH_INTERVAL = 1.0  # seconds between checks of the modules directory
+# Limits on every tool call, so a hung module or a huge result can't take the server down.
+CALL_TIMEOUT = float(os.environ.get("SHELLCRAFT_MCP_TIMEOUT", "120"))  # seconds
+MAX_STDIN = 10 * 1024 * 1024  # bytes of `stdin` a call may send
+MAX_OUTPUT = 2 * 1024 * 1024  # characters of output returned (the rest is cut, with a note)
+TOKEN_ENV = "SHELLCRAFT_MCP_TOKEN"
 
 MODULE_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -75,8 +82,8 @@ SERVER_INSTRUCTIONS = (
 )
 
 
-def _pipeline_description(registry: ModuleRegistry) -> str:
-    modules = "\n".join(f"  {n}: {registry.get(n).summary}" for n in registry.names())
+def _pipeline_description(registry: ModuleRegistry, names: list[str] | None = None) -> str:
+    modules = "\n".join(f"  {n}: {registry.get(n).summary}" for n in (registry.names() if names is None else names))
     return (
         "Run a ShellCraft pipeline: commands joined by `|`, each receiving the previous command's "
         "output as stdin. Use it to combine several tools in one call. Inside a pipeline, modules "
@@ -110,11 +117,16 @@ class _Server(Server):
 class ShellcraftMCP:
     """The MCP server plus what it needs to tell connected clients that the modules changed."""
 
-    def __init__(self, registry: ModuleRegistry, allow_system: bool = False):
+    def __init__(self, registry: ModuleRegistry, allow_system: bool = False,
+                 expose: Iterable[str] | None = None, timeout: float | None = None):
         self.registry = registry
+        # Which modules clients may use: those whose .skill doesn't say `expose = false`, narrowed
+        # further by --expose NAME,... when given. The pipeline tool follows the same rule.
+        self.expose_only = None if expose is None else set(expose)
+        self.timeout = CALL_TIMEOUT if timeout is None else timeout
         self.ctx = ShellContext(registry=registry, allow_redirect=False, allow_system=allow_system,
                                 allow_stateful=False, allow_writes=False, allow_sensitive=False,
-                                allow_aliases=False)
+                                allow_aliases=False, module_filter=self.exposed)
         # Clients on the 2026-07-28+ protocol hear about changes through subscriptions/listen;
         # earlier clients through their connection, which we remember from their requests.
         self.bus = InMemorySubscriptionBus()
@@ -130,6 +142,15 @@ class ShellcraftMCP:
             on_read_resource=self._read_resource,
             on_subscriptions_listen=ListenHandler(self.bus),
         )
+
+    def exposed(self, name: str) -> bool:
+        spec = self.registry.get(name)
+        if spec is None or not spec.exposed:
+            return False
+        return self.expose_only is None or name in self.expose_only
+
+    def tool_names(self) -> list[str]:
+        return [n for n in self.registry.names() if self.exposed(n)]
 
     def _remember(self, request_ctx: Any) -> None:
         # The per-request ServerSession is thrown away after each request; the Connection behind it
@@ -149,9 +170,9 @@ class ShellcraftMCP:
         tools = [
             types.Tool(name=spec.name, description=spec.description,
                        input_schema=spec.input_schema or MODULE_INPUT_SCHEMA)
-            for spec in (self.registry.get(n) for n in self.registry.names())
+            for spec in (self.registry.get(n) for n in self.tool_names())
         ]
-        tools.append(types.Tool(name=PIPELINE_TOOL, description=_pipeline_description(self.registry),
+        tools.append(types.Tool(name=PIPELINE_TOOL, description=_pipeline_description(self.registry, self.tool_names()),
                                 input_schema=PIPELINE_INPUT_SCHEMA))
         return types.ListToolsResult(tools=tools)
 
@@ -160,13 +181,17 @@ class ShellcraftMCP:
         arguments = dict(params.arguments or {})
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
-            return await _call(lambda: _run_pipeline(command, self.ctx))
+            if len(command) > MAX_STDIN:
+                return _error(f"the command line is too long (over {MAX_STDIN} characters)")
+            return await _call(lambda: _run_pipeline(command, self.ctx), self.timeout)
 
         spec = self.registry.get(params.name)
-        if spec is None:
+        if spec is None or not self.exposed(params.name):
             raise MCPError(types.INVALID_PARAMS, f"Unknown tool: {params.name}")
         stdin = arguments.pop("stdin", None)
         stdin = "" if stdin is None else str(stdin)
+        if len(stdin) > MAX_STDIN:
+            return _error(f"stdin is too large (over {MAX_STDIN} characters)")
         if spec.input_schema is not None:
             try:
                 args = spec.argv(arguments)
@@ -177,12 +202,12 @@ class ShellcraftMCP:
             if not isinstance(raw_args, list):
                 return _error("`args` must be an array of strings")
             args = [str(a) for a in raw_args]
-        return await _call(lambda: to_text(spec.run(args, stdin)))
+        return await _call(lambda: to_text(spec.run(args, stdin)), self.timeout)
 
     # ── resources: man pages ─────────────────────────────────────────────────
 
     def _manual_names(self) -> list[str]:
-        modules = [n for n in self.registry.names() if self.registry.get(n).doc_md]
+        modules = [n for n in self.tool_names() if self.registry.get(n).doc_md]
         return modules + [n for n in _usable_builtins() if n not in self.registry.modules]
 
     async def _list_resources(self, request_ctx, _params) -> types.ListResourcesResult:
@@ -240,8 +265,9 @@ class ShellcraftMCP:
             await self.reload_if_changed(watcher)
 
 
-def build_server(registry: ModuleRegistry, allow_system: bool = False) -> Server:
-    return ShellcraftMCP(registry, allow_system).server
+def build_server(registry: ModuleRegistry, allow_system: bool = False, expose: Iterable[str] | None = None,
+                 timeout: float | None = None) -> Server:
+    return ShellcraftMCP(registry, allow_system, expose, timeout).server
 
 
 def _run_pipeline(command: str, ctx: ShellContext) -> str:
@@ -249,9 +275,13 @@ def _run_pipeline(command: str, ctx: ShellContext) -> str:
     return "" if result is None else to_text(result.output)
 
 
-async def _call(fn) -> types.CallToolResult:
+async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.CallToolResult:
     try:
-        text = await anyio.to_thread.run_sync(fn)
+        with anyio.fail_after(timeout):
+            # abandon_on_cancel: a timed-out call returns an error now; its thread finishes on its own.
+            text = await anyio.to_thread.run_sync(fn, abandon_on_cancel=True)
+    except TimeoutError:
+        return _error(f"the call did not finish within {timeout:.0f} s and was abandoned")
     except ParseError as exc:
         return _error(f"parse error: {exc.message}")
     except PipelineError as exc:
@@ -261,6 +291,8 @@ async def _call(fn) -> types.CallToolResult:
     except Exception as exc:  # noqa: BLE001 — tool failures go back to the model, not the transport
         log.exception("tool call failed")
         return _error(f"{type(exc).__name__}: {exc}")
+    if len(text) > MAX_OUTPUT:
+        text = text[:MAX_OUTPUT] + f"\n… [output cut after {MAX_OUTPUT} characters]\n"
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
 
 
@@ -301,9 +333,10 @@ def _log_startup(app: ShellcraftMCP, watch: bool) -> None:
         log.info("hot reload on: watching %s", app.registry.directory)
 
 
-def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = True) -> None:
+def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = True,
+          expose: Iterable[str] | None = None) -> None:
     """Serve over stdio."""
-    app = ShellcraftMCP(registry, allow_system)
+    app = ShellcraftMCP(registry, allow_system, expose)
     _log_startup(app, watch)
 
     async def main() -> None:
@@ -317,21 +350,56 @@ def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = Tr
     anyio.run(main)
 
 
+def resolve_token(token: str | None, no_token: bool = False) -> str | None:
+    """The bearer token the HTTP transport requires: the one given, else $SHELLCRAFT_MCP_TOKEN,
+    else a fresh random one. None only when `no_token` asks for an open server."""
+    if no_token:
+        return None
+    return token or os.environ.get(TOKEN_ENV) or secrets.token_urlsafe(24)
+
+
+def require_bearer(asgi: Any, token: str) -> Any:
+    """ASGI middleware: every HTTP request must carry `Authorization: Bearer <token>`. Any other
+    local user or process can reach a loopback port; the token keeps them out."""
+    expected = f"Bearer {token}".encode()
+
+    async def guarded(scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            given = headers.get(b"authorization", b"")
+            if not secrets.compare_digest(given, expected):
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"text/plain"), (b"www-authenticate", b"Bearer")]})
+                await send({"type": "http.response.body",
+                            "body": b"unauthorized: send the header  Authorization: Bearer <token>\n"})
+                return
+        await asgi(scope, receive, send)
+
+    return guarded
+
+
 def serve_http(registry: ModuleRegistry, host: str, port: int, allow_system: bool = False,
-               watch: bool = True) -> None:
-    """Serve over streamable HTTP at http://HOST:PORT/mcp (loopback addresses only)."""
+               watch: bool = True, token: str | None = None, expose: Iterable[str] | None = None) -> None:
+    """Serve over streamable HTTP at http://HOST:PORT/mcp (loopback addresses only). With a
+    `token`, every request must send `Authorization: Bearer <token>`."""
     import uvicorn
     from mcp.server.transport_security import TransportSecuritySettings
 
-    app = ShellcraftMCP(registry, allow_system)
+    app = ShellcraftMCP(registry, allow_system, expose)
     _log_startup(app, watch)
     shown = f"[{host}]" if ":" in host else host
     log.info("streamable HTTP on http://%s:%d/mcp", shown, port)
+    if token:
+        log.info("bearer token: %s  (clients send the header: Authorization: Bearer %s)", token, token)
+    else:
+        log.warning("no bearer token: any local process can use this server (--no-token)")
     # DNS-rebinding protection: browsers may only reach us under a loopback Host / Origin.
     hosts = sorted({f"{shown}:*", "127.0.0.1:*", "localhost:*", "[::1]:*"})
     security = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=hosts,
                                          allowed_origins=[f"http://{h}" for h in hosts])
     asgi = app.server.streamable_http_app(host=host, transport_security=security)
+    if token:
+        asgi = require_bearer(asgi, token)
     config = uvicorn.Config(asgi, host=host, port=port, log_level="warning", lifespan="on")
 
     async def main() -> None:

@@ -187,6 +187,13 @@ rows. A value list can be written as ``| `--mode a\|b\|c` | … |``.
 - ⚠️ **Order matters.** Put every `key = value` line *before* the first `[[params]]`. In TOML, a key written after a table header belongs to that table, so it silently disappears from the description. The checker catches this.
 - Write for an AI reader: be concrete, give defaults, say what the output looks like, and name side effects such as network access or files written.
 
+### `expose = false`: a local-only module
+
+A module that must never be reachable from an AI client (it spends money, deletes things, or
+reads something private) sets `expose = false` at the top of its `.skill`. It stays a normal
+shell command, but it is not an MCP tool, has no man-page resource, and `shellcraft_pipeline`
+refuses to run it. `--expose NAME,...` on the server command line narrows the list further.
+
 ### `[[params]]`: typed parameters for AI clients
 
 Each `[[params]]` table becomes one typed property of the tool's MCP input schema. An AI calls

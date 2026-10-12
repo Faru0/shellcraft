@@ -26,7 +26,7 @@ from core.builtins import BUILTINS
 from core.completer import ShellCompleter
 from core.config import history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
-from core.context import ShellContext, ShellExit
+from core.context import ShellContext, ShellExit, set_width_source
 from core.highlight import KEYWORDS, ShellLexer
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
@@ -169,6 +169,8 @@ class Shell:
         self._cleanup.callback(self._stop_mcp_http)  # registered last, so it runs first on close
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
+        set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
+        self._cleanup.callback(set_width_source, None)
         # A script (`for`, `if`, `a ; b`) prints each statement's output and errors as it runs.
         ctx.emit = lambda value: show(self.ui, value, pager=False)
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)

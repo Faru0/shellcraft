@@ -24,13 +24,13 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **44 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`… written in Python, so they behave the same on every OS. |
+| 🧰 **58 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
-| 🔁 **Loops & conditions** | Bash's `for …; do …; done` and `if [ … ]; then …; fi`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. |
-| ↩️ **Shell habits** | `$?`, `!!`, `!$`, `;`, `&&`, `\|\|`, `test` / `[ ]` / `[[ ]]`, with the exit status in the prompt. |
-| ⌨️ **Smart input** | Ghost-text suggestions from history, and Tab completion for commands, switches (with descriptions), switch values and paths. |
-| 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search and highlighting. |
-| 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, or your own. |
+| 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
+| ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
+| ⌨️ **Smart input** | Syntax highlighting as you type, a toolbar with the usage of the command you are typing, ghost-text suggestions from history, Ctrl-R, and Tab completion for commands, switches (with descriptions), switch values, positional values and paths (quoted when they need it). |
+| 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `help NAME` for the short version. |
+| 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, two light variants, or your own; `theme preview` tries one. |
 | 🤖 **Built-in MCP server** | Claude Desktop, Claude Code and other AI clients can use your modules as typed tools, safely sandboxed from writes. |
 | 🔑 **Settings & API keys** | On/off settings and masked API keys for modules, saved in one config file. |
 
@@ -91,10 +91,24 @@ history 20                                    # what you typed
 - `cd` only works on its own line. `cd x | pwd` is refused, because it would change the shell's directory from inside a pipeline.
 
 - `a ; b` runs one command after the other; `a && b` runs `b` only if `a` succeeded, `a || b` only if it failed; `! a` negates (see [Loops and conditions](#loops-and-conditions)).
+- `cmd < file` feeds a file to the first command. A command's failure message goes where you send it: `cmd 2> err.txt` (or `2>>`), `cmd 2>&1 | grep …` (the message becomes the command's output, and the pipeline goes on), `cmd &> both.txt`.
+- `*.log`, `?` and `[abc]` expand to matching file names (the word stays as typed when nothing matches); `$(command)` is replaced by the command's output; `$((n * 2))` is arithmetic.
 
-Not supported yet: `2>`, `<`, environment variables (`$HOME`), and `*` globbing or `$(…)` on a
-plain command line (they work inside `for` / `if` blocks; see [TODO.md](TODO.md)). The operators are rejected with a parse error rather than
-passed on as arguments. Quote them to use them as text.
+Background jobs (`cmd &`) are not supported; a lone `&` is rejected with a parse error rather than
+passed on as an argument. Quote it to use it as text.
+
+### Variables
+
+```
+host=example.com                 # a shell variable for this session
+queryDns $host                   # $name expands anywhere outside single quotes
+echo "$HOME $PATH"               # environment variables work too (never over MCP)
+export API_URL=https://x.test    # ... and export makes a variable one; unset removes it
+n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons, && || !
+```
+
+A value with spaces stays one argument on a plain command line (`f="my file"; cat $f`); inside
+bash-style blocks it is split at whitespace unless quoted, as in bash.
 
 ### Loops and conditions
 
@@ -111,6 +125,9 @@ do
   if [ $n -gt 5 ]; then echo big $n; elif [[ $n == 1* ]]; then echo ten-ish; else echo $n; fi
 done
 
+n=0; while [ $n -lt 3 ]; do echo $n; n=$((n+1)); done     # while and until
+case $f in *.py) echo python;; *.md|*.txt) echo text;; *) echo other;; esac
+for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be piped or redirected
 [ -f hosts.txt ] && echo found || echo missing
 ```
 
@@ -138,10 +155,8 @@ if -py (match(r"^v\d+", ver)) { echo versioned }
 - Inside a `-py` block, nested `for`/`if` use the same syntax without the flag.
 
 In both: `break`/`continue`; a failing command shows its error and the loop goes on, as in bash;
-redirect per command inside the body (`>> file`), since a whole loop can't be piped or
-redirected yet. Not supported: `while`, assigning variables (`x=1`), `$((…))`, and environment
-variables (`$HOME`). `man for` and `man if` have the details. Loops also work over MCP, with the
-same restrictions.
+loop variables and `x=1` assignments outlive the loop. `man for` and `man if` have the details.
+Loops also work over MCP, with the same restrictions.
 
 ### Exit status and history
 
@@ -149,17 +164,23 @@ same restrictions.
   127 for an unknown or disabled command, 130 after Ctrl-C, and an OS program's own code. `grep`
   returns 1 when nothing matches, without an error panel, so `if grep -q …` works.
 - The prompt shows `[✗ 127]` after a command fails.
-- `!!` is the previous command and `!$` its last word, as in bash: `sudo !!`, `cat !$`. The
-  expanded line is printed before it runs and saved in the history (not inside single quotes;
-  `!=` and `hi!` are left alone).
+- `!!` is the previous command, `!$` its last word and `!*` its other words, as in bash: `sudo !!`,
+  `cat !$`. `!N` is command N of `history` (`!-2`: two back) and `!prefix` the last command that
+  starts with `prefix`. The expanded line is printed before it runs and saved in the history (not
+  inside single quotes; `!=`, `hi!` and `[[ ! -f x ]]` are left alone).
+- The prompt shows `⏱ 4.2s` after a command that took more than two seconds; `time CMD` prints
+  the exact time of one command.
 
 ### Typing helpers
 
-- **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it.
-- **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), arguments for `man`, `theme`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else.
+- **Syntax highlighting:** known commands are green, unknown ones red, operators in the accent color, quotes, switches and `$variables` in their own colors (`settings highlight off` turns it off).
+- **The toolbar** under the prompt shows the usage of the command you are typing, or says it is not found (`settings toolbar off`).
+- **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it. **Ctrl-R** searches the history as you type.
+- **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), **positional values** from a module's `.skill` (`queryCensys <Tab>` → `host cert search`), arguments for `help`, `man`, `theme`, `prompt`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else. A name with spaces is quoted for you, and completion works inside quotes.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
-- `banner` shows the welcome banner again (`banner -c` clears the screen first).
+- `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
+- **The prompt** shows `user@host`, the directory, `⎇ branch` in a git repository, `● mcp :8765` while `mcp start` runs, `[✗ N]` after a failure and `⏱` after a slow command. `prompt name path git status` picks the segments, `prompt -r clock` adds a right-hand clock, `prompt reset` goes back (`man prompt`). `settings transient_prompt on` collapses the two-line prompt to `❯ command` after Enter, so the scrollback stays dense.
 
 ### Aliases
 
@@ -178,8 +199,10 @@ shell, never to AI clients over MCP. `which ls` shows whether a name is an alias
 ### Long output
 
 `man <command>` always opens in a scrollable viewer (`man -p <command>` prints it instead), and so does any other output taller than the window (`help` is the exception: it is printed in full, so you can scroll back to it): `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
-page, `g`/`G` jump to the top or end, `/` searches (matches are highlighted), `n`/`N` step through
-matches, and `q` closes it. Turn it off with `settings pager off`.
+page, `d`/`u` half a page, `g`/`G` jump to the top or end, `←`/`→` scroll sideways through long
+lines and `w` wraps them instead, `/` searches (matches are highlighted), `n`/`N` step through
+matches, the mouse wheel scrolls, `?` lists the keys, and `q` closes it. The status bar names the
+command whose output you are reading. Turn the viewer off with `settings pager off`.
 
 <details>
 <summary>Command-line options and environment variables</summary>
@@ -192,12 +215,16 @@ matches, and `q` closes it. Turn it off with `settings pager off`.
 | `--no-banner` | Skip the startup banner. |
 | `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
 | `--modules DIR` | Load modules from DIR instead of the bundled ones. |
+| `--expose NAME,...` | With `--mcp` / `--mcp-http`: offer only these modules as tools. |
+| `--token TOKEN`, `--no-token` | With `--mcp-http`: the bearer token clients must send (default: a random one, printed at startup), or none. |
 | `--version`, `-h` | Show the version, or the help text. |
 
 | Environment variable | Meaning |
 | --- | --- |
 | `SHELLCRAFT_HOME` | Where config and history are stored (default `~/.shellcraft`). |
 | `SHELLCRAFT_MODULES` | The default modules folder (overridden by `--modules`). |
+| `SHELLCRAFT_MCP_TOKEN` | The bearer token for `--mcp-http` (overridden by `--token`). |
+| `SHELLCRAFT_MCP_TIMEOUT` | Seconds an MCP tool call may take (default 120). |
 
 </details>
 
@@ -210,15 +237,16 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `test` `[` `[[` `true` `false`, and the keywords `for` `if` |
-| Text | `echo` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` |
-| Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` |
-| Info | `date` `which` `env` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` |
+| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` |
+| Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
+| Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
 
 - **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. Piped or redirected, they output plain text, one item per line.
 - **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program.
 - **`rm` safety:** there is no trash can, so `rm` refuses a filesystem root, your home folder, and the current folder or its parents.
 - **`diff -u old new`** gives the Git-style format; **`du -sh`** totals a folder; **`history | grep ssh`** finds an old command.
+- **`grep -rn TODO .`**, **`grep -C 2 error app.log`**, **`ls -lt`**, **`find . -size +1M -mtime -7`**, **`sort -h`**, **`tail -f app.log`**, **`seq 10 | xargs -n 2 echo`**: the switches a bash user reaches for are there. A mistyped switch shows the usage line and a "did you mean".
 
 ## Bundled modules
 
@@ -257,9 +285,15 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | --- | --- | --- |
 | `system_commands` | off | Allow OS programs from your `PATH` (see [OS commands](#os-commands)). |
 | `pager` | on | Open man pages, and output taller than the window, in the scrollable viewer. |
-| `spinner` | on | Show a spinner while slow commands run. |
+| `spinner` | on | Show a spinner while slow commands run (with the elapsed time after 3 s). |
 | `banner` | on | Show the startup banner. |
+| `diagnostics` | off | Print the console diagnostics report at startup. |
 | `hot_reload` | on | Reload modules when their `.py`, `.md` or `.skill` files change, in the shell and in the MCP server. |
+| `lazy_modules` | on | Import a module's code the first time it runs, not at startup. |
+| `clear_on_start` | on | Clear the screen when the interactive shell starts. |
+| `toolbar` | on | Show the usage of the command being typed under the prompt. |
+| `highlight` | on | Color the command line as you type. |
+| `transient_prompt` | off | Collapse the prompt to one line after Enter. |
 
 ### API keys
 
@@ -299,8 +333,9 @@ programs such as `vim` or `top` don't work inside ShellCraft yet.
 ## Themes
 
 `cyberpunk` (the default), `matrix`, `nord`, `solarized`, `dracula`, `gruvbox`, `catppuccin` and
-`tokyonight`. `theme` lists them with color swatches, and `theme NAME` switches immediately and
-saves your choice.
+`tokyonight`, plus `solarized-light` and `catppuccin-latte` for a light terminal background.
+`theme` lists them with color swatches, `theme NAME` switches immediately and saves your choice,
+`theme preview NAME` tries one without saving, and `theme reset` goes back to the default.
 
 <details>
 <summary>Make your own theme</summary>
@@ -324,8 +359,10 @@ Add it to `~/.shellcraft/config.json`. Any color you leave out is taken from `ba
 ```
 
 A theme can set `prompt`, `path`, `accent`, `muted`, `error`, `success`, `warning`,
-`gradient_from` and `gradient_to`, as `#rrggbb` hex values. An invalid color is replaced by the
-base theme's color, with a warning.
+`gradient_from` and `gradient_to`, as `#rrggbb` hex values, plus `surface` and `surface_text`
+(the completion menu and toolbars; derived from `muted` when left out) and `"light": true` for a
+light terminal. An invalid color is replaced by the base theme's color, with a warning shown in
+the banner.
 
 </details>
 
@@ -337,15 +374,23 @@ base theme's color, with a warning.
 serves the same tools over streamable HTTP at `http://127.0.0.1:8765/mcp` (this machine only, with
 DNS-rebinding protection).
 
+The HTTP server requires a **bearer token** on every request, because any local user or process
+can reach a loopback port: pass `--token TOKEN` (or set `SHELLCRAFT_MCP_TOKEN`), let it generate
+one (printed at startup), or turn it off with `--no-token`.
+
 To keep using the shell while the HTTP server runs, start it from inside the shell instead:
 `mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
-stop it, and the prompt shows `● mcp :8765` while it runs), `mcp` shows its status, `mcp log` its log, and `mcp stop` stops it. It also stops when
-you leave the shell. See `man mcp`.
+stop it, and the prompt shows `● mcp :8765` while it runs), generates a token and prints the
+`claude mcp add … --header "Authorization: Bearer …"` line to use; `mcp` shows its status and
+the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when you leave the
+shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module**, with typed parameters from its `.skill` file, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.
+- **Limits:** a call that runs longer than `SHELLCRAFT_MCP_TIMEOUT` seconds (default 120) is abandoned with an error, and stdin and output are capped (10 MB in, 2 MB out).
+- **Local-only modules:** `expose = false` in a module's `.skill` keeps it out of the tool list and out of `shellcraft_pipeline`; `--expose NAME,...` offers only the modules named.
 
 **Claude Code**
 
@@ -367,8 +412,8 @@ claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shell
 ```
 
 Use absolute paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
-Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp`. To poke at the
-server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
+Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:8765/mcp --header "Authorization: Bearer TOKEN"`.
+To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
 
 > [!WARNING]
 > Connected AI clients can read any file your user account can read (through `fetch`, `cat`,
@@ -396,6 +441,7 @@ details, the rules, a reference module and the checker:
 | --- | --- |
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [TODO.md](TODO.md) | Known issues and the roadmap |
 
 <div align="center">

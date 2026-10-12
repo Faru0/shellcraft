@@ -1,0 +1,88 @@
+# Changelog
+
+All notable changes to ShellCraft. The format follows [Keep a Changelog](https://keepachangelog.com/),
+and the project uses [semantic versioning](https://semver.org/).
+
+## [0.2.0] — 2026-10-12
+
+The fourth assessment ([UPGRADE-ASSESSMENT.md](UPGRADE-ASSESSMENT.md)) in one release: every crash
+it found is fixed, the TUI got the polish it asked for, and the bash habits it listed now work.
+
+### Fixed
+
+- `main.py` cleared the screen before parsing arguments, in every mode: the MCP stdio stream
+  started with an escape sequence and `--version` wiped the terminal. The interactive shell
+  clears the screen now (the `clear_on_start` setting), nothing else does.
+- Redirecting to `~nosuchuser` killed the shell with a traceback; a deleted working directory
+  crashed the prompt. Both are clean errors, the prompt shows `(deleted)`, and `Shell.loop()`
+  catches any unexpected exception as a last resort.
+- A lone `&` was passed on as an argument (`rm -f a & ls` deleted both). It is rejected.
+- `cp -r DIR DIR/sub` recursed until `RecursionError`; it refuses to copy a directory into itself.
+- A malformed `config.json` section (`"env": [1]`) crashed startup in every mode; bad sections are
+  dropped with a warning. Two open shells overwrote each other's config; saves now merge only the
+  keys the session changed and write atomically through a temporary file.
+- `grep -m 0` printed one line; a quoted `~` in a redirect was expanded; a redirect created
+  missing directories; `sort -u -k N` deduped whole lines; `wc -c` counted characters (`-m` does
+  now); history redaction missed `\settings`, `a ; settings KEY v` and aliases of `settings`;
+  `mcp restart` truncated the previous log; slow builtins (`du /`, `find /`) showed no spinner.
+- The version was defined twice; `pyproject.toml` reads it from `core.__version__`.
+
+### Added
+
+- **Pager:** `w` wraps long lines, `←`/`→` scroll sideways, `d`/`u` half pages, `?` lists the
+  keys, the mouse wheel scrolls, the status bar names what is being paged, and search matches use
+  the theme's accent color.
+- **help:** `help NAME` (summary and usage), `help -k WORD`, section headers instead of a kind
+  column, the usage column on wide terminals, a footer with the module count and warnings, and a
+  plain layout under 80 columns. `for`/`if` are listed as keywords, not commands.
+- **Prompt:** `⎇ branch` (read from `.git/HEAD`, no git needed), `⏱ 4.2s` after a slow command,
+  a clock, and the `prompt` builtin to choose the segments (`prompt name path git status`,
+  `prompt -r clock`). The `transient_prompt` setting collapses the prompt after Enter.
+- **Input line:** syntax highlighting (known commands, operators, quotes, switches, variables;
+  the `highlight` setting), a bottom toolbar with the usage of the command being typed (the
+  `toolbar` setting), a styled Ctrl-R search, completion menus in the theme's colors, quote-aware
+  path completion (names with spaces are quoted), positional values from `.skill` files
+  (`queryCensys <Tab>` → `host cert search`), and completion for `help`, `theme preview` and `prompt`.
+- **Themes:** `theme preview NAME`, `theme reset`, the light-terminal presets `solarized-light`
+  and `catppuccin-latte`, `surface` / `surface_text` / `light` keys for custom themes, and theme
+  warnings shown in the banner.
+- **Feedback:** the spinner shows the elapsed time after 3 s and `Ctrl-C cancels` after 10 s;
+  an unknown switch error shows the usage line and a "did you mean" (`grep -ignore` → `-i,
+  --ignore-case`); `ls` colors archives, media, source and build leftovers by extension.
+- **Commands:** `grep -r -A -B -C -w -x -o -e -L -h -H -E`, `ls -t -S -r -R -d`, `head -c`,
+  `tail -c`, `tail -f`, `find -size -mtime -newer -empty -path -ipath -not/!`, `sort -h -V -s -k N,M`,
+  `cat -s -A -E -T`, `tree -I --du`, `wc -m`, and the new builtins `printf`, `seq`, `xargs`,
+  `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`,
+  `type`, `export`, `unset`.
+- **Scripting:** shell variables (`x=1`, `$x`), `export` / `unset`, `$HOME` and other environment
+  variables in the interactive shell (never over MCP), `$((…))` arithmetic, `$(…)` and globs on
+  plain command lines, `while` / `until` (bash and `-py`), `case … esac`, piping or redirecting a
+  whole loop (`done | sort`, `} > out`), and `!N` / `!-N` / `!prefix` / `!*` history expansion.
+- **Redirections:** `< file`, `2> file`, `2>> file`, `2>&1` (a failure's message becomes the
+  command's output, so `cmd 2>&1 | grep` works) and `&> file`.
+- **MCP:** a per-call timeout (`SHELLCRAFT_MCP_TIMEOUT`, default 120 s) and caps on stdin and
+  output; `expose = false` in a `.skill` keeps a module local (not a tool, and refused inside
+  `shellcraft_pipeline`); `--expose NAME,...` narrows the tool list; `--mcp-http` requires a bearer
+  token (`--token`, `$SHELLCRAFT_MCP_TOKEN`, or one generated and printed; `--no-token` opts out);
+  `mcp start` generates a token per server and prints the `claude mcp add` line; the child server
+  exits when the shell that started it dies, even after `kill -9`.
+- **Startup:** modules are imported on first use (the `lazy_modules` setting), so a module's
+  slow imports don't delay the prompt; `.md`-only edits are re-read without re-importing, and hot
+  reload reloads only the changed modules; `to_text()` wraps at the terminal's width; `show()`
+  renders once and sends very large plain text straight to the pager; a module's `run()` may
+  return an iterator of lines.
+- **Tooling:** `ruff` and `mypy` configuration in `pyproject.toml` (the `dev` extra installs
+  them), CI for GitLab and GitHub (pytest on Linux and Windows for Python 3.11–3.14, lint, the
+  module checker, and a packaging smoke test), and this changelog.
+
+### Changed
+
+- `wc -c` counts bytes, as GNU `wc` does; `wc -m` counts characters.
+- `help` prints `name — summary` lines on terminals narrower than 80 columns.
+- `grep` with `-r` prefixes every line with the file name, even for one directory.
+
+## [0.1.0] — 2026-09-27
+
+The first release: pipelines and redirection, the ported builtins, modules with `.md` manuals
+and `.skill` descriptions, bash-style and `-py` loops and conditions, aliases, history, themes,
+the pager, settings with API keys, the MCP server (stdio and HTTP), and the module authoring kit.

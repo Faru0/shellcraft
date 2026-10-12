@@ -280,6 +280,8 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
 
     spec = ctx.registry.get(cmd.name)
     if spec is not None:
+        if ctx.module_filter is not None and not ctx.module_filter(cmd.name):
+            raise CommandError(f"module '{cmd.name}' is not available to MCP clients", STATUS_NOT_FOUND)
         label = spec.spinner_text or f"running {spec.name}…"
         result = ctx.runner(label, lambda: _collect(spec.run(list(cmd.args), stdin)))
         return "" if result is None else result

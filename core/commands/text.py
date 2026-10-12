@@ -296,7 +296,7 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
         hits = {number for number, _ in found}
         shown: list[int] = []
         if context:
-            wanted = set()
+            wanted: set[int] = set()
             for number in hits:
                 wanted.update(range(max(1, number - opts.before_context),
                                     min(len(lines), number + opts.after_context) + 1))

@@ -13,7 +13,7 @@ from tests.conftest import ROOT
 from tools.ingest import ai, docs
 from tools.ingest.__main__ import main as ingest_main
 from tools.ingest.analyze import GUARD, KEEP, MOVE, analyze
-from tools.ingest.check import FAIL, PASS, WARN, check_module, source_flags
+from tools.ingest.check import FAIL, WARN, check_module, source_flags
 from tools.ingest.convert import ConvertError, convert, extra_changes
 
 

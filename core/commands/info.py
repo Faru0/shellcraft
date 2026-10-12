@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from core import aliases
@@ -53,7 +53,7 @@ def date(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser.add_argument("--iso", action="store_true")
     opts = parser.parse_args(rest)
 
-    now = datetime.now(timezone.utc) if opts.utc else datetime.now().astimezone()
+    now = datetime.now(UTC) if opts.utc else datetime.now().astimezone()
     if opts.iso:
         if fmt is not None:
             raise ModuleError("date: use either --iso or +FORMAT, not both")

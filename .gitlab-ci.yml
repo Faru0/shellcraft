@@ -1,0 +1,66 @@
+# ShellCraft CI: tests on Linux and Windows across the supported Pythons, lint, the module
+# checker, and a packaging smoke test (build the wheel, install it into a clean venv, run it).
+# GitHub's mirror runs the same steps from .github/workflows/ci.yml.
+
+stages: [check, test, package]
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths: [.cache/pip]
+
+.python: &python
+  image: python:3.14
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -e ".[dev]"
+
+lint:
+  <<: *python
+  stage: check
+  script:
+    - ruff check core tools tests main.py
+    - mypy core tools || true  # informational until the annotation debt is paid (see TODO.md)
+
+modules:
+  <<: *python
+  stage: check
+  script:
+    - python tools/ingest check --all --strict
+
+test-linux:
+  stage: test
+  image: python:$PYTHON
+  parallel:
+    matrix:
+      - PYTHON: ["3.11", "3.12", "3.13", "3.14"]
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -e ".[dev]"
+  script:
+    - pytest -q
+
+test-windows:
+  stage: test
+  tags: [windows]  # needs a Windows runner with Python 3.12+ on PATH
+  rules:
+    - if: $WINDOWS_RUNNER == "true"
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -e ".[dev]"
+  script:
+    - pytest -q
+
+package:
+  <<: *python
+  stage: package
+  script:
+    - python -m build --wheel
+    - python -m venv /tmp/smoke
+    - /tmp/smoke/bin/pip install --quiet dist/*.whl
+    - /tmp/smoke/bin/shellcraft --version
+    - /tmp/smoke/bin/python -c "import importlib.util as u; assert u.find_spec('core.commands') and u.find_spec('core.bundled_modules')"
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week

@@ -233,8 +233,8 @@ ls *.md | xargs -I {} echo "doc: {}"
 """
 
 
-@builtin("xargs", "Run a command with items read from stdin as arguments", "xargs [-n N] [-I STR] [-L N] [-r] [-t] COMMAND [ARG...]",
-         category="shell", doc=XARGS_DOC)
+@builtin("xargs", "Run a command with items read from stdin as arguments",
+         "xargs [-n N] [-I STR] [-L N] [-r] [-t] COMMAND [ARG...]", category="shell", doc=XARGS_DOC)
 def xargs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from core.pipeline import PipelineError, run_argv
 
@@ -259,7 +259,8 @@ def xargs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         batches = [[line] for line in stdin.splitlines() if line.strip()]
     elif opts.max_lines:
         lines = [ln for ln in stdin.splitlines() if ln.strip()]
-        batches = [sum((ln.split() for ln in lines[k:k + opts.max_lines]), []) for k in range(0, len(lines), opts.max_lines)]
+        batches = [sum((ln.split() for ln in lines[k:k + opts.max_lines]), [])
+                   for k in range(0, len(lines), opts.max_lines)]
     else:
         items = stdin.split()
         batches = [items[k:k + opts.max_args] for k in range(0, len(items), opts.max_args)] if opts.max_args \
@@ -564,7 +565,9 @@ def time_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         text += "\n"
     line = f"real {elapsed:.3f}s"
     if error is not None:
-        message = error.message if not error.message.startswith(f"{error.name}: ") else error.message[len(error.name) + 2:]
+        message = error.message
+        if message.startswith(f"{error.name}: "):
+            message = message[len(error.name) + 2:]
         text += f"✗ {error.name}: {message}\n"
     styled = Text.from_ansi(text.rstrip("\n")) if text else Text()
     if text:
@@ -602,10 +605,11 @@ def type_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             lines.append("keyword" if opts.terse else f"{name} is a shell keyword")
         elif name in BUILTINS:
             lines.append("builtin" if opts.terse else f"{name} is a shell builtin")
-        elif ctx.registry.get(name) is not None:
-            lines.append("module" if opts.terse else f"{name} is a ShellCraft module ({ctx.registry.get(name).path})")
+        elif (spec := ctx.registry.get(name)) is not None:
+            lines.append("module" if opts.terse else f"{name} is a ShellCraft module ({spec.path})")
         elif (path := shutil.which(name)) is not None:
-            lines.append("file" if opts.terse else f"{name} is {path}" + ("" if ctx.allow_system else " (OS commands are off)"))
+            note = "" if ctx.allow_system else " (OS commands are off)"
+            lines.append("file" if opts.terse else f"{name} is {path}{note}")
         else:
             missing += 1
             if not opts.terse:

@@ -64,9 +64,9 @@ def _eval(node: ast.AST, variables: Mapping[str, str]) -> int:
             return node.value
         raise ArithError(f"only integers are allowed in $(( )), not {node.value!r}")
     if isinstance(node, ast.Name):
-        value = variables.get(node.id, "0") if hasattr(variables, "get") else "0"
+        raw = variables.get(node.id, "0") if hasattr(variables, "get") else "0"
         try:
-            return int(str(value).strip() or "0", 0)
+            return int(str(raw).strip() or "0", 0)
         except ValueError:
             return 0
     if isinstance(node, ast.UnaryOp):

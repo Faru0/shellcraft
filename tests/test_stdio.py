@@ -76,7 +76,7 @@ def test_windows_cmd_builtins_are_read_as_utf16():
     raw = "Répertoire de C:\\données\r\n".encode("utf-16-le")
     assert pipeline._decode(raw, utf16=True) == "Répertoire de C:\\données\n"
     assert pipeline._decode("héllo\r\nwörld".encode(), utf16=True) == "héllo\nwörld"  # not UTF-16 after all
-    assert pipeline._decode("a\r\nb\n".encode()) == "a\nb\n"
+    assert pipeline._decode(b"a\r\nb\n") == "a\nb\n"
 
 
 def test_windows_cmd_builtins_use_unicode_output(monkeypatch):

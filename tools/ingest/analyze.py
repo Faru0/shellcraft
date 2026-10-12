@@ -177,9 +177,7 @@ def globals_used_by_defs(source: str, path: Path, top_level: set[int]) -> dict[s
 
     def walk(t: symtable.SymbolTable, line: int) -> None:
         for sym in t.get_symbols():
-            if sym.is_global() or sym.is_declared_global():
-                used.setdefault(sym.get_name(), line)
-            elif t.get_type() == "class" and sym.is_referenced() and not sym.is_assigned():
+            if sym.is_global() or sym.is_declared_global() or t.get_type() == "class" and sym.is_referenced() and not sym.is_assigned():
                 used.setdefault(sym.get_name(), line)
         for child in t.get_children():
             walk(child, line)
@@ -549,9 +547,7 @@ def _collect_docs_facts(result: Analysis) -> None:
                 result.options.append(opt)
         elif attr == "add_subparsers":
             result.notes.append("uses argparse sub-commands; the docs draft lists only the top-level options")
-        elif attr == "error" and node.args:
-            error(text_of(node.args[0]))
-        elif name == "sys.exit" and node.args and text_of(node.args[0]):
+        elif attr == "error" and node.args or name == "sys.exit" and node.args and text_of(node.args[0]):
             error(text_of(node.args[0]))
         elif name in {"os.environ.get", "os.getenv"} and node.args and isinstance(literal(node.args[0]), str):
             _add_env(result, literal(node.args[0]))

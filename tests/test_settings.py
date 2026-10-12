@@ -9,7 +9,6 @@ from core.pipeline import PipelineError, run_line
 from tests.conftest import OS_UPPER
 
 
-
 def test_defaults(ctx):
     assert settings.get(ctx.config, "system_commands") is False
     assert settings.get(ctx.config, "pager") is True

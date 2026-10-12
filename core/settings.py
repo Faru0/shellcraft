@@ -53,6 +53,9 @@ SETTINGS: dict[str, Setting] = {
         Setting("hot_reload", "Hot reload", True,
                 "Reload modules when their .py, .md or .skill files change, in the shell and "
                 "the MCP server (which then tells clients the tool list changed)."),
+        Setting("lazy_modules", "Lazy modules", True,
+                "Import a module's code the first time it runs, not at startup (faster start; "
+                "an import error shows up when the module is first used)."),
         Setting("clear_on_start", "Clear on start", True,
                 "Clear the screen when the interactive shell starts (never in --mcp mode)."),
         Setting("toolbar", "Bottom toolbar", True,
@@ -127,7 +130,14 @@ def env_settings(registry: ModuleRegistry | None) -> dict[str, EnvEntry]:
     if registry is None:
         return entries
     for module in registry.names():
-        for setting in registry.get(module).env_settings:
+        spec = registry.get(module)
+        if spec is None:
+            continue
+        try:
+            spec.load()  # a lazily loaded module declares its keys in its .py
+        except Exception:  # noqa: BLE001 — a broken module has no keys; the warning is recorded
+            continue
+        for setting in spec.env_settings:
             entries.setdefault(setting.name, EnvEntry(module, setting))
     return entries
 

@@ -9,9 +9,11 @@ when it exits. API keys set with `settings NAME` before `mcp start` are in its e
 from __future__ import annotations
 
 import os
+import secrets
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import IO, Any, Callable
@@ -62,10 +64,13 @@ def _url(host: str, port: int) -> str:
 class McpHttpChild:
     """One running server: the process, its address and its log file."""
 
-    def __init__(self, host: str, port: int, modules_dir: Path, allow_system: bool = False):
+    def __init__(self, host: str, port: int, modules_dir: Path, allow_system: bool = False,
+                 token: str | None = None):
         self.host, self.port = host, port
         self.url = _url(host, port)
         self.allow_system = allow_system
+        # Clients must send `Authorization: Bearer <token>`; the shell generates one per server.
+        self.token = secrets.token_urlsafe(24) if token is None else token
         self.started = time.time()
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,8 +86,10 @@ class McpHttpChild:
         # `-m core.cli` must import this checkout (or installed copy) from any cwd.
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
         env["PYTHONUNBUFFERED"] = "1"  # the log is complete even if the server is killed
+        env.pop("SHELLCRAFT_MCP_TOKEN", None)
         argv = [sys.executable, "-m", "core.cli", "--mcp-http", f"{_url_host(host)}:{port}",
-                "--modules", str(modules_dir)]
+                "--modules", str(modules_dir), "--parent-pid", str(os.getpid())]
+        argv += ["--token", self.token] if self.token else ["--no-token"]
         if allow_system:
             argv.append("--allow-system")
         # Its own process group: Ctrl-C at the prompt (sent to the whole foreground group on POSIX,
@@ -136,6 +143,26 @@ class McpHttpChild:
         return self.process.returncode
 
 
+def watch_parent(pid: int) -> None:
+    """Exit when the process `pid` (the shell that started this server) is gone, so a shell killed
+    outright (`kill -9`, a closed terminal window) doesn't leave the server running."""
+    def wait() -> None:
+        if sys.platform == "win32":
+            import ctypes
+
+            handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if handle:
+                ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+            else:
+                return
+        else:
+            while os.getppid() == pid:
+                time.sleep(1.0)
+        os._exit(0)
+
+    threading.Thread(target=wait, daemon=True, name="shellcraft:parent-watch").start()
+
+
 def mcp_available() -> list[str]:
     """The packages the server needs that this Python doesn't have (empty when it can run)."""
     import importlib.util
@@ -144,7 +171,7 @@ def mcp_available() -> list[str]:
 
 
 def start(address: str, modules_dir: Path, allow_system: bool = False,
-          on_spawn: Callable[[McpHttpChild], None] | None = None) -> McpHttpChild:
+          on_spawn: Callable[[McpHttpChild], None] | None = None, token: str | None = None) -> McpHttpChild:
     """Start the server and wait until it listens; raises StartError (or AddressError).
 
     `on_spawn` gets the process as soon as it exists, before it is ready, so the shell tracks
@@ -164,7 +191,7 @@ def start(address: str, modules_dir: Path, allow_system: bool = False,
                              "pick another port: mcp start HOST:PORT")
     except OSError:
         pass  # nothing listening: free
-    child = McpHttpChild(host, port, modules_dir, allow_system)
+    child = McpHttpChild(host, port, modules_dir, allow_system, token)
     if on_spawn is not None:
         on_spawn(child)
     child.wait_ready()

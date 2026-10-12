@@ -5,8 +5,9 @@
 # decides from this text alone WHEN to call your tool and HOW to fill in its parameters.
 # Be concrete, and document only what the code really does.
 #
-# Supported keys: summary, when_to_use, usage, examples, notes, then the tables
-# params and tests. Any other key is appended to the description, and the checker warns about it.
+# Supported keys: summary, when_to_use, usage, examples, notes, expose (false = never an MCP
+# tool), then the tables params and tests. Any other key is appended to the description, and the
+# checker warns about it.
 # Required: summary, when_to_use, usage, examples.
 #
 # !! TOML ORDER MATTERS !!  Every plain `key = value` line must come BEFORE the first

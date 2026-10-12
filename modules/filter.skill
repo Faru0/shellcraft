@@ -68,7 +68,7 @@ type = "integer"
 metavar = "N"
 description = "Stop after N matches."
 
-# Tests: run by tools/modtest.py, never shown to the AI.
+# Tests: run by `python tools/ingest check`, never shown to the AI.
 [[tests]]
 args = ["-i", "b"]
 stdin = "apple\nBanana\ncherry\n"

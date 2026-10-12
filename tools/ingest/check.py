@@ -38,7 +38,7 @@ from core.settings import SETTINGS
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 REQUIRED_SKILL_KEYS = ("summary", "when_to_use", "usage", "examples")
-KNOWN_SKILL_KEYS = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests"}
+KNOWN_SKILL_KEYS = {"summary", "when_to_use", "usage", "args", "params", "examples", "notes", "tests", "expose"}
 TEST_KEYS = {"args", "params", "stdin", "expect", "contains", "error", "network"}
 MAX_SUMMARY = 200
 MAX_DESCRIPTION = 3000
