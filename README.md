@@ -436,9 +436,10 @@ To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/py
 A module is three files in `modules/`: the code (`.py`), its manual (`.md`) and its AI description
 (`.skill`). The module only needs a `run(args, stdin)` function that returns text.
 
-Already have a Python script? `python tools/ingest myscript.py` (run from a normal terminal, not
-inside ShellCraft) converts it with the fewest possible changes, writes the `.md` and `.skill`, and
-checks the result. It can also hand the job to Claude or OpenAI. The **module guide** has the
+Already have a Python script? `ingest myscript.py` inside the shell (or `shellcraft ingest
+myscript.py` from a terminal) converts it with the fewest possible changes, writes the `.md` and
+`.skill`, and checks the result; the new command works at the next prompt. It can also hand the
+job to Claude or OpenAI. `ingest check --all` checks every module. The **module guide** has the
 details, the rules, a reference module and the checker:
 
 **→ [templates/README.md](templates/README.md)**

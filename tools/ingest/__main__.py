@@ -1,9 +1,10 @@
 """ingest — turn a Python script into a ShellCraft module, step by step.
 
-    python -m tools.ingest                          # asks for everything
-    python -m tools.ingest path/to/script.py        # start with this script
-    python -m tools.ingest check modules/x.py       # only check a module (also: --all, --strict, --network)
-    python ~/shellcraft/tools/ingest script.py      # the same, from any directory
+    shellcraft ingest                               # asks for everything
+    shellcraft ingest path/to/script.py             # start with this script
+    shellcraft ingest check modules/x.py            # only check a module (also: --all, --strict, --network)
+    ingest script.py                                # the same, inside the shell (and `ingest check --all`)
+    python tools/ingest script.py                   # from a checkout, without installing
 
 The wizard asks for a module name, analyzes the script, and shows exactly what has to change so
 ShellCraft can call it (a run(args, stdin) function, the script's code indented into it, and a few
@@ -333,18 +334,20 @@ def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
 OPTIONS = argparse.Namespace(model=None)
 
 
-def check_main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="python -m tools.ingest check",
+def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
+    default_dir = modules_dir or ROOT / "modules"
+    parser = argparse.ArgumentParser(prog=f"{prog} check",
                                      description="Check ShellCraft modules against the framework.")
     parser.add_argument("paths", nargs="*", type=Path, help="module .py files")
-    parser.add_argument("--all", action="store_true", help="check every module in ./modules")
+    parser.add_argument("--all", action="store_true", help=f"check every module in {default_dir}")
+    parser.add_argument("--modules", type=Path, default=default_dir, help="the modules folder for --all")
     parser.add_argument("--network", action="store_true", help="also run tests that need the internet")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
     parser.add_argument("--timeout", type=float, default=10.0, help="seconds per call (default 10)")
     opts = parser.parse_args(argv)
     paths = list(opts.paths)
     if opts.all:
-        paths += sorted(p for p in (ROOT / "modules").glob("*.py") if not p.name.startswith("_"))
+        paths += sorted(p for p in Path(opts.modules).glob("*.py") if not p.name.startswith("_"))
     if not paths:
         parser.error("give one or more module .py files, or --all")
     failed = 0
@@ -356,15 +359,18 @@ def check_main(argv: list[str]) -> int:
     return 1 if failed else 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
+    """`modules_dir` and `prog` are set by `shellcraft ingest` and the `ingest` builtin, which run
+    the same wizard with the shell's own modules folder as the default."""
     argv = sys.argv[1:] if argv is None else argv
     utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
     if argv[:1] == ["check"]:
-        return check_main(argv[1:])
-    parser = argparse.ArgumentParser(prog="python -m tools.ingest", description=__doc__.splitlines()[0])
+        return check_main(argv[1:], modules_dir, prog)
+    default_dir = modules_dir or ROOT / "modules"
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__.splitlines()[0])
     parser.add_argument("script", nargs="?", help="the Python script to turn into a module")
     parser.add_argument("--name", help="the command name (asked for when left out)")
-    parser.add_argument("--modules", type=Path, default=ROOT / "modules", help="where modules go (default ./modules)")
+    parser.add_argument("--modules", type=Path, default=default_dir, help=f"where modules go (default {default_dir})")
     parser.add_argument("--model", help="AI model to use instead of the default")
     opts = parser.parse_args(argv)
     OPTIONS.model = opts.model

@@ -7,6 +7,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`ingest` inside the shell and `shellcraft ingest` from a terminal.** The module wizard and
+  its checker were only reachable as `python tools/ingest`. The `ingest` builtin runs them in
+  place with the shell's own modules folder, and a new module works at the next prompt;
+  `shellcraft ingest` does the same from a terminal (the wheel now ships `tools.ingest`).
 - **Mouse everywhere it helps, in small steps.** `settings mouse_always on` keeps the mouse on
   at the prompt: click to place the cursor, click a prompt segment to act on it (`⚡` → `help`,
   path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error), click

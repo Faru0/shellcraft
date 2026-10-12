@@ -24,15 +24,19 @@ What your module gets for free:
 Because of that last point, **anything your module can do, a connected AI can do too.** Be careful
 with modules that delete, overwrite or send data.
 
-## Turn an existing script into a module: `tools/ingest`
+## Turn an existing script into a module: `ingest`
 
-Already have a Python script that you run from the terminal? Let the ingest wizard convert it. It's
-a separate program, not a ShellCraft command; run it from a normal terminal:
+Already have a Python script that you run from the terminal? Let the ingest wizard convert it.
+It runs inside ShellCraft, as the `ingest` command, or from a terminal:
 
 ```bash
-python tools/ingest path/to/myscript.py            # from the shellcraft folder
-python ~/shellcraft/tools/ingest myscript.py       # or from anywhere
+ingest path/to/myscript.py                         # inside ShellCraft (man ingest)
+shellcraft ingest path/to/myscript.py              # from a terminal, after pip install
+python tools/ingest path/to/myscript.py            # from a checkout, without installing
 ```
+
+Inside the shell the module goes to the shell's own modules folder and is picked up at the next
+prompt, so you can run it right away.
 
 It walks you through six steps:
 
@@ -112,7 +116,7 @@ cp templates/example.py    modules/wordfreq.py
 cp templates/example.md    modules/wordfreq.md
 cp templates/example.skill modules/wordfreq.skill
 # rename "example" → "wordfreq" in all three files, then write your logic
-python tools/ingest check modules/wordfreq.py      # check it
+ingest check modules/wordfreq.py                   # check it
 python main.py                                     # try it: echo a b a | wordfreq
 ```
 
@@ -254,13 +258,14 @@ Tests are run by the checker and are **never** shown to AI clients.
 If any test has `network = true`, the checker treats the whole module as network-using. It then also
 skips its plain smoke calls (`run([], "")`), unless you pass `--network`.
 
-## The checker: `tools/ingest check`
+## The checker: `ingest check`
 
 ```bash
-python tools/ingest check modules/wordfreq.py      # one module
-python tools/ingest check --all                    # every module in modules/
-python tools/ingest check modules/x.py --network   # include network tests
-python tools/ingest check --all --strict           # warnings fail too (good for CI)
+ingest check modules/wordfreq.py                   # one module (inside ShellCraft)
+ingest check --all                                 # every module in the shell's modules folder
+ingest check modules/x.py --network                # include network tests
+shellcraft ingest check --all --strict             # from a terminal; warnings fail too (good for CI)
+python tools/ingest check --all --strict           # from a checkout, without installing
 ```
 
 | Area | What it checks |

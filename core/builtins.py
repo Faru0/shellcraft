@@ -459,6 +459,56 @@ def _prompt(ctx: ShellContext, args: list[str], stdin: str) -> Any:
                                      (shown, "sc.accent")))
 
 
+INGEST_DOC = """# ingest
+
+Turn a Python script into a ShellCraft module, or check modules, without leaving the shell. It is
+the ingest wizard (`tools/ingest`, also `shellcraft ingest` from a terminal) run in place, with this
+shell's modules folder as the destination. A new module is picked up at the next prompt (hot
+reload), so you can run it right away.
+
+## Usage
+
+```
+ingest                                 # the wizard asks for everything
+ingest SCRIPT.py [--name NAME]         # start with this script
+ingest check MODULE.py...              # check modules against the framework
+ingest check --all [--strict] [--network]
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `--name NAME` | The command name (asked for when left out). |
+| `--modules DIR` | Where the module goes (default: this shell's modules folder). |
+| `--model MODEL` | The AI model to use for the conversion, instead of the default. |
+| `check --all` | Every module in the modules folder. |
+| `check --strict` | Warnings fail too (good for CI). |
+| `check --network` | Also run the tests that need the internet. |
+
+Your original script is never modified. The wizard talks to you on the terminal, so it only
+runs in the interactive shell, never over MCP. The module guide (templates/README.md) has the
+rules and a reference module.
+"""
+
+
+@builtin("ingest", "Turn a script into a module, or check modules",
+         "ingest [SCRIPT.py] [--name NAME] | ingest check [--all] [MODULE.py...]",
+         stateful=True, direct=True, doc=INGEST_DOC)
+def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not ctx.interactive or ctx.ui is None:
+        raise CommandError("ingest: only in the interactive shell (from a terminal: shellcraft ingest ...)")
+    from tools.ingest.__main__ import main as ingest_main
+
+    try:
+        code = ingest_main(args, modules_dir=ctx.registry.directory, prog="ingest")
+    except SystemExit as exc:  # argparse: --help, or a usage error already printed
+        code = exc.code if isinstance(exc.code, int) else 1
+    if code:
+        raise CommandError(f"ingest: exited with status {code}", code)
+    return ""
+
+
 MODULES_DOC = """# modules
 
 List the modules in the modules folder, and turn them on or off. A disabled module is not

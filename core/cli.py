@@ -16,7 +16,9 @@ DEFAULT_MODULES_DIR = (_INSTALLED_MODULES if _INSTALLED_MODULES.is_dir()
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.")
+    p = argparse.ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.",
+                                epilog="shellcraft ingest [SCRIPT.py | check ...] turns a Python script into a "
+                                       "module, or checks modules (shellcraft ingest --help).")
     p.add_argument("--mcp", action="store_true", help="run as an MCP server over stdio")
     p.add_argument("--mcp-http", metavar="HOST:PORT",
                    help="run as an MCP server over streamable HTTP at http://HOST:PORT/mcp "
@@ -60,6 +62,12 @@ def main(argv: list[str] | None = None) -> int:
     from core.stdio import utf8_stdio
 
     utf8_stdio()  # Windows pipes and files default to cp1252, which can't encode box drawing
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["ingest"]:  # `shellcraft ingest ...`: the module wizard, with this shell's modules folder
+        from tools.ingest.__main__ import main as ingest_main
+
+        return ingest_main(argv[1:], modules_dir=Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR)),
+                           prog="shellcraft ingest")
     args = _parse_args(argv)
     modules_dir = args.modules or Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR))
 

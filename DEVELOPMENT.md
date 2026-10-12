@@ -11,7 +11,7 @@ pip install -e ".[dev]"                                 # editable install + pyt
 pytest                                                  # full test suite
 ruff check core tools tests main.py                     # lint (CI gates on it)
 mypy core tools                                         # types (informational for now)
-python tools/ingest check --all --strict                # check every bundled module
+shellcraft ingest check --all --strict                  # check every bundled module (or: python tools/ingest check ...)
 python -m build --wheel                                 # the packaging smoke test installs this into a clean venv
 ```
 

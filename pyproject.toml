@@ -28,13 +28,14 @@ version = {attr = "core.__version__"}
 [tool.setuptools]
 # The bundled modules/ folder is installed as core/bundled_modules (with its .md and .skill files),
 # so a plain `pip install .` works as well as an editable install.
-packages = ["core", "core.commands", "core.bundled_modules"]
+packages = ["core", "core.commands", "core.bundled_modules", "tools", "tools.ingest"]
 
 [tool.setuptools.package-dir]
 "core.bundled_modules" = "modules"
 
 [tool.setuptools.package-data]
 "core.bundled_modules" = ["*.md", "*.skill"]
+"tools.ingest" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
