@@ -83,12 +83,13 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
     Paged value asks (the `pager` setting off still means never). `title` (the command line)
     is shown in the pager's status bar."""
     forced: bool | None = None
-    if isinstance(value, Paged):
-        value, forced = value.value, value.page
-    if isinstance(value, Styled):
-        if not value.text:
-            return
-        value = value.renderable
+    while isinstance(value, (Paged, Styled)):  # either may wrap the other (help: Styled(Paged))
+        if isinstance(value, Paged):
+            value, forced = value.value, value.page
+        else:
+            if not value.text:
+                return
+            value = value.renderable
     if value is None or value == "":
         return
     console = ui.console

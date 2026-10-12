@@ -94,16 +94,12 @@ class CommandError(Exception):
 def to_text(value: Any, width: int | None = None) -> str:
     """Flatten a str or Rich renderable into plain text (for pipes, files, MCP). `width` is the
     console width to wrap at; the current terminal's when there is one, else 100."""
-    if isinstance(value, Paged):
-        value = value.value
-    if isinstance(value, WithStatus):
-        value = value.value
+    while isinstance(value, (Paged, WithStatus, Styled)):  # wrappers nest in any order
+        value = value.text if isinstance(value, Styled) else value.value
     if value is None:
         return ""
     if isinstance(value, str):
         return value
-    if isinstance(value, Styled):
-        return value.text
     if width is None:
         width = _ui_width() or 100
     buf = io.StringIO()

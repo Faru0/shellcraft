@@ -13,7 +13,7 @@ from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
 from core import shell
-from core.context import ShellContext
+from core.context import ShellContext, to_text
 from core.highlight import highlight
 from core.loader import ModuleRegistry
 from core.output import page, show, spinner_label
@@ -230,6 +230,26 @@ def test_show_pages_only_above_the_terminal_height(monkeypatch):
     show(ui, "\n".join(map(str, range(50))), pager=False)
     assert paged == ["edge", "tall"]
     assert "7\n" in ui.console.file.getvalue()
+
+
+def test_show_renders_styled_wrapping_paged(monkeypatch):
+    """`help` returns Styled(Paged(table), page=False): the table is printed, never its repr,
+    and never paged, however tall it is."""
+    from rich.text import Text
+
+    from core import output
+    from core.context import Paged, Styled
+
+    paged = []
+    monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(title))
+    ui = _ui(height=5)
+    tall = Text("\n".join(f"row {i}" for i in range(30)))
+    show(ui, Styled(Paged(tall, page=False), "plain"), title="help")
+    show(ui, Paged(Styled(tall, "plain"), page=False), title="help2")
+    out = ui.console.file.getvalue()
+    assert "row 29" in out and "Paged(" not in out and "Styled(" not in out
+    assert paged == []
+    assert to_text(Styled(Paged(tall, page=False), "plain")) == "plain"
 
 
 def test_show_sends_huge_plain_text_straight_to_the_pager(monkeypatch):
