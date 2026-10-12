@@ -428,7 +428,11 @@ def _prompt(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         current = Text.assemble(("prompt ", "sc.muted"), (" ".join(left), "sc.accent"))
         if right:
             current.append_text(Text.assemble(("   prompt -r ", "sc.muted"), (" ".join(right), "sc.accent")))
-        return Styled(Group(table, current), f"prompt {' '.join(left)}\nprompt -r {' '.join(right)}\n")
+        hint = Text.assemble(("prompt SEGMENT...", "sc.accent"), (" sets the first line, ", "sc.muted"),
+                             ("prompt -r SEGMENT...", "sc.accent"), (" the right side, ", "sc.muted"),
+                             ("prompt reset", "sc.accent"), (" goes back to the default (man prompt)", "sc.muted"))
+        return Styled(Group(table, current, hint),
+                      f"prompt {' '.join(left)}\nprompt -r {' '.join(right)}\nprompt reset  # back to the default\n")
     if args == ["reset"]:
         ctx.config.pop("prompt", None)
         return _saved(ctx, Text.assemble(("✓ ", "sc.success"), "prompt reset to ",
