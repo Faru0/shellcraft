@@ -360,7 +360,7 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
     # prompt_toolkit redraws on SIGWINCH by itself (Application._on_resize), so a resize is
     # reflected at once; body_height() is read on every render.
     app: Application = Application(layout=layout, key_bindings=kb, full_screen=True, style=ui.pt_style,
-                                   mouse_support=True)
+                                   mouse_support=ui.mouse)  # the `mouse` setting; off keeps selection
     app.run()
     return state  # for tests: where the viewer was when it closed
 

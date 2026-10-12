@@ -39,6 +39,8 @@ ENABLE_WRAP_AT_EOL_OUTPUT = 0x0002
 ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 DISABLE_NEWLINE_AUTO_RETURN = 0x0008
 ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+ENABLE_MOUSE_INPUT = 0x0010
+ENABLE_QUICK_EDIT_MODE = 0x0040
 
 # Between prompts (Rich output, spinners, error panels): VT sequences on, long lines wrap.
 RESTING_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -144,10 +146,37 @@ class DirectOutput(Vt100_Output):
     The size and the rows below the cursor come from the screen buffer, as Win32Output does. CPR is
     off: the answer could arrive as keys, and the rows below the cursor make it unnecessary."""
 
-    def __init__(self, stream: Any, conout: Any):
+    def __init__(self, stream: Any, conout: Any, conin: Any = None):
         super().__init__(stream, self._size, enable_cpr=False,
                          default_color_depth=ColorDepth.from_env() or ColorDepth.TRUE_COLOR)
         self.conout = conout
+        self.conin = conin
+        self._input_mode_before_mouse: int | None = None
+
+    # Mouse reporting on Windows needs both halves: the VT sequences (Vt100_Output writes them;
+    # the console then reports clicks as SGR sequences to the VT input reader) and
+    # ENABLE_MOUSE_INPUT on CONIN$ with Quick Edit off (else the console keeps clicks for its own
+    # selection; the classic reader gets them as MOUSE_EVENT records). prompt_toolkit's Win32Output
+    # sets the input mode but never restores Quick Edit; the exact mode from before is put back here
+    # as soon as the menu closes, so selecting text at the prompt keeps working.
+    def enable_mouse_support(self) -> None:
+        super().enable_mouse_support()
+        if self.conin is None:
+            return
+        before = get_mode(self.conin)
+        if before is not None and self._input_mode_before_mouse is None:
+            self._input_mode_before_mouse = before
+            set_mode(self.conin, (before | ENABLE_MOUSE_INPUT) & ~ENABLE_QUICK_EDIT_MODE)
+
+    def disable_mouse_support(self) -> None:
+        super().disable_mouse_support()
+        before, self._input_mode_before_mouse = self._input_mode_before_mouse, None
+        if self.conin is None or before is None:
+            return
+        current = get_mode(self.conin)
+        if current is not None:  # only the two mouse bits go back; raw/cooked bits are the input's
+            quick_edit = before & ENABLE_QUICK_EDIT_MODE
+            set_mode(self.conin, (current & ~ENABLE_MOUSE_INPUT & ~ENABLE_QUICK_EDIT_MODE) | quick_edit)
 
     def _size(self) -> Size:
         info = buffer_info(self.conout)
@@ -320,7 +349,7 @@ def create_prompt_toolkit_console(cleanup: contextlib.ExitStack) -> DirectConsol
         if input_before is not None:
             opened.callback(set_mode, conin, input_before)
 
-        output = DirectOutput(stream, conout)
+        output = DirectOutput(stream, conout, conin)
         cleanup.push(opened.pop_all())
         reader = type(console_input.console_input_reader).__name__
         return DirectConsole(input=console_input, output=output, stream=stream, conin=conin, conout=conout,

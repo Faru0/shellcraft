@@ -245,3 +245,33 @@ def test_prompt_uses_truecolor_when_the_terminal_says_so(monkeypatch, env, tty, 
     monkeypatch.setattr(console.sys, "stdout", _Tty() if tty else io.StringIO())
     output = console.truecolor_output()
     assert (output and output.get_default_color_depth().name) == expected
+
+
+def test_mouse_support_sets_console_input_mode_and_restores_quick_edit(monkeypatch):
+    """Windows: the VT sequences go to CONOUT$ and ENABLE_MOUSE_INPUT goes on CONIN$ with Quick Edit
+    off while the menu is open; after it closes Quick Edit is back and the raw-mode bits the input
+    layer set meanwhile are left alone."""
+    raw = console.ENABLE_VIRTUAL_TERMINAL_INPUT | console.ENABLE_QUICK_EDIT_MODE | 0x0080  # as raw_mode leaves it
+    modes = {"CONIN$": raw, "CONOUT$": 0x0007}
+    monkeypatch.setattr(console, "get_mode", lambda handle: modes[handle])
+    monkeypatch.setattr(console, "set_mode", lambda handle, mode: modes.__setitem__(handle, mode) or True)
+    stream = io.StringIO()
+    output = console.DirectOutput(stream, conout="CONOUT$", conin="CONIN$")
+
+    output.enable_mouse_support()
+    output.flush()
+    assert "\x1b[?1000h" in stream.getvalue() and "\x1b[?1006h" in stream.getvalue()
+    assert modes["CONIN$"] & console.ENABLE_MOUSE_INPUT
+    assert not modes["CONIN$"] & console.ENABLE_QUICK_EDIT_MODE
+    output.enable_mouse_support()  # twice: the saved mode is the first one
+    modes["CONIN$"] |= 0x0100  # something else changed a bit in between: it survives
+    output.disable_mouse_support()
+    assert modes["CONIN$"] == raw | 0x0100
+    output.disable_mouse_support()  # idempotent
+    assert modes["CONIN$"] == raw | 0x0100
+
+    # Without a CONIN$ handle (tests, other platforms) only the sequences are written.
+    plain = console.DirectOutput(io.StringIO(), conout="CONOUT$")
+    plain.enable_mouse_support()
+    plain.disable_mouse_support()
+    assert modes["CONIN$"] == raw | 0x0100

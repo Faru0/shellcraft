@@ -34,6 +34,11 @@ def _apply_system_commands(ctx: ShellContext, value: bool) -> None:
     ctx.allow_system = value
 
 
+def _apply_mouse(ctx: ShellContext, value: bool) -> None:
+    if ctx.ui is not None:
+        ctx.ui.mouse = value
+
+
 SETTINGS: dict[str, Setting] = {
     s.key: s
     for s in (
@@ -65,6 +70,9 @@ SETTINGS: dict[str, Setting] = {
         Setting("transient_prompt", "Transient prompt", False,
                 "After Enter, collapse the two-line prompt to one line, so the scrollback stays "
                 "dense."),
+        Setting("mouse", "Mouse", True,
+                "Click and scroll in the completion menu and the pager. The terminal keeps the "
+                "mouse (text selection, wheel scrollback) whenever no menu is open.", _apply_mouse),
     )
 }
 

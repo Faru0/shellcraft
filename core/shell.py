@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.lexers import DynamicLexer
@@ -173,6 +174,7 @@ class Shell:
         self._cleanup.callback(set_width_source, None)
         # A script (`for`, `if`, `a ; b`) prints each statement's output and errors as it runs.
         ctx.emit = lambda value: show(self.ui, value, pager=False)
+        self.ui.mouse = settings.get(ctx.config, "mouse")
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
         self.watcher = ModuleWatcher(ctx.registry.directory)
 
@@ -195,6 +197,10 @@ class Shell:
             include_default_pygments_style=False,
             lexer=DynamicLexer(self._current_lexer),
             rprompt=self._rprompt,
+            # Checked on every render: prompt_toolkit turns the terminal's mouse reporting on and
+            # off as the menu opens and closes, so a click picks a completion and the wheel scrolls
+            # the list, while the terminal keeps the mouse (selection, scrollback) at other times.
+            mouse_support=Condition(self._mouse_wanted),
         )
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
@@ -290,7 +296,11 @@ class Shell:
             return [("class:mcp", f"● mcp {address}")]
         return [("class:mcp.down", f"✗ mcp {address}")]
 
-    # ── the input line: highlighting and the toolbar ─────────────────────────
+    # ── the input line: highlighting, the toolbar and the mouse ──────────────
+
+    def _mouse_wanted(self) -> bool:
+        """Mouse reporting on only while a completion menu is open (and the setting is on)."""
+        return self.ui.mouse and self.session.default_buffer.complete_state is not None
 
     def _is_known_command(self, name: str) -> bool:
         return (name in BUILTINS or name in KEYWORDS or self.ctx.registry.get(name) is not None

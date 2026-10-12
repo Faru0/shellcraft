@@ -114,6 +114,26 @@ def test_prompt_builtin(repl, tmp_path):
     assert "prompt" not in ctx.config
 
 
+def test_mouse_only_while_a_completion_menu_is_open(repl):
+    """The prompt asks for mouse reporting only with a menu open and the setting on; the pager
+    follows the setting too."""
+    from prompt_toolkit.buffer import CompletionState
+
+    from core.pipeline import run_line
+
+    sh, ctx = repl
+    buffer = sh.session.default_buffer
+    assert sh.session.app.mouse_support() is False  # no menu: the terminal keeps the mouse
+    buffer.complete_state = CompletionState(buffer.document, [])
+    assert sh.session.app.mouse_support() is True
+    run_line("settings mouse off", ctx)
+    assert sh.ui.mouse is False and sh.session.app.mouse_support() is False
+    run_line("settings mouse on", ctx)
+    assert sh.session.app.mouse_support() is True
+    buffer.complete_state = None
+    assert sh.session.app.mouse_support() is False
+
+
 def test_toolbar_shows_usage_or_not_found(repl):
     from types import SimpleNamespace
 

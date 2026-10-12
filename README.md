@@ -177,6 +177,7 @@ Loops also work over MCP, with the same restrictions.
 - **The toolbar** under the prompt shows the usage of the command you are typing, or says it is not found (`settings toolbar off`).
 - **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it. **Ctrl-R** searches the history as you type.
 - **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), **positional values** from a module's `.skill` (`queryCensys <Tab>` → `host cert search`), arguments for `help`, `man`, `theme`, `prompt`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else. A name with spaces is quoted for you, and completion works inside quotes.
+- **The mouse** works in the completion menu: click an entry to pick it, scroll the wheel to move through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
 - `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
@@ -294,6 +295,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `toolbar` | on | Show the usage of the command being typed under the prompt. |
 | `highlight` | on | Color the command line as you type. |
 | `transient_prompt` | off | Collapse the prompt to one line after Enter. |
+| `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 
 ### API keys
 

@@ -247,6 +247,10 @@ class UI:
         self.theme = theme
         self.pt_style = theme.pt_style()
         self.console.push_theme(theme.rich_theme())
+        # The `mouse` setting: prompt_toolkit takes the mouse only while a completion menu is open
+        # and in the pager, so the terminal's own selection and wheel scrollback work the rest of
+        # the time. Off means never.
+        self.mouse = True
 
     def use_console(self, console: Console) -> Console:
         """Switch to another Rich console with the current theme on it; returns the previous one."""

@@ -5,6 +5,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Mouse in the completion menu:** click an entry to pick it, wheel to scroll the list. The
+  terminal is asked for the mouse only while a menu is open (and in the pager, as before), so
+  text selection and wheel scrollback at the prompt are unchanged. The `mouse` setting turns it
+  off. On Windows the console's mouse input is switched on with the menu and Quick Edit mode is
+  restored when it closes.
+
 ### Changed
 
 - The default `--mcp-http` / `mcp start` address is `127.0.0.1:38765` (was `:8765`), to stay
