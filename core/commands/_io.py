@@ -10,8 +10,17 @@ from core.modkit import ModuleError
 _SHORT_COUNT = re.compile(r"^-(\d+)$")
 
 
+def user_path(name: str) -> Path:
+    """A path argument as a Path, with `~` / `~user` expanded. Unlike Path.expanduser(), an unknown
+    user (`~nosuchuser`) or a missing home directory leaves the name as typed instead of raising."""
+    try:
+        return Path(name).expanduser()
+    except (RuntimeError, KeyError):
+        return Path(name)
+
+
 def read_file(prog: str, name: str) -> str:
-    path = Path(name).expanduser()
+    path = user_path(name)
     try:
         return path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -20,6 +29,8 @@ def read_file(prog: str, name: str) -> str:
         raise ModuleError(f"{prog}: {name}: is a directory") from None
     except PermissionError:
         raise ModuleError(f"{prog}: {name}: permission denied") from None
+    except OSError as exc:
+        raise ModuleError(f"{prog}: {name}: {exc.strerror or exc}") from None
 
 
 def sources(prog: str, files: list[str], stdin: str) -> list[tuple[str, str]]:

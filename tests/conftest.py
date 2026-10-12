@@ -39,7 +39,7 @@ def started(monkeypatch):
         def diagnostics(self):
             pass
 
-        def banner(self):
+        def banner(self, *warnings):
             pass
 
         def loop(self):

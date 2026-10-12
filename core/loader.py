@@ -161,6 +161,41 @@ class ModuleRegistry:
         self.disabled: set[str] = set(disabled)
         self.warnings: list[str] = []
 
+    def reload(self, changed: Iterable[str]) -> None:
+        """Reload only the modules whose files changed (hot reload). A `.md`-only change re-reads
+        the manual without re-importing, so a module-level cache in another module survives."""
+        names = {Path(f).stem for f in changed}
+        if not names or not self.directory.is_dir():
+            self.load()
+            return
+        reimport = {Path(f).stem for f in changed if not f.endswith(".md")}
+        for name in sorted(names):
+            py = self.directory / f"{name}.py"
+            self.warnings = [w for w in self.warnings if not w.startswith(f"{py.name}:")]
+            if not py.is_file():  # deleted or renamed
+                self.files.pop(name, None)
+                self.modules.pop(name, None)
+                sys.modules.pop(f"shellcraft_modules.{name}", None)
+                continue
+            if name.startswith("_"):
+                continue
+            if not VALID_NAME.match(name) or name in RESERVED_NAMES:
+                self.warnings.append(f"{py.name}: invalid module name, skipped")
+                continue
+            self.files[name] = py
+            if name in self.disabled:
+                continue
+            spec = self.modules.get(name)
+            if spec is not None and name not in reimport:
+                spec.doc_md = _read(py.with_suffix(".md"))
+                spec.__dict__.pop("options", None)  # cached_property: the .md options table changed
+                continue
+            try:
+                self.modules[name] = self.load_file(name, py)
+            except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
+                self.modules.pop(name, None)
+                self.warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
+
     def load(self) -> None:
         for stale in [k for k in sys.modules if k.startswith("shellcraft_modules.")]:
             del sys.modules[stale]  # a deleted or renamed module must not linger after reload

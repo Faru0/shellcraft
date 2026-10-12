@@ -40,7 +40,6 @@ def test_windows_paths_keep_backslashes():
     ("a | | b", "empty pipeline segment"),
     ("a >", "missing file name"),
     ("a > f | b", "must be the last"),
-    ("a > f g", "must be the last"),
     ("> f", "missing command"),
     ('echo "oops', "unterminated"),
 ])
@@ -55,12 +54,8 @@ def test_parse_errors(line, fragment):
     ("a;b", ";"),
     ("a && b", "&&"),
     ("a || b", "||"),
-    ("sort < in.txt", "<"),
-    ("a 2> err.txt", "2>"),
-    ("a 2>> err.txt", "2>>"),
-    ("a 2>&1", "2>&1"),
-    ("a &> out.txt", "&>"),
     ("echo x >&2", ">&"),
+    ("echo hi & ls", "&"),
 ])
 def test_unsupported_operators_are_rejected(line, op):
     with pytest.raises(ParseError) as info:

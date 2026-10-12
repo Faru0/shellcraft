@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Callable
 from rich.text import Text
 
 from core.builtins import builtin
-from core.commands._io import lines_out
+from core.commands._io import lines_out, user_path
 from core.context import Styled
 from core.modkit import ArgParser, ModuleError
 
@@ -113,7 +113,7 @@ class _Output:
 
 
 def _is_dir(name: str) -> bool:
-    return name != "-" and Path(name).expanduser().is_dir()
+    return name != "-" and user_path(name).is_dir()
 
 
 def _normalizer(ignore_case: bool, all_space: bool, space_change: bool) -> Callable[[str], str] | None:
@@ -134,7 +134,7 @@ def _read(name: str, stdin: str) -> tuple[str | None, str]:
     """(text or None for binary, header timestamp)."""
     if name == "-":
         return stdin, ""
-    path = Path(name).expanduser()
+    path = user_path(name)
     try:
         raw = path.read_bytes()
         stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
@@ -176,7 +176,7 @@ def _diff_files(left: str, right: str, opts, key, context: int | None, stdin: st
 
 
 def _read_bytes(name: str, stdin: str) -> bytes:
-    return stdin.encode("utf-8") if name == "-" else Path(name).expanduser().read_bytes()
+    return stdin.encode("utf-8") if name == "-" else user_path(name).read_bytes()
 
 
 def _range(start: int, stop: int) -> str:
@@ -228,8 +228,8 @@ def _unified(matcher: difflib.SequenceMatcher, a: list[str], b: list[str], left:
 
 def _diff_dirs(left: Path, right: Path, opts, key, context: int | None, stdin: str, out: _Output) -> None:
     try:
-        a_names = {p.name: p for p in left.expanduser().iterdir()}
-        b_names = {p.name: p for p in right.expanduser().iterdir()}
+        a_names = {p.name: p for p in left.iterdir()}
+        b_names = {p.name: p for p in right.iterdir()}
     except PermissionError as exc:
         raise ModuleError(f"diff: {exc.filename}: permission denied") from None
     for name in sorted(a_names.keys() | b_names.keys(), key=str.lower):

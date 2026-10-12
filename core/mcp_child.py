@@ -21,6 +21,18 @@ from core.config import config_dir
 
 DEFAULT_ADDRESS = "127.0.0.1:8765"
 STARTUP_TIMEOUT = 15.0  # seconds: importing mcp and uvicorn can take a while on a cold start
+LOG_MAX_BYTES = 1_000_000  # the log is cut back to its last LOG_KEEP_BYTES when it grows past this
+LOG_KEEP_BYTES = 200_000
+
+
+def _trim_log(path: Path) -> None:
+    try:
+        if path.stat().st_size <= LOG_MAX_BYTES:
+            return
+        data = path.read_bytes()[-LOG_KEEP_BYTES:]
+        path.write_bytes(b"--- older log lines dropped ---\n" + data[data.find(b"\n") + 1:])
+    except OSError:
+        pass
 
 
 class StartError(Exception):
@@ -57,7 +69,13 @@ class McpHttpChild:
         self.started = time.time()
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._log: IO[bytes] = open(path, "wb")  # noqa: SIM115 — closed in stop()
+        # Appended, not truncated, so `mcp log` after a restart still shows why the last server
+        # died; a log past LOG_MAX_BYTES starts over, keeping its tail.
+        _trim_log(path)
+        self._log: IO[bytes] = open(path, "ab")  # noqa: SIM115 — closed in stop()
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        self._log.write(f"--- started {stamp} at {self.url} (pid of the shell: {os.getpid()}) ---\n".encode())
+        self._log.flush()
         root = str(Path(core.__file__).resolve().parent.parent)
         env = dict(os.environ)
         # `-m core.cli` must import this checkout (or installed copy) from any cwd.

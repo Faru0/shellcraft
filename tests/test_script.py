@@ -205,7 +205,6 @@ def test_string_methods_only_on_text(ctx):
     ("for -py 1x in a { echo }", "expected a variable name"),
     ("for -py x on a { echo }", "expected 'in'"),
     ("for -py x in a|b { echo }", "in parentheses"),
-    ("for -py x in a { echo $x } | sort", "can't be piped"),
     ("for -py x in a { echo $x}", "word of its own"),
     ("for -py x in a { echo 'open }", "unterminated"),
 ])

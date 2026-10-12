@@ -226,7 +226,7 @@ class ShellcraftMCP:
     async def reload_if_changed(self, watcher: ModuleWatcher) -> list[str]:
         changed = watcher.changes()
         if changed:
-            self.registry.load()
+            self.registry.reload(changed)
             log.info("modules changed (%s): reloaded %d module(s)", ", ".join(changed), len(self.registry))
             for warning in self.registry.warnings:
                 log.warning(warning)

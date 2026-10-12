@@ -6,6 +6,7 @@ import fnmatch
 import os
 import shutil
 import stat
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,7 +18,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from core.builtins import builtin
-from core.commands._io import lines_out
+from core.commands._io import lines_out, user_path
 from core.context import Styled
 from core.modkit import ArgParser, ModuleError
 
@@ -53,7 +54,19 @@ def _entry(path: Path, display: str) -> tuple[str, Text, os.stat_result | None]:
         return display + "/", Text(display + "/", style="sc.path"), st
     if _is_executable(path, st):
         return display, Text(display + "*", style="sc.success"), st
-    return display, Text(display), st
+    return display, Text(display, style=_EXT_STYLES.get(path.suffix.lower(), "")), st
+
+
+_EXT_CLASSES = {
+    "sc.warning": (".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".zst", ".7z", ".rar", ".deb", ".rpm", ".whl",
+                   ".jar", ".iso", ".dmg"),
+    "sc.accent": (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico", ".mp3", ".wav", ".flac",
+                  ".ogg", ".mp4", ".mkv", ".mov", ".avi", ".webm", ".pdf"),
+    "sc.prompt": (".py", ".js", ".ts", ".rs", ".go", ".c", ".h", ".cpp", ".hpp", ".java", ".rb", ".sh", ".ps1",
+                  ".php", ".cs", ".swift", ".kt", ".lua", ".pl", ".r", ".jl", ".toml", ".yaml", ".yml", ".json"),
+    "sc.muted": (".pyc", ".pyo", ".o", ".obj", ".class", ".tmp", ".bak", ".swp", ".log", ".lock", ".cache"),
+}
+_EXT_STYLES = {ext: style for style, exts in _EXT_CLASSES.items() for ext in exts}
 
 
 def _list_dir(directory: Path, show_all: bool) -> list[tuple[str, Text, os.stat_result | None]]:
@@ -88,13 +101,15 @@ def _long_table(entries, human: bool) -> tuple[Table, list[str]]:
     return table, plain
 
 
-@builtin("ls", "List directory contents", "ls [-a] [-l] [-h] [-1] [PATH...]", category="files", doc="""\
+@builtin("ls", "List directory contents", "ls [-a] [-l] [-h] [-1] [-t] [-S] [-r] [-R] [-d] [PATH...]",
+         category="files", doc="""\
 # ls
 
 List directory contents. It is the same on Windows and Linux.
 
-On screen, names are shown in colored columns: **directories/**, `executables*`, `links@`.
-Piped or redirected output is plain text with one name per line, so `ls | grep py` just works.
+On screen, names are shown in colored columns: **directories/**, `executables*`, `links@`, and
+file types by extension (archives, images and media, source code, build leftovers). Piped or
+redirected output is plain text with one name per line, so `ls | grep py` just works.
 
 ## Options
 
@@ -104,12 +119,19 @@ Piped or redirected output is plain text with one name per line, so `ls | grep p
 | `-l` | Long format: permissions, size, modified time, name. |
 | `-h` | With `-l`, human-readable sizes (`4.0K`, `1.2M`). |
 | `-1` | One entry per line on screen too. |
+| `-t` | Sort by modification time, newest first. |
+| `-S` | Sort by size, largest first. |
+| `-r` | Reverse the sort order. |
+| `-R` | List subdirectories recursively. |
+| `-d` | List directories themselves, not their contents. |
 
 ## Examples
 
 ```
 ls
 ls -la ~/projects
+ls -lt | head          # the newest files
+ls -lSh                # the biggest files
 ls modules | grep skill | wc -l
 ```
 """)
@@ -119,18 +141,33 @@ def ls(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
     parser.add_argument("-l", dest="long", action="store_true")
     parser.add_argument("-h", "--human-readable", dest="human", action="store_true")
     parser.add_argument("-1", dest="one", action="store_true")
+    parser.add_argument("-t", dest="by_time", action="store_true")
+    parser.add_argument("-S", dest="by_size", action="store_true")
+    parser.add_argument("-r", "--reverse", action="store_true")
+    parser.add_argument("-R", "--recursive", action="store_true")
+    parser.add_argument("-d", "--directory", action="store_true")
     parser.add_argument("paths", nargs="*")
     opts = parser.parse_args(args)
+
+    def order(entries: list) -> list:
+        if opts.by_time:
+            entries = sorted(entries, key=lambda e: -(e[2].st_mtime if e[2] else 0))
+        elif opts.by_size:
+            entries = sorted(entries, key=lambda e: -(e[2].st_size if e[2] else 0))
+        return list(reversed(entries)) if opts.reverse else entries
 
     targets = opts.paths or ["."]
     sections: list[tuple[str | None, list]] = []
     files: list = []
     for raw in targets:
-        path = Path(raw).expanduser()
+        path = user_path(raw)
         if not path.exists() and not path.is_symlink():
             raise ModuleError(f"ls: {raw}: no such file or directory")
-        if path.is_dir():
+        if path.is_dir() and not opts.directory:
             sections.append((raw, _list_dir(path, opts.all)))
+            if opts.recursive:
+                for sub, shown in _subdirs(path, raw, opts.all):
+                    sections.append((shown, _list_dir(sub, opts.all)))
         else:
             files.append(_entry(path, raw))
     if files:
@@ -139,6 +176,7 @@ def ls(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
 
     renderables, plain = [], []
     for i, (title, entries) in enumerate(sections):
+        entries = order(entries)
         if titled and title is not None:
             if i:
                 renderables.append(Text(""))
@@ -154,6 +192,15 @@ def ls(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
             renderables.append(Group(*names) if opts.one else Columns(names, padding=(0, 2)))
             plain += [name for name, _, _ in entries]
     return Styled(Group(*renderables), lines_out(plain))
+
+
+def _subdirs(root: Path, shown: str, show_hidden: bool):
+    """Every directory under root (depth first, sorted), as (path, displayed path)."""
+    for child in _children(root, show_hidden):
+        if child.is_dir() and not child.is_symlink():
+            display = os.path.join(shown, child.name)
+            yield child, display
+            yield from _subdirs(child, display, show_hidden)
 
 
 # ── mkdir ────────────────────────────────────────────────────────────────────
@@ -181,7 +228,7 @@ def mkdir(ctx: ShellContext, args: list[str], stdin: str) -> str:
     opts = parser.parse_args(args)
     for name in opts.dirs:
         try:
-            Path(name).expanduser().mkdir(parents=opts.parents, exist_ok=opts.parents)
+            user_path(name).mkdir(parents=opts.parents, exist_ok=opts.parents)
         except FileExistsError:
             raise ModuleError(f"mkdir: {name}: already exists") from None
         except FileNotFoundError:
@@ -194,12 +241,12 @@ def mkdir(ctx: ShellContext, args: list[str], stdin: str) -> str:
 # ── cp / mv ──────────────────────────────────────────────────────────────────
 
 def _destinations(prog: str, sources: list[str], dest: str) -> list[tuple[Path, Path]]:
-    target = Path(dest).expanduser()
+    target = user_path(dest)
     if len(sources) > 1 and not target.is_dir():
         raise ModuleError(f"{prog}: target '{dest}' is not a directory")
     pairs = []
     for src in sources:
-        path = Path(src).expanduser()
+        path = user_path(src)
         if not path.exists() and not path.is_symlink():
             raise ModuleError(f"{prog}: {src}: no such file or directory")
         out = target / path.name if target.is_dir() else target
@@ -238,6 +285,8 @@ def cp(ctx: ShellContext, args: list[str], stdin: str) -> str:
             if src.is_dir():
                 if not opts.recursive:
                     raise ModuleError(f"cp: {src}: is a directory (use -r)")
+                if out.resolve().is_relative_to(src.resolve()):  # cp -r DIR DIR/sub would never end
+                    raise ModuleError(f"cp: cannot copy a directory, '{src}', into itself, '{out}'")
                 shutil.copytree(src, out, dirs_exist_ok=True)
             else:
                 shutil.copy2(src, out)
@@ -317,7 +366,7 @@ def rm(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
     targets = []
     for raw in opts.paths:  # validate everything before deleting anything
-        path = Path(raw).expanduser()
+        path = user_path(raw)
         if not path.exists() and not path.is_symlink():
             if force:
                 continue
@@ -358,8 +407,42 @@ def _walk(path: Path, shown: str, depth: int, max_depth: int | None):
             yield from _walk(child, os.path.join(shown, child.name), depth + 1, max_depth)
 
 
-@builtin("find", "Search for files in a directory tree", "find [PATH...] [-name GLOB] [-iname GLOB] "
-         "[-type f|d|l] [-maxdepth N] [-mindepth N]", category="files", doc="""\
+_SIZE_UNITS = {"c": 1, "b": 512, "w": 2, "k": 1024, "M": 1024 ** 2, "G": 1024 ** 3}
+_TESTS_WITH_VALUE = {"-name", "-iname", "-type", "-maxdepth", "-mindepth", "-size", "-mtime", "-newer", "-path",
+                     "-ipath"}
+_TESTS_ALONE = {"-empty"}
+
+
+def _parse_size(spec: str) -> tuple[str, int]:
+    """`+10M`, `-1k`, `100c` → (sign, bytes). Without a unit, 512-byte blocks as in POSIX find."""
+    sign = spec[0] if spec[:1] in "+-" else ""
+    rest = spec[len(sign):]
+    unit = rest[-1] if rest[-1:] in _SIZE_UNITS else "b"
+    digits = rest[:-1] if rest[-1:] in _SIZE_UNITS else rest
+    if not digits.isdigit():
+        raise ModuleError(f"find: invalid -size '{spec}' (e.g. +10M, -1k, 100c)")
+    return sign, int(digits) * _SIZE_UNITS[unit]
+
+
+def _parse_days(spec: str) -> tuple[str, int]:
+    sign = spec[0] if spec[:1] in "+-" else ""
+    digits = spec[len(sign):]
+    if not digits.isdigit():
+        raise ModuleError(f"find: invalid -mtime '{spec}' (e.g. -7, +30, 0)")
+    return sign, int(digits)
+
+
+def _compare(sign: str, value: float, wanted: float) -> bool:
+    if sign == "+":
+        return value > wanted
+    if sign == "-":
+        return value < wanted
+    return value == wanted
+
+
+@builtin("find", "Search for files in a directory tree", "find [PATH...] [-name GLOB] [-iname GLOB] [-path GLOB] "
+         "[-type f|d|l] [-size [+-]N[ckMG]] [-mtime [+-]DAYS] [-newer FILE] [-empty] [-maxdepth N] [-mindepth N] "
+         "[-not TEST | ! TEST]", category="files", doc="""\
 # find
 
 Walk each PATH (default `.`) recursively and print every entry that matches all the given tests.
@@ -371,9 +454,15 @@ Output has one path per line, so it pipes into `grep`, `wc -l` and so on.
 | --- | --- |
 | `-name GLOB` | The file name matches GLOB (`*.py`, `data_??.csv`). Quote globs. |
 | `-iname GLOB` | Like `-name`, but ignoring case. |
+| `-path GLOB` | The whole path matches GLOB (`*/tests/*`); `-ipath` ignores case. |
 | `-type f\\|d\\|l` | Only files, directories or symlinks. |
+| `-size [+-]N[ckMG]` | Size over (`+`), under (`-`) or exactly N units: `c` bytes, `k` KiB, `M` MiB, `G` GiB (`+10M`). |
+| `-mtime [+-]DAYS` | Modified more than (`+`), less than (`-`) or exactly DAYS days ago (`-mtime -7`: this week). |
+| `-newer FILE` | Modified more recently than FILE. |
+| `-empty` | An empty file or directory. |
 | `-maxdepth N` | Descend at most N levels (0 = only the PATHs themselves). |
 | `-mindepth N` | Skip entries shallower than N levels. |
+| `-not TEST`, `! TEST` | Negate the next test (`-not -name "*.pyc"`). |
 
 Symlinked directories are listed but not followed. Unreadable directories are skipped.
 
@@ -383,50 +472,116 @@ Symlinked directories are listed but not followed. Unreadable directories are sk
 find . -name "*.py"
 find modules -type f -iname "*.SKILL"
 find -maxdepth 1 -type d
-find . -name "*.log" | wc -l
+find . -size +1M -mtime -7
+find . -type f -not -name "*.pyc" | wc -l
 ```
 """)
 def find(ctx: ShellContext, args: list[str], stdin: str) -> str:
-    parser = ArgParser("find")
-    parser.add_argument("paths", nargs="*")
-    parser.add_argument("-name")
-    parser.add_argument("-iname")
-    parser.add_argument("-type", choices=["f", "d", "l"])
-    parser.add_argument("-maxdepth", type=int)
-    parser.add_argument("-mindepth", type=int, default=0)
-    opts = parser.parse_args(args)
+    paths: list[str] = []
+    tests: list[tuple[bool, str, str | None]] = []  # (negated, test, value)
+    maxdepth: int | None = None
+    mindepth = 0
+    i, negate = 0, False
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-not", "!"):
+            negate = not negate
+            i += 1
+            continue
+        if arg in _TESTS_WITH_VALUE:
+            if i + 1 >= len(args):
+                raise ModuleError(f"find: {arg} needs a value  (see `man find`)")
+            value = args[i + 1]
+            if arg in ("-maxdepth", "-mindepth"):
+                if not value.isdigit():
+                    raise ModuleError(f"find: {arg} must be a number")
+                if arg == "-maxdepth":
+                    maxdepth = int(value)
+                else:
+                    mindepth = int(value)
+            elif arg == "-type" and value not in ("f", "d", "l"):
+                raise ModuleError("find: -type must be f, d or l")
+            else:
+                tests.append((negate, arg, value))
+            negate = False
+            i += 2
+            continue
+        if arg in _TESTS_ALONE:
+            tests.append((negate, arg, None))
+            negate = False
+            i += 1
+            continue
+        if arg.startswith("-") and len(arg) > 1:
+            raise ModuleError(f"find: unknown test '{arg}'  (see `man find`)")
+        if tests:
+            raise ModuleError(f"find: paths must come before tests: '{arg}'")
+        paths.append(arg)
+        i += 1
 
-    def matches(path: Path, name: str, depth: int) -> bool:
-        if depth < opts.mindepth:
+    newer_cache: dict[str, float] = {}
+    now = time.time()
+
+    def check(path: Path, name: str, shown: str, test: str, value: str | None) -> bool:
+        if test == "-name":
+            return fnmatch.fnmatchcase(name, value)
+        if test == "-iname":
+            return fnmatch.fnmatchcase(name.lower(), value.lower())
+        if test == "-path":
+            return fnmatch.fnmatchcase(shown, value)
+        if test == "-ipath":
+            return fnmatch.fnmatchcase(shown.lower(), value.lower())
+        if test == "-type":
+            if value == "l":
+                return path.is_symlink()
+            if value == "d":
+                return not path.is_symlink() and path.is_dir()
+            return not path.is_symlink() and path.is_file()
+        try:
+            st = path.lstat()
+        except OSError:
             return False
-        if opts.name and not fnmatch.fnmatchcase(name, opts.name):
-            return False
-        if opts.iname and not fnmatch.fnmatchcase(name.lower(), opts.iname.lower()):
-            return False
-        if opts.type == "l" and not path.is_symlink():
-            return False
-        if opts.type == "d" and (path.is_symlink() or not path.is_dir()):
-            return False
-        if opts.type == "f" and (path.is_symlink() or not path.is_file()):
-            return False
+        if test == "-size":
+            sign, wanted = _parse_size(value)
+            unit = _SIZE_UNITS["b"] if value[-1:] not in _SIZE_UNITS else _SIZE_UNITS[value[-1]]
+            # POSIX rounds sizes up to whole units before comparing (so -size 1k matches 1..1024 bytes).
+            return _compare(sign, -(-st.st_size // unit), -(-wanted // unit))
+        if test == "-mtime":
+            sign, days = _parse_days(value)
+            return _compare(sign, int((now - st.st_mtime) // 86400), days)
+        if test == "-newer":
+            if value not in newer_cache:
+                try:
+                    newer_cache[value] = user_path(value).stat().st_mtime
+                except OSError:
+                    raise ModuleError(f"find: -newer {value}: no such file") from None
+            return st.st_mtime > newer_cache[value]
+        if test == "-empty":
+            if stat.S_ISDIR(st.st_mode):
+                return not _children(path)
+            return stat.S_ISREG(st.st_mode) and st.st_size == 0
         return True
 
+    def matches(path: Path, name: str, shown: str, depth: int) -> bool:
+        if depth < mindepth:
+            return False
+        return all(check(path, name, shown, test, value) != negated for negated, test, value in tests)
+
     found: list[str] = []
-    for start in opts.paths or ["."]:
-        root = Path(start).expanduser()
+    for start in paths or ["."]:
+        root = user_path(start)
         if not root.exists() and not root.is_symlink():
             raise ModuleError(f"find: {start}: no such file or directory")
-        for path, shown, depth in _walk(root, start, 0, opts.maxdepth):
+        for path, shown, depth in _walk(root, start, 0, maxdepth):
             # Like POSIX find, a start point is matched by its literal basename (so "." is ".").
             name = path.name if depth else os.path.basename(os.path.normpath(start))
-            if matches(path, name, depth):
+            if matches(path, name, shown, depth):
                 found.append(shown)
     return lines_out(found)
 
 
 # ── tree ─────────────────────────────────────────────────────────────────────
 
-@builtin("tree", "Show a directory tree", "tree [-a] [-d] [-L N] [PATH]", category="files", doc="""\
+@builtin("tree", "Show a directory tree", "tree [-a] [-d] [-L N] [-I GLOB] [--du] [PATH]", category="files", doc="""\
 # tree
 
 Show the contents of PATH (default `.`) as a tree, followed by a count of directories and files.
@@ -437,12 +592,16 @@ It is a colored tree on screen, and plain `├──`/`└──` text when pipe
 | `-a` | Include hidden entries. |
 | `-d` | Directories only. |
 | `-L N` | Descend at most N levels. |
+| `-I GLOB` | Leave out entries matching GLOB (`-I __pycache__`, `-I "*.pyc\\|*.log"`); repeatable. |
+| `--du` | Show the size of every entry (a directory's size includes everything below it). |
 
 ## Examples
 
 ```
 tree
 tree -L 2 core
+tree -I "__pycache__|.git" -a
+tree --du -d
 tree -d > layout.txt
 ```
 """)
@@ -452,22 +611,42 @@ def tree(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
     parser.add_argument("-a", action="store_true", dest="all")
     parser.add_argument("-d", action="store_true", dest="dirs_only")
     parser.add_argument("-L", type=int, dest="level")
+    parser.add_argument("-I", action="append", default=[], dest="ignore", metavar="GLOB")
+    parser.add_argument("--du", action="store_true", dest="sizes")
     opts = parser.parse_args(args)
-    root = Path(opts.path).expanduser()
+    root = user_path(opts.path)
     if not root.is_dir():
         raise ModuleError(f"tree: {opts.path}: not a directory")
     if opts.level is not None and opts.level < 1:
         raise ModuleError("tree: -L must be >= 1")
+    ignored = [g for spec in opts.ignore for g in spec.split("|") if g]
 
     counts = {"dirs": 0, "files": 0}
     plain = [opts.path]
     rich_root = Tree(Text(opts.path, style="sc.path"), guide_style="sc.muted")
 
+    def size_of(path: Path) -> int:
+        try:
+            st = path.lstat()
+        except OSError:
+            return 0
+        if not stat.S_ISDIR(st.st_mode):
+            return st.st_size
+        return sum(size_of(c) for c in _children(path, True))
+
+    def label(entry: Path, name: str, styled: Text) -> tuple[str, Text]:
+        if not opts.sizes:
+            return name, styled
+        size = _human(size_of(entry))
+        return f"[{size:>6}]  {name}", Text.assemble((f"[{size:>6}]  ", "sc.accent"), styled)
+
     def add(directory: Path, node: Tree, prefix: str, depth: int) -> None:
         entries = [e for e in _children(directory, opts.all) if not opts.dirs_only or e.is_dir()]
+        entries = [e for e in entries if not any(fnmatch.fnmatchcase(e.name, g) for g in ignored)]
         for i, entry in enumerate(entries):
             last = i == len(entries) - 1
             name, styled, _ = _entry(entry, entry.name)
+            name, styled = label(entry, name, styled)
             plain.append(prefix + ("└── " if last else "├── ") + name)
             child = node.add(styled)
             is_dir = entry.is_dir() and not entry.is_symlink()
@@ -479,6 +658,8 @@ def tree(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
     summary = f"{counts['dirs']} director{'y' if counts['dirs'] == 1 else 'ies'}"
     if not opts.dirs_only:
         summary += f", {counts['files']} file{'' if counts['files'] == 1 else 's'}"
+    if opts.sizes:
+        summary = f"{_human(size_of(root))} used in " + summary
     plain += ["", summary]
     return Styled(Group(rich_root, Text(""), Text(summary, style="sc.muted")), lines_out(plain))
 
@@ -509,7 +690,7 @@ def touch(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser.add_argument("files", nargs="+")
     opts = parser.parse_args(args)
     for name in opts.files:
-        path = Path(name).expanduser()
+        path = user_path(name)
         try:
             if path.exists():
                 os.utime(path, None)
@@ -608,7 +789,7 @@ def du(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
 
     grand = 0
     for raw in opts.paths or ["."]:
-        path = Path(raw).expanduser()
+        path = user_path(raw)
         if not path.exists() and not path.is_symlink():
             raise ModuleError(f"du: {raw}: no such file or directory")
         grand += walk(path, raw, 0)

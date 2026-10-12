@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 if TYPE_CHECKING:
     from core.loader import SkillInfo
@@ -127,6 +127,27 @@ def merge(primary: list[OptionSpec], secondary: list[OptionSpec]) -> list[Option
                                  s.help or p.help, p.values or s.values))
     merged += [s for i, s in enumerate(secondary) if i not in used]
     return merged
+
+
+def positional_values(spec: Any, index: int) -> tuple[str, ...]:
+    """The allowed values of a module's `index`-th positional argument (0-based), from the
+    .skill `[[args]]` / `[[params]]` entries without flags; an entry ending in `...` covers every
+    later position. Empty when the position is free-form."""
+    if spec.skill is None:
+        return ()
+    positionals = []
+    for arg in spec.skill.args:
+        tokens = [t for t in _NAME_SPLIT.split(arg.get("name", "")) if t]
+        if tokens and not any(_is_flag(t) for t in tokens):
+            positionals.append(arg)
+    if not positionals:
+        return ()
+    if index >= len(positionals):
+        last = positionals[-1]
+        if not last.get("name", "").endswith("..."):
+            return ()
+        return tuple(str(v) for v in last.get("values") or ())
+    return tuple(str(v) for v in positionals[index].get("values") or ())
 
 
 @lru_cache(maxsize=None)

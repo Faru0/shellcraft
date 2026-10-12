@@ -12,6 +12,17 @@ from rich.console import Console
 from rich.theme import Theme as RichTheme
 
 
+def _hex(color: str) -> tuple[int, int, int]:
+    r, g, b = Color.parse(color).get_truecolor()
+    return r, g, b
+
+
+def _mix(color: str, other: str, amount: float) -> str:
+    """`color` moved `amount` (0..1) of the way towards `other`."""
+    a, b = _hex(color), _hex(other)
+    return "#" + "".join(f"{int(a[k] + (b[k] - a[k]) * amount):02x}" for k in range(3))
+
+
 @dataclass(frozen=True)
 class ThemeDef:
     name: str
@@ -25,6 +36,23 @@ class ThemeDef:
     warning: str
     gradient_from: str
     gradient_to: str
+    # Surfaces (the completion menu, the pager's search line, scrollbars) are derived from the
+    # muted color unless a theme sets them: dark themes get a dark surface, light ones a light one.
+    surface: str = ""  # background of menus and toolbars
+    surface_text: str = ""  # text on that background
+    light: bool = False  # made for a light terminal background
+
+    def _surface(self) -> str:
+        return self.surface or _mix(self.muted, "#ffffff" if self.light else "#000000", 0.75)
+
+    def _surface_alt(self) -> str:
+        return _mix(self._surface(), "#ffffff" if self.light else "#000000", 0.3)
+
+    def _surface_text(self) -> str:
+        return self.surface_text or ("#303030" if self.light else "#d0d0d0")
+
+    def _on_accent(self) -> str:
+        return "#ffffff" if self.light else "#000000"
 
     def rich_theme(self) -> RichTheme:
         return RichTheme(
@@ -37,7 +65,7 @@ class ThemeDef:
                 "sc.success": self.success,
                 "sc.warning": self.warning,
                 "sc.border": self.accent,
-                "sc.match": f"bold reverse {self.accent}",
+                "sc.match": f"bold {self._on_accent()} on {self.accent}",
                 # Markdown (man pages) picks up the palette too.
                 "markdown.h1": f"bold {self.prompt}",
                 "markdown.h1.border": self.accent,
@@ -51,6 +79,7 @@ class ThemeDef:
         )
 
     def pt_style(self) -> PTStyle:
+        surface, alt, text = self._surface(), self._surface_alt(), self._surface_text()
         return PTStyle.from_dict(
             {
                 "frame": self.muted,
@@ -58,21 +87,44 @@ class ThemeDef:
                 "sep": self.muted,
                 "user": self.accent,
                 "path": f"bold {self.path}",
+                "git": self.success,
+                "duration": self.warning,
+                "clock": self.muted,
                 "arrow": f"bold {self.prompt}",
                 "failed": f"bold {self.error}",
                 "mcp": self.success,  # the `mcp start` server, running
                 "mcp.down": f"bold {self.error}",  # ... or exited on its own
                 "auto-suggestion": f"italic {self.muted}",
-                "completion-menu": "bg:#1c1c1c #d0d0d0",
-                "completion-menu.completion.current": f"bg:{self.accent} #000000 bold",
-                "completion-menu.meta.completion": f"bg:#262626 {self.muted}",
-                "completion-menu.meta.completion.current": f"bg:{self.prompt} #000000",
-                "scrollbar.background": "bg:#303030",
+                # The input line (core/highlight.py)
+                "cmd.known": self.success,
+                "cmd.unknown": self.error,
+                "keyword": f"bold {self.prompt}",
+                "operator": f"bold {self.accent}",
+                "string": self.path,
+                "switch": self.warning,
+                "variable": self.accent,
+                "comment": f"italic {self.muted}",
+                # Menus, toolbars, scrollbars
+                "completion-menu": f"bg:{surface} {text}",
+                "completion-menu.completion.current": f"bg:{self.accent} {self._on_accent()} bold",
+                "completion-menu.meta.completion": f"bg:{alt} {self.muted}",
+                "completion-menu.meta.completion.current": f"bg:{self.prompt} {self._on_accent()}",
+                "scrollbar.background": f"bg:{alt}",
                 "scrollbar.button": f"bg:{self.accent}",
+                "bottom-toolbar": f"bg:{surface} {text} noreverse",
+                "toolbar": f"bg:{surface} {self.muted} noreverse",
+                "toolbar.key": f"bg:{self.accent} {self._on_accent()} bold noreverse",
+                "toolbar.error": f"bg:{surface} {self.error} noreverse",
+                "search-toolbar": f"bg:{surface} {text}",
+                "search-toolbar.text": f"bg:{surface} {self.prompt}",
+                "rprompt": self.muted,
                 # Pager
-                "pager.status": f"bg:{self.accent} #000000",
-                "pager.status.key": f"bg:{self.accent} #000000 bold",
-                "pager.search": f"bg:#262626 {self.prompt}",
+                "pager.status": f"bg:{self.accent} {self._on_accent()}",
+                "pager.status.key": f"bg:{self.accent} {self._on_accent()} bold",
+                "pager.title": f"bg:{self.prompt} {self._on_accent()} bold",
+                "pager.search": f"bg:{surface} {self.prompt}",
+                "pager.help": f"bg:{surface} {text}",
+                "pager.help.key": f"bg:{surface} {self.accent} bold",
             }
         )
 
@@ -105,6 +157,13 @@ PRESETS: dict[str, ThemeDef] = {
             gradient_from="#b58900", gradient_to="#d33682",
         ),
         ThemeDef(
+            name="solarized-light", label="Solarized Light",
+            prompt="#268bd2", path="#2aa198", accent="#d33682", muted="#93a1a1",
+            error="#dc322f", success="#859900", warning="#b58900",
+            gradient_from="#b58900", gradient_to="#d33682",
+            surface="#eee8d5", surface_text="#586e75", light=True,
+        ),
+        ThemeDef(
             name="dracula", label="Dracula",
             prompt="#bd93f9", path="#8be9fd", accent="#ff79c6", muted="#6272a4",
             error="#ff5555", success="#50fa7b", warning="#f1fa8c",
@@ -123,6 +182,13 @@ PRESETS: dict[str, ThemeDef] = {
             gradient_from="#cba6f7", gradient_to="#89b4fa",
         ),
         ThemeDef(
+            name="catppuccin-latte", label="Catppuccin Latte",
+            prompt="#8839ef", path="#04a5e5", accent="#ea76cb", muted="#9ca0b0",
+            error="#d20f39", success="#40a02b", warning="#df8e1d",
+            gradient_from="#8839ef", gradient_to="#1e66f5",
+            surface="#e6e9ef", surface_text="#4c4f69", light=True,
+        ),
+        ThemeDef(
             name="tokyonight", label="Tokyo Night",
             prompt="#7aa2f7", path="#7dcfff", accent="#bb9af7", muted="#565f89",
             error="#f7768e", success="#9ece6a", warning="#e0af68",
@@ -130,8 +196,10 @@ PRESETS: dict[str, ThemeDef] = {
         ),
     )
 }
+DEFAULT_THEME = "cyberpunk"
 
-_COLOR_FIELDS = [f.name for f in fields(ThemeDef) if f.name not in ("name", "label")]
+_OPTIONAL_FIELDS = ("surface", "surface_text")  # may be empty: derived from `muted` then
+_COLOR_FIELDS = [f.name for f in fields(ThemeDef) if f.name not in ("name", "label", "light", *_OPTIONAL_FIELDS)]
 
 
 def all_themes(config: dict[str, Any], warnings: list[str] | None = None) -> dict[str, ThemeDef]:
@@ -141,19 +209,23 @@ def all_themes(config: dict[str, Any], warnings: list[str] | None = None) -> dic
     message to `warnings` (when given) instead of crashing the UI later.
     """
     themes = dict(PRESETS)
-    for name, spec in (config.get("themes") or {}).items():
+    custom = config.get("themes")
+    for name, spec in (custom.items() if isinstance(custom, dict) else ()):
         if not isinstance(spec, dict):
             continue
         base = themes.get(spec.get("base", "nord"), PRESETS["nord"])
-        overrides = {}
+        overrides: dict[str, Any] = {}
         for key, value in spec.items():
-            if key not in _COLOR_FIELDS or not isinstance(value, str):
+            if key == "light" and isinstance(value, bool):
+                overrides[key] = value
+                continue
+            if key not in (*_COLOR_FIELDS, *_OPTIONAL_FIELDS) or not isinstance(value, str):
                 continue
             if _valid_color(value):
                 overrides[key] = value
             elif warnings is not None:
                 warnings.append(f"theme '{name}': invalid color {value!r} for '{key}', "
-                                f"using {getattr(base, key)}")
+                                f"using {getattr(base, key) or 'the default'}")
         themes[name] = replace(base, name=name, label=spec.get("label", name), **overrides)
     return themes
 

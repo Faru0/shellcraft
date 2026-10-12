@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 if TYPE_CHECKING:
     from core.context import ShellContext
@@ -53,6 +53,15 @@ SETTINGS: dict[str, Setting] = {
         Setting("hot_reload", "Hot reload", True,
                 "Reload modules when their .py, .md or .skill files change, in the shell and "
                 "the MCP server (which then tells clients the tool list changed)."),
+        Setting("clear_on_start", "Clear on start", True,
+                "Clear the screen when the interactive shell starts (never in --mcp mode)."),
+        Setting("toolbar", "Bottom toolbar", True,
+                "Show the usage of the command being typed in a line under the prompt."),
+        Setting("highlight", "Syntax highlighting", True,
+                "Color the command line as you type: known commands, operators, quotes."),
+        Setting("transient_prompt", "Transient prompt", False,
+                "After Enter, collapse the two-line prompt to one line, so the scrollback stays "
+                "dense."),
     )
 }
 
@@ -60,17 +69,24 @@ TRUE_WORDS = {"on", "true", "yes", "1", "enable", "enabled"}
 FALSE_WORDS = {"off", "false", "no", "0", "disable", "disabled"}
 
 
+def _section(config: dict[str, Any], key: str) -> dict[str, Any]:
+    section = config.get(key)
+    return section if isinstance(section, dict) else {}
+
+
 def get(config: dict[str, Any], key: str) -> bool:
-    value = (config.get("settings") or {}).get(key)
+    value = _section(config, "settings").get(key)
     return SETTINGS[key].default if not isinstance(value, bool) else value
 
 
 def set_value(config: dict[str, Any], key: str, value: bool) -> None:
-    config.setdefault("settings", {})[key] = value
+    if not isinstance(config.get("settings"), dict):
+        config["settings"] = {}
+    config["settings"][key] = value
 
 
 def reset(config: dict[str, Any], key: str) -> None:
-    (config.get("settings") or {}).pop(key, None)
+    _section(config, "settings").pop(key, None)
 
 
 def parse_bool(word: str) -> bool | None:
@@ -117,17 +133,19 @@ def env_settings(registry: ModuleRegistry | None) -> dict[str, EnvEntry]:
 
 
 def env_get(config: dict[str, Any], name: str) -> str | None:
-    value = (config.get("env") or {}).get(name)
+    value = _section(config, "env").get(name)
     return value if isinstance(value, str) and value else None
 
 
 def env_set(config: dict[str, Any], name: str, value: str) -> None:
-    config.setdefault("env", {})[name] = value
+    if not isinstance(config.get("env"), dict):
+        config["env"] = {}
+    config["env"][name] = value
     _export(name, value)
 
 
 def env_reset(config: dict[str, Any], name: str) -> None:
-    (config.get("env") or {}).pop(name, None)
+    _section(config, "env").pop(name, None)
     original = _ORIGINAL_ENV.pop(name, os.environ.get(name))
     if original is None:
         os.environ.pop(name, None)
@@ -137,7 +155,7 @@ def env_reset(config: dict[str, Any], name: str) -> None:
 
 def export_env(config: dict[str, Any]) -> None:
     """Put every stored value into os.environ (startup, all modes), unless the environment has one."""
-    for name, value in (config.get("env") or {}).items():
+    for name, value in _section(config, "env").items():
         if isinstance(name, str) and ENV_NAME.match(name) and isinstance(value, str) and value:
             if not os.environ.get(name):
                 _export(name, value)
@@ -166,12 +184,36 @@ def mask(value: str) -> str:
     return "••••" + (value[-4:] if len(value) >= 12 else "")
 
 
-_SETTINGS_LINE = re.compile(r"^(\s*settings\s+)([A-Z][A-Z0-9_]*)(\s+)(\S.*)$")
+# One statement: optional bash keywords (`do settings …`), an optional `\` (alias bypass), the
+# command word, the key name, then the value (which may run to the end of the statement).
+_SETTINGS_STMT = re.compile(r"^(\s*(?:(?:do|then|else|!)\s+)*\\?)(\S+)(\s+)([A-Z][A-Z0-9_]*)(\s+)(\S.*)$")
+_STATEMENT_SPLIT = re.compile(r"(\s*(?:;|&&|\|\||\|)\s*)")
 
 
-def redact_line(line: str) -> str:
-    """Hide the value in `settings NAME VALUE` so API keys never reach the history file."""
-    match = _SETTINGS_LINE.match(line)
-    if not match:
+def redact_line(line: str, aliases: Mapping[str, str] | None = None) -> str:
+    """Hide the value in `settings NAME VALUE` so API keys never reach the history file.
+
+    Every statement of the line is checked (`echo x ; settings KEY abc`, a `for` body), a
+    leading `\\` is seen through, and so is an alias of `settings` when `aliases` is given.
+    """
+    if "settings" not in line and not aliases:
         return line
-    return f"{match.group(1)}{match.group(2)}{match.group(3)}••••"
+    parts = _STATEMENT_SPLIT.split(line)  # statements and the separators between them
+    for i in range(0, len(parts), 2):
+        match = _SETTINGS_STMT.match(parts[i])
+        if match and _is_settings(match.group(2), aliases):
+            parts[i] = f"{match.group(1)}{match.group(2)}{match.group(3)}{match.group(4)}{match.group(5)}••••"
+    return "".join(parts)
+
+
+def _is_settings(word: str, aliases: Mapping[str, str] | None) -> bool:
+    seen: set[str] = set()
+    while word not in seen:
+        if word == "settings":
+            return True
+        seen.add(word)
+        target = (aliases or {}).get(word)
+        if not target:
+            return False
+        word = target.split()[0] if target.split() else ""
+    return False

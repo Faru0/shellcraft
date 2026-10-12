@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import re
 import string
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from rich.text import Text
 
 from core.builtins import builtin
-from core.commands._io import expand_count, joined, lines_out, sources
+from core.commands._io import expand_count, joined, lines_out, sources, user_path
 from core.context import Styled, WithStatus
 from core.modkit import ArgParser, ModuleError
 
@@ -29,6 +30,8 @@ def match_lines(lines: Iterable[str], regex: re.Pattern, invert: bool = False,
                 limit: int | None = None) -> list[tuple[int, str]]:
     """[(1-based line number, line)] for lines matching `regex` (or not, with invert)."""
     found: list[tuple[int, str]] = []
+    if limit is not None and limit <= 0:
+        return found  # `grep -m 0` selects nothing, as in GNU grep
     for number, line in enumerate(lines, start=1):
         if bool(regex.search(line)) == invert:
             continue
@@ -77,7 +80,8 @@ def echo(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 # ── cat ──────────────────────────────────────────────────────────────────────
 
-@builtin("cat", "Concatenate files (or stdin) to the output", "cat [-n] [FILE...]", category="text", doc="""\
+@builtin("cat", "Concatenate files (or stdin) to the output", "cat [-n] [-s] [-A] [-E] [-T] [FILE...]", category="text",
+         doc="""\
 # cat
 
 Concatenate files and write them to the output stream. With no FILE, or with `-`, read stdin.
@@ -87,6 +91,10 @@ Concatenate files and write them to the output stream. With no FILE, or with `-`
 | Option | Meaning |
 | --- | --- |
 | `-n` | Number every output line. |
+| `-s` | Squeeze repeated blank lines into one. |
+| `-A` | Show every character: `$` at the end of each line, `^I` for a tab, `^M` for a carriage return, other control characters as `^X`. |
+| `-E` | Show `$` at the end of each line. |
+| `-T` | Show tabs as `^I`. |
 
 ## Examples
 
@@ -94,22 +102,67 @@ Concatenate files and write them to the output stream. With no FILE, or with `-`
 cat notes.txt
 cat header.csv rows.csv > all.csv
 cat -n script.py | grep def
+cat -A data.txt      # find stray tabs and Windows line endings
 ```
 """)
 def cat(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser = ArgParser("cat")
     parser.add_argument("-n", "--number", action="store_true")
+    parser.add_argument("-s", "--squeeze-blank", action="store_true")
+    parser.add_argument("-A", "--show-all", action="store_true")
+    parser.add_argument("-E", "--show-ends", action="store_true")
+    parser.add_argument("-T", "--show-tabs", action="store_true")
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args(args)
     text = joined("cat", opts.files, stdin)
-    if not opts.number:
+    if not (opts.number or opts.squeeze_blank or opts.show_all or opts.show_ends or opts.show_tabs):
         return text
-    return lines_out(f"{i:6}\t{ln}" for i, ln in enumerate(text.splitlines(), start=1))
+    lines = text.split("\n")
+    if text.endswith("\n"):
+        lines.pop()
+    if opts.squeeze_blank:
+        squeezed: list[str] = []
+        for line in lines:
+            if line == "" and squeezed and squeezed[-1] == "":
+                continue
+            squeezed.append(line)
+        lines = squeezed
+    if opts.show_all or opts.show_tabs:
+        lines = [ln.replace("\t", "^I") for ln in lines]
+    if opts.show_all:
+        lines = ["".join(f"^{chr(ord(c) + 64)}" if ord(c) < 32 and c != "\t" else ("^?" if c == "\x7f" else c)
+                         for c in ln) for ln in lines]
+    if opts.show_all or opts.show_ends:
+        lines = [ln + "$" for ln in lines]
+    if opts.number:
+        lines = [f"{i:6}\t{ln}" for i, ln in enumerate(lines, start=1)]
+    return lines_out(lines)
 
 
 # ── grep ─────────────────────────────────────────────────────────────────────
 
-@builtin("grep", "Print lines matching a pattern", "grep [-i -v -c -n -F -l -q -m N] PATTERN [FILE...]",
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv"}
+
+
+def _grep_files(names: list[str], recursive: bool) -> list[str]:
+    """The files to search: the names as given, or with -r every file under each directory."""
+    if not recursive:
+        return names
+    out: list[str] = []
+    for name in names or ["."]:
+        path = user_path(name)
+        if not path.is_dir():
+            out.append(name)
+            continue
+        for root, dirs, files in os.walk(path):
+            dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS)
+            for f in sorted(files):
+                out.append(os.path.join(root, f) if name != "." else os.path.relpath(os.path.join(root, f)))
+    return out
+
+
+@builtin("grep", "Print lines matching a pattern",
+         "grep [-i -v -c -n -F -l -L -q -w -x -o -r -h -H] [-m N] [-A N] [-B N] [-C N] [-e PAT]... PATTERN [FILE...]",
          category="text", doc="""\
 # grep
 
@@ -125,11 +178,24 @@ on screen. Piped or redirected output is plain text.
 | `-c` | Print only a count of matching lines (per file). |
 | `-n` | Prefix each line with its line number. |
 | `-F` | Treat PATTERN as a literal string. |
+| `-E`, `-G` | Accepted for compatibility: patterns are always Python regular expressions. |
+| `-w` | Match whole words only. |
+| `-x` | Match whole lines only. |
+| `-o` | Print only the matching part of each line, one per line. |
+| `-e PAT` | A pattern; repeat it to search for several (`-e a -e b`). |
 | `-l` | Print only the names of files with a match. |
+| `-L` | Print only the names of files **without** a match. |
 | `-q`, `--quiet` | Print nothing; only the exit status says whether a line matched. |
 | `-m N` | Stop after N matches (per file). |
+| `-r`, `-R` | Search every file under each directory (`.git`, `__pycache__`, `node_modules` and virtual environments are skipped). |
+| `-A N` | Print N lines of context after each match. |
+| `-B N` | Print N lines of context before each match. |
+| `-C N` | Print N lines of context before and after. |
+| `-h` | Never prefix lines with the file name. |
+| `-H` | Always prefix lines with the file name. |
 
-With several FILEs, each line is prefixed with `file:`.
+With several FILEs (or `-r`), each line is prefixed with `file:`. Context lines are marked with
+`-` instead of `:` after the file name or line number, and groups are separated by `--`.
 
 The exit status (`$?`) is 0 when a line was selected and 1 when none was, as in GNU grep. No
 match is not an error: there is no error panel, but the prompt shows `[✗ 1]`. That makes grep a
@@ -140,40 +206,74 @@ condition: `if grep -q TODO $f { echo $f }`.
 ```
 grep -i error app.log
 cat app.log | grep -v DEBUG | grep -c timeout
-grep -l TODO main.py core/shell.py
+grep -rn TODO core
+grep -C 2 "connection reset" app.log
+grep -ow "[a-z]+@[a-z.]+" contacts.txt
 for f in *.py { if grep -q TODO $f { echo $f } }
 ```
 """)
 def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     parser = ArgParser("grep")
-    parser.add_argument("pattern")
-    parser.add_argument("files", nargs="*")
+    parser.add_argument("-e", "--regexp", action="append", default=[], metavar="PAT")
+    parser.add_argument("rest", nargs="*")
     parser.add_argument("-i", "--ignore-case", action="store_true")
     parser.add_argument("-v", "--invert-match", action="store_true")
     parser.add_argument("-c", "--count", action="store_true")
     parser.add_argument("-n", "--line-number", action="store_true")
     parser.add_argument("-F", "--fixed-strings", action="store_true")
+    parser.add_argument("-E", "--extended-regexp", action="store_true")
+    parser.add_argument("-G", "--basic-regexp", action="store_true")
+    parser.add_argument("-w", "--word-regexp", action="store_true")
+    parser.add_argument("-x", "--line-regexp", action="store_true")
+    parser.add_argument("-o", "--only-matching", action="store_true")
     parser.add_argument("-l", "--files-with-matches", action="store_true")
+    parser.add_argument("-L", "--files-without-match", action="store_true")
     parser.add_argument("-q", "--quiet", "--silent", action="store_true")
     parser.add_argument("-m", "--max-count", type=int, metavar="N")
+    parser.add_argument("-r", "-R", "--recursive", action="store_true")
+    parser.add_argument("-A", "--after-context", type=int, metavar="N")
+    parser.add_argument("-B", "--before-context", type=int, metavar="N")
+    parser.add_argument("-C", "--context", type=int, metavar="N")
+    parser.add_argument("-h", "--no-filename", action="store_true")
+    parser.add_argument("-H", "--with-filename", action="store_true")
     opts = parser.parse_args(args)
 
-    regex = compile_pattern("grep", opts.pattern, opts.ignore_case, opts.fixed_strings)
-    inputs = sources("grep", opts.files, stdin)
-    prefix_names = len(inputs) > 1
+    patterns = list(opts.regexp)
+    files = list(opts.rest)
+    if not patterns:
+        if not files:
+            raise ModuleError("grep: missing PATTERN (usage: grep [OPTIONS] PATTERN [FILE...])")
+        patterns.append(files.pop(0))
+    if opts.context is not None:
+        opts.after_context = opts.before_context = opts.context
+    context = opts.after_context is not None or opts.before_context is not None
+    opts.after_context, opts.before_context = opts.after_context or 0, opts.before_context or 0
+    if opts.after_context < 0 or opts.before_context < 0:
+        raise ModuleError("grep: context lengths must be >= 0")
+    parts = [re.escape(p) if opts.fixed_strings else p for p in patterns]
+    if opts.word_regexp:
+        parts = [rf"\b(?:{p})\b" for p in parts]
+    if opts.line_regexp:
+        parts = [rf"^(?:{p})$" for p in parts]
+    regex = compile_pattern("grep", "|".join(f"(?:{p})" for p in parts) if len(parts) > 1 else parts[0],
+                            opts.ignore_case)
+
+    inputs = sources("grep", _grep_files(files, opts.recursive), stdin)
+    prefix_names = opts.with_filename or (len(inputs) > 1 and not opts.no_filename)
 
     plain: list[str] = []
     styled = Text()
     selected = False
     for name, text in inputs:
-        found = match_lines(text.splitlines(), regex, opts.invert_match, opts.max_count)
+        lines = text.splitlines()
+        found = match_lines(lines, regex, opts.invert_match, opts.max_count)
         selected = selected or bool(found)
         if opts.quiet:
             if selected:
                 break
             continue
-        if opts.files_with_matches:
-            if found:
+        if opts.files_with_matches or opts.files_without_match:
+            if bool(found) == opts.files_with_matches:
                 plain.append(name)
                 styled.append(name + "\n", style="sc.path")
             continue
@@ -182,12 +282,43 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
             plain.append(line)
             styled.append(line + "\n")
             continue
-        for number, line in found:
-            head = (f"{name}:" if prefix_names else "") + (f"{number}:" if opts.line_number else "")
+        if opts.only_matching:
+            for number, line in found:
+                for match in regex.finditer(line):
+                    if not match.group():
+                        continue
+                    head = (f"{name}:" if prefix_names else "") + (f"{number}:" if opts.line_number else "")
+                    plain.append(head + match.group())
+                    styled.append(head, style="sc.muted" if not opts.line_number else "sc.accent")
+                    styled.append(match.group(), style="sc.match")
+                    styled.append("\n")
+            continue
+        hits = {number for number, _ in found}
+        shown: list[int] = []
+        if context:
+            wanted = set()
+            for number in hits:
+                wanted.update(range(max(1, number - opts.before_context),
+                                    min(len(lines), number + opts.after_context) + 1))
+            shown = sorted(wanted)
+        else:
+            shown = sorted(hits)
+        previous = None
+        for number in shown:
+            if context and previous is not None and number != previous + 1:
+                plain.append("--")
+                styled.append("--\n", style="sc.muted")
+            previous = number
+            line = lines[number - 1]
+            mark = ":" if number in hits else "-"
+            head = (f"{name}{mark}" if prefix_names else "") + (f"{number}{mark}" if opts.line_number else "")
             plain.append(head + line)
-            styled.append(head, style="sc.muted")
+            if prefix_names:
+                styled.append(f"{name}{mark}", style="sc.muted")
+            if opts.line_number:
+                styled.append(f"{number}{mark}", style="sc.accent")
             body = Text(line)
-            if not opts.invert_match:
+            if number in hits and not opts.invert_match:
                 body.highlight_regex(regex, style="sc.match")
             styled.append_text(body)
             styled.append("\n")
@@ -198,25 +329,29 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
 
 # ── head / tail ──────────────────────────────────────────────────────────────
 
-def _head_tail(prog: str, args: list[str], stdin: str, take_last: bool) -> str:
-    parser = ArgParser(prog)
-    parser.add_argument("-n", "--lines", type=int, default=10, metavar="N")
-    parser.add_argument("files", nargs="*")
-    opts = parser.parse_args(expand_count(args))
+def _head_tail(prog: str, opts, stdin: str, take_last: bool) -> str:
     if opts.lines < 0:
         raise ModuleError(f"{prog}: -n must be >= 0")
+    if opts.bytes is not None and opts.bytes < 0:
+        raise ModuleError(f"{prog}: -c must be >= 0")
     inputs = sources(prog, opts.files, stdin)
     out: list[str] = []
     for i, (name, text) in enumerate(inputs):
-        lines = text.splitlines()
-        chunk = (lines[-opts.lines:] if opts.lines else []) if take_last else lines[: opts.lines]
         if len(inputs) > 1:
             out += ([""] if i else []) + [f"==> {name} <=="]
-        out += chunk
+        if opts.bytes is not None:
+            data = text.encode("utf-8", errors="replace")
+            chunk = (data[-opts.bytes:] if opts.bytes else b"") if take_last else data[:opts.bytes]
+            out.append(chunk.decode("utf-8", errors="ignore"))
+            continue
+        lines = text.splitlines()
+        out += (lines[-opts.lines:] if opts.lines else []) if take_last else lines[: opts.lines]
+    if opts.bytes is not None and len(inputs) == 1:
+        return out[0]
     return lines_out(out)
 
 
-@builtin("head", "Output the first lines of input", "head [-n N | -N] [FILE...]", category="text", doc="""\
+@builtin("head", "Output the first lines of input", "head [-n N | -N] [-c N] [FILE...]", category="text", doc="""\
 # head
 
 Print the first 10 lines of stdin or of each FILE.
@@ -224,19 +359,26 @@ Print the first 10 lines of stdin or of each FILE.
 | Option | Meaning |
 | --- | --- |
 | `-n N`, `--lines N` | Print the first N lines instead (`-N` is shorthand). |
+| `-c N`, `--bytes N` | Print the first N bytes instead. |
 
 ## Examples
 
 ```
 head -n 5 data.csv
 cat app.log | head -3
+head -c 100 big.bin
 ```
 """)
 def head(ctx: ShellContext, args: list[str], stdin: str) -> str:
-    return _head_tail("head", args, stdin, take_last=False)
+    parser = ArgParser("head")
+    parser.add_argument("-n", "--lines", type=int, default=10, metavar="N")
+    parser.add_argument("-c", "--bytes", type=int, metavar="N")
+    parser.add_argument("files", nargs="*")
+    return _head_tail("head", parser.parse_args(expand_count(args)), stdin, take_last=False)
 
 
-@builtin("tail", "Output the last lines of input", "tail [-n N | -N] [FILE...]", category="text", doc="""\
+@builtin("tail", "Output the last lines of input", "tail [-n N | -N] [-c N] [-f] [FILE...]", category="text",
+         direct=True, doc="""\
 # tail
 
 Print the last 10 lines of stdin or of each FILE.
@@ -244,53 +386,101 @@ Print the last 10 lines of stdin or of each FILE.
 | Option | Meaning |
 | --- | --- |
 | `-n N`, `--lines N` | Print the last N lines instead (`-N` is shorthand). |
+| `-c N`, `--bytes N` | Print the last N bytes instead. |
+| `-f`, `--follow` | Keep printing as FILE grows (one file, interactive shell only). Ctrl-C stops it. |
 
 ## Examples
 
 ```
 tail -n 20 app.log
 ls | sort | tail -1
+tail -f app.log
 ```
 """)
 def tail(ctx: ShellContext, args: list[str], stdin: str) -> str:
-    return _head_tail("tail", args, stdin, take_last=True)
+    parser = ArgParser("tail")
+    parser.add_argument("-n", "--lines", type=int, default=10, metavar="N")
+    parser.add_argument("-c", "--bytes", type=int, metavar="N")
+    parser.add_argument("-f", "--follow", action="store_true")
+    parser.add_argument("files", nargs="*")
+    opts = parser.parse_args(expand_count(args))
+    if not opts.follow:
+        return _head_tail("tail", opts, stdin, take_last=True)
+    if len(opts.files) != 1 or opts.files[0] == "-":
+        raise ModuleError("tail: -f follows exactly one FILE")
+    if not ctx.interactive or ctx.emit is None:
+        raise ModuleError("tail: -f only works in the interactive shell")
+    return _follow(ctx, opts, user_path(opts.files[0]))
+
+
+def _follow(ctx: ShellContext, opts, path: Path) -> str:
+    """`tail -f`: print the last lines, then whatever is appended, until Ctrl-C."""
+    import time
+
+    ctx.emit(_head_tail("tail", opts, "", take_last=True))
+    try:
+        position = path.stat().st_size
+    except OSError as exc:
+        raise ModuleError(f"tail: {path}: {exc.strerror or exc}") from None
+    try:
+        while True:
+            time.sleep(0.5)
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue  # rotated away: wait for it to come back
+            if size < position:
+                position = 0  # truncated
+            if size > position:
+                with open(path, "rb") as fh:
+                    fh.seek(position)
+                    data = fh.read()
+                    position = fh.tell()
+                ctx.emit(data.decode("utf-8", errors="replace"))
+    except KeyboardInterrupt:
+        return ""
 
 
 # ── wc ───────────────────────────────────────────────────────────────────────
 
-@builtin("wc", "Count lines, words and characters", "wc [-l] [-w] [-c] [FILE...]", category="text", doc="""\
+@builtin("wc", "Count lines, words, bytes and characters", "wc [-l] [-w] [-c] [-m] [FILE...]", category="text",
+         doc="""\
 # wc
 
-Count lines, words and characters in stdin or each FILE. With no options, it prints all three.
+Count lines, words and bytes in stdin or each FILE. With no options, it prints all three.
 With several FILEs, it also prints a `total` line.
 
 | Option | Meaning |
 | --- | --- |
 | `-l` | Lines only. |
 | `-w` | Words only. |
-| `-c` | Characters only. |
+| `-c` | Bytes only (UTF-8, as GNU `wc -c`). |
+| `-m` | Characters only (`é` is one character but two bytes). |
 
 ## Examples
 
 ```
 wc -l app.log
 ls | wc -l
+echo é | wc -m
 ```
 """)
 def wc(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser = ArgParser("wc")
     parser.add_argument("-l", "--lines", action="store_true")
     parser.add_argument("-w", "--words", action="store_true")
-    parser.add_argument("-c", "--chars", action="store_true")
+    parser.add_argument("-c", "--bytes", action="store_true")
+    parser.add_argument("-m", "--chars", action="store_true")
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args(args)
-    show = [opts.lines, opts.words, opts.chars]
+    show = [opts.lines, opts.words, opts.bytes, opts.chars]
     if not any(show):
-        show = [True, True, True]
+        show = [True, True, True, False]
 
     rows: list[tuple[list[int], str]] = []
     for name, text in sources("wc", opts.files, stdin):
-        counts = [text.count("\n") + (1 if text and not text.endswith("\n") else 0), len(text.split()), len(text)]
+        counts = [text.count("\n") + (1 if text and not text.endswith("\n") else 0), len(text.split()),
+                  len(text.encode("utf-8", errors="replace")), len(text)]
         rows.append(([c for c, s in zip(counts, show) if s], "" if name == "-" else name))
     if len(rows) > 1:
         rows.append(([sum(col) for col in zip(*(r[0] for r in rows))], "total"))
@@ -303,8 +493,24 @@ def wc(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 # ── sort ─────────────────────────────────────────────────────────────────────
 
-@builtin("sort", "Sort lines of text", "sort [-r] [-n] [-u] [-f] [-k N] [-t SEP] [FILE...]", category="text",
-         doc="""\
+_HUMAN = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*([kKmMgGtTpP]?)")
+_VERSION_CHUNK = re.compile(r"(\d+)")
+
+
+def _human_value(text: str) -> float | None:
+    match = _HUMAN.match(text)
+    if not match:
+        return None
+    scale = {"": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4, "p": 1024 ** 5}
+    return float(match.group(1)) * scale[match.group(2).lower()]
+
+
+def _version_key(text: str) -> tuple:
+    return tuple((0, int(part)) if part.isdigit() else (1, part) for part in _VERSION_CHUNK.split(text) if part)
+
+
+@builtin("sort", "Sort lines of text", "sort [-r] [-n] [-h] [-V] [-u] [-f] [-s] [-k N[,M]] [-t SEP] [FILE...]",
+         category="text", doc="""\
 # sort
 
 Sort the lines of stdin or FILEs.
@@ -313,9 +519,12 @@ Sort the lines of stdin or FILEs.
 | --- | --- |
 | `-r` | Reverse the order. |
 | `-n` | Numeric sort (lines that aren't numbers sort first). |
-| `-u` | Output each distinct line once. |
+| `-h` | Human numeric sort: `2K` < `1M` < `3G` (as `du -h` and `ls -lh` print). |
+| `-V` | Version sort: `v1.2` < `v1.10` < `v2.0`. |
+| `-u` | Output each distinct line (or key, with `-k`) once. |
 | `-f` | Ignore case. |
-| `-k N` | Sort by field N (1-based). Fields are split on whitespace, or on `-t`. |
+| `-s` | Stable: lines with equal keys keep their input order. |
+| `-k N[,M]` | Sort by field N, or by fields N through M (1-based). Fields are split on whitespace, or on `-t`. |
 | `-t SEP` | Field separator for `-k`. |
 
 ## Examples
@@ -323,43 +532,64 @@ Sort the lines of stdin or FILEs.
 ```
 cat names.txt | sort -u
 cat sizes.txt | sort -n -r | head -5
+du -h -d 1 | sort -h -r
 cat data.csv | sort -t , -k 3
+ls | sort -V
 ```
 """)
 def sort(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser = ArgParser("sort")
     parser.add_argument("-r", "--reverse", action="store_true")
     parser.add_argument("-n", "--numeric-sort", action="store_true")
+    parser.add_argument("-h", "--human-numeric-sort", action="store_true")
+    parser.add_argument("-V", "--version-sort", action="store_true")
     parser.add_argument("-u", "--unique", action="store_true")
     parser.add_argument("-f", "--ignore-case", action="store_true")
-    parser.add_argument("-k", "--key", type=int, metavar="N")
+    parser.add_argument("-s", "--stable", action="store_true")
+    parser.add_argument("-k", "--key", metavar="N[,M]")
     parser.add_argument("-t", "--field-separator", metavar="SEP")
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args(args)
-    if opts.key is not None and opts.key < 1:
-        raise ModuleError("sort: -k must be >= 1")
+    first = last = None
+    if opts.key is not None:
+        match = re.fullmatch(r"(\d+)(?:,(\d+))?", opts.key)
+        if not match or int(match.group(1)) < 1 or (match.group(2) and int(match.group(2)) < int(match.group(1))):
+            raise ModuleError("sort: -k must be N or N,M with 1 <= N <= M")
+        first = int(match.group(1))
+        last = int(match.group(2)) if match.group(2) else first
 
     def field(line: str) -> str:
-        if opts.key is None:
+        if first is None:
             return line
         parts = line.split(opts.field_separator) if opts.field_separator else line.split()
-        return parts[opts.key - 1] if len(parts) >= opts.key else ""
+        return (opts.field_separator or " ").join(parts[first - 1:last])
 
     def key(line: str):
         value = field(line)
+        tail = () if opts.stable else (line,)
         if opts.numeric_sort:
             try:
-                return (1, float(value.strip()), line)
+                return (1, float(value.strip()), *tail)
             except ValueError:
-                return (0, 0.0, line)
-        return (value.lower(), line) if opts.ignore_case else (value, line)
+                return (0, 0.0, *tail)
+        if opts.human_numeric_sort:
+            number = _human_value(value)
+            return (0, 0.0, *tail) if number is None else (1, number, *tail)
+        if opts.version_sort:
+            return (_version_key(value.lower() if opts.ignore_case else value), *tail)
+        return (value.lower(), *tail) if opts.ignore_case else (value, *tail)
 
-    lines = joined("sort", opts.files, stdin).splitlines()
-    if opts.unique:
-        seen: set[str] = set()
-        norm = (lambda s: s.lower()) if opts.ignore_case else (lambda s: s)
-        lines = [ln for ln in lines if not (norm(ln) in seen or seen.add(norm(ln)))]
-    return lines_out(sorted(lines, key=key, reverse=opts.reverse))
+    lines = sorted(joined("sort", opts.files, stdin).splitlines(), key=key, reverse=opts.reverse)
+    if opts.unique:  # one line per distinct key (the whole line without -k), as GNU sort -u
+        out: list[str] = []
+        previous: Any = object()
+        for line in lines:
+            k = key(line) if opts.stable else key(line)[:-1]  # drop the whole-line tie-breaker
+            if k != previous:
+                out.append(line)
+                previous = k
+        lines = out
+    return lines_out(lines)
 
 
 # ── uniq ─────────────────────────────────────────────────────────────────────
@@ -430,7 +660,7 @@ def tee(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser.add_argument("files", nargs="+")
     opts = parser.parse_args(args)
     for name in opts.files:
-        path = Path(name).expanduser()
+        path = user_path(name)
         try:
             with open(path, "a" if opts.append else "w", encoding="utf-8", newline="") as fh:
                 fh.write(stdin)

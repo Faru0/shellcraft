@@ -39,8 +39,9 @@ from core import parser as shparser
 from core.context import ShellContext, to_text
 from core.parser import ParseError, find_closing_paren
 
-KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi")
-SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else"})
+KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
+            "case", "esac")
+SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
 MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
@@ -118,7 +119,38 @@ class Jump:
     pos: int
 
 
-Stmt = Union[Simple, Chain, For, If, Jump]
+@dataclass
+class While:
+    """`while LIST; do LIST; done` (or `until`, which loops while the condition fails)."""
+
+    cond: Cond
+    body: list[Stmt]
+    pos: int
+    until: bool = False
+    mode: str = "sh"
+
+
+@dataclass
+class Case:
+    """`case WORD in PATTERN) LIST ;; … esac`: the first clause whose pattern matches runs."""
+
+    word: str
+    clauses: list[tuple[list[str], list[Stmt]]]
+    pos: int
+
+
+@dataclass
+class Piped:
+    """A loop, if or case whose whole output goes on through a pipeline: `done | sort > out`.
+    `tail` is the text after the block, starting with `|` or a redirection."""
+
+    stmt: Stmt
+    tail: str
+    pos: int
+    mode: str = "sh"
+
+
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped]
 
 
 @dataclass
@@ -234,7 +266,13 @@ class _Parser:
         keywords (`done`, `then`, `fi`…). Returns them and the word that ended the list."""
         stmts: list[Stmt] = []
         while True:
-            self._skip_space(separators=True)
+            self._skip_space()
+            if isinstance(end, frozenset) and ";;" in end and self.s.startswith(";;", self.i):
+                self.i += 2
+                return stmts, ";;"
+            if self.i < self.n and self.s[self.i] == ";":
+                self.i += 1
+                continue
             if self._at_end():
                 if end is None:
                     return stmts, None
@@ -258,16 +296,22 @@ class _Parser:
             if self._at_end() or self.s[self.i] in ";\n" or (end == "}" and self._is_close(self.i)):
                 continue
             word = self._bare_word(self.i)
-            raise self._error(f"expected ';' or a new line before '{word}' "
-                              "(a loop's or an if's output can't be piped or redirected yet)")
+            raise self._error(f"expected ';' or a new line before '{word}'")
 
     def _statement(self) -> Stmt:
         start = self.i
         word = self._bare_word(start)
-        if word == "for":
-            return self._for()
-        if word == "if":
-            return self._if()
+        if word in ("for", "if", "while", "until", "case"):
+            stmt: Stmt
+            if word == "for":
+                stmt = self._for()
+            elif word == "if":
+                stmt = self._if()
+            elif word == "case":
+                stmt = self._case()
+            else:
+                stmt = self._while(until=word == "until")
+            return self._maybe_piped(stmt)
         if word in ("break", "continue"):
             if not self.loops:
                 raise self._error(f"'{word}' outside a for loop", start)
@@ -280,6 +324,135 @@ class _Parser:
             owner = "for" if word in ("do", "done") else "if"
             raise self._error(f"'{word}' without a matching {owner}", start)
         return self._chain()
+
+    def _maybe_piped(self, stmt: Stmt) -> Stmt:
+        """After `done`, `fi`, `esac` or `}`: a `| …` or `> file` tail pipes the block's output."""
+        self._skip_blanks()
+        i = self.i
+        starts_tail = (i < self.n and self.s[i] in "|><" and not self.s.startswith("||", i)) or \
+            self.s.startswith("2>", i) or self.s.startswith("&>", i)
+        if not starts_tail:
+            return stmt
+        start = self.i
+        tail = self._tail_text()
+        try:
+            shparser.parse(tail, substitute=lambda _: "", allow_leading_pipe=True)
+        except ParseError as exc:
+            raise ParseError(exc.message, None if exc.pos is None else start + exc.pos) from None
+        return Piped(stmt, tail, start, self.mode)
+
+    def _tail_text(self) -> str:
+        """The text up to the end of the statement (`;`, a new line, `&&`, `||`, a closing `}`)."""
+        start, quote = self.i, None
+        while self.i < self.n:
+            ch = self.s[self.i]
+            if quote:
+                if quote == '"' and self.s.startswith('\\"', self.i):
+                    self.i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+                self.i += 1
+                continue
+            if ch in ("'", '"'):
+                quote = ch
+            elif ch in ";\n" or self.s.startswith("&&", self.i) or self.s.startswith("||", self.i):
+                break
+            elif self.depth and self._is_close(self.i):
+                break
+            self.i += 1
+        return self.s[start:self.i].rstrip()
+
+    # while / until
+    def _while(self, until: bool) -> While:
+        pos = self.i
+        self.i += 5
+        word = "until" if until else "while"
+        if self._py_flag():
+            cond = self._in_mode("py", lambda: self._cond(word))
+            self.loops += 1
+            try:
+                body = self._in_mode("py", lambda: self._block(word))
+            finally:
+                self.loops -= 1
+            return While(cond, body, pos, until, "py")
+        self._skip_space()
+        start = self.i
+        if self._at_end():
+            raise self._incomplete(f"{word}: missing a condition", " ")
+        try:
+            stmts, _ = self._in_mode("sh", lambda: self.parse_list(frozenset({"do"})))
+        except IncompleteError:
+            rest = self.s[start:].rstrip()
+            if rest.endswith("{") or " { " in rest:
+                raise self._error(f"{word}: bash syntax is `{word} …; do …; done`; for braces use "
+                                  f"`{word} -py … {{ … }}`", start) from None
+            raise
+        if not stmts:
+            raise self._error(f"{word}: missing a condition before 'do'", start)
+        cond = Cond("list", self.s[start:self.i], start, stmts=stmts)
+        self.loops += 1
+        try:
+            body, _ = self._in_mode("sh", lambda: self.parse_list(frozenset({"done"})))
+        finally:
+            self.loops -= 1
+        return While(cond, body, pos, until, "sh")
+
+    # case
+    def _case(self) -> Case:
+        pos = self.i
+        self.i += 4
+        self._skip_space()
+        if self._at_end():
+            raise self._incomplete("case: missing a word", " ")
+        word = self._word()
+        if not word:
+            raise self._error("case: expected a word after 'case'")
+        self._skip_space()
+        if self._at_end():
+            raise self._incomplete("case: missing 'in'", " ")
+        if self._bare_word(self.i) != "in":
+            raise self._error(f"case: expected 'in' after '{word}'")
+        self.i += 2
+        clauses: list[tuple[list[str], list[Stmt]]] = []
+        while True:
+            self._skip_space(separators=True)
+            if self._at_end():
+                raise self._incomplete("case: missing 'esac'", " ; ")
+            if self._bare_word(self.i) == "esac":
+                self.i += 4
+                return Case(word, clauses, pos)
+            start = self.i
+            if self.s[self.i] == "(":
+                self.i += 1
+            close = self._pattern_end()
+            if close is None:
+                raise self._incomplete("case: missing ')' after the pattern", " ")
+            patterns = [p.strip() for p in self.s[self.i:close].split("|")]
+            if not all(patterns):
+                raise self._error("case: empty pattern", start)
+            self.i = close + 1
+            body, _ = self._in_mode("sh", lambda: self.parse_list(frozenset({";;", "esac"})))
+            clauses.append((patterns, body))
+            if self.s[self.i - 4:self.i] == "esac":
+                return Case(word, clauses, pos)
+
+    def _pattern_end(self) -> int | None:
+        """The index of the `)` that ends a case pattern (quotes respected)."""
+        quote, j = None, self.i
+        while j < self.n:
+            ch = self.s[j]
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"'):
+                quote = ch
+            elif ch == ")":
+                return j
+            elif ch in ";\n":
+                return None
+            j += 1
+        return None
 
     def _chain(self) -> Stmt:
         start = self.i
@@ -598,8 +771,10 @@ def _check_substitutions(word: str, offset: int) -> None:
 
 def _check_pipeline(text: str, offset: int, mode: str = "top") -> None:
     """Syntax-check a pipeline before anything runs, with the error position in the whole line."""
+    if mode in ("top", "sh") and shparser.arith.is_assignment(text) and "|" not in text and ">" not in text:
+        return  # `x=1`: an assignment, not a command
     try:
-        shparser.parse(text, substitute=(lambda _: "") if mode == "sh" else None)
+        shparser.parse(text, substitute=(lambda _: "") if mode in ("sh", "top") else None)
     except ParseError as exc:
         raise ParseError(exc.message, None if exc.pos is None else offset + exc.pos) from None
 
@@ -980,14 +1155,20 @@ class _Runner:
     def __init__(self, ctx: ShellContext, parent: _Runner | None = None):
         self.ctx = ctx
         self.parent = parent  # set for `$( … )`: output is captured, errors go to the parent
-        self.vars: dict[str, str] = dict(parent.vars) if parent else {}
+        # The top-level runner writes variables straight to the shell (`x=1` and loop variables
+        # outlive the line, as in bash); a `$( … )` runs with a copy, as a subshell would.
+        self.vars: dict[str, str] = dict(parent.vars) if parent else ctx.variables
         self.collected: list[str] = []
 
-    def variables(self) -> dict[str, str]:
-        return {**self.vars, "?": str(self.ctx.last_status)}
+    def variables(self) -> Any:
+        from core.pipeline import Variables
+
+        return Variables(self.ctx, self.vars)
+
+    collect_only = False  # a piped block: output is collected even at the top level
 
     def show(self, value: Any) -> None:
-        if self.ctx.emit is not None and self.parent is None:
+        if self.ctx.emit is not None and self.parent is None and not self.collect_only:
             self.ctx.emit(value)
             return
         text = to_text(value)
@@ -1002,7 +1183,10 @@ class _Runner:
         elif self.ctx.emit_error is not None:
             self.ctx.emit_error(exc, text)
         elif isinstance(exc, PipelineError):
-            self.collected.append(f"✗ {exc.name}: {exc.message}\n")
+            message = exc.message
+            if message.startswith(f"{exc.name}: "):
+                message = message[len(exc.name) + 2:]  # ModuleError messages already name the command
+            self.collected.append(f"✗ {exc.name}: {message}\n")
         elif isinstance(exc, ParseError):
             self.collected.append(f"✗ parse error: {exc.message}\n")
         else:
@@ -1030,6 +1214,12 @@ class _Runner:
                 self.run_for(stmt)
             elif isinstance(stmt, If):
                 self.run_if(stmt)
+            elif isinstance(stmt, While):
+                self.run_while(stmt)
+            elif isinstance(stmt, Case):
+                self.run_case(stmt)
+            elif isinstance(stmt, Piped):
+                self.run_piped(stmt)
             elif stmt.kind == "break":
                 raise _Break
             else:
@@ -1038,15 +1228,19 @@ class _Runner:
     def run_simple(self, stmt: Simple | str, show_errors: bool = True) -> tuple[int, Any]:
         """Run one pipeline; returns (status, output). Bash-mode statements split unquoted
         expansions into words and run `$( … )` (not inside `[[ … ]]`, as in bash)."""
-        from core.pipeline import PipelineError, _run_parsed
+        from core.pipeline import PipelineError, _run_parsed, assign
 
         if isinstance(stmt, str):
             stmt = Simple(stmt, 0, "py")
         sh = stmt.mode == "sh"
+        expands = stmt.mode in ("sh", "top")
         try:
+            if assign(stmt.text, self.ctx, self.variables(), self.substitute if expands else None, target=self.vars):
+                self.ctx.last_status = 0
+                return 0, None
             result = _run_parsed(stmt.text, self.ctx, self.variables(),
                                  split=sh and not stmt.text.lstrip().startswith("[["),
-                                 substitute=self.substitute if sh else None)
+                                 substitute=self.substitute if expands else None, glob=expands)
         except (ParseError, PipelineError) as exc:
             if show_errors:
                 self.report(exc, stmt.text)
@@ -1113,6 +1307,55 @@ class _Runner:
                     values.append(value)
         return values
 
+    def run_while(self, stmt: While) -> None:
+        status = 0  # as in bash: the status of the last body command, or 0 when none ran
+        while self.test(stmt.cond) != stmt.until:
+            try:
+                self.run_list(stmt.body)
+            except _Break:
+                status = self.ctx.last_status
+                break
+            except _Continue:
+                status = self.ctx.last_status
+                continue
+            status = self.ctx.last_status
+        self.ctx.last_status = status
+
+    def run_case(self, stmt: Case) -> None:
+        import fnmatch
+
+        word = " ".join(expand_sh_word(stmt.word, self.variables(), self.substitute))
+        for patterns, body in stmt.clauses:
+            for pattern in patterns:
+                expanded = "".join(_unquote(p) for p in [pattern]) if "$" not in pattern else \
+                    " ".join(expand_sh_word(pattern, self.variables(), self.substitute))
+                if fnmatch.fnmatchcase(word, expanded):
+                    self.run_list(body)
+                    return
+        self.ctx.last_status = 0
+
+    def run_piped(self, stmt: Piped) -> None:
+        """Run the block with its output collected, then feed that to the tail pipeline."""
+        from core.pipeline import PipelineError, _run_parsed
+
+        inner = _Runner(self.ctx, parent=self)
+        inner.vars = self.vars  # the same scope: `for … done | sort` is not a subshell for variables
+        inner.collect_only = True
+        try:
+            inner.run_list([stmt.stmt])
+        except (_Break, _Continue):
+            pass
+        text = "".join(inner.collected)
+        sh = stmt.mode == "sh"
+        try:
+            result = _run_parsed(stmt.tail, self.ctx, self.variables(), split=sh,
+                                 substitute=self.substitute, glob=True, stdin=text, allow_leading_pipe=True)
+        except (ParseError, PipelineError) as exc:
+            self.report(exc, stmt.tail)
+            return
+        if result is not None and result.output is not None:
+            self.show(result.output)
+
     def run_if(self, stmt: If) -> None:
         for cond, body in stmt.branches:
             if self.test(cond):
@@ -1143,3 +1386,20 @@ class _Runner:
                 raise _Abort(PipelineError(1, 1, "if", f"({cond.text.strip()}): {exc}"), cond.text) from None
             self.ctx.last_status = 0 if ok else 1
         return ok != cond.negate
+
+
+def _unquote(pattern: str) -> str:
+    """A case pattern without its quotes; quoted glob characters are escaped so they match literally."""
+    out: list[str] = []
+    quote = None
+    for ch in pattern:
+        if quote:
+            if ch == quote:
+                quote = None
+            else:
+                out.append(f"[{ch}]" if ch in "*?[" else ch)
+        elif ch in ("'", '"'):
+            quote = ch
+        else:
+            out.append(ch)
+    return "".join(out)

@@ -20,7 +20,7 @@ def test_expansions(line, previous, expected):
     assert expand(line, previous) == (expected, True)
 
 
-@pytest.mark.parametrize("line", ["echo '!!'", "echo hi!", "if -py (a != b) { echo }", "echo ! x", "echo \"it's\" !x"])
+@pytest.mark.parametrize("line", ["echo '!!'", "echo hi!", "if -py (a != b) { echo }", "echo ! x", "echo \"it's\"!x"])
 def test_left_alone(line):
     assert expand(line, "prev") == (line, False)
 
@@ -40,8 +40,12 @@ def test_last_word():
 
 class _ScriptedSession:
     def __init__(self, lines):
+        from types import SimpleNamespace
+
         self.lines = list(lines)
         self.prompts = []
+        self.app = SimpleNamespace(erase_when_done=False)
+        self.bottom_toolbar = None
 
     def prompt(self, message):
         self.prompts.append(message)

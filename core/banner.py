@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import sys
+from typing import Iterable
 
 from rich.align import Align
 from rich.color import Color
@@ -48,7 +49,9 @@ def _gradient(lines: list[str], start: str, end: str) -> Text:
     return text
 
 
-def render_banner(ui: UI, registry: ModuleRegistry) -> Panel:
+def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = ()) -> Panel:
+    """The welcome panel. `warnings` (theme problems, a bad config section) are shown after the
+    module warnings, so nothing printed before the screen was cleared is lost."""
     theme = ui.theme
     art_lines = _art("SHELLCRAFT")
     if ui.console.width >= len(art_lines[0]) + 6:
@@ -69,7 +72,7 @@ def render_banner(ui: UI, registry: ModuleRegistry) -> Panel:
         (" completes, ", "sc.muted"), ("→", "sc.accent"), (" accepts ghost text", "sc.muted"),
     )
     parts = [Align.center(title), Text(""), Align.center(tagline), Align.center(stats), Align.center(hint)]
-    for warning in registry.warnings:
+    for warning in [*registry.warnings, *warnings]:
         parts.append(Align.center(Text(f"⚠ {warning}", style="sc.warning")))
     return Panel(Group(*parts), border_style="sc.border", padding=(1, 2),
                  subtitle=Text(" welcome, operator ", style="sc.prompt"), subtitle_align="right")

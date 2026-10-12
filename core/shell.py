@@ -7,30 +7,56 @@ import getpass
 import os
 import socket
 import sys
+import time
 from pathlib import Path
+from typing import Any, Callable, Iterable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory, InMemoryHistory
+from prompt_toolkit.lexers import DynamicLexer
 from prompt_toolkit.styles import DynamicStyle
 from rich.text import Text
 
-from core import histexpand, script, settings
+from core import aliases, gitinfo, histexpand, script, settings
 from core.banner import render_banner
+from core.builtins import BUILTINS
 from core.completer import ShellCompleter
 from core.config import history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit
+from core.highlight import KEYWORDS, ShellLexer
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
 from core.pipeline import STATUS_INTERRUPTED, STATUS_SYNTAX, PipelineError, run_line
 from core.watch import ModuleWatcher
 
+# Prompt segments, in the order `prompt` lists them. The left prompt and the right prompt
+# (`prompt -r`) are each a list of these names, saved under "prompt" in config.json.
+SEGMENTS: dict[str, str] = {
+    "name": "the ⚡shellcraft label",
+    "user": "user@host",
+    "path": "the working directory (~ for home)",
+    "git": "⎇ branch, when the directory is in a git repository",
+    "mcp": "● mcp :PORT while `mcp start` runs",
+    "status": "[✗ N] after a command fails",
+    "duration": "⏱ 4.2s when the last command took more than 2 seconds",
+    "clock": "the time (HH:MM)",
+    "python": "the Python version",
+}
+DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
+DEFAULT_RIGHT: list[str] = []
+SLOW_SECONDS = 2.0  # show the duration of commands that took longer than this
+
 
 def _pretty_cwd(cwd: str | None = None, home: str | None = None) -> str:
-    cwd = os.getcwd() if cwd is None else cwd
+    if cwd is None:
+        try:
+            cwd = os.getcwd()
+        except OSError:  # the directory was deleted under us
+            return "(deleted)"
     home = str(Path.home()) if home is None else home
     # normcase: Windows paths are case-insensitive (C:\Users\Me vs c:\users\me).
     folded, folded_home = os.path.normcase(cwd), os.path.normcase(home)
@@ -49,16 +75,39 @@ def _user_host() -> str:
     return f"{user}@{socket.gethostname().split('.')[0]}"
 
 
+def format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, seconds = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def prompt_segments(config: dict[str, Any], side: str) -> list[str]:
+    """The segment names saved for one side of the prompt ("left" or "right"), or the default."""
+    section = config.get("prompt")
+    value = section.get(side) if isinstance(section, dict) else None
+    if isinstance(value, list) and all(isinstance(v, str) and v in SEGMENTS for v in value):
+        return value
+    return DEFAULT_LEFT if side == "left" else DEFAULT_RIGHT
+
+
 class _RedactingHistory:
     """Mixin: store `settings NAME ••••` instead of an API key typed on the command line.
 
-    A line typed with a leading space is not saved at all (bash's `ignorespace`).
+    A line typed with a leading space is not saved at all (bash's `ignorespace`). `aliases`
+    (a callable) lets the redaction see through an alias of `settings`.
     """
+
+    aliases: Callable[[], dict[str, str]] | None = None
 
     def append_string(self, string: str) -> None:
         if string[:1].isspace():
             return
-        super().append_string(settings.redact_line(string))
+        names = self.aliases() if self.aliases is not None else None
+        super().append_string(settings.redact_line(string, names))
 
 
 class RedactingFileHistory(_RedactingHistory, FileHistory):
@@ -78,6 +127,7 @@ class Shell:
         self.ctx = ctx
         self.ui = ctx.ui
         self.user_host = _user_host()
+        self.last_duration: float = 0.0  # seconds the last command took
         self._cleanup = contextlib.ExitStack()
         self.direct_console: DirectConsole | None = None
         self.windows_console_error: str | None = None  # why CONIN$ / CONOUT$ couldn't be used
@@ -127,11 +177,13 @@ class Shell:
         try:
             path = history_path()
             path.parent.mkdir(parents=True, exist_ok=True)
-            history = RedactingFileHistory(str(path))
+            history: Any = RedactingFileHistory(str(path))
         except OSError:
             history = RedactingInMemoryHistory()
+        history.aliases = lambda: aliases.get_all(ctx.config)
 
         ctx.history = history
+        self._lexer = ShellLexer(self._is_known_command)
         self.session: PromptSession = PromptSession(
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
@@ -139,10 +191,14 @@ class Shell:
             complete_while_typing=True,
             style=DynamicStyle(lambda: self.ui.pt_style),
             include_default_pygments_style=False,
+            lexer=DynamicLexer(self._current_lexer),
+            rprompt=self._rprompt,
         )
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
         self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
+        # The toolbar line only exists while there is something on the line to describe.
+        self.session.default_buffer.on_text_changed += lambda _buffer: self._update_toolbar()
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -160,16 +216,62 @@ class Shell:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
+    # ── the prompt ───────────────────────────────────────────────────────────
+
+    def _segment(self, name: str) -> list[tuple[str, str]]:
+        """The fragments of one prompt segment, or [] when it has nothing to show right now."""
+        if name == "name":
+            return [("class:name", " ⚡shellcraft ")]
+        if name == "user":
+            return [("class:user", self.user_host)]
+        if name == "path":
+            return [("class:path", _pretty_cwd())]
+        if name == "git":
+            branch = gitinfo.branch()
+            return [("class:git", f"⎇ {branch}")] if branch else []
+        if name == "mcp":
+            return self._mcp_marker()
+        if name == "status":
+            return [("class:failed", f"[✗ {self.ctx.last_status}]")] if self.ctx.last_status else []
+        if name == "duration":
+            if self.last_duration > SLOW_SECONDS:
+                return [("class:duration", f"⏱ {format_duration(self.last_duration)}")]
+            return []
+        if name == "clock":
+            return [("class:clock", time.strftime("%H:%M"))]
+        if name == "python":
+            return [("class:sep", f"py{sys.version_info[0]}.{sys.version_info[1]}")]
+        return []
+
     def _prompt(self) -> FormattedText:
-        parts = [
-            ("class:frame", "╭─"), ("class:name", " ⚡shellcraft "), ("class:sep", "─ "),
-            ("class:user", self.user_host), ("class:sep", " ─ "), ("class:path", _pretty_cwd()),
-        ]
-        parts += self._mcp_marker()
-        if self.ctx.last_status:
-            parts += [("class:sep", " "), ("class:failed", f"[✗ {self.ctx.last_status}]")]
+        """`╭─ ⚡shellcraft ─ user@host ─ ~/path ─ ⎇ main [✗ 1] ⏱ 4.2s` over `╰─❯ `: the segments
+        from `prompt`, joined with `─`; the short ones (status, duration) with a space."""
+        parts: list[tuple[str, str]] = [("class:frame", "╭─")]
+        previous: str | None = None  # the last segment shown
+        for name in prompt_segments(self.ctx.config, "left"):
+            fragments = self._segment(name)
+            if not fragments:
+                continue
+            if previous is None:
+                parts.append(("class:sep", "" if name == "name" else " "))
+            elif previous == "name":
+                parts.append(("class:sep", "─ "))
+            else:
+                parts.append(("class:sep", " " if name in ("status", "duration") else " ─ "))
+            parts += fragments
+            previous = name
         parts += [("", "\n"), ("class:frame", "╰─"), ("class:arrow", "❯ ")]
         return FormattedText(parts)
+
+    def _rprompt(self) -> FormattedText | None:
+        parts: list[tuple[str, str]] = []
+        for name in prompt_segments(self.ctx.config, "right"):
+            fragments = self._segment(name)
+            if fragments:
+                if parts:
+                    parts.append(("class:sep", " "))
+                parts += fragments
+        return FormattedText(parts) if parts else None
 
     @staticmethod
     def _continuation_prompt() -> FormattedText:
@@ -183,11 +285,52 @@ class Shell:
             return []
         address = f":{child.port}" if child.host in ("127.0.0.1", "localhost") else child.url.split("/")[2]
         if child.running():
-            return [("class:sep", " ─ "), ("class:mcp", f"● mcp {address}")]
-        return [("class:sep", " ─ "), ("class:mcp.down", f"✗ mcp {address}")]
+            return [("class:mcp", f"● mcp {address}")]
+        return [("class:mcp.down", f"✗ mcp {address}")]
 
-    def banner(self) -> None:
-        self.ui.console.print(render_banner(self.ui, self.ctx.registry))
+    # ── the input line: highlighting and the toolbar ─────────────────────────
+
+    def _is_known_command(self, name: str) -> bool:
+        return (name in BUILTINS or name in KEYWORDS or self.ctx.registry.get(name) is not None
+                or name in aliases.get_all(self.ctx.config))
+
+    def _current_lexer(self) -> Any:
+        return self._lexer if settings.get(self.ctx.config, "highlight") else None
+
+    def _update_toolbar(self) -> None:
+        text = self.session.default_buffer.text
+        wanted = bool(text.strip()) and settings.get(self.ctx.config, "toolbar")
+        self.session.bottom_toolbar = self._toolbar if wanted else None
+
+    def _toolbar(self) -> FormattedText:
+        """One line under the prompt: the usage of the command being typed."""
+        text = self.session.default_buffer.text
+        words = _last_segment_words(text)
+        if not words:
+            return FormattedText([("class:toolbar", " ")])
+        name = words[0]
+        if name.startswith("\\"):
+            name = name[1:]
+        resolved = aliases.expand_command(script.shparser.Command(name, []), aliases.get_all(self.ctx.config)).name
+        if name in KEYWORDS:
+            return FormattedText([("class:toolbar.key", f" {name} "), ("class:toolbar", " see: man for, man if")])
+        if resolved in BUILTINS:
+            b = BUILTINS[resolved]
+            return FormattedText([("class:toolbar.key", f" {resolved} "),
+                                  ("class:toolbar", f" {b.usage}  — {b.summary}")])
+        spec = self.ctx.registry.get(resolved)
+        if spec is not None:
+            usage = (spec.skill.usage if spec.skill and spec.skill.usage else "") or f"{spec.name} [ARGS...]"
+            summary = f"  — {spec.summary}" if spec.summary else ""
+            return FormattedText([("class:toolbar.key", f" {resolved} "), ("class:toolbar", f" {usage}{summary}")])
+        if len(words) == 1 and text.rstrip() == text:
+            return FormattedText([("class:toolbar", " ")])  # still typing the name
+        return FormattedText([("class:toolbar.error", f" {name}: command not found ")])
+
+    # ── output ───────────────────────────────────────────────────────────────
+
+    def banner(self, warnings: Iterable[str] = ()) -> None:
+        self.ui.console.print(render_banner(self.ui, self.ctx.registry, warnings))
 
     def diagnostics(self) -> None:
         """Print the console diagnostics report (the `diagnostics` setting, or --diag)."""
@@ -197,10 +340,24 @@ class Shell:
         self.ui.console.print(console_report(self.ui, self.direct_console, self.windows_console_error),
                               markup=False, highlight=False, soft_wrap=True)
 
+    def _transient(self) -> bool:
+        return settings.get(self.ctx.config, "transient_prompt")
+
+    def _ask(self, message: Any) -> str:
+        """One prompt_toolkit prompt; with the transient prompt on, its lines are erased on Enter
+        and replaced by a compact `❯ command` line."""
+        transient = self._transient()
+        self.session.app.erase_when_done = transient
+        self.session.bottom_toolbar = None
+        line = self.session.prompt(message)
+        if transient:
+            self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
+        return line
+
     def loop(self) -> int:
         while True:
             try:
-                line = self.session.prompt(self._prompt)
+                line = self._ask(self._prompt)
                 line = self._read_continuation(line)
             except KeyboardInterrupt:
                 continue
@@ -210,7 +367,7 @@ class Shell:
                 continue
 
             try:
-                line, expanded = histexpand.expand(line, self._previous_command())
+                line, expanded = histexpand.expand(line, self._previous_command(), self._history_lines())
             except ParseError as exc:
                 show_error(self.ui, exc, line)
                 self.ctx.last_status = STATUS_SYNTAX
@@ -220,6 +377,7 @@ class Shell:
             self._remember(line)
 
             self._hot_reload()
+            started = time.monotonic()
             try:
                 result = run_line(line, self.ctx)
             except ShellExit as exc:
@@ -231,10 +389,16 @@ class Shell:
             except (ParseError, PipelineError) as exc:
                 show_error(self.ui, exc, line)
                 continue
+            except Exception as exc:  # noqa: BLE001 — a bug anywhere must not end the session
+                show_error(self.ui, exc, line)
+                self.ctx.last_status = 1
+                continue
+            finally:
+                self.last_duration = time.monotonic() - started
 
             if result is not None:
                 try:
-                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"))
+                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
                 except KeyboardInterrupt:
                     pass
 
@@ -243,7 +407,7 @@ class Shell:
         into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing."""
         while script.incomplete(line) is not None:
             try:
-                more = self.session.prompt(self._continuation_prompt)
+                more = self._ask(self._continuation_prompt)
             except KeyboardInterrupt:
                 self.ctx.last_status = STATUS_INTERRUPTED
                 return None
@@ -258,15 +422,18 @@ class Shell:
                 line = script.join_continuation(line, more)  # adds `;` only where one is needed
         return line
 
+    def _history_lines(self) -> list[str]:
+        """Every saved command, oldest first (for `!N` and `!prefix`)."""
+        history = self.ctx.history
+        strings = list(history.get_strings())
+        if not strings and not getattr(history, "_loaded", True):  # the prompt loads the file lazily
+            strings = list(reversed(list(history.load_history_strings())))
+        return strings
+
     def _previous_command(self) -> str | None:
         """The last saved command, for `!!` and `!$` (from earlier sessions too, as in bash)."""
-        history = self.ctx.history
-        strings = history.get_strings()
-        if strings:
-            return strings[-1]
-        if not getattr(history, "_loaded", True):  # the prompt loads the file in the background
-            return next(iter(history.load_history_strings()), None)
-        return None
+        lines = self._history_lines()
+        return lines[-1] if lines else None
 
     def _remember(self, line: str) -> None:
         """Save a command to the history (what prompt_toolkit would do, after our expansion)."""
@@ -281,7 +448,7 @@ class Shell:
         changed = self.watcher.changes()  # always consumed, so turning the setting on starts fresh
         if not changed or not settings.get(self.ctx.config, "hot_reload"):
             return
-        self.ctx.registry.load()
+        self.ctx.registry.reload(changed)
         msg = Text.assemble(("↻ ", "sc.accent"), (f"modules reloaded ({', '.join(changed)})", "sc.muted"))
         for warning in self.ctx.registry.warnings:
             msg.append(f"\n⚠ {warning}", style="sc.warning")
@@ -290,3 +457,10 @@ class Shell:
     def _goodbye(self, code: int) -> int:
         self.ui.console.print(Text("⏻ session closed — stay curious.", style="sc.muted"))
         return code
+
+
+def _last_segment_words(text: str) -> list[str]:
+    """The words of the command being typed (after the last `|`, `;`, `&&`, `||`, `do`, `then`…)."""
+    from core.completer import _current_segment
+
+    return _current_segment(text)

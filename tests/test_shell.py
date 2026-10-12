@@ -277,7 +277,7 @@ def test_cli_prints_diagnostics_first_when_asked(monkeypatch, tmp_path, argv, se
         def diagnostics(self):
             events.append("diagnostics")
 
-        def banner(self):
+        def banner(self, *warnings):
             events.append("banner")
 
         def loop(self):
@@ -323,7 +323,7 @@ def _screen(monkeypatch, height=10):
     from core.themes import UI, all_themes
 
     paged = []
-    monkeypatch.setattr(output, "page", lambda ui, rendered: paged.append(rendered))
+    monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))
     console = Console(file=io.StringIO(), force_terminal=True, width=100, height=height)
     return UI(all_themes({})["cyberpunk"], console), paged
 

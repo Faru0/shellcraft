@@ -59,7 +59,7 @@ def remove(config: dict[str, Any], name: str) -> bool:
 
 def expand_command(cmd: Command, aliases: dict[str, str]) -> Command:
     if cmd.name.startswith(BYPASS) and len(cmd.name) > 1:
-        return Command(cmd.name[1:], cmd.args)  # \ls: the real ls
+        return Command(cmd.name[1:], cmd.args, cmd.stderr, cmd.merge_stderr)  # \ls: the real ls
     used: set[str] = set()
     while cmd.name in aliases and cmd.name not in used:
         used.add(cmd.name)
@@ -67,11 +67,12 @@ def expand_command(cmd: Command, aliases: dict[str, str]) -> Command:
             target = validate(cmd.name, aliases[cmd.name])
         except AliasError:
             break  # a hand-edited, broken entry in config.json: run the command as typed
-        cmd = Command(target.name, target.args + cmd.args)
+        cmd = Command(target.name, target.args + cmd.args, cmd.stderr, cmd.merge_stderr)
     return cmd
 
 
 def expand(pipeline: Pipeline, aliases: dict[str, str]) -> Pipeline:
     if not aliases and not any(c.name.startswith(BYPASS) for c in pipeline.segments):
         return pipeline
-    return Pipeline([expand_command(c, aliases) for c in pipeline.segments], pipeline.redirect)
+    return Pipeline([expand_command(c, aliases) for c in pipeline.segments], pipeline.redirect,
+                    pipeline.stdin_path)

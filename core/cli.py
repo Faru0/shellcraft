@@ -93,13 +93,15 @@ def main(argv: list[str] | None = None) -> int:
 
     theme_warnings: list[str] = []
     themes = all_themes(config, theme_warnings)
-    for warning in theme_warnings:
-        print(f"shellcraft: {warning}", file=sys.stderr)
     theme_name = args.theme or config.get("theme", "cyberpunk")
-    if theme_name not in themes:
-        print(f"shellcraft: unknown theme '{theme_name}', using cyberpunk", file=sys.stderr)
+    if not isinstance(theme_name, str) or theme_name not in themes:
+        theme_warnings.append(f"unknown theme '{theme_name}', using cyberpunk")
         theme_name = "cyberpunk"
     allow_system = args.allow_system or settings.get(config, "system_commands")
+    show_banner = not args.no_banner and settings.get(config, "banner")
+    if not show_banner:  # with the banner, the warnings are shown inside it
+        for warning in theme_warnings:
+            print(f"shellcraft: {warning}", file=sys.stderr)
 
     from core.console import build_console
     from core.shell import Shell
@@ -111,10 +113,14 @@ def main(argv: list[str] | None = None) -> int:
     ui = UI(themes[theme_name], build_console())
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
     with Shell(ctx) as shell:
+        # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
+        # stdio stream is garbage to the client, and `--version` must print only the version.
+        if settings.get(config, "clear_on_start") and ui.console.is_terminal:
+            ui.console.clear()
         if args.diag or settings.get(config, "diagnostics"):
             shell.diagnostics()  # first, so it is there even if the banner is what breaks
-        if not args.no_banner and settings.get(config, "banner"):
-            shell.banner()
+        if show_banner:
+            shell.banner(theme_warnings)
         return shell.loop()
 
 

@@ -187,7 +187,6 @@ def test_double_brackets_never_split_variables(ctx):
     ("done", "without a matching for"),
     ("fi", "without a matching if"),
     ("if then echo; fi", "missing a condition"),
-    ("for x in a; do echo $x; done | sort", "can't be piped"),
     ("for x in $(echo a |); do echo; done", "pipeline ends with '|'"),
 ])
 def test_bash_syntax_errors(ctx, line, message):
@@ -212,5 +211,6 @@ def test_continuation_join(text, more, joined):
     assert script.join_continuation(text, more) == joined
 
 
-def test_plain_lines_are_unchanged(ctx):
-    assert out(ctx, "echo $(date) {a,b} *.x") == "$(date) {a,b} *.x\n"  # no bash expansion outside blocks
+def test_plain_lines_expand_substitutions_and_globs_but_not_braces(ctx):
+    assert out(ctx, "echo $(echo hi) {a,b} *.x") == "hi {a,b} *.x\n"  # no brace expansion outside blocks
+    assert out(ctx, "echo '$(echo hi)' \"$(echo there)\"") == "$(echo hi) there\n"

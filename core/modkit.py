@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import functools
 import io
 import re
@@ -24,7 +25,32 @@ class ArgParser(argparse.ArgumentParser):
         super().__init__(prog=prog, **kwargs)
 
     def error(self, message: str) -> NoReturn:
-        raise ModuleError(f"{self.prog}: {message}  (see `man {self.prog}`)")
+        # The usage line and a "did you mean" for a mistyped switch save a trip to `man`.
+        hint = self._did_you_mean(message)
+        usage = self.usage_line()
+        text = f"{self.prog}: {message}{hint}"
+        if usage:
+            text += f"\n  usage: {usage}"
+        raise ModuleError(f"{text}  (see `man {self.prog}`)")
+
+    def usage_line(self) -> str | None:
+        """The one-line usage of a builtin, when this parser belongs to one."""
+        from core.builtins import BUILTINS
+
+        builtin = BUILTINS.get(self.prog)
+        return builtin.usage if builtin else None
+
+    def _did_you_mean(self, message: str) -> str:
+        if not message.startswith("unrecognized arguments: "):
+            return ""
+        bad = next((w for w in message[24:].split() if w.startswith("-")), None)
+        if bad is None or len(bad) < 3:
+            return ""  # a single letter is anybody's guess
+        close = difflib.get_close_matches(bad, list(self._option_string_actions), n=1, cutoff=0.5)
+        if not close:
+            return ""
+        action = self._option_string_actions[close[0]]
+        return f"  (did you mean {', '.join(action.option_strings)}?)"
 
     def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
         raise ModuleError(message or f"{self.prog}: exited with status {status}")

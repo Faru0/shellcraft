@@ -188,5 +188,5 @@ def test_prompt_marker_shows_a_non_default_host(ctx):
 
     fake = SimpleNamespace(ctx=ctx)
     ctx.mcp_http = SimpleNamespace(host="::1", port=9000, url="http://[::1]:9000/mcp", running=lambda: True)
-    assert shell.Shell._mcp_marker(fake) == [("class:sep", " ─ "), ("class:mcp", "● mcp [::1]:9000")]
+    assert shell.Shell._mcp_marker(fake) == [("class:mcp", "● mcp [::1]:9000")]
     ctx.mcp_http = None

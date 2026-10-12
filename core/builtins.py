@@ -36,15 +36,17 @@ class Builtin:
     doc: str | None = None  # Markdown manual shown by `man`
     sensitive: bool = False  # may reveal secrets (e.g. env vars); disabled for MCP pipelines
     hidden: bool = False  # left out of `help` (still runs and has a man page)
+    direct: bool = False  # runs on the main thread, without a spinner (it prints as it goes)
 
 
 BUILTINS: dict[str, Builtin] = {}
 
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
-            category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False):
+            category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False,
+            direct: bool = False):
     def register(fn):
-        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden)
+        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden, direct)
         return fn
     return register
 
@@ -59,7 +61,10 @@ def _cd(ctx: ShellContext, args: list[str], stdin: str) -> str:
             raise CommandError("cd: no previous directory")
         target = ctx.prev_dir
     target = os.path.expanduser(target)
-    current = os.getcwd()
+    try:
+        current: str | None = os.getcwd()
+    except OSError:
+        current = None  # the directory was deleted: there is no "previous" to come back to
     try:
         os.chdir(target)
     except FileNotFoundError:
@@ -74,7 +79,10 @@ def _cd(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 @builtin("pwd", "Print the working directory", "pwd")
 def _pwd(ctx: ShellContext, args: list[str], stdin: str) -> str:
-    return os.getcwd() + "\n"
+    try:
+        return os.getcwd() + "\n"
+    except OSError:
+        raise CommandError("pwd: the current directory no longer exists (it was deleted); try: cd ~") from None
 
 
 @builtin("exit", "Leave ShellCraft", "exit [CODE]", stateful=True)
@@ -93,25 +101,138 @@ def _clear(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return ""
 
 
-@builtin("help", "List built-ins and loaded modules", "help")
-def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    table = Table(title="ShellCraft commands", title_style="sc.prompt", border_style="sc.border",
-                  header_style="sc.accent", expand=False)
-    table.add_column("command", style="sc.path", no_wrap=True)
-    table.add_column("kind", style="sc.muted")
-    table.add_column("description")
-    for category in CATEGORIES:
-        names = sorted(n for n, b in BUILTINS.items() if b.category == category and not b.hidden)
-        for i, name in enumerate(names):
-            table.add_row(name, category, BUILTINS[name].summary, end_section=i == len(names) - 1)
+HELP_DOC = """# help
+
+List every command, grouped (Shell, Text, Files, Info, Modules), with a status line about the
+modules. It is printed in full, never paged, so you can scroll back to it.
+
+## Usage
+
+```
+help               # the table of commands
+help NAME          # one command: its summary and usage (man NAME has the whole page)
+help -k WORD       # the commands whose name or summary mentions WORD
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-k WORD`, `--search WORD` | Search the summaries (`help -k dns`). |
+
+On a narrow terminal (under 80 columns) the table becomes plain `name — summary` lines.
+"""
+
+SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
+KEYWORDS_HELP = ("for", "if", "while", "until", "case")
+
+
+def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
+    """(section, name, summary, usage) for every command shown by `help`, in display order."""
+    rows: list[tuple[str, str, str, str]] = []
+    for category, label in SECTIONS.items():
+        for name in sorted(n for n, b in BUILTINS.items() if b.category == category and not b.hidden
+                           and n not in KEYWORDS_HELP):
+            b = BUILTINS[name]
+            rows.append((label, name, b.summary, b.usage))
     for name in ctx.registry.names():
-        table.add_row(name, "module", ctx.registry.get(name).summary)
+        spec = ctx.registry.get(name)
+        usage = (spec.skill.usage if spec.skill and spec.skill.usage else "") if spec else ""
+        rows.append(("Modules", name, spec.summary if spec else "", usage))
+    return rows
+
+
+@builtin("help", "List built-ins and loaded modules", "help [NAME | -k WORD]", doc=HELP_DOC)
+def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    search = None
+    if args and args[0] in ("-k", "--search"):
+        if len(args) != 2:
+            raise CommandError("usage: help -k WORD")
+        search = args[1].lower()
+    elif len(args) > 1 or (args and args[0].startswith("-")):
+        raise CommandError("usage: help [NAME | -k WORD]")
+    elif args:
+        return _help_one(ctx, args[0])
+
+    rows = _help_entries(ctx)
+    if search is not None:
+        rows = [r for r in rows if search in r[1].lower() or search in r[2].lower()]
+        if not rows:
+            raise CommandError(f"help: nothing matches '{search}' (man -k is not available; try help)")
+    width = ctx.ui.console.width if ctx.ui else 100
+    plain = "".join(f"{name}  {summary}\n" for _, name, summary, _ in rows)
+
+    footer = Text()
+    registry = ctx.registry
+    disabled = registry.disabled_names()
+    footer.append(f"{len(registry)} module{'s' if len(registry) != 1 else ''} loaded", style="sc.muted")
+    if disabled:
+        footer.append(f", {len(disabled)} disabled (modules -a)", style="sc.muted")
+    footer.append("   keywords ", style="sc.muted")
+    footer.append(", ".join(KEYWORDS_HELP), style="sc.accent")
+    footer.append(" (man for)", style="sc.muted")
+    for warning in registry.warnings:
+        footer.append(f"\n⚠ {warning}", style="sc.warning")
     tips = Text.assemble(
         ("Pipes ", "sc.muted"), ("a | b", "sc.accent"), ("   redirect ", "sc.muted"), ("> file", "sc.accent"),
         (" / ", "sc.muted"), (">> file", "sc.accent"), ("   docs ", "sc.muted"), ("man <command>", "sc.accent"),
-        ("   complete ", "sc.muted"), ("Tab", "sc.accent"), ("   accept suggestion ", "sc.muted"), ("→", "sc.accent"),
+        ("   one command ", "sc.muted"), ("help NAME", "sc.accent"),
+        ("   complete ", "sc.muted"), ("Tab", "sc.accent"),
     )
-    return Paged(Group(table, tips), page=False)  # printed in full, to scroll back to
+
+    if width < 80:  # narrow: no table, one line per command
+        lines = Text()
+        section = None
+        for sec, name, summary, _ in rows:
+            if sec != section:
+                section = sec
+                lines.append(f"{sec}\n", style="sc.accent bold")
+            lines.append(f"  {name}", style="sc.path")
+            lines.append(f" — {summary}\n")
+        return Styled(Group(lines, footer, tips), plain)
+
+    show_usage = width >= 120
+    table = Table(title="ShellCraft commands" + (f": {search}" if search else ""), title_style="sc.prompt",
+                  border_style="sc.border", header_style="sc.accent", expand=False)
+    table.add_column("command", style="sc.path", no_wrap=True)
+    table.add_column("description")
+    if show_usage:
+        table.add_column("usage", style="sc.muted", max_width=max(30, width // 3))
+    section = None
+    for i, (sec, name, summary, usage) in enumerate(rows):
+        if sec != section:
+            if section is not None:
+                table.add_section()
+            section = sec
+            table.add_row(Text(sec, style="sc.accent bold"), *([""] * (2 if show_usage else 1)))
+        cells = [name, summary] + ([usage] if show_usage else [])
+        table.add_row(*cells)
+    return Styled(Paged(Group(table, footer, tips), page=False), plain)  # printed in full, to scroll back to
+
+
+def _help_one(ctx: ShellContext, name: str) -> Any:
+    """`help NAME`: the one-line summary and the usage, with a pointer to the man page."""
+    spec = ctx.registry.get(name)
+    if spec is not None:
+        summary = spec.summary or f"module {name}"
+        usage = (spec.skill.usage if spec.skill and spec.skill.usage else "") or f"{name} [ARGS...]"
+        kind = f"module ({spec.path.name})"
+    elif name in BUILTINS:
+        b = BUILTINS[name]
+        summary, usage = b.summary, b.usage
+        kind = "shell keyword" if name in KEYWORDS_HELP else f"builtin ({b.category})"
+    elif ctx.registry.is_disabled(name):
+        raise CommandError(f"help: module '{name}' is disabled (modules enable {name})")
+    else:
+        known = list(BUILTINS) + ctx.registry.names()
+        close = difflib.get_close_matches(name, known, n=1)
+        hint = f" — did you mean '{close[0]}'?" if close else ""
+        raise CommandError(f"help: no such command '{name}'{hint}")
+    plain = f"{name}: {summary}\nusage: {usage}\n"
+    styled = Text.assemble((name, "sc.path bold"), ("  ", ""), (kind, "sc.muted"), ("\n", ""),
+                           (summary, ""), ("\n", ""), ("usage: ", "sc.muted"), (usage, "sc.accent"),
+                           ("\n", ""), (f"man {name}", "sc.muted"), (" has the whole page", "sc.muted"))
+    return Styled(styled, plain)
 
 
 MAN_DOC = """# man
@@ -172,9 +293,32 @@ def manual_text(registry: Any, name: str) -> str:
     raise CommandError(f"man: no manual entry for {name}")
 
 
-@builtin("theme", "List color themes or switch theme", "theme [NAME]", stateful=True)
+THEME_DOC = """# theme
+
+List the color themes, or switch to one. The choice is saved, so it is back next time.
+
+## Usage
+
+```
+theme                  # the list, with a swatch of each palette (● marks the active one)
+theme NAME             # switch to NAME and save it
+theme preview NAME     # try NAME in this session only (not saved)
+theme reset            # back to the default theme (cyberpunk), saved
+```
+
+Themes made for a **light** terminal background: `solarized-light`, `catppuccin-latte`. Your own
+themes go in `~/.shellcraft/config.json` (see the README): any color left out comes from `base`,
+and `light = true` picks light menu surfaces.
+"""
+
+
+@builtin("theme", "List color themes or switch theme", "theme [NAME | preview NAME | reset]", stateful=True,
+         doc=THEME_DOC)
 def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    themes = all_themes(ctx.config)
+    from core.themes import DEFAULT_THEME
+
+    warnings: list[str] = []
+    themes = all_themes(ctx.config, warnings)
     if not args:
         active = ctx.ui.theme.name if ctx.ui else ctx.config.get("theme")
         table = Table(border_style="sc.border", header_style="sc.accent", title="Themes", title_style="sc.prompt")
@@ -182,24 +326,129 @@ def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         table.add_column("name", style="sc.path")
         table.add_column("label")
         table.add_column("palette")
+        table.add_column("for", style="sc.muted")
         for t in themes.values():
             swatch = Text()
             for color in (t.prompt, t.path, t.accent, t.success, t.warning, t.error):
                 swatch.append("██", style=color)
-            table.add_row("●" if t.name == active else "", t.name, t.label, swatch)
-        return table
-    name = args[0]
+            table.add_row("●" if t.name == active else "", t.name, t.label, swatch,
+                          "light terminals" if t.light else "")
+        if not warnings:
+            return table
+        return Group(table, Text("\n".join(f"⚠ {w}" for w in warnings), style="sc.warning"))
+    preview = save = False
+    if args[0] == "preview" and len(args) == 2:
+        name, preview = args[1], True
+    elif args == ["reset"]:
+        name, save = DEFAULT_THEME, True
+    elif len(args) == 1:
+        name, save = args[0], True
+    else:
+        raise CommandError("usage: theme [NAME | preview NAME | reset]")
     if name not in themes:
-        raise CommandError(f"theme: unknown theme '{name}' (try: {', '.join(themes)})")
+        close = difflib.get_close_matches(name, list(themes), n=1)
+        hint = f" — did you mean '{close[0]}'?" if close else f" (try: {', '.join(themes)})"
+        raise CommandError(f"theme: unknown theme '{name}'{hint}")
     if ctx.ui is None:
         raise CommandError("theme: no interactive UI to theme")
     ctx.ui.set_theme(themes[name])
+    if preview:
+        return Text.assemble(("👁 ", "sc.accent"), ("previewing ", ""), (themes[name].label, "sc.accent"),
+                             (f"  (theme {name} keeps it)", "sc.muted"))
+    assert save
     ctx.config["theme"] = name
     try:
         save_config(ctx.config)
     except OSError as exc:
         return Text(f"theme set to {themes[name].label} (not saved: {exc})", style="sc.warning")
     return Text.assemble(("✓ ", "sc.success"), ("theme set to ", ""), (themes[name].label, "sc.accent"))
+
+
+PROMPT_DOC = """# prompt
+
+Choose what the prompt shows. The prompt has two lines: the first holds the segments, the
+second the `❯` where you type. A right prompt (`-r`) sits at the right edge of the second line.
+
+## Usage
+
+```
+prompt                      # the current segments, and every segment there is
+prompt SEGMENT...           # the first line, in this order
+prompt -r SEGMENT...        # the right prompt (nothing by default)
+prompt reset                # back to the default
+```
+
+## Segments
+
+| Segment | Shows |
+| --- | --- |
+""" + "".join(f"| `{name}` | {what} |\n" for name, what in (
+    ("name", "the ⚡shellcraft label"),
+    ("user", "user@host"),
+    ("path", "the working directory (~ for home)"),
+    ("git", "⎇ branch, when the directory is in a git repository (read from .git/HEAD, no git needed)"),
+    ("mcp", "● mcp :PORT while `mcp start` runs"),
+    ("status", "[✗ N] after a command fails"),
+    ("duration", "⏱ 4.2s when the last command took more than 2 seconds"),
+    ("clock", "the time (HH:MM)"),
+    ("python", "the Python version"),
+)) + """
+A segment that has nothing to show (no git repository, a successful command) is left out.
+The choice is saved in `~/.shellcraft/config.json` under `"prompt"`. `settings transient_prompt
+on` collapses the prompt to one line after Enter, so the scrollback stays dense.
+
+## Examples
+
+```
+prompt name path git status           # no user@host on a single-user machine
+prompt -r clock
+prompt reset
+```
+"""
+
+
+@builtin("prompt", "Choose the prompt's segments", "prompt [SEGMENT... | -r SEGMENT... | reset]", stateful=True,
+         doc=PROMPT_DOC)
+def _prompt(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core.shell import DEFAULT_LEFT, DEFAULT_RIGHT, SEGMENTS, prompt_segments
+
+    if not args:
+        left, right = prompt_segments(ctx.config, "left"), prompt_segments(ctx.config, "right")
+        table = Table(title="Prompt segments", title_style="sc.prompt", border_style="sc.border",
+                      header_style="sc.accent")
+        table.add_column("segment", style="sc.path")
+        table.add_column("shows")
+        table.add_column("where", style="sc.muted")
+        for name, what in SEGMENTS.items():
+            where = "left" if name in left else "right" if name in right else ""
+            table.add_row(name, what, where)
+        current = Text.assemble(("prompt ", "sc.muted"), (" ".join(left), "sc.accent"))
+        if right:
+            current.append_text(Text.assemble(("   prompt -r ", "sc.muted"), (" ".join(right), "sc.accent")))
+        return Styled(Group(table, current), f"prompt {' '.join(left)}\nprompt -r {' '.join(right)}\n")
+    if args == ["reset"]:
+        ctx.config.pop("prompt", None)
+        return _saved(ctx, Text.assemble(("✓ ", "sc.success"), "prompt reset to ", (" ".join(DEFAULT_LEFT), "sc.accent")))
+    side = "left"
+    if args[0] in ("-r", "--right"):
+        side, args = "right", args[1:]
+    unknown = [a for a in args if a not in SEGMENTS]
+    if unknown:
+        raise CommandError(f"prompt: unknown segment{'s' if len(unknown) > 1 else ''} {', '.join(unknown)} "
+                           f"(choose from: {', '.join(SEGMENTS)})")
+    section = ctx.config.get("prompt")
+    if not isinstance(section, dict):
+        section = ctx.config["prompt"] = {}
+    section[side] = list(dict.fromkeys(args))
+    if section.get("left") == DEFAULT_LEFT:
+        section.pop("left", None)
+    if section.get("right") == DEFAULT_RIGHT:
+        section.pop("right", None)
+    if not section:
+        ctx.config.pop("prompt", None)
+    shown = " ".join(args) or "(nothing)"
+    return _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"{'right ' if side == 'right' else ''}prompt set to ",
+                                     (shown, "sc.accent")))
 
 
 MODULES_DOC = """# modules
