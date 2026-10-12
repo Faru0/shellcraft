@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 from rich.text import Text
 
 from core.builtins import builtin
-from core.commands._io import expand_count, joined, lines_out, sources, user_path
+from core.commands._io import expand_count, joined, lines_out, linked, links_on, sources, user_path
 from core.context import Styled, WithStatus
 from core.modkit import ArgParser, ModuleError
 
@@ -264,6 +264,11 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     plain: list[str] = []
     styled = Text()
     selected = False
+    link = links_on(ctx)
+
+    def file_link(label: Text) -> Text:  # the file name under the cursor, as a hyperlink on screen
+        return linked(label, user_path(name)) if link and name != "-" else label
+
     for name, text in inputs:
         lines = text.splitlines()
         found = match_lines(lines, regex, opts.invert_match, opts.max_count)
@@ -275,7 +280,8 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
         if opts.files_with_matches or opts.files_without_match:
             if bool(found) == opts.files_with_matches:
                 plain.append(name)
-                styled.append(name + "\n", style="sc.path")
+                styled.append_text(file_link(Text(name, style="sc.path")))
+                styled.append("\n")
             continue
         if opts.count:
             line = f"{name}:{len(found)}" if prefix_names else str(len(found))
@@ -314,7 +320,7 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
             head = (f"{name}{mark}" if prefix_names else "") + (f"{number}{mark}" if opts.line_number else "")
             plain.append(head + line)
             if prefix_names:
-                styled.append(f"{name}{mark}", style="sc.muted")
+                styled.append_text(file_link(Text(f"{name}{mark}", style="sc.muted")))
             if opts.line_number:
                 styled.append(f"{number}{mark}", style="sc.accent")
             body = Text(line)

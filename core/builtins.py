@@ -394,6 +394,9 @@ prompt reset                # back to the default
     ("python", "the Python version"),
 )) + """
 A segment that has nothing to show (no git repository, a successful command) is left out.
+With `settings mouse_always on`, the segments can be clicked: `⚡` runs `help`, the path `ls`,
+`⎇ branch` `git status`, `● mcp` `mcp log`, and `[✗ N]` shows the last error again.
+
 The choice is saved in `~/.shellcraft/config.json` under `"prompt"`. `settings transient_prompt
 on` collapses the prompt to one line after Enter, so the scrollback stays dense.
 

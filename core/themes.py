@@ -125,6 +125,8 @@ class ThemeDef:
                 "pager.search": f"bg:{surface} {self.prompt}",
                 "pager.help": f"bg:{surface} {text}",
                 "pager.help.key": f"bg:{surface} {self.accent} bold",
+                "pager.scrollbar": f"{self.muted}",
+                "pager.scrollbar.thumb": f"{self.accent}",
             }
         )
 
@@ -251,6 +253,9 @@ class UI:
         # and in the pager, so the terminal's own selection and wheel scrollback work the rest of
         # the time. Off means never.
         self.mouse = True
+        # The `mouse_always` setting: keep the mouse on at the prompt (clicks on segments and the
+        # toolbar, wheel through history), at the cost of the terminal's own selection.
+        self.mouse_always = False
 
     def use_console(self, console: Console) -> Console:
         """Switch to another Rich console with the current theme on it; returns the previous one."""

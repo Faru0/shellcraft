@@ -18,7 +18,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from core.builtins import builtin
-from core.commands._io import lines_out, user_path
+from core.commands._io import lines_out, linked, links_on, user_path
 from core.context import Styled
 from core.modkit import ArgParser, ModuleError
 
@@ -42,8 +42,14 @@ def _is_executable(path: Path, st: os.stat_result) -> bool:
     return bool(st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
 
 
-def _entry(path: Path, display: str) -> tuple[str, Text, os.stat_result | None]:
-    """(plain name, styled name, stat) — directories get a trailing separator."""
+def _entry(path: Path, display: str, link: bool = False) -> tuple[str, Text, os.stat_result | None]:
+    """(plain name, styled name, stat) — directories get a trailing separator. `link` makes the
+    styled name a hyperlink to the file (the `links` setting)."""
+    name, styled, st = _plain_entry(path, display)
+    return name, (linked(styled, path) if link and st is not None else styled), st
+
+
+def _plain_entry(path: Path, display: str) -> tuple[str, Text, os.stat_result | None]:
     try:
         st = path.lstat()
     except OSError:
@@ -69,17 +75,17 @@ _EXT_CLASSES = {
 _EXT_STYLES = {ext: style for style, exts in _EXT_CLASSES.items() for ext in exts}
 
 
-def _list_dir(directory: Path, show_all: bool) -> list[tuple[str, Text, os.stat_result | None]]:
+def _list_dir(directory: Path, show_all: bool, link: bool = False) -> list[tuple[str, Text, os.stat_result | None]]:
     try:
         children = sorted(directory.iterdir(), key=lambda p: p.name.lower())
     except PermissionError:
         raise ModuleError(f"ls: {directory}: permission denied") from None
     entries = []
     if show_all:
-        entries += [_entry(directory, "."), _entry(directory.parent, "..")]
+        entries += [_entry(directory, ".", link), _entry(directory.parent, "..", link)]
     for child in children:
         if show_all or not child.name.startswith("."):
-            entries.append(_entry(child, child.name))
+            entries.append(_entry(child, child.name, link))
     return entries
 
 
@@ -157,6 +163,7 @@ def ls(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
         return list(reversed(entries)) if opts.reverse else entries
 
     targets = opts.paths or ["."]
+    link = links_on(ctx)
     sections: list[tuple[str | None, list]] = []
     files: list = []
     for raw in targets:
@@ -164,12 +171,12 @@ def ls(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
         if not path.exists() and not path.is_symlink():
             raise ModuleError(f"ls: {raw}: no such file or directory")
         if path.is_dir() and not opts.directory:
-            sections.append((raw, _list_dir(path, opts.all)))
+            sections.append((raw, _list_dir(path, opts.all, link)))
             if opts.recursive:
                 for sub, shown in _subdirs(path, raw, opts.all):
-                    sections.append((shown, _list_dir(sub, opts.all)))
+                    sections.append((shown, _list_dir(sub, opts.all, link)))
         else:
-            files.append(_entry(path, raw))
+            files.append(_entry(path, raw, link))
     if files:
         sections.insert(0, (None, files))
     titled = len(sections) > 1
@@ -476,7 +483,7 @@ find . -size +1M -mtime -7
 find . -type f -not -name "*.pyc" | wc -l
 ```
 """)
-def find(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def find(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     paths: list[str] = []
     tests: list[tuple[bool, str, str | None]] = []  # (negated, test, value)
     maxdepth: int | None = None
@@ -576,7 +583,14 @@ def find(ctx: ShellContext, args: list[str], stdin: str) -> str:
             name = path.name if depth else os.path.basename(os.path.normpath(start))
             if matches(path, name, shown, depth):
                 found.append(shown)
-    return lines_out(found)
+    if not links_on(ctx) or not found:
+        return lines_out(found)
+    styled = Text()
+    for i, shown in enumerate(found):
+        if i:
+            styled.append("\n")
+        styled.append_text(linked(Text(shown), user_path(shown)))
+    return Styled(styled, lines_out(found))
 
 
 # ── tree ─────────────────────────────────────────────────────────────────────
@@ -623,7 +637,9 @@ def tree(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
 
     counts = {"dirs": 0, "files": 0}
     plain = [opts.path]
-    rich_root = Tree(Text(opts.path, style="sc.path"), guide_style="sc.muted")
+    link = links_on(ctx)
+    root_label = Text(opts.path, style="sc.path")
+    rich_root = Tree(linked(root_label, root) if link else root_label, guide_style="sc.muted")
 
     def size_of(path: Path) -> int:
         try:
@@ -645,7 +661,7 @@ def tree(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
         entries = [e for e in entries if not any(fnmatch.fnmatchcase(e.name, g) for g in ignored)]
         for i, entry in enumerate(entries):
             last = i == len(entries) - 1
-            name, styled, _ = _entry(entry, entry.name)
+            name, styled, _ = _entry(entry, entry.name, link)
             name, styled = label(entry, name, styled)
             plain.append(prefix + ("└── " if last else "├── ") + name)
             child = node.add(styled)
@@ -809,8 +825,11 @@ def du(ctx: ShellContext, args: list[str], stdin: str) -> Styled:
     table.add_column(justify="right", style="sc.accent")
     table.add_column()
     plain = []
+    link = links_on(ctx)
     for n, shown, is_dir in rows:
         label = Text(shown, style="bold" if shown == "total" else ("sc.path" if is_dir else ""))
+        if link and shown != "total":
+            label = linked(label, user_path(shown))
         table.add_row(size(n), label)
         plain.append(f"{size(n)}\t{shown}")
     screen = [table]

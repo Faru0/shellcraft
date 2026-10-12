@@ -178,6 +178,8 @@ Loops also work over MCP, with the same restrictions.
 - **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it. **Ctrl-R** searches the history as you type.
 - **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), **positional values** from a module's `.skill` (`queryCensys <Tab>` → `host cert search`), arguments for `help`, `man`, `theme`, `prompt`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else. A name with spaces is quoted for you, and completion works inside quotes.
 - **The mouse** works in the completion menu: click an entry to pick it, scroll the wheel to move through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
+- **`settings mouse_always on`** keeps the mouse on at the prompt: click to place the cursor, click a prompt segment (`⚡` → `help`, the path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error again), click the toolbar to open the man page of the command you are typing, and roll the wheel over the input line to move through the history (or through the matches during Ctrl-R). The command runs above the prompt and what you typed stays. The cost: the terminal needs **Shift** for text selection and wheel scrollback, which is why it is off by default.
+- **Clickable paths:** file names printed by `ls`, `tree`, `find`, `du` and `grep` are terminal hyperlinks. Ctrl-click (Cmd-click on macOS) opens the file or folder, in Windows Terminal, GNOME Terminal, kitty, WezTerm, iTerm2 and others; the rest show plain names. `settings links off` turns it off.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
 - A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
 - `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
@@ -203,7 +205,9 @@ shell, never to AI clients over MCP. `which ls` shows whether a name is an alias
 page, `d`/`u` half a page, `g`/`G` jump to the top or end, `←`/`→` scroll sideways through long
 lines and `w` wraps them instead, `/` searches (matches are highlighted), `n`/`N` step through
 matches, the mouse wheel scrolls, `?` lists the keys, and `q` closes it. The status bar names the
-command whose output you are reading. Turn the viewer off with `settings pager off`.
+command whose output you are reading, and its keys (`/`, `n`, `w`, `?`, `q`) can be clicked; the bar
+on the right is a scrollbar you can click or drag, and a click on a line marks it so `n` / `N`
+search on from there. Turn the viewer off with `settings pager off`.
 
 <details>
 <summary>Command-line options and environment variables</summary>
@@ -296,6 +300,8 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `highlight` | on | Color the command line as you type. |
 | `transient_prompt` | off | Collapse the prompt to one line after Enter. |
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
+| `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
+| `links` | on | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
 
 ### API keys
 

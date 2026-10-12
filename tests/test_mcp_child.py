@@ -176,7 +176,7 @@ def test_prompt_marks_a_running_server(monkeypatch, ctx):
     from core.themes import UI, all_themes
 
     def marker(sh):
-        return "".join(text for style, text in sh._prompt() if style.startswith("class:mcp"))
+        return "".join(f[1] for f in sh._prompt() if f[0].startswith("class:mcp"))
 
     monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
     ctx.ui = UI(all_themes({})["cyberpunk"], Console(file=io.StringIO()))

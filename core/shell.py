@@ -13,11 +13,17 @@ from typing import Any, Callable, Iterable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.application.run_in_terminal import run_in_terminal
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.formatted_text import FormattedText, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory, InMemoryHistory
+from prompt_toolkit.key_binding import KeyPress
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.lexers import DynamicLexer
+from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.search import SearchDirection, do_incremental_search
 from prompt_toolkit.styles import DynamicStyle
 from rich.text import Text
 
@@ -175,6 +181,7 @@ class Shell:
         # A script (`for`, `if`, `a ; b`) prints each statement's output and errors as it runs.
         ctx.emit = lambda value: show(self.ui, value, pager=False)
         self.ui.mouse = settings.get(ctx.config, "mouse")
+        self.ui.mouse_always = settings.get(ctx.config, "mouse_always")
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
         self.watcher = ModuleWatcher(ctx.registry.directory)
 
@@ -207,6 +214,8 @@ class Shell:
         self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
         # The toolbar line only exists while there is something on the line to describe.
         self.session.default_buffer.on_text_changed += lambda _buffer: self._update_toolbar()
+        self._install_mouse()
+        self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -226,21 +235,24 @@ class Shell:
 
     # ── the prompt ───────────────────────────────────────────────────────────
 
-    def _segment(self, name: str) -> list[tuple[str, str]]:
-        """The fragments of one prompt segment, or [] when it has nothing to show right now."""
+    def _segment(self, name: str) -> StyleAndTextTuples:
+        """The fragments of one prompt segment, or [] when it has nothing to show right now. With
+        `mouse_always` on, some carry a click handler (a third element) that runs a command."""
         if name == "name":
-            return [("class:name", " ⚡shellcraft ")]
+            return [("class:name", " ⚡shellcraft ", self._click("help"))]
         if name == "user":
             return [("class:user", self.user_host)]
         if name == "path":
-            return [("class:path", _pretty_cwd())]
+            return [("class:path", _pretty_cwd(), self._click("ls"))]
         if name == "git":
             branch = gitinfo.branch()
-            return [("class:git", f"⎇ {branch}")] if branch else []
+            return [("class:git", f"⎇ {branch}", self._click("git status"))] if branch else []
         if name == "mcp":
-            return self._mcp_marker()
+            return [(style, text, self._click("mcp log")) for style, text in self._mcp_marker()]
         if name == "status":
-            return [("class:failed", f"[✗ {self.ctx.last_status}]")] if self.ctx.last_status else []
+            if not self.ctx.last_status:
+                return []
+            return [("class:failed", f"[✗ {self.ctx.last_status}]", self._click(None))]
         if name == "duration":
             if self.last_duration > SLOW_SECONDS:
                 return [("class:duration", f"⏱ {format_duration(self.last_duration)}")]
@@ -254,7 +266,7 @@ class Shell:
     def _prompt(self) -> FormattedText:
         """`╭─ ⚡shellcraft ─ user@host ─ ~/path ─ ⎇ main [✗ 1] ⏱ 4.2s` over `╰─❯ `: the segments
         from `prompt`, joined with `─`; the short ones (status, duration) with a space."""
-        parts: list[tuple[str, str]] = [("class:frame", "╭─")]
+        parts: StyleAndTextTuples = [("class:frame", "╭─")]
         previous: str | None = None  # the last segment shown
         for name in prompt_segments(self.ctx.config, "left"):
             fragments = self._segment(name)
@@ -272,7 +284,7 @@ class Shell:
         return FormattedText(parts)
 
     def _rprompt(self) -> FormattedText | None:
-        parts: list[tuple[str, str]] = []
+        parts: StyleAndTextTuples = []
         for name in prompt_segments(self.ctx.config, "right"):
             fragments = self._segment(name)
             if fragments:
@@ -299,8 +311,78 @@ class Shell:
     # ── the input line: highlighting, the toolbar and the mouse ──────────────
 
     def _mouse_wanted(self) -> bool:
-        """Mouse reporting on only while a completion menu is open (and the setting is on)."""
-        return self.ui.mouse and self.session.default_buffer.complete_state is not None
+        """Mouse reporting on while a completion menu is open, or always with `mouse_always`."""
+        if not self.ui.mouse:
+            return False
+        return self.ui.mouse_always or self.session.default_buffer.complete_state is not None
+
+    def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
+        """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
+        (None: show the last error again). Other mouse events are left alone."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type != MouseEventType.MOUSE_UP:
+                return NotImplemented
+            if line is None:
+                if self.last_error is not None:
+                    exc, text = self.last_error
+                    run_in_terminal(lambda: show_error(self.ui, exc, text))
+                return None
+            run_in_terminal(lambda: self._run_clicked(line))
+            return None
+        return handler
+
+    def _run_clicked(self, line: str) -> None:
+        """Run a command picked with the mouse, printed above the prompt; the typed line stays."""
+        self.ui.console.print(Text(f"❯ {line}", style="sc.muted"), markup=False, highlight=False)
+        try:
+            result = run_line(line, self.ctx)
+        except (ShellExit, KeyboardInterrupt):
+            return
+        except Exception as exc:  # noqa: BLE001 — shown like an error at the prompt
+            show_error(self.ui, exc, line)
+            self.last_error = (exc, line)
+            return
+        if result is not None:
+            show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
+
+    def _install_mouse(self) -> None:
+        """Two things prompt_toolkit's PromptSession does not do by itself (for `mouse_always`):
+        the wheel over the input line moves through the history (or the Ctrl-R matches), and the
+        upper prompt line keeps its click handlers. PromptSession splits a multi-line prompt and
+        rebuilds the lines above the input as plain (style, text) pairs, dropping the handlers, so
+        that window's text is taken from `_prompt_above` instead."""
+        for control in self.session.layout.find_all_controls():
+            if isinstance(control, BufferControl):
+                control.mouse_handler = self._wheel_then(control.mouse_handler)  # type: ignore[method-assign]
+            elif isinstance(control, FormattedTextControl) and getattr(control.text, "__name__", "") == "before":
+                control.text = self._prompt_above
+
+    def _prompt_above(self) -> StyleAndTextTuples:
+        """The prompt's fragments above its last line (what PromptSession's `before` returns),
+        with their click handlers."""
+        fragments = list(self._prompt())
+        for i in range(len(fragments) - 1, -1, -1):
+            style, text, *handler = fragments[i]
+            if "\n" in text:
+                above = fragments[:i]
+                head = text.rsplit("\n", 1)[0]
+                if head:
+                    above.append((style, head, *handler))  # type: ignore[arg-type]
+                return above
+        return []
+
+    def _wheel_then(self, default: Callable[[MouseEvent], Any]) -> Callable[[MouseEvent], Any]:
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type not in (MouseEventType.SCROLL_UP, MouseEventType.SCROLL_DOWN):
+                return default(event)
+            up = event.event_type == MouseEventType.SCROLL_UP
+            app = self.session.app
+            if app.layout.is_searching:
+                do_incremental_search(SearchDirection.BACKWARD if up else SearchDirection.FORWARD)
+            else:
+                app.key_processor.feed(KeyPress(Keys.Up if up else Keys.Down), first=True)
+            return None
+        return handler
 
     def _is_known_command(self, name: str) -> bool:
         return (name in BUILTINS or name in KEYWORDS or self.ctx.registry.get(name) is not None
@@ -325,16 +407,21 @@ class Shell:
             name = name[1:]
         resolved = aliases.expand_command(script.shparser.Command(name, []), aliases.get_all(self.ctx.config)).name
         if name in KEYWORDS:
-            return FormattedText([("class:toolbar.key", f" {name} "), ("class:toolbar", " see: man for, man if")])
+            page = self._click(f"man {'for' if name in ('for', 'do', 'done', 'in') else 'if'}")
+            return FormattedText([("class:toolbar.key", f" {name} ", page),
+                                  ("class:toolbar", " see: man for, man if", page)])
         if resolved in BUILTINS:
             b = BUILTINS[resolved]
-            return FormattedText([("class:toolbar.key", f" {resolved} "),
-                                  ("class:toolbar", f" {b.usage}  — {b.summary}")])
+            page = self._click(f"man {resolved}")
+            return FormattedText([("class:toolbar.key", f" {resolved} ", page),
+                                  ("class:toolbar", f" {b.usage}  — {b.summary}", page)])
         spec = self.ctx.registry.get(resolved)
         if spec is not None:
+            page = self._click(f"man {resolved}")
             usage = (spec.skill.usage if spec.skill and spec.skill.usage else "") or f"{spec.name} [ARGS...]"
             summary = f"  — {spec.summary}" if spec.summary else ""
-            return FormattedText([("class:toolbar.key", f" {resolved} "), ("class:toolbar", f" {usage}{summary}")])
+            return FormattedText([("class:toolbar.key", f" {resolved} ", page),
+                                  ("class:toolbar", f" {usage}{summary}", page)])
         if len(words) == 1 and text.rstrip() == text:
             return FormattedText([("class:toolbar", " ")])  # still typing the name
         return FormattedText([("class:toolbar.error", f" {name}: command not found ")])
@@ -400,9 +487,11 @@ class Shell:
                 continue
             except (ParseError, PipelineError) as exc:
                 show_error(self.ui, exc, line)
+                self.last_error = (exc, line)
                 continue
             except Exception as exc:  # noqa: BLE001 — a bug anywhere must not end the session
                 show_error(self.ui, exc, line)
+                self.last_error = (exc, line)
                 self.ctx.last_status = 1
                 continue
             finally:

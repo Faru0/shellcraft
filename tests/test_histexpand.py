@@ -102,6 +102,6 @@ def test_shell_reports_an_unfinished_script_at_end_of_input(repl):
 
 def test_prompt_shows_the_exit_status(repl):
     sh, _ = repl("nosuch")
-    assert ("class:failed", "[✗ 127]") in list(sh._prompt())
+    assert ("class:failed", "[✗ 127]") in [f[:2] for f in sh._prompt()]
     sh, _ = repl("echo fine")
-    assert not any(style == "class:failed" for style, _ in sh._prompt())
+    assert not any(f[0] == "class:failed" for f in sh._prompt())

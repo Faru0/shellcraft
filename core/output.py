@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 import time
@@ -12,9 +13,9 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, Window
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
-from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.utils import get_cwidth
 from rich.color import Color
 from rich.panel import Panel
@@ -31,6 +32,13 @@ SPINNER_ELAPSED_AFTER = 3.0  # seconds after which the spinner shows how long it
 SPINNER_HINT_AFTER = 10.0  # ... and that Ctrl-C cancels
 PAGER_DIRECT_LINES = 5_000  # plain text this tall goes straight to the pager, skipping Rich
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# OSC sequences (hyperlinks from the `links` setting): the pager draws its own screen, so they
+# are removed before it parses the colors; prompt_toolkit's ANSI parser would show them as text.
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def strip_links(text: str) -> str:
+    return _OSC_RE.sub("", text)
 
 
 def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]], Any]:
@@ -134,13 +142,18 @@ PAGER_KEYS = [
     ("d u", "scroll half a screen"), ("g G  Home End", "top / end"),
     ("← →", "scroll sideways (when lines are not wrapped)"), ("w", "wrap long lines on / off"),
     ("/", "search (case-insensitive)"), ("n N", "next / previous match"),
-    ("mouse wheel", "scroll"), ("?", "this help"), ("q  Esc", "close"),
+    ("mouse", "wheel scrolls; drag the bar on the right; click a line to mark it"),
+    ("", "(n / N search on from the mark); click a key in the status bar"),
+    ("?", "this help"), ("q  Esc", "close"),
 ]
+# The status bar's hints; the keys with an action are clickable.
+PAGER_HINTS = [("↑↓", "scroll", None), ("/", "search", "search"), ("n/N", "next", "next"),
+               ("w", "wrap", "wrap"), ("?", "keys", "help"), ("q", "quit", "quit")]
 
 
 def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
     """Interactive scrollable viewport for ANSI text (cross-platform, no external pager)."""
-    lines = rendered.rstrip("\n").split("\n")
+    lines = strip_links(rendered).rstrip("\n").split("\n")
     plain = [_ANSI_RE.sub("", ln) for ln in lines]
     widths = [get_cwidth(ln) for ln in plain]
     # `match` is the line of the last search hit, kept apart from `top` (which is clamped to the
@@ -179,6 +192,7 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
 
     def scroll(delta: int) -> None:
         state["top"] = min(max_top(), max(0, state["top"] + delta))
+        state["message"] = ""  # a mark or a "not found" note lasts until the next scroll
 
     def find(forward: bool = True) -> None:
         if not state["pattern"]:
@@ -220,12 +234,72 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
         top, h = state["top"], body_height()
         end = min(len(lines), top + h) if not state["wrap"] else min(len(lines), top + max(1, len(_visible())))
         pct = 100 if top >= max_top() else int(end * 100 / len(lines)) if lines else 100
-        msg = state["message"] or "↑↓ scroll  / search  n/N next  w wrap  ? keys  q quit"
         out: StyleAndTextTuples = []
         if title:
             out.append(("class:pager.title", f" {_short(title, size()[1] // 3)} "))
-        out += [("class:pager.status.key", f" lines {top + 1}-{end}/{len(lines)} ({pct}%) "),
-                ("class:pager.status", f" {msg} ")]
+        out.append(("class:pager.status.key", f" lines {top + 1}-{end}/{len(lines)} ({pct}%) "))
+        if state["message"]:
+            out.append(("class:pager.status", f" {state['message']} "))
+            return out
+        out.append(("class:pager.status", " "))
+        for i, (key, what, action) in enumerate(PAGER_HINTS):
+            if i:
+                out.append(("class:pager.status", "  "))
+            if action is None:
+                out.append(("class:pager.status", f"{key} {what}"))
+            else:
+                out.append(("class:pager.status.key", key, actions[action]))
+                out.append(("class:pager.status", f" {what}", actions[action]))
+        out.append(("class:pager.status", " "))
+        return out
+
+    def line_at(y: int) -> int:
+        """The line shown on screen row y of the body."""
+        used, i = 0, state["top"]
+        while i < len(lines) - 1 and used + rows_of(i) <= y:
+            used += rows_of(i)
+            i += 1
+        return i
+
+    def begin_search() -> None:
+        state["searching"] = True
+        state["help"] = False
+        search.reset()
+        app.layout.focus(search_window)
+
+    def on_click(name: str) -> Callable[[MouseEvent], Any]:
+        """A status-bar hint's handler: acts on the mouse-up, ignores the rest."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type != MouseEventType.MOUSE_UP:
+                return NotImplemented
+            if name == "quit":
+                app.exit()
+            elif name == "help":
+                state["help"] = not state["help"]
+            elif name == "wrap":
+                state["wrap"] = not state["wrap"]
+                state["left"] = 0
+                state["top"] = min(state["top"], max_top())
+            elif name == "next":
+                find(True)
+            elif name == "search":
+                begin_search()
+            return None
+        return handler
+
+    actions = {name: on_click(name) for name in ("quit", "help", "wrap", "next", "search")}
+
+    def get_scrollbar() -> StyleAndTextTuples:
+        height = body_height()
+        thumb = max(1, round(height * height / max(height, len(lines))))
+        start = 0 if max_top() == 0 else round((height - thumb) * state["top"] / max_top())
+        out: StyleAndTextTuples = []
+        for row in range(height):
+            on_thumb = start <= row < start + thumb
+            style = "class:pager.scrollbar.thumb" if on_thumb else "class:pager.scrollbar"
+            out.append((style, "┃" if on_thumb else "│"))
+            if row < height - 1:
+                out.append(("", "\n"))
         return out
 
     def _visible() -> list[int]:
@@ -312,10 +386,7 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
 
     @kb.add("/", filter=not_searching)
     def _start_search(event):
-        state["searching"] = True
-        state["help"] = False
-        search.reset()
-        event.app.layout.focus(search_window)
+        begin_search()
 
     @kb.add("n", filter=not_searching)
     def _next(event):
@@ -340,19 +411,48 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
 
     class _Body(FormattedTextControl):
         def mouse_handler(self, mouse_event: MouseEvent) -> Any:
-            if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
+            kind = mouse_event.event_type
+            if kind == MouseEventType.SCROLL_DOWN:
                 scroll(3)
                 return None
-            if mouse_event.event_type == MouseEventType.SCROLL_UP:
+            if kind == MouseEventType.SCROLL_UP:
                 scroll(-3)
+                return None
+            if kind == MouseEventType.MOUSE_UP:
+                if state["help"]:
+                    state["help"] = False
+                    return None
+                if state["searching"]:
+                    return NotImplemented
+                state["match"] = line_at(mouse_event.position.y)  # n / N search on from here
+                state["message"] = f"line {state['match'] + 1} marked: n / N search from it"
                 return None
             return NotImplemented
 
+    class _Bar(FormattedTextControl):
+        """The scrollbar: click or drag to the row's share of the file; the wheel scrolls."""
+
+        def mouse_handler(self, mouse_event: MouseEvent) -> Any:
+            kind = mouse_event.event_type
+            if kind == MouseEventType.SCROLL_DOWN:
+                scroll(3)
+            elif kind == MouseEventType.SCROLL_UP:
+                scroll(-3)
+            elif kind in (MouseEventType.MOUSE_DOWN, MouseEventType.MOUSE_UP) or (
+                    kind == MouseEventType.MOUSE_MOVE and mouse_event.button != MouseButton.NONE):
+                rows = max(1, body_height() - 1)
+                state["top"] = min(max_top(), round(max_top() * min(rows, mouse_event.position.y) / rows))
+            else:
+                return NotImplemented
+            return None
+
     body_window = Window(_Body(get_body, focusable=True), wrap_lines=Condition(lambda: state["wrap"]))
+    scrollbar = ConditionalContainer(Window(_Bar(get_scrollbar), width=1, dont_extend_width=True),
+                                     filter=Condition(lambda: max_top() > 0 and not state["help"]))
     search_window = Window(BufferControl(search), height=1, style="class:pager.search",
                            get_line_prefix=lambda *_: [("class:pager.search", "/")])
     layout = Layout(HSplit([
-        body_window,
+        VSplit([body_window, scrollbar]),
         ConditionalContainer(Window(FormattedTextControl(get_status), height=1, style="class:pager.status"),
                              filter=not_searching),
         ConditionalContainer(search_window, filter=searching),
@@ -361,8 +461,18 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
     # reflected at once; body_height() is read on every render.
     app: Application = Application(layout=layout, key_bindings=kb, full_screen=True, style=ui.pt_style,
                                    mouse_support=ui.mouse)  # the `mouse` setting; off keeps selection
-    app.run()
+    # Opened from a click while the prompt's event loop runs (run_in_terminal): the viewer then
+    # needs its own loop, in a thread; asyncio refuses a nested loop.
+    app.run(in_thread=_loop_running())
     return state  # for tests: where the viewer was when it closed
+
+
+def _loop_running() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 def _short(text: str, width: int) -> str:

@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Mouse everywhere it helps, in small steps.** `settings mouse_always on` keeps the mouse on
+  at the prompt: click to place the cursor, click a prompt segment to act on it (`⚡` → `help`,
+  path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error), click
+  the toolbar for the man page of the command being typed, wheel through the history or through
+  Ctrl-R matches. In the pager the status bar's keys are clickable, a scrollbar on the right can
+  be clicked or dragged, and a click on a line marks it for `n` / `N`.
+- **Clickable paths** (the `links` setting, on): `ls`, `tree`, `find`, `du` and `grep` print file
+  names as terminal hyperlinks, so Ctrl-click opens them. Pipes and MCP still see plain names.
 - **Mouse in the completion menu:** click an entry to pick it, wheel to scroll the list. The
   terminal is asked for the mouse only while a menu is open (and in the pager, as before), so
   text selection and wheel scrollback at the prompt are unchanged. The `mouse` setting turns it

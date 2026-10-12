@@ -39,6 +39,11 @@ def _apply_mouse(ctx: ShellContext, value: bool) -> None:
         ctx.ui.mouse = value
 
 
+def _apply_mouse_always(ctx: ShellContext, value: bool) -> None:
+    if ctx.ui is not None:
+        ctx.ui.mouse_always = value
+
+
 SETTINGS: dict[str, Setting] = {
     s.key: s
     for s in (
@@ -73,6 +78,15 @@ SETTINGS: dict[str, Setting] = {
         Setting("mouse", "Mouse", True,
                 "Click and scroll in the completion menu and the pager. The terminal keeps the "
                 "mouse (text selection, wheel scrollback) whenever no menu is open.", _apply_mouse),
+        Setting("mouse_always", "Mouse at the prompt", False,
+                "Keep the mouse on while typing: click to place the cursor, click a prompt segment "
+                "(⚡ → help, path → ls, ⎇ branch → git status, ● mcp → mcp log, [✗ N] → the last "
+                "error), click the toolbar for the man page, wheel through history and Ctrl-R "
+                "matches. The terminal then needs Shift for text selection and scrollback.",
+                _apply_mouse_always),
+        Setting("links", "Clickable paths", True,
+                "File names from ls, tree, find, du and grep are terminal hyperlinks: Ctrl-click "
+                "(Cmd-click on macOS) opens them, in terminals that support links."),
     )
 }
 

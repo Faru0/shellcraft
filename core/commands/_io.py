@@ -4,10 +4,36 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from rich.style import Style
+from rich.text import Text
+
+from core import settings
 from core.modkit import ModuleError
 
+if TYPE_CHECKING:
+    from core.context import ShellContext
+
 _SHORT_COUNT = re.compile(r"^-(\d+)$")
+
+
+def links_on(ctx: ShellContext) -> bool:
+    """Whether file names on screen should be terminal hyperlinks (the `links` setting; only in
+    the interactive shell, never in pipes or over MCP, which see plain text anyway)."""
+    return ctx.interactive and ctx.ui is not None and settings.get(ctx.config, "links")
+
+
+def linked(text: Text, path: Path) -> Text:
+    """`text` as a hyperlink to `path` (OSC 8 with a file:// URI): Ctrl-click opens it in the
+    terminals that support links (Windows Terminal, GNOME Terminal, kitty, WezTerm, iTerm2…);
+    the others show the plain name. The pager strips the links, since it draws its own screen."""
+    try:
+        uri = path.resolve().as_uri()
+    except (OSError, ValueError):
+        return text
+    text.stylize(Style(link=uri))
+    return text
 
 
 def user_path(name: str) -> Path:

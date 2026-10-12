@@ -3,6 +3,7 @@ toolbar, prompt segments, the pager's keys, `show()`'s threshold, themes, the ba
 
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 from prompt_toolkit.application.current import create_app_session
@@ -65,7 +66,7 @@ def repl(monkeypatch, tmp_path):
 
 def test_prompt_segments_follow_the_prompt_setting(repl, tmp_path):
     sh, ctx = repl
-    texts = lambda fragments: [text for _, text in fragments]  # noqa: E731
+    texts = lambda fragments: [f[1] for f in fragments]  # noqa: E731
     assert " ⚡shellcraft " in texts(sh._prompt()) and sh.user_host in texts(sh._prompt())
     ctx.config["prompt"] = {"left": ["name", "path", "status"], "right": ["clock"]}
     assert sh.user_host not in texts(sh._prompt())
@@ -87,10 +88,10 @@ def test_prompt_shows_the_git_branch(repl, tmp_path):
     from core import gitinfo
 
     gitinfo._cache.clear()
-    assert ("class:git", "⎇ feature/x") in list(sh._prompt())
+    assert ("class:git", "⎇ feature/x") in [f[:2] for f in sh._prompt()]
     (tmp_path / ".git" / "HEAD").write_text("0123456789abcdef\n")
     gitinfo._cache.clear()
-    assert ("class:git", "⎇ 0123456") in list(sh._prompt())
+    assert ("class:git", "⎇ 0123456") in [f[:2] for f in sh._prompt()]
     worktree = tmp_path / "wt"
     worktree.mkdir()
     (worktree / ".git").write_text(f"gitdir: {tmp_path / '.git'}\n")
@@ -134,12 +135,54 @@ def test_mouse_only_while_a_completion_menu_is_open(repl):
     assert sh.session.app.mouse_support() is False
 
 
+def test_mouse_always_clicks_segments_toolbar_and_wheels_history(repl, monkeypatch):
+    """With `mouse_always` the mouse stays on; a click on a segment runs its command above the
+    prompt, the status segment shows the last error again, the toolbar opens the man page and
+    the wheel over the input line feeds ↑ / ↓."""
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+
+    from core import shell as shell_module
+    from core.pipeline import run_line
+
+    sh, ctx = repl
+    run_line("settings mouse_always on", ctx)
+    assert sh.ui.mouse_always and sh.session.app.mouse_support() is True
+    monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())  # no event loop here
+    up = MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
+    down = MouseEvent(Point(0, 0), MouseEventType.MOUSE_DOWN, MouseButton.LEFT, frozenset())
+    name = next(f for f in sh._prompt() if f[1] == " ⚡shellcraft ")
+    assert name[2](down) is NotImplemented  # only the release counts
+    name[2](up)
+    out = sh.ui.console.export_text()
+    assert "❯ help" in out and "ShellCraft commands" in out
+
+    ctx.last_status = 127
+    sh.last_error = (RuntimeError("boom"), "nosuch")
+    status = next(f for f in sh._prompt() if f[0] == "class:failed")
+    status[2](up)
+    assert "boom" in sh.ui.console.export_text()
+
+    control = sh.session.layout.current_control  # the input line
+    control.mouse_handler(MouseEvent(Point(0, 0), MouseEventType.SCROLL_UP, MouseButton.NONE, frozenset()))
+    assert sh.session.app.key_processor.input_queue[0].key == Keys.Up
+
+    sh.session.default_buffer = SimpleNamespace(text="grep -i")  # the toolbar reads the text
+    key = sh._toolbar()[0]
+    assert key[1].strip() == "grep" and key[2](up) is None
+    assert "❯ man grep" in sh.ui.console.export_text()
+
+    run_line("settings mouse_always off", ctx)
+    assert sh.ui.mouse_always is False
+
+
 def test_toolbar_shows_usage_or_not_found(repl):
     from types import SimpleNamespace
 
     sh, ctx = repl
     buffer = sh.session.default_buffer = SimpleNamespace(text="")  # no event loop in a test: set the text by hand
-    text = lambda: "".join(t for _, t in sh._toolbar())  # noqa: E731
+    text = lambda: "".join(f[1] for f in sh._toolbar())  # noqa: E731
 
     def typed(line):
         buffer.text = line
@@ -191,6 +234,32 @@ def _page(keys, lines=60, width=40, title=None):
         output.get_size = lambda: __import__("prompt_toolkit").data_structures.Size(rows=11, columns=width)
         with create_app_session(input=pipe, output=output):
             return page(_ui(), text, title)
+
+
+def _click(col, row):
+    return f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m"  # SGR press + release, 1-based
+
+
+def test_pager_mouse_scrollbar_mark_wheel_and_status_keys():
+    from core.output import PAGER_HINTS
+
+    # The scrollbar is the last column: its last row is the end of the text, its first the top.
+    assert _page(_click(100, 10) + "q", width=100)["top"] == 50
+    assert _page(_click(100, 10) + _click(100, 1) + "q", width=100)["top"] == 0
+    # A click on a body row marks that line for n / N.
+    state = _page(_click(1, 3) + "q", width=100)
+    assert state["match"] == 2 and "line 3 marked" in state["message"]
+    # The wheel over the body scrolls three lines.
+    assert _page("\x1b[<65;5;5M" + "q", width=100)["top"] == 3
+    # The status bar: w and ? are clickable (q too: it closes, or the test would hang on EOF).
+    hints, pos = " lines 1-10/60 (16%)  ", {}
+    for i, (key, what, _action) in enumerate(PAGER_HINTS):
+        hints += "  " if i else ""
+        pos[key] = len(hints) + 1
+        hints += f"{key} {what}"
+    assert _page(_click(pos["w"], 11) + "q", width=100)["wrap"] is True
+    assert _page(_click(pos["?"], 11) + "q" + "q", width=100)["help"] is False  # ? opened it, q closed it
+    assert _page(_click(pos["q"], 11), width=100)["top"] == 0
 
 
 def test_pager_keys_scroll_search_wrap_and_quit():
