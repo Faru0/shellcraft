@@ -447,3 +447,36 @@ def test_windows_backend_through_a_fake_winpty(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "winpty", None)
     with pytest.raises(jobmod.JobsUnsupported):
         table.start_program([sys.executable], "python")
+
+
+@posix_only
+def test_without_pyte_programs_still_work_and_the_user_is_told(tmp_path, monkeypatch):
+    import builtins as py_builtins
+    import tty
+
+    real_import = py_builtins.__import__
+
+    def no_pyte(name, *args, **kwargs):
+        if name == "pyte":
+            raise ImportError("no pyte")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(py_builtins, "__import__", no_pyte)
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_program(["sh", "-c", "echo plain; sleep 30"], "sh")
+    assert job.screen is None and _wait(lambda: b"plain" in job.tail())
+    term_master, term_slave = os.openpty()
+    tty.setraw(term_slave)
+    jobmod._set_winsize(term_slave, 5, 40)
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    result = {}
+    thread = threading.Thread(target=lambda: result.update(how=table.attach(job, terminal=terminal, raw=False)), daemon=True)
+    thread.start()
+    assert _wait(lambda: job.sink is not None)
+    os.write(term_master, jobmod.DETACH_KEY)
+    thread.join(3)
+    assert result["how"] == ("detached", 0)
+    assert any("pip install pyte" in note for note in table.pop_notifications())
+    table.kill(job)
+    os.close(term_master)
+    os.close(term_slave)

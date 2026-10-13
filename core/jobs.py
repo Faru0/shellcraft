@@ -384,11 +384,16 @@ class JobTable:
         (minus the footer row, with a `footer`), the mouse wheel scrolls through its scrollback
         (unless the program uses the mouse itself), and the footer is redrawn after its output.
         """
-        if job.kind != "program" or job.screen is None:
+        if job.kind != "program":
             raise ValueError("not a program job")
         if not job.running:
             return "exited", job.status or 0
         term = terminal or Terminal.real()
+        if job.screen is None and not getattr(self, "_warned_no_pyte", False):
+            self._warned_no_pyte = True
+            self.notifications.append("the 'pyte' package is not installed, so switching between subshells "
+                                      "replays their last output instead of redrawing their screen: "
+                                      f"{sys.executable} -m pip install pyte")
         pending_redraw = False
 
         def size() -> tuple[int, int]:
@@ -585,8 +590,12 @@ class JobTable:
 # ── the emulator ─────────────────────────────────────────────────────────────
 
 def new_screen(rows: int, cols: int) -> tuple[Any, Any]:
-    import pyte
-
+    """A pyte screen and the stream feeding it, or (None, None) when pyte is not installed: the
+    job then works without an emulator (switching replays its last output instead of its page)."""
+    try:
+        import pyte
+    except ImportError:
+        return None, None
     screen = pyte.HistoryScreen(cols, rows, history=HISTORY_LINES, ratio=0.5)
     screen.write_process_input = lambda data: None
     return screen, pyte.ByteStream(screen)
