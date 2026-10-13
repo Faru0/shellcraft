@@ -221,15 +221,25 @@ sub find / -name "*.log"     # a builtin or a module, run in the background with
 jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
 ```
 
-Every subshell is a numbered job, and a **footer** on the terminal's last row shows them all as
-tabs, next to this shell: `⤷ 0:⚡shellcraft │ 1:bash ● │ 2:find / … ✓` (● running, ✓ done,
-✗ failed; the current tab and the one under the mouse are highlighted). It stays there while you
-are inside a subshell too. **Click a tab**, or press **Ctrl-] N**, to switch to it from anywhere:
-a program is attached again (its last lines are shown, full-screen programs redraw), a command's
-output so far is shown. **Ctrl-]** alone, or tab 0, brings you back to the prompt; **Ctrl-] Ctrl-]**
-sends a Ctrl-] to the program. (Alt-N is not used: terminals need it for their own tabs.) A
-finished job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave
-ShellCraft are stopped, and `settings footer off` removes the footer. `man sub` has the details.
+Every subshell is a numbered job. At the prompt, a **panel** under it lists them, one per line:
+
+```
+ ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
+ ● main
+ ○ 1  bash --norc                                          2m 18s · running
+ ○ 2  find / -name "*.log"                                    4.0s · done
+```
+
+The line under the mouse lights up, a click switches to it, and **↓** on an empty line moves into
+the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves). **Ctrl-] N** switches from anywhere.
+Inside a subshell the panel gives way to a one-row **footer** at the bottom of the terminal with
+the same shells as tabs (`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:find / … ✓`), so you can still click
+across or press Ctrl-] N; **Ctrl-]** alone, or tab 0, brings you back to the prompt, and
+**Ctrl-] Ctrl-]** sends a Ctrl-] to the program. (Alt-N is not used: terminals need it for their
+own tabs.) Switching to a program attaches it again (its last lines are shown, full-screen
+programs redraw); switching to a command shows its output so far. A finished job prints
+`⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are stopped, and
+`settings footer off` removes the footer. `man sub` has the details.
 
 Programs run on their own pseudo-terminal, which Windows does not have: there `sub PROGRAM` runs
 the program in the foreground (you are back when it exits), and background commands work the same
@@ -321,14 +331,14 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `diagnostics` | off | Print the console diagnostics report at startup. |
 | `hot_reload` | on | Reload modules when their `.py`, `.md` or `.skill` files change, in the shell and in the MCP server. |
 | `lazy_modules` | on | Import a module's code the first time it runs, not at startup. |
-| `clear_on_start` | on | Clear the screen when the interactive shell starts. |
+| `clear_on_start` | on | Start on a fresh screen (the scrollback is cleared too, as `clear` does). |
 | `toolbar` | on | Show the usage of the command being typed under the prompt. |
 | `highlight` | on | Color the command line as you type. |
 | `transient_prompt` | off | Collapse the prompt to one line after Enter. |
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 | `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
 | `links` | on | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
-| `footer` | on | The tab bar on the last row: this shell and its subshells (click, or Ctrl-] N, to switch). |
+| `footer` | on | Inside a subshell, the tab bar on the last row (click, or Ctrl-] N, to switch). |
 
 ### API keys
 

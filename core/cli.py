@@ -142,7 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
         if settings.get(config, "clear_on_start") and ui.console.is_terminal:
-            ui.console.clear()
+            # Home, clear the screen and the scrollback (ESC[3J): the terminal starts fresh, as
+            # `clear` on Linux and Windows Terminal do, instead of leaving the old lines above.
+            ui.console.file.write("\x1b[H\x1b[2J\x1b[3J")
+            ui.console.file.flush()
         if args.diag or settings.get(config, "diagnostics"):
             shell.diagnostics()  # first, so it is there even if the banner is what breaks
         if show_banner:

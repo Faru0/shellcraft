@@ -128,6 +128,7 @@ class ThemeDef:
                 "toolbar.job.done": f"bg:{surface} {self.success} noreverse",
                 "toolbar.job.failed": f"bg:{surface} {self.error} noreverse",
                 "toolbar.job.hover": f"bg:{self.accent} {self._on_accent()} bold noreverse",
+                "toolbar.job.current": f"bg:{surface} {text} bold noreverse",
                 "search-toolbar": f"bg:{surface} {text}",
                 "search-toolbar.text": f"bg:{surface} {self.prompt}",
                 "rprompt": self.muted,

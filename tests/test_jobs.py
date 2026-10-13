@@ -186,6 +186,13 @@ def test_login_shell_and_foreground_fallback(monkeypatch):
 
 # ── the shell: bar, hotkeys, hover ───────────────────────────────────────────
 
+def move_event():
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+
+    return MouseEvent(Point(0, 0), MouseEventType.MOUSE_MOVE, MouseButton.NONE, frozenset())
+
+
 def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch):
     from types import SimpleNamespace
 
@@ -230,7 +237,23 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-]", str(job.number)])
     binding.handler(None)
     assert ran[-1] == f"jobs {job.number}"
-    assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys][:1] == ["escape"]]  # no Alt-N
+    assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["escape", "1"]]  # no Alt-N
+    # the panel under the prompt: ↓ walks it, Enter picks
+    sh._update_toolbar()
+    lines = "".join(f[1] for f in sh._toolbar()).split("\n")
+    assert lines[0].startswith(" ⤷ 1 subshell") and lines[1] == " ● main" and lines[2].startswith(f" ○ {job.number}  seq 3")
+    assert "done" in lines[2]
+    entry = next(f for f in sh._toolbar() if "seq 3" in f[1])
+    assert entry[0] == "class:toolbar.job.done" and entry[2](move_event()) is None and sh._panel_hover == job.number
+    assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
+    sh._panel_hover = None
+    down = [b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["down"]]
+    assert len(down) == 2  # enter the panel, move in it
+    sh._panel_cursor = 0
+    assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
+    enter = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["enter"])
+    enter.handler(None)
+    assert sh._panel_cursor is None and ran[-1] == f"jobs {job.number}"
     # the prompt's jobs segment counts running jobs only
     ctx.config["prompt"] = {"left": ["jobs"]}
     assert not [f for f in sh._prompt() if "⤷" in f[1]]

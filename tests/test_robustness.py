@@ -34,12 +34,17 @@ def test_cli_clears_the_screen_only_in_the_interactive_shell(tmp_path, monkeypat
     cleared: list = []
     import core.themes as themes
 
+    class FakeFile:
+        def write(self, text):
+            cleared.append(text)
+
+        def flush(self):
+            pass
+
     class FakeConsole:
         is_terminal = True
         width, height = 100, 30
-
-        def clear(self):
-            cleared.append(True)
+        file = FakeFile()
 
         def push_theme(self, theme):
             pass
@@ -47,7 +52,7 @@ def test_cli_clears_the_screen_only_in_the_interactive_shell(tmp_path, monkeypat
     real_ui = themes.UI
     monkeypatch.setattr(themes, "UI", lambda theme, console: real_ui(theme, FakeConsole()))
     cli.main(["--no-banner", "--modules", str(tmp_path)])
-    assert cleared == [True]
+    assert cleared == ["\x1b[H\x1b[2J\x1b[3J"]  # home, clear the screen and the scrollback
     (tmp_path / "config.json").write_text(json.dumps({"settings": {"clear_on_start": False}}))
     cleared.clear()
     cli.main(["--no-banner", "--modules", str(tmp_path)])

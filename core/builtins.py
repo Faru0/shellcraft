@@ -512,10 +512,11 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 SUB_DOC = """# sub
 
 Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
-or a ShellCraft command running in the background. Every subshell is a numbered **job**, a tab
-in the footer on the terminal's last row (`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓`); `jobs`
-lists them, **Ctrl-] N** or a click on its tab selects job N, from the prompt or from inside
-another subshell.
+or a ShellCraft command running in the background. Every subshell is a numbered **job**: at the
+prompt a panel under it lists them (`● main`, then `○ 1  bash …`; hover or ↓ to pick, click or
+Enter to switch), inside a subshell a footer on the terminal's last row shows them as tabs
+(`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓`). `jobs` lists them, **Ctrl-] N** or a click selects
+job N, from the prompt or from inside another subshell.
 
 ## Usage
 
@@ -539,9 +540,9 @@ sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub gre
   `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); finished jobs
   print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
-- The footer: tab 0 is this shell, then one tab per job — ● running, ✓ done, ✗ failed; the
-  current tab and the one under the mouse are highlighted. `jobs -c` clears the finished ones,
-  `jobs -k N` stops one, `settings footer off` removes the footer (Ctrl-] N still works).
+- The panel (at the prompt) and the footer (inside a subshell): ● running, ✓ done, ✗ failed;
+  the current one and the one under the mouse are highlighted. `jobs -c` clears the finished
+  ones, `jobs -k N` stops one, `settings footer off` removes the footer (Ctrl-] N still works).
 
 On Windows there is no pseudo-terminal: `sub PROGRAM` runs it in the foreground (you are back
 when it exits) and it is not listed as a job; background commands work the same as elsewhere.
@@ -650,10 +651,22 @@ def _attach(ctx: ShellContext, job: Any) -> Any:
     """Hand the terminal to a program job; back with its status, detached, or switched to
     another tab (Ctrl-] N, or a click on the footer)."""
     assert ctx.jobs is not None
+    footer = ctx.footer if settings.get(ctx.config, "footer") else None
+    if footer is not None:
+        footer.enable()
+    try:
+        return _attach_loop(ctx, job, footer)
+    finally:
+        if footer is not None:
+            footer.disable()
+
+
+def _attach_loop(ctx: ShellContext, job: Any, footer: Any) -> Any:
+    assert ctx.jobs is not None
     while True:
         if ctx.ui is not None:
             ctx.ui.console.file.flush()
-        how, target = ctx.jobs.attach(job, footer=ctx.footer)
+        how, target = ctx.jobs.attach(job, footer=footer)
         if how == "switch":
             if target == 0:
                 how = "detached"

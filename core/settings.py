@@ -85,8 +85,9 @@ SETTINGS: dict[str, Setting] = {
                 "matches. The terminal then needs Shift for text selection and scrollback.",
                 _apply_mouse_always),
         Setting("footer", "Subshell footer", True,
-                "Keep a tab bar on the terminal's last row: this shell and every subshell started "
-                "with sub (click a tab, or Ctrl-] N, to switch). Applies at the next start."),
+                "Inside a subshell, keep a tab bar on the terminal's last row (this shell and every "
+                "subshell: click a tab, or Ctrl-] N, to switch). At the prompt the panel under it "
+                "lists them instead."),
         Setting("links", "Clickable paths", True,
                 "File names from ls, tree, find, du and grep are terminal hyperlinks: Ctrl-click "
                 "(Cmd-click on macOS) opens them, in terminals that support links."),

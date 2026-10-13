@@ -10,12 +10,12 @@ and the project uses [semantic versioning](https://semver.org/).
 - **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program
   (`vim`, `htop`, `ssh`, `python`…), `sub shellcraft` nests a ShellCraft (its prompt shows the
   depth), and `sub COMMAND` runs a builtin or module in the background with its output collected.
-  Each is a numbered job. A **footer** on the terminal's last row shows this shell and every
-  subshell as tabs, at the prompt and inside an attached program alike (a scroll region keeps it
-  in place); a click on a tab or **Ctrl-] N** switches to it from anywhere, **Ctrl-]** alone
-  comes back, and the current and hovered tabs are highlighted. `jobs` lists, selects, stops
-  (`-k N`) and clears (`-c`) them, finished jobs are announced at the next prompt, and the
-  `footer` setting turns the bar off. Programs run on a pseudo-terminal (POSIX); on Windows
+  Each is a numbered job. At the prompt a **panel** under it lists them one per line (the line
+  under the mouse lights up, a click switches, ↓ moves into the panel and Enter picks); inside a
+  subshell a one-row **footer** at the bottom of the terminal shows the same shells as tabs (a
+  scroll region keeps it in place), clickable too. **Ctrl-] N** switches from anywhere, **Ctrl-]**
+  alone comes back. `jobs` lists, selects, stops (`-k N`) and clears (`-c`) them, finished jobs
+  are announced at the next prompt, and the `footer` setting turns the strip off. Programs run on a pseudo-terminal (POSIX); on Windows
   `sub PROGRAM` runs in the foreground. A `jobs` prompt segment shows how many are running.
 - **The completion menu follows the mouse:** the entry under the pointer is highlighted (and put
   on the line, as ↑ / ↓ do), so a click picks what you see.
@@ -39,6 +39,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- `clear_on_start` clears the scrollback as well (`ESC[3J`), so the shell starts on a fresh
+  screen like a new program, instead of leaving the old lines above.
 - The default `--mcp-http` / `mcp start` address is `127.0.0.1:38765` (was `:8765`), to stay
   clear of the ports other local tools commonly take.
 

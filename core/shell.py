@@ -27,6 +27,7 @@ from prompt_toolkit.lexers import DynamicLexer
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.search import SearchDirection, do_incremental_search
 from prompt_toolkit.styles import DynamicStyle
+from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
 
 from core import aliases, gitinfo, histexpand, script, settings
@@ -187,6 +188,10 @@ class Shell:
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth())
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
+        # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
+        # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
+        self._panel_hover: int | None = None
+        self._panel_cursor: int | None = None
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
@@ -264,6 +269,37 @@ class Shell:
         @kb.add(Keys.WindowsMouseEvent)
         def _mouse(event: Any) -> Any:
             return self._footer_mouse(event)
+
+        # ↓ on an empty line moves into the panel ("↓ to manage"); ↑ / ↓ walk it, Enter switches
+        # to the chosen subshell, Esc (or typing) leaves it.
+        in_panel = Condition(lambda: self._panel_cursor is not None)
+        can_enter = Condition(lambda: self._panel_cursor is None and self._panel_wanted()
+                              and not self.session.default_buffer.text
+                              and self.session.default_buffer.complete_state is None)
+
+        @kb.add("down", filter=can_enter)
+        def _enter_panel(event: Any) -> None:
+            self._panel_cursor = 0
+
+        @kb.add("down", filter=in_panel)
+        def _panel_down(event: Any) -> None:
+            self._panel_cursor = min(len(self._panel_jobs()) - 1, (self._panel_cursor or 0) + 1)
+
+        @kb.add("up", filter=in_panel)
+        def _panel_up(event: Any) -> None:
+            self._panel_cursor = None if not self._panel_cursor else self._panel_cursor - 1
+
+        @kb.add("escape", filter=in_panel, eager=True)
+        def _panel_leave(event: Any) -> None:
+            self._panel_cursor = None
+
+        @kb.add("enter", filter=in_panel)
+        def _panel_pick(event: Any) -> None:
+            jobs = self._panel_jobs()
+            number = jobs[self._panel_cursor].number if self._panel_cursor is not None and jobs else None
+            self._panel_cursor = None
+            if number is not None:
+                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
 
         return kb
 
@@ -389,7 +425,7 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        return self.footer.enabled and self.ctx.jobs is not None and len(self.ctx.jobs) > 0
+        return self._panel_wanted()
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -468,6 +504,10 @@ class Shell:
 
     def _wheel_then(self, default: Callable[[MouseEvent], Any]) -> Callable[[MouseEvent], Any]:
         def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE and self._panel_hover is not None:
+                self._panel_hover = None  # the mouse left the panel
+                default(event)
+                return None
             if event.event_type not in (MouseEventType.SCROLL_UP, MouseEventType.SCROLL_DOWN):
                 return default(event)
             up = event.event_type == MouseEventType.SCROLL_UP
@@ -489,11 +529,84 @@ class Shell:
     def _update_toolbar(self) -> None:
         buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
         text = buffer.text if buffer is not None else ""
+        if text:
+            self._panel_cursor = None  # typing leaves the panel
         wanted = bool(text.strip()) and settings.get(self.ctx.config, "toolbar")
-        self.session.bottom_toolbar = self._toolbar if wanted else None
+        self.session.bottom_toolbar = self._toolbar if wanted or self._panel_wanted() else None
+
+    def _panel_wanted(self) -> bool:
+        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
+
+    def _panel_jobs(self) -> list[Any]:
+        return list(self.ctx.jobs) if self.ctx.jobs is not None else []
 
     def _toolbar(self) -> FormattedText:
-        return self._usage_line()
+        """Under the prompt: the usage of the command being typed, then the subshell panel."""
+        parts: StyleAndTextTuples = []
+        text = self.session.default_buffer.text
+        if text.strip() and settings.get(self.ctx.config, "toolbar"):
+            parts += list(self._usage_line())
+        if self._panel_wanted():
+            if parts:
+                parts.append(("", "\n"))
+            parts += self._panel()
+        return FormattedText(parts or [("class:toolbar", " ")])
+
+    def _panel(self) -> StyleAndTextTuples:
+        """One line per shell, as in a task list:
+
+            ⤷ 2 subshells · click or Ctrl-] N switches · ↓ to manage
+            ● main
+            ○ 1  bash --norc                                   2m 18s · running
+
+        The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
+        jobs = self._panel_jobs()
+        width = max(40, self.ui.console.width)
+        running = sum(1 for j in jobs if j.running)
+        head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
+        head += f" ({running} running)" if running != len(jobs) else ""
+        parts: StyleAndTextTuples = [
+            ("class:toolbar.key", head, self._panel_hover_handler(None)),
+            ("class:toolbar", " · click or Ctrl-] N switches · ↓ to manage", self._panel_hover_handler(None)),
+            ("", "\n"),
+            ("class:toolbar.job.current", " ● main", self._panel_hover_handler(None)),
+        ]
+        for index, job in enumerate(jobs):
+            left = f" ○ {job.number}  {job.short(width // 2)}"
+            state = "running" if job.running else "done" if job.status == 0 else "failed"
+            right = f"{format_duration(job.elapsed)} · {job.label} "
+            pad = max(1, width - get_cwidth(left) - get_cwidth(right))
+            chosen = self._panel_hover == job.number or self._panel_cursor == index
+            style = "class:toolbar.job.hover" if chosen else f"class:toolbar.job.{state}"
+            handler = self._panel_entry(job.number)
+            parts += [("", "\n"), (style, left + " " * pad + right, handler)]
+        return parts
+
+    def _panel_entry(self, number: int) -> Callable[[MouseEvent], Any]:
+        """A panel line's mouse handler: hover highlights it, a click switches to it."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(number)
+            if event.event_type == MouseEventType.MOUSE_UP:
+                self._panel_hover = None
+                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+                return None
+            return NotImplemented
+        return handler
+
+    def _panel_hover_handler(self, number: int | None) -> Callable[[MouseEvent], Any]:
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(number)
+            return NotImplemented
+        return handler
+
+    def _set_panel_hover(self, number: int | None) -> Any:
+        """None when it changed (repaint), NotImplemented when nothing changed."""
+        if self._panel_hover == number:
+            return NotImplemented
+        self._panel_hover = number
+        return None
 
     def _usage_line(self) -> FormattedText:
         """One line under the prompt: the usage of the command being typed."""
@@ -550,6 +663,7 @@ class Shell:
             for note in self.ctx.jobs.pop_notifications():
                 self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
         self.footer.set_hover(None)
+        self._panel_hover = self._panel_cursor = None
         self._update_toolbar()
         line = self.session.prompt(message)
         if transient:
@@ -557,8 +671,6 @@ class Shell:
         return line
 
     def loop(self) -> int:
-        if settings.get(self.ctx.config, "footer") and self.ui.console.is_terminal:
-            self.footer.enable()
         while True:
             try:
                 line = self._ask(self._prompt)
