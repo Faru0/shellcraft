@@ -30,6 +30,7 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.text import Text
 
 from core import aliases, gitinfo, histexpand, script, settings
+from core.alerts import AlertBus
 from core.banner import render_banner
 from core.builtins import BUILTINS
 from core.completer import ShellCompleter
@@ -184,7 +185,16 @@ class Shell:
         self._cleanup.callback(self._stop_jobs)
         # The tab bar on the terminal's last row: this shell and its subshells. Enabled by loop()
         # (after the banner), redrawn after every prompt render, gone at exit.
-        self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth())
+        # Alerts from subshells, nested shells and MCP clients: the bus listens on loopback and
+        # tells children where through the environment (core.alerts).
+        ctx.alerts = AlertBus()
+        ctx.alerts.on_change = self._jobs_changed
+        try:
+            ctx.alerts.listen(config_dir())
+        except OSError:
+            pass  # no listener: `alert` still works inside this shell
+        self._cleanup.callback(ctx.alerts.close)
+        self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
@@ -251,7 +261,9 @@ class Shell:
             self.ui.console.print(Text(f"⤷ stopped: {names}", style="sc.muted"), markup=False, highlight=False)
 
     def _jobs_changed(self) -> None:
-        """A job started or finished (from its worker thread): redraw the bar."""
+        """A job started or finished, or an alert came or went (from another thread): redraw the
+        panel at the prompt, or tell the attach loop to redraw the footer."""
+        self.footer.dirty = True
         try:
             self.session.app.invalidate()
         except Exception:  # noqa: BLE001 — no app running: the next prompt shows it
@@ -429,7 +441,7 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        return self._panel_wanted()  # the panel's lines are clickable while it shows
+        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0  # the stack's lines are clickable
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -539,6 +551,8 @@ class Shell:
         self.session.bottom_toolbar = self._toolbar if wanted or self._panel_wanted() else None
 
     def _panel_wanted(self) -> bool:
+        if self.ctx.alerts is not None and self.ctx.alerts.current():
+            return True
         return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
 
     def _panel_jobs(self) -> list[Any]:
@@ -559,13 +573,17 @@ class Shell:
     def _panel(self) -> StyleAndTextTuples:
         """One line per shell, the same stack the footer shows inside a subshell (core.footer
         .panel_lines). The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
+        alerts = self.ctx.alerts.current() if self.ctx.alerts is not None else []
         lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
-                            cursor=self._panel_cursor)
+                            cursor=self._panel_cursor, alerts=alerts)
         parts: StyleAndTextTuples = []
         for i, (tab, style, text, hovered) in enumerate(lines):
             if i:
                 parts.append(("", "\n"))
-            cls = "class:toolbar.key" if style == "header" else f"class:toolbar.job.{style}"
+            if style.startswith("alert."):
+                cls = f"class:toolbar.{style}"
+            else:
+                cls = "class:toolbar.key" if style == "header" else f"class:toolbar.job.{style}"
             handler = self._panel_entry(tab) if tab else self._panel_hover_handler(None)
             if hovered:  # the filled circle in the accent color; the line keeps its own colors
                 parts.append(("class:toolbar.job.hover", text[:MARK], handler))

@@ -23,6 +23,7 @@ censys = ["censys-platform>=0.16"]  # for the queryCensys module
 
 [project.scripts]
 shellcraft = "core.cli:main"
+shellcraft-alert = "core.alerts:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "core.__version__"}

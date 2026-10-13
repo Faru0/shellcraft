@@ -565,6 +565,91 @@ jobs 1                      # attach to job 1 (Ctrl-] leaves it running, Ctrl-] 
 ```
 """
 
+ALERT_DOC = """# alert
+
+Show an alert in the status panel: green for information, amber for a warning, red for
+something critical. From the main shell it is shown at once; from a subshell (`sub bash`,
+`sub pwsh`, `sub shellcraft`) the same command reaches the main shell's panel, and so does the
+`send_tui_alert` MCP tool an AI client calls.
+
+## Usage
+
+```
+alert MESSAGE...                     # an info alert, shown for 15 s
+alert -l warning MESSAGE...          # amber, 60 s
+alert -l critical MESSAGE...         # red, stays until dismissed
+alert -t 5 MESSAGE...                # shown for 5 s; -s keeps it until dismissed
+alert --list                         # the current alerts, numbered
+alert -c                             # dismiss every alert (alert -c N: just number N)
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-l LEVEL`, `--level LEVEL` | `info` (default), `warning` or `critical`. |
+| `-t SECONDS`, `--timeout SECONDS` | How long it stays (default: 15 for info, 60 for warning, critical stays). |
+| `-s`, `--sticky` | Stay until dismissed. |
+| `-c [N]`, `--clear [N]` | Dismiss every alert, or alert N of `alert --list`. |
+| `--list` | List the current alerts. |
+
+The panel shows at most three alerts, the most severe first; when more arrive, the oldest of
+the lowest level makes room. Inside a subshell the alerts appear in the footer at the bottom.
+
+## How it reaches the shell
+
+The main shell listens on a loopback port with a random token; `SHELLCRAFT_ALERT_ADDR` and
+`SHELLCRAFT_ALERT_TOKEN` in a child's environment say where, and `~/.shellcraft/alert.addr`
+lets an MCP server started by an AI client find the shell too. Subshells get an `alert` command
+on their PATH; outside ShellCraft, `shellcraft-alert MESSAGE` (or `python -m core.alerts`) does
+the same.
+"""
+
+
+@builtin("alert", "Show an alert in the status panel",
+         "alert [-l LEVEL] [-t SECONDS | -s] MESSAGE... | --list | -c [N]", stateful=True, doc=ALERT_DOC)
+def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import alerts as alertmod
+
+    try:
+        message, level, timeout, clear, listing = alertmod.parse_args(args)
+    except SystemExit as exc:  # argparse: --help, or a usage error already printed
+        if exc.code:
+            raise CommandError("alert: bad arguments (man alert)") from None
+        return ""
+    bus = ctx.alerts
+    if alertmod.depth_forward():  # a nested ShellCraft: the main shell shows it
+        if clear or listing:
+            raise CommandError("alert: --list and -c work in the main ShellCraft")
+        if not message:
+            raise CommandError("alert: a message is needed")
+        try:
+            alertmod.send(message, level, timeout, source=f"shellcraft ⤷{alertmod.depth_forward()}")
+        except OSError as exc:
+            raise CommandError(f"alert: {exc}") from None
+        return Text(f"✓ sent to the main shell: {message}", style="sc.success")
+    if bus is None:
+        raise CommandError("alert: only in the interactive shell")
+    if listing:
+        current = bus.current()
+        if not current:
+            return Text("no alerts", style="sc.muted")
+        rows = Text()
+        for i, alert in enumerate(current, 1):
+            left = f"{i}. [{alert.level}] {alert.message}"
+            when = "sticky" if alert.remaining is None else f"{int(alert.remaining) + 1}s left"
+            rows.append(f"{left}  ({when}{', from ' + alert.source if alert.source else ''})\n")
+        return rows
+    if clear:
+        number = int(message) if message.strip().isdigit() else None
+        gone = bus.dismiss(number)
+        return Text(f"✓ {gone} alert{'s' if gone != 1 else ''} dismissed", style="sc.success")
+    if not message:
+        raise CommandError("alert: a message is needed (man alert)")
+    bus.post(message, level, timeout, source="shell")
+    return ""
+
+
 JOBS_DOC = """# jobs
 
 List the subshells started with `sub`, select one, stop one, or clear the finished ones.
@@ -610,6 +695,10 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return _sub_command(ctx, table, command)
     else:
         argv = list(args)
+    from core.alerts import with_shim
+    from core.config import config_dir
+
+    env = with_shim(env if env is not None else dict(os.environ), config_dir())  # `alert` on the PATH
     try:
         job = table.start_program(argv, command, env=env, cwd=os.getcwd())
     except jobmod.JobsUnsupported:

@@ -252,6 +252,24 @@ Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY thro
 `sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
 exits) and it is not listed as a job.
 
+### Alerts in the status panel
+
+```
+alert deploy finished                 # green, 15 s
+alert -l warning disk at 90%          # amber, 60 s
+alert -l critical pager is down       # red, stays until alert -c
+alert --list · alert -c [N]           # see them, dismiss them
+```
+
+Alerts sit at the top of the panel under the prompt (and of the footer inside a subshell), the
+most severe first, three at most. They can come from anywhere: the main shell, a subshell
+(`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
+a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client
+through the **`send_tui_alert`** MCP tool (`message`, `severity`, `timeout_seconds`). The shell
+listens on a loopback port with a random token; children find it through
+`SHELLCRAFT_ALERT_ADDR` / `SHELLCRAFT_ALERT_TOKEN`, MCP servers through `~/.shellcraft/alert.addr`.
+`man alert` has the details.
+
 <details>
 <summary>Command-line options and environment variables</summary>
 
@@ -438,6 +456,7 @@ the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when 
 shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module**, with typed parameters from its `.skill` file, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
+- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warning / critical, `timeout_seconds`), so a model can flag a finished task or a risk where you will see it.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.

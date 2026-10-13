@@ -38,6 +38,22 @@ from core.watch import ModuleWatcher
 log = logging.getLogger("shellcraft.mcp")
 
 PIPELINE_TOOL = "shellcraft_pipeline"
+ALERT_TOOL = "send_tui_alert"
+ALERT_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "message": {"type": "string",
+                    "description": "The alert text (one line; up to 300 characters)."},
+        "severity": {"type": "string", "enum": ["info", "warning", "critical"], "default": "info",
+                     "description": "info (green), warning (amber) or critical (red, stays until dismissed)."},
+        "timeout_seconds": {"type": "integer", "minimum": 1,
+                            "description": "Seconds to show it. Default: 15 for info, 60 for warning; critical stays."},
+    },
+    "required": ["message"],
+}
+ALERT_DESCRIPTION = ("Show a short alert in the user's ShellCraft terminal status panel (green info, amber warning, "
+                     "red critical). Use it to flag something the user should see now: a finished task, a risk, "
+                     "a question waiting. Fails when no interactive ShellCraft is running.")
 MAN_URI = "shellcraft://man/"
 WATCH_INTERVAL = 1.0  # seconds between checks of the modules directory
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
@@ -174,11 +190,14 @@ class ShellcraftMCP:
         ]
         tools.append(types.Tool(name=PIPELINE_TOOL, description=_pipeline_description(self.registry, self.tool_names()),
                                 input_schema=PIPELINE_INPUT_SCHEMA))
+        tools.append(types.Tool(name=ALERT_TOOL, description=ALERT_DESCRIPTION, input_schema=ALERT_INPUT_SCHEMA))
         return types.ListToolsResult(tools=tools)
 
     async def _call_tool(self, request_ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         self._remember(request_ctx)
         arguments = dict(params.arguments or {})
+        if params.name == ALERT_TOOL:
+            return await _call(lambda: _send_alert(arguments), self.timeout)
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -294,6 +313,31 @@ async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.C
     if len(text) > MAX_OUTPUT:
         text = text[:MAX_OUTPUT] + f"\n… [output cut after {MAX_OUTPUT} characters]\n"
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
+
+
+def _send_alert(arguments: dict[str, Any]) -> str:
+    """The send_tui_alert tool: forward to the running shell's alert listener."""
+    from core import alerts
+
+    message = str(arguments.get("message", "")).strip()
+    if not message:
+        raise CommandError("send_tui_alert: `message` is required")
+    severity = str(arguments.get("severity", "info") or "info")
+    if severity not in alerts.LEVELS:
+        raise CommandError(f"send_tui_alert: severity must be one of {', '.join(alerts.LEVELS)}")
+    timeout: Any = arguments.get("timeout_seconds")
+    if timeout is not None:
+        try:
+            timeout = max(1.0, float(timeout))
+        except (TypeError, ValueError):
+            raise CommandError("send_tui_alert: timeout_seconds must be a number") from None
+    else:
+        timeout = "default"
+    try:
+        alerts.send(message, severity, timeout, source="mcp")
+    except OSError as exc:
+        raise CommandError(f"send_tui_alert: {exc}") from None
+    return f"alert shown ({severity}): {message}"
 
 
 def _error(message: str) -> types.CallToolResult:

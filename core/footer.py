@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
@@ -34,9 +34,11 @@ MARGINS_RE = re.compile(rb"\x1b\[(\d*)(?:;(\d*))?r")
 
 
 class Footer:
-    def __init__(self, ui: UI, jobs: JobTable, depth: int = 0):
+    def __init__(self, ui: UI, jobs: JobTable, depth: int = 0, alerts: Any = None):
         self.ui = ui
         self.jobs = jobs
+        self.alerts = alerts  # core.alerts.AlertBus, shown above the stack
+        self.dirty = False  # set from other threads (an alert, a job change): the attach loop redraws
         self.depth = depth  # inside `sub shellcraft`: shown on tab 0
         self.current = 0  # 0 = this shell, else the attached job's number
         self.hover: int | None = None  # the tab under the mouse (0 or a job number)
@@ -103,13 +105,15 @@ class Footer:
             pass
 
     def height(self) -> int:
-        """Rows the footer takes: the header, `main`, and one per subshell (capped)."""
-        return 2 + min(len(self.jobs), MAX_ROWS - 2)
+        """Rows the footer takes: the alerts, the header, `main`, and one per subshell (capped)."""
+        alerts = len(self.alerts.current()) if self.alerts is not None else 0
+        return alerts + 2 + min(len(self.jobs), MAX_ROWS - 2)
 
     def render(self, cols: int) -> list[str]:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
         the prompt. Records which tab each row is."""
-        lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True)
+        lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
+                            alerts=self.alerts.current() if self.alerts is not None else [])
         self.row_tabs = [tab for tab, _style, _text, _hovered in lines]
         console = self.ui.console
         out = []
@@ -159,8 +163,26 @@ class Footer:
 MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
 
 
+def alert_lines(alerts: list, width: int) -> list[tuple[int | None, str, str, bool]]:
+    """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`."""
+    from core.alerts import ICONS
+
+    lines: list[tuple[int | None, str, str, bool]] = []
+    for alert in alerts:
+        left = f" {ICONS[alert.level]} {alert.message}"
+        remaining = alert.remaining
+        right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " · sticky ")
+        room = max(10, width - get_cwidth(right) - 1)
+        if get_cwidth(left) > room:
+            left = left[: room - 1] + "…"
+        pad = max(1, width - get_cwidth(left) - get_cwidth(right))
+        lines.append((None, f"alert.{alert.level}", left + " " * pad + right, False))
+    return lines
+
+
 def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: int = 0,
-                attached: bool = False, cursor: int | None = None) -> list[tuple[int | None, str, str, bool]]:
+                attached: bool = False, cursor: int | None = None,
+                alerts: list | None = None) -> list[tuple[int | None, str, str, bool]]:
     """The lines of the shell stack: (tab, style, text, hovered) each, where tab is 0 for this
     shell, a job number, or None for the header; style is one of header, current, main, running,
     done, failed; and hovered says the line is under the mouse or chosen with ↓ / ↑, which fills
@@ -174,11 +196,14 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
     from core.shell import format_duration
 
     width = max(40, width)
+    lines: list[tuple[int | None, str, str, bool]] = alert_lines(alerts or [], width)
+    if not jobs:
+        return lines  # alerts alone, when there are no subshells to list
     running = sum(1 for j in jobs if j.running)
     head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns" if attached else "↓ to manage")
-    lines: list[tuple[int | None, str, str, bool]] = [(None, "header", head, False)]
+    lines.append((None, "header", head, False))
     main_hover = hover == 0
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
     lines.append((0, "current" if current == 0 else "main", main, main_hover))

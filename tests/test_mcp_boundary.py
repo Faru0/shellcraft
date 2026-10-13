@@ -10,7 +10,7 @@ from mcp.shared.exceptions import MCPError
 
 from core import mcp_server
 from core.loader import ModuleRegistry
-from core.mcp_server import PIPELINE_TOOL, build_server, require_bearer, resolve_token
+from core.mcp_server import ALERT_TOOL, PIPELINE_TOOL, build_server, require_bearer, resolve_token
 
 
 def _call(server, fn):
@@ -53,7 +53,7 @@ def test_unexposed_modules_are_not_tools_anywhere(local):
 def test_expose_narrows_the_tool_list(local):
     server = build_server(local, expose=["slow"])
     tools = {t.name for t in _call(server, lambda c: c.list_tools()).tools}
-    assert tools == {"slow", PIPELINE_TOOL}
+    assert tools == {"slow", PIPELINE_TOOL, ALERT_TOOL}  # the alert tool is always offered
     result = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "pub"}))
     assert result.is_error
 

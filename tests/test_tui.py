@@ -428,4 +428,4 @@ def test_help_narrow_layout(tmp_path):
     ui.console.print(result.output.renderable)
     text = ui.console.export_text()
     assert "Shell\n" in text and "  grep — " in text and "┃" not in text  # lines, not a table
-    assert to_text(result.output).startswith("alias  ")
+    assert to_text(result.output).startswith("alert  ")  # the first Shell builtin, alphabetically

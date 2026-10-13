@@ -447,6 +447,14 @@ class JobTable:
                     term.mouse(True)
                     our_mouse = True
                 data = term.read(0.1)
+                if footer is not None and footer.dirty:  # an alert or a job change from a thread
+                    footer.dirty = False
+                    rows, cols = size()
+                    if (job.screen.lines, job.screen.columns) != (rows, cols) if job.screen else False:
+                        job.resize(rows, cols)
+                        show_page()
+                    else:
+                        footer.draw()
                 if data is None:
                     if prefix_at is not None and time.monotonic() - prefix_at > PREFIX_WAIT:
                         return "detached", 0
