@@ -89,7 +89,9 @@ class McpHttpChild:
         env.pop("SHELLCRAFT_MCP_TOKEN", None)
         argv = [sys.executable, "-m", "core.cli", "--mcp-http", f"{_url_host(host)}:{port}",
                 "--modules", str(modules_dir), "--parent-pid", str(os.getpid())]
-        argv += ["--token", self.token] if self.token else ["--no-token"]
+        # `--token=…`, never `--token …`: a generated token can start with `-`, which argparse
+        # would take for an option ("expected one argument") and the server would not start.
+        argv += [f"--token={self.token}"] if self.token else ["--no-token"]
         if allow_system:
             argv.append("--allow-system")
         # Its own process group: Ctrl-C at the prompt (sent to the whole foreground group on POSIX,

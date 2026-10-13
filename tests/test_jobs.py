@@ -7,6 +7,7 @@ import threading
 import time
 
 import pytest
+from prompt_toolkit.keys import Keys
 from rich.console import Console
 
 from core import jobs as jobmod
@@ -247,11 +248,11 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert entry[0] == "class:toolbar.job.done" and entry[2](move_event()) is None and sh._panel_hover == job.number
     assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
     sh._panel_hover = None
-    down = [b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["down"]]
+    down = [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["down"]]
     assert len(down) == 2  # enter the panel, move in it
     sh._panel_cursor = 0
     assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
-    enter = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["enter"])
+    enter = next(b for b in sh.session.key_bindings.bindings if list(b.keys) == [Keys.Enter])
     enter.handler(None)
     assert sh._panel_cursor is None and ran[-1] == f"jobs {job.number}"
     # the prompt's jobs segment counts running jobs only
