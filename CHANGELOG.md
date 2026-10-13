@@ -12,8 +12,8 @@ and the project uses [semantic versioning](https://semver.org/).
   depth), and `sub COMMAND` runs a builtin or module in the background with its output collected.
   Each is a numbered job. At the prompt a **panel** under it lists them one per line (the line
   under the mouse lights up, a click switches, ↓ moves into the panel and Enter picks); inside a
-  subshell a one-row **footer** at the bottom of the terminal shows the same shells as tabs (a
-  scroll region keeps it in place), clickable too. **Ctrl-] N** switches from anywhere, **Ctrl-]**
+  subshell the same panel sits at the bottom of the terminal (a scroll region keeps it in
+  place), clickable too, with the ● on the shell you are in. **Ctrl-] N** switches from anywhere, **Ctrl-]**
   alone comes back. `jobs` lists, selects, stops (`-k N`) and clears (`-c`) them, finished jobs
   are announced at the next prompt, and the `footer` setting turns the strip off. Each program
   has its own terminal emulator (`pyte`), so switching to it redraws its screen exactly,

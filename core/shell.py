@@ -27,7 +27,6 @@ from prompt_toolkit.lexers import DynamicLexer
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.search import SearchDirection, do_incremental_search
 from prompt_toolkit.styles import DynamicStyle
-from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
 
 from core import aliases, gitinfo, histexpand, script, settings
@@ -37,7 +36,7 @@ from core.completer import ShellCompleter
 from core.config import config_dir, history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit, set_width_source
-from core.footer import Footer, parse_mouse
+from core.footer import Footer, panel_lines, parse_mouse
 from core.highlight import KEYWORDS, ShellLexer
 from core.jobs import JobTable, depth
 from core.output import make_spinner_runner, show, show_error
@@ -419,12 +418,14 @@ class Shell:
     # ── the input line: highlighting, the toolbar and the mouse ──────────────
 
     def _mouse_wanted(self) -> bool:
-        """Mouse reporting on while a completion menu is open, or always with `mouse_always`.
-        Otherwise the terminal keeps the mouse: the wheel scrolls its scrollback, text can be
-        selected. The panel's lines are clickable with `mouse_always`; ↓ and Ctrl-] N always work."""
+        """Mouse reporting on while a completion menu is open, while the subshell panel shows
+        (so its lines can be clicked), or always with `mouse_always`. Otherwise the terminal keeps
+        the mouse: the wheel scrolls its scrollback, text can be selected without Shift."""
         if not self.ui.mouse:
             return False
-        return self.ui.mouse_always or self.session.default_buffer.complete_state is not None
+        if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
+            return True
+        return self._panel_wanted()  # the panel's lines are clickable while it shows
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -552,33 +553,17 @@ class Shell:
         return FormattedText(parts or [("class:toolbar", " ")])
 
     def _panel(self) -> StyleAndTextTuples:
-        """One line per shell, as in a task list:
-
-            ⤷ 2 subshells · click or Ctrl-] N switches · ↓ to manage
-            ● main
-            ○ 1  bash --norc                                   2m 18s · running
-
-        The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
-        jobs = self._panel_jobs()
-        width = max(40, self.ui.console.width)
-        running = sum(1 for j in jobs if j.running)
-        head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
-        head += f" ({running} running)" if running != len(jobs) else ""
-        parts: StyleAndTextTuples = [
-            ("class:toolbar.key", head, self._panel_hover_handler(None)),
-            ("class:toolbar", " · click or Ctrl-] N switches · ↓ to manage", self._panel_hover_handler(None)),
-            ("", "\n"),
-            ("class:toolbar.job.current", " ● main", self._panel_hover_handler(None)),
-        ]
-        for index, job in enumerate(jobs):
-            left = f" ○ {job.number}  {job.short(width // 2)}"
-            state = "running" if job.running else "done" if job.status == 0 else "failed"
-            right = f"{format_duration(job.elapsed)} · {job.label} "
-            pad = max(1, width - get_cwidth(left) - get_cwidth(right))
-            chosen = self._panel_hover == job.number or self._panel_cursor == index
-            style = "class:toolbar.job.hover" if chosen else f"class:toolbar.job.{state}"
-            handler = self._panel_entry(job.number)
-            parts += [("", "\n"), (style, left + " " * pad + right, handler)]
+        """One line per shell, the same stack the footer shows inside a subshell (core.footer
+        .panel_lines). The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
+        lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
+                            cursor=self._panel_cursor)
+        parts: StyleAndTextTuples = []
+        for i, (tab, style, text) in enumerate(lines):
+            if i:
+                parts.append(("", "\n"))
+            cls = "class:toolbar.key" if style == "header" else f"class:toolbar.job.{style}"
+            handler = self._panel_entry(tab) if tab else self._panel_hover_handler(None)
+            parts.append((cls, text, handler))
         return parts
 
     def _panel_entry(self, number: int) -> Callable[[MouseEvent], Any]:

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from core.themes import UI
 
 PREFIX = "Ctrl-]"
+MAX_ROWS = 10  # the footer never takes more rows than this (the stack is cut with "… and N more")
 # A scroll-region command from an attached program (`ESC[r`, `ESC[a;br`): rewritten to stay
 # above the footer, else a full-screen reset would let its output scroll over the footer row.
 MARGINS_RE = re.compile(rb"\x1b\[(\d*)(?:;(\d*))?r")
@@ -40,7 +41,7 @@ class Footer:
         self.current = 0  # 0 = this shell, else the attached job's number
         self.hover: int | None = None  # the tab under the mouse (0 or a job number)
         self.enabled = False
-        self.spans: list[tuple[int, int, int]] = []  # (x_start, x_end, tab) of the last draw, 0-based columns
+        self.row_tabs: list[int | None] = []  # the tab of each footer row, after the last draw
         self._rows = 0
 
     # ── geometry ─────────────────────────────────────────────────────────────
@@ -57,11 +58,7 @@ class Footer:
     @property
     def region_rows(self) -> int:
         """Rows available above the footer: what attached programs are told the terminal has."""
-        return self.size()[0] - 1
-
-    def footer_row(self) -> int:
-        """The footer's row, 1-based (the terminal's last)."""
-        return self.size()[0]
+        return max(1, self.size()[0] - self.height())
 
     # ── drawing ──────────────────────────────────────────────────────────────
 
@@ -75,7 +72,8 @@ class Footer:
             return
         self.enabled = False
         rows = self.size()[0]
-        self._write(f"\x1b7\x1b[r\x1b[{rows};1H\x1b[2K\x1b8")
+        clear = "".join(f"\x1b[{rows - i};1H\x1b[2K" for i in range(self.height()))
+        self._write(f"\x1b7\x1b[r{clear}\x1b8")
 
     def draw(self) -> None:
         """Set the scroll region for the current size and paint the footer on the last row."""
@@ -83,13 +81,15 @@ class Footer:
             self._write(self.sequence())
 
     def sequence(self) -> str:
-        """What draw() writes: the scroll region for the current size, then the footer line."""
+        """What draw() writes: the scroll region above the footer, then the footer's rows."""
         rows, cols = self.size()
-        line = self.render(cols)
+        lines = self.render(cols)
         self._rows = rows
+        top = rows - len(lines) + 1
         # Region first (it also moves the cursor home, hence the save / restore around it), then
-        # the footer: the row is outside the region, so an absolute move reaches it.
-        return f"\x1b7\x1b[1;{rows - 1}r\x1b8\x1b7\x1b[{rows};1H\x1b[2K{line}\x1b8"
+        # the rows: they are outside the region, so absolute moves reach them.
+        body = "".join(f"\x1b[{top + i};1H\x1b[2K{line}" for i, line in enumerate(lines))
+        return f"\x1b7\x1b[1;{top - 1}r\x1b8\x1b7{body}\x1b8"
 
     def render_bytes(self) -> bytes:
         """The draw sequence as bytes, appended to an attached program's output."""
@@ -102,59 +102,35 @@ class Footer:
         except (OSError, ValueError):
             pass
 
-    def render(self, cols: int) -> str:
-        """The footer as one ANSI line of exactly `cols` cells; records the tab spans."""
-        text = Text(no_wrap=True, overflow="crop")
-        self.spans = []
-        x = 0
+    def height(self) -> int:
+        """Rows the footer takes: the header, `main`, and one per subshell (capped)."""
+        return 2 + min(len(self.jobs), MAX_ROWS - 2)
 
-        def add(part: str, style: str, tab: int | None = None) -> None:
-            nonlocal x
-            text.append(part, style=style)
-            width = get_cwidth(part)
-            if tab is not None:
-                self.spans.append((x, x + width, tab))
-            x += width
-
-        add(" ⤷ ", "sc.footer.key")
-        main = f" 0:⚡shellcraft{' ⤷' + str(self.depth) if self.depth else ''} "
-        add(main, self._tab_style(0, running=True), tab=0)
-        for job in self.jobs:
-            icon = "●" if job.running else "✓" if job.status == 0 else "✗"
-            add("│", "sc.footer")
-            failed = not job.running and job.status != 0
-            style = self._tab_style(job.number, job.running, failed)
-            add(f" {job.number}:{job.short()} {icon} ", style, tab=job.number)
-        hint = f" {PREFIX} N switches "
-        if x + get_cwidth(hint) + 1 <= cols:
-            add(" " * (cols - x - get_cwidth(hint)), "sc.footer")
-            add(hint, "sc.footer.hint")
-        elif x < cols:
-            add(" " * (cols - x), "sc.footer")
+    def render(self, cols: int) -> list[str]:
+        """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
+        the prompt. Records which tab each row is."""
+        lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True)
+        self.row_tabs = [tab for tab, _style, _text in lines]
         console = self.ui.console
-        with console.capture() as capture:
-            console.print(text, end="", width=cols, no_wrap=True, overflow="crop", crop=True, highlight=False,
-                          markup=False, soft_wrap=True)
-        return capture.get()
-
-    def _tab_style(self, tab: int, running: bool, failed: bool = False) -> str:
-        if tab == self.hover:
-            return "sc.footer.hover"
-        if tab == self.current:
-            return "sc.footer.current"
-        if failed:
-            return "sc.footer.failed"
-        return "sc.footer.tab" if running else "sc.footer.done"
+        out = []
+        for _tab, style, text in lines:
+            with console.capture() as capture:
+                console.print(Text(text, style=f"sc.footer.{style}", no_wrap=True, overflow="crop"), end="",
+                              width=cols, no_wrap=True, overflow="crop", crop=True, highlight=False,
+                              markup=False, soft_wrap=True)
+            out.append(capture.get())
+        return out
 
     # ── the mouse ────────────────────────────────────────────────────────────
 
     def hit(self, x: int, y: int) -> int | None:
-        """The tab at terminal column x, row y (both 1-based), or None when not on a tab."""
-        if y != self._rows or not self.enabled:
+        """The tab on terminal row y (1-based), or None when the row is not a shell's line."""
+        if not self.enabled or not self._rows:
             return None
-        for x0, x1, tab in self.spans:
-            if x0 <= x - 1 < x1:
-                return tab
+        first = self._rows - len(self.row_tabs) + 1
+        index = y - first
+        if 0 <= index < len(self.row_tabs):
+            return self.row_tabs[index]
         return None
 
     def set_hover(self, tab: int | None) -> bool:
@@ -174,6 +150,44 @@ class Footer:
                 top, bottom = 1, rows
             return f"\x1b[{max(1, top)};{min(bottom, rows)}r".encode()
         return MARGINS_RE.sub(fix, data)
+
+
+# ── the stack, shared by the panel under the prompt and the footer in a subshell ─
+
+def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: int = 0,
+                attached: bool = False, cursor: int | None = None) -> list[tuple[int | None, str, str]]:
+    """The lines of the shell stack: (tab, style, text) each, where tab is 0 for this shell, a
+    job number, or None for the header, and style is one of header, current, main, running,
+    done, failed, hover. `current` is the attached job (0 at the prompt), `hover` the line under
+    the mouse, `cursor` the index chosen with ↓ / ↑ at the prompt.
+
+        ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
+        ● main
+        ○ 1  bash --norc                                          2m 18s · running
+    """
+    from core.shell import format_duration
+
+    width = max(40, width)
+    running = sum(1 for j in jobs if j.running)
+    head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
+    head += f" ({running} running)" if running != len(jobs) else ""
+    head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns" if attached else "↓ to manage")
+    lines: list[tuple[int | None, str, str]] = [(None, "header", head)]
+    main = f" {'●' if current == 0 else '○'} main" + (f" ⤷{depth}" if depth else "")
+    lines.append((0, "hover" if hover == 0 else "current" if current == 0 else "main", main))
+    shown = jobs[: MAX_ROWS - 2]
+    for index, job in enumerate(shown):
+        mark = "●" if current == job.number else "○"
+        left = f" {mark} {job.number}  {job.short(width // 2)}"
+        state = "running" if job.running else "done" if job.status == 0 else "failed"
+        right = f"{format_duration(job.elapsed)} · {job.label} "
+        pad = max(1, width - get_cwidth(left) - get_cwidth(right))
+        chosen = hover == job.number or cursor == index
+        style = "hover" if chosen else "current" if current == job.number else state
+        lines.append((job.number, style, left + " " * pad + right))
+    if len(jobs) > len(shown):
+        lines.append((None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)"))
+    return lines
 
 
 # ── SGR / Windows mouse data, as prompt_toolkit's key press carries it ────────

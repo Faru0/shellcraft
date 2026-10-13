@@ -512,11 +512,11 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 SUB_DOC = """# sub
 
 Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
-or a ShellCraft command running in the background. Every subshell is a numbered **job**: at the
-prompt a panel under it lists them (`● main`, then `○ 1  bash …`; hover or ↓ to pick, click or
-Enter to switch), inside a subshell a footer on the terminal's last row shows them as tabs
-(`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓`). `jobs` lists them, **Ctrl-] N** or a click selects
-job N, from the prompt or from inside another subshell.
+or a ShellCraft command running in the background. Every subshell is a numbered **job**, and a
+panel lists them as a stack (`● main`, then `○ 1  bash …`): under the prompt, and at the bottom of
+the terminal while you are inside a subshell, with the ● on the shell you are in. Hover or ↓ to
+pick, click or Enter to switch; `jobs` lists them too, and **Ctrl-] N** or a click selects job N
+from the prompt or from inside another subshell.
 
 ## Usage
 
@@ -540,9 +540,10 @@ sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub gre
   `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); finished jobs
   print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
-- The panel (at the prompt) and the footer (inside a subshell): ● running, ✓ done, ✗ failed;
-  the current one and the one under the mouse are highlighted. `jobs -c` clears the finished
-  ones, `jobs -k N` stops one, `settings footer off` removes the footer (Ctrl-] N still works).
+- The panel looks the same at the prompt and inside a subshell: the line under the mouse is
+  highlighted, the ● marks where you are, the right-hand column shows the elapsed time and the
+  state. `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` drops
+  the panel inside subshells (Ctrl-] N still works).
 
 Each program has its own terminal emulator: switching to it redraws its screen exactly as it
 was, and the mouse wheel scrolls through its scrollback (any key returns to the live page).

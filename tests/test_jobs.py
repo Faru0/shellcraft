@@ -200,42 +200,48 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     from types import SimpleNamespace
 
     from core import shell as shell_module
-    from core.footer import parse_mouse
+    from core.footer import panel_lines, parse_mouse
 
     sh, ctx = repl_shell
     footer = sh.footer
     assert ctx.footer is footer and not footer.enabled and sh.session.bottom_toolbar is None
     footer.size = lambda: (24, 80)
     footer.enabled = True
-    line = footer.render(80)
-    assert "0:⚡shellcraft" in line and "Ctrl-] N" in line and footer.spans[0][2] == 0
+    assert footer.height() == 2 and footer.region_rows == 22
     job = ctx.jobs.start_command("seq 2", lambda: (0, "1\n2\n"))
     assert _wait(lambda: not job.running)
-    seq = footer.sequence()  # sets the scroll region above the last row, paints the footer there
-    assert "\x1b[1;23r" in seq and "\x1b[24;1H" in seq and "1:seq 2 ✓" in seq
-    x0, x1, tab = next(sp for sp in footer.spans if sp[2] == 1)
-    assert footer.hit(x0 + 1, 24) == 1 and footer.hit(x0 + 1, 23) is None and footer.hit(0, 24) is None
+    # the same stack at the prompt and in the footer
+    lines = panel_lines([job], 0, None, 80, cursor=None)
+    assert [t for t, _s, _x in lines] == [None, 0, 1] and lines[1][2] == " ● main" and lines[2][2].startswith(" ○ 1  seq 2")
+    assert "done" in lines[2][2] and lines[2][1] == "done"
+    attached = panel_lines([job], 1, None, 80, attached=True)
+    assert attached[1][2] == " ○ main" and attached[2][2].startswith(" ● 1 ") and attached[2][1] == "current"
+    assert "Ctrl-] alone returns" in attached[0][2]
+    seq = footer.sequence()  # the scroll region above the stack (3 rows), the rows painted at the bottom
+    assert footer.height() == 3 and "\x1b[1;21r" in seq and "\x1b[22;1H" in seq and "\x1b[24;1H" in seq
+    assert "seq 2" in seq and footer.row_tabs == [None, 0, 1]
+    assert footer.hit(5, 24) == 1 and footer.hit(5, 23) == 0 and footer.hit(5, 22) is None and footer.hit(5, 21) is None
     assert footer.set_hover(1) and not footer.set_hover(1)
-    assert "1:seq 2" in footer.render(80)  # still there, now in the hover style
+    assert "seq 2" in "".join(footer.render(80))  # still there, now in the hover style
     assert footer.set_hover(None)
-    # the terminal keeps the mouse at the prompt (the wheel scrolls its scrollback); mouse_always
-    # makes the panel's lines clickable
+    # the panel's lines are clickable while it shows: the mouse is on at the prompt then
+    assert sh.session.app.mouse_support() is True
+    ctx.jobs.clear_finished()
     assert sh.session.app.mouse_support() is False
     sh.ui.mouse_always = True
     assert sh.session.app.mouse_support() is True
     sh.ui.mouse_always = False
-    ctx.jobs.clear_finished()
 
     ran = []
     monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())
     monkeypatch.setattr(sh, "_run_clicked", lambda line: ran.append(line))
     job = ctx.jobs.start_command("seq 3", lambda: (0, "1\n2\n3\n"))
     assert _wait(lambda: not job.running)
-    footer.render(80)
-    x0, x1, tab = next(sp for sp in footer.spans if sp[2] == job.number)
-    click = SimpleNamespace(data=f"\x1b[<0;{x0 + 1};24m", key_sequence=[SimpleNamespace(key="<vt100-mouse-event>")])
+    footer.sequence()
+    row = 24 - len(footer.row_tabs) + 1 + footer.row_tabs.index(job.number)
+    click = SimpleNamespace(data=f"\x1b[<0;5;{row}m", key_sequence=[SimpleNamespace(key="<vt100-mouse-event>")])
     assert sh._footer_mouse(click) is None and ran == [f"jobs {job.number}"]
-    move = SimpleNamespace(data=f"\x1b[<35;{x0 + 1};24M", key_sequence=click.key_sequence)
+    move = SimpleNamespace(data=f"\x1b[<35;5;{row}M", key_sequence=click.key_sequence)
     assert sh._footer_mouse(move) is None and footer.hover == job.number
     assert parse_mouse("\x1b[<64;5;5M") == ("scroll", 5, 5) and parse_mouse("LEFT;MOUSE_UP;3;4") == ("up", 4, 5)
     assert parse_mouse("junk") is None
@@ -245,6 +251,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert ran[-1] == f"jobs {job.number}"
     assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["escape", "1"]]  # no Alt-N
     # the panel under the prompt: ↓ walks it, Enter picks
+    footer.enabled = False
     sh._update_toolbar()
     lines = "".join(f[1] for f in sh._toolbar()).split("\n")
     assert lines[0].startswith(" ⤷ 1 subshell") and lines[1] == " ● main" and lines[2].startswith(f" ○ {job.number}  seq 3")

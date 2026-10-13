@@ -230,19 +230,18 @@ Every subshell is a numbered job. At the prompt, a **panel** under it lists them
  ○ 2  find / -name "*.log"                                    4.0s · done
 ```
 
-**↓** on an empty line moves into the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves), and
-**Ctrl-] N** switches from anywhere. With `settings mouse_always on` the line under the mouse
-lights up and a click switches to it; without it the terminal keeps the mouse at the prompt, so
-the wheel scrolls your scrollback as usual.
+The line under the mouse lights up and a click switches to it; **↓** on an empty line moves into
+the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves); **Ctrl-] N** switches from anywhere.
+While the panel shows, the terminal's mouse is used for it, so selecting text there needs Shift
+and the wheel moves through the history; with no subshells the terminal keeps the mouse as usual.
 
 Subshells are shown like the pages of a book. Each program has its own terminal emulator, so
 switching to it redraws its screen exactly as it was, scrollback included, and switching away
 and back never garbles anything. They are shown on the terminal's alternate screen, so coming
-back to the prompt restores it untouched. Inside a subshell the panel gives way to a one-row
-**footer** at the bottom of the terminal with the same shells as tabs
-(`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:find / … ✓`): click a tab or press Ctrl-] N to turn the page;
-**Ctrl-]** alone, or tab 0, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to
-the program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
+back to the prompt restores it untouched. Inside a subshell the same stacked panel sits at the bottom of the terminal, with the
+● on the shell you are in: click a line or press Ctrl-] N to turn the page; **Ctrl-]** alone, or
+the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to the
+program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
 terminals need it for their own tabs.) Switching to a command shows its output so far. A finished
 job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
@@ -346,7 +345,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 | `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
 | `links` | on | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
-| `footer` | on | Inside a subshell, the tab bar on the last row (click, or Ctrl-] N, to switch). |
+| `footer` | on | Inside a subshell, keep the subshell panel at the bottom of the terminal (click a line, or Ctrl-] N, to switch). |
 
 ### API keys
 

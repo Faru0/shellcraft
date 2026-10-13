@@ -398,7 +398,7 @@ class JobTable:
 
         def size() -> tuple[int, int]:
             rows, cols = term.size()
-            return (max(1, rows - 1) if footer is not None else rows), cols
+            return (max(1, rows - footer.height()) if footer is not None else rows), cols
 
         def show_page() -> None:
             rows, cols = size()
