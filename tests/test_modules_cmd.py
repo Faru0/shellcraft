@@ -100,7 +100,7 @@ def test_errors(mods, line, message):
 
 def test_enable_reports_a_module_that_fails_to_load(mods):
     folder, _ = mods
-    (folder / "broken.py").write_text("raise RuntimeError('boom')\n")
+    (folder / "broken.py").write_text("raise RuntimeError('boom')\n\ndef run(args, stdin):\n    return ''\n")  # a command that fails to import
     ctx = make_ctx(folder, ["broken"])
     out = text(ctx, "modules enable broken")
     assert "enabled broken" in out and "failed to load" in out and "boom" in out

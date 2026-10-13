@@ -6,6 +6,7 @@ import importlib.util
 import re
 import sys
 import tomllib
+import types
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -17,6 +18,50 @@ from core.options import OptionSpec, from_markdown, from_skill, merge
 from core.settings import ENV_NAME
 
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_DEF_RUN = re.compile(r"^\s*def\s+run\s*\(", re.M)
+PACKAGE = "shellcraft_modules"  # the package every module is imported under
+
+
+def is_helper(py: Path) -> bool:
+    """A .py in the modules folder that is not a command: no `run()` and no `.skill` beside it.
+    Modules may import it (`import localthing`, `from . import localthing`); it is skipped quietly."""
+    if py.with_suffix(".skill").exists():
+        return False
+    try:
+        return not _DEF_RUN.search(py.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+
+
+def _import_path(directory: Path) -> None:
+    """Let modules import each other: the folder goes on sys.path (plain `import localthing`), and
+    `shellcraft_modules` is a package rooted there (`from . import localthing` inside a module)."""
+    folder = str(directory.resolve())
+    if folder not in sys.path:
+        sys.path.append(folder)  # at the end: a file called json.py must not shadow the stdlib
+    package = sys.modules.get(PACKAGE)
+    if package is None:
+        package = types.ModuleType(PACKAGE)
+        package.__path__ = []  # type: ignore[attr-defined]
+        sys.modules[PACKAGE] = package
+    if folder not in package.__path__:  # type: ignore[attr-defined]
+        package.__path__.insert(0, folder)  # type: ignore[attr-defined]
+
+
+def _forget_imports(directory: Path) -> None:
+    """Drop every module imported from the folder (commands and helpers alike), so a reload sees
+    the files as they are now."""
+    folder = str(directory.resolve())
+    package = sys.modules.get(PACKAGE)
+    for key, module in list(sys.modules.items()):
+        if key.startswith(PACKAGE + "."):
+            del sys.modules[key]
+            if package is not None:  # `from . import x` would otherwise find the old one here
+                package.__dict__.pop(key.split(".", 1)[1], None)
+            continue
+        file = getattr(module, "__file__", None) or ""
+        if file and str(Path(file).resolve().parent) == folder:
+            del sys.modules[key]
 RESERVED_NAMES = {"shellcraft_pipeline"}
 
 RunFn = Callable[[list[str], str], str]
@@ -199,15 +244,25 @@ class ModuleRegistry:
             self.load()
             return
         reimport = {Path(f).stem for f in changed if not f.endswith(".md")}
+        if any(not f.endswith(".md") for f in changed):
+            # A changed .py may be a helper that other modules import: every module imported from
+            # the folder is forgotten, and the commands are re-imported on their next use.
+            _forget_imports(self.directory)
+            _import_path(self.directory)
+            if self.lazy:
+                for other in list(self.modules):
+                    if other not in names:
+                        self.modules[other] = self.load_file(other, self.files[other])
         for name in sorted(names):
             py = self.directory / f"{name}.py"
             self.warnings = [w for w in self.warnings if not w.startswith(f"{py.name}:")]
             if not py.is_file():  # deleted or renamed
                 self.files.pop(name, None)
                 self.modules.pop(name, None)
-                sys.modules.pop(f"shellcraft_modules.{name}", None)
                 continue
-            if name.startswith("_"):
+            if name.startswith("_") or is_helper(py):
+                self.files.pop(name, None)
+                self.modules.pop(name, None)
                 continue
             if not VALID_NAME.match(name) or name in RESERVED_NAMES:
                 self.warnings.append(f"{py.name}: invalid module name, skipped")
@@ -227,8 +282,7 @@ class ModuleRegistry:
                 self.warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
 
     def load(self) -> None:
-        for stale in [k for k in sys.modules if k.startswith("shellcraft_modules.")]:
-            del sys.modules[stale]  # a deleted or renamed module must not linger after reload
+        _forget_imports(self.directory)  # a deleted or renamed module must not linger after reload
         # Built aside and swapped in at the end, so a reload never shows a half-empty registry.
         modules: dict[str, ModuleSpec] = {}
         files: dict[str, Path] = {}
@@ -236,9 +290,10 @@ class ModuleRegistry:
         if not self.directory.is_dir():
             warnings.append(f"modules directory not found: {self.directory}")
         else:
+            _import_path(self.directory)
             for py in sorted(self.directory.glob("*.py")):
                 name = py.stem
-                if name.startswith("_"):
+                if name.startswith("_") or is_helper(py):
                     continue
                 if not VALID_NAME.match(name) or name in RESERVED_NAMES:
                     warnings.append(f"{py.name}: invalid module name, skipped")

@@ -213,6 +213,10 @@ class Shell:
         ctx.history = history
         self._lexer = ShellLexer(self._is_known_command)
         self.session: PromptSession = PromptSession(
+            # Windows: bound to CONIN$ / CONOUT$ explicitly (the app session does the same, but an
+            # explicit binding survives whatever else touches the current session).
+            input=self.direct_console.input if self.direct_console is not None else None,
+            output=self.direct_console.output if self.direct_console is not None else None,
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
             completer=ShellCompleter(ctx),

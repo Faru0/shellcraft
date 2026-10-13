@@ -41,6 +41,15 @@ and the project uses [semantic versioning](https://semver.org/).
   off. On Windows the console's mouse input is switched on with the menu and Quick Edit mode is
   restored when it closes.
 
+### Added
+
+- **Imports between modules:** a module may `import localthing` or `from . import localthing`
+  for another file in the modules folder; a `.py` without `run()` (and no `.skill`) is a helper,
+  not a command, and is skipped quietly. Editing a helper reloads the modules that use it.
+- **Windows:** the prompt session is bound to `CONIN$` / `CONOUT$` explicitly, and Windows
+  Terminal (`WT_SESSION`) now defaults to `SHELLCRAFT_CONSOLE=legacy-keys`, the setup that
+  works there; the classic console keeps `direct`.
+
 ### Changed
 
 - `clear_on_start` clears the scrollback as well (`ESC[3J`), so the shell starts on a fresh

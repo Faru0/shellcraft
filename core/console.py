@@ -51,9 +51,15 @@ CONSOLE_MODES = ("direct", "legacy-keys", "native")
 
 
 def console_mode() -> str:
-    """The SHELLCRAFT_CONSOLE setting: direct (default), legacy-keys or native."""
+    """The SHELLCRAFT_CONSOLE setting: direct, legacy-keys or native. Without it, Windows Terminal
+    (WT_SESSION is set) gets legacy-keys, the classic key reader without VT input, which is what
+    works there; the classic console gets direct."""
     value = os.environ.get("SHELLCRAFT_CONSOLE", "").strip().lower()
-    return value if value in CONSOLE_MODES else "direct"
+    if value in CONSOLE_MODES:
+        return value
+    if os.environ.get("WT_SESSION"):
+        return "legacy-keys"
+    return "direct"
 
 
 # ── Rich ─────────────────────────────────────────────────────────────────────

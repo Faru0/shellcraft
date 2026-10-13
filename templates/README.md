@@ -122,6 +122,19 @@ python main.py                                     # try it: echo a b a | wordfr
 
 In a running shell, type `reload` to pick up a new module without restarting.
 
+## Helper files and imports between modules
+
+A module can import another file from the modules folder in either of two ways:
+
+```python
+import localthing                 # modules/localthing.py, as a plain import
+from . import localthing          # the same, as a relative import (modules are the shellcraft_modules package)
+```
+
+A `.py` in the folder with **no `run()` function and no `.skill` beside it** is a helper: it is
+not a command, `help` does not list it, and no warning is shown. Editing a helper reloads the
+modules that use it (hot reload). Files starting with `_` are skipped too, helper or not.
+
 ## Rules for the `.py`
 
 1. **Name:** the file name is the command name. Use letters, digits, `_` or `-`, and start with a letter. Don't reuse a builtin name (`ls`, `cat`, `grep`, …): builtins win, so your module would never run. The checker catches this.
