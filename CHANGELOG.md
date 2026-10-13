@@ -47,8 +47,9 @@ and the project uses [semantic versioning](https://semver.org/).
   shows a green, amber or red line at the top of the panel (three at most, the most severe
   first, timed out or dismissed with `alert -c`). Subshells get an `alert` command on their
   PATH, a nested ShellCraft forwards to the main one, `shellcraft-alert` works from any script,
-  and AI clients call the new **`send_tui_alert`** MCP tool. The shell listens on a loopback port
-  with a random token (`SHELLCRAFT_ALERT_ADDR` / `SHELLCRAFT_ALERT_TOKEN`, `~/.shellcraft/alert.addr`).
+  and AI clients call the new **`send_tui_alert`** MCP tool. Every alert names its sender
+  (`sub 2 (bash)`, `mcp · claude-code`…). Senders drop a file into the owner-only spool folder
+  `~/.shellcraft/alerts/`, which the shell watches: no port, no token.
 - **Imports between modules:** a module may `import localthing` or `from . import localthing`
   for another file in the modules folder; a `.py` without `run()` (and no `.skill`) is a helper,
   not a command, and is skipped quietly. Editing a helper reloads the modules that use it.

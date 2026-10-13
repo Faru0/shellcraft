@@ -185,14 +185,14 @@ class Shell:
         self._cleanup.callback(self._stop_jobs)
         # The tab bar on the terminal's last row: this shell and its subshells. Enabled by loop()
         # (after the banner), redrawn after every prompt render, gone at exit.
-        # Alerts from subshells, nested shells and MCP clients: the bus listens on loopback and
-        # tells children where through the environment (core.alerts).
+        # Alerts from subshells, nested shells and MCP clients arrive through the spool folder
+        # ~/.shellcraft/alerts, which a thread watches (core.alerts).
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
         try:
-            ctx.alerts.listen(config_dir())
+            ctx.alerts.watch(config_dir())
         except OSError:
-            pass  # no listener: `alert` still works inside this shell
+            pass  # no spool: `alert` still works inside this shell
         self._cleanup.callback(ctx.alerts.close)
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
         self._cleanup.callback(self.footer.disable)

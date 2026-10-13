@@ -265,10 +265,10 @@ Alerts sit at the top of the panel under the prompt (and of the footer inside a 
 most severe first, three at most. They can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client
-through the **`send_tui_alert`** MCP tool (`message`, `severity`, `timeout_seconds`). The shell
-listens on a loopback port with a random token; children find it through
-`SHELLCRAFT_ALERT_ADDR` / `SHELLCRAFT_ALERT_TOKEN`, MCP servers through `~/.shellcraft/alert.addr`.
-`man alert` has the details.
+through the **`send_tui_alert`** MCP tool (`message`, `severity`, `timeout_seconds`). Each alert
+says where it came from (`· from sub 2 (bash)`, `· from mcp · claude-code`). Senders drop a small
+file into `~/.shellcraft/alerts/`, an owner-only spool folder the shell watches, so there is no
+port and no token. `man alert` has the details.
 
 <details>
 <summary>Command-line options and environment variables</summary>

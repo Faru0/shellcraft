@@ -1,7 +1,8 @@
-"""Alerts: the bus (priority, expiry, dismissal), the loopback listener and its clients, the
-`alert` builtin (local and forwarded), the subshell shim, the panel lines, the MCP tool."""
+"""Alerts: the bus (priority, expiry, dismissal), the spool folder and its senders, the `alert`
+builtin (local and forwarded), the subshell shim, the panel lines, the MCP tool."""
 
 import io
+import json
 import os
 import sys
 import time
@@ -27,16 +28,22 @@ def _wait(pred, timeout=5.0):
 
 
 @pytest.fixture
-def bus(tmp_path, monkeypatch):
-    monkeypatch.delenv(alertmod.ADDR_ENV, raising=False)
-    monkeypatch.delenv(alertmod.TOKEN_ENV, raising=False)
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv(alertmod.SUB_ENV, raising=False)
+    monkeypatch.delenv("SHELLCRAFT_DEPTH", raising=False)
+    return tmp_path / "home"
+
+
+@pytest.fixture
+def bus(home):
     b = AlertBus()
-    b.listen(tmp_path / "home")
+    b.watch(home)
     yield b
     b.close()
 
 
-def test_bus_orders_by_severity_caps_the_list_and_expires(monkeypatch):
+def test_bus_orders_by_severity_caps_the_list_and_expires():
     changes = []
     b = AlertBus()
     b.on_change = lambda: changes.append(1)
@@ -57,32 +64,37 @@ def test_bus_orders_by_severity_caps_the_list_and_expires(monkeypatch):
     b.close()
 
 
-def test_listener_accepts_the_token_and_refuses_the_rest(bus, tmp_path):
-    host, port = bus.address
-    assert os.environ[alertmod.ADDR_ENV] == f"{host}:{port}" and os.environ[alertmod.TOKEN_ENV] == bus.token
-    assert (tmp_path / "home" / alertmod.ADDR_FILE).read_text().splitlines() == [f"{host}:{port}", bus.token]
-    assert alertmod.send("disk almost full", "warning", 30, source="test") == "ok"
+def test_spool_delivers_labels_and_drops_stale_files(bus, home, monkeypatch):
+    spool = home / alertmod.SPOOL
+    assert bus.spool == spool and spool.is_dir()
+    if sys.platform != "win32":
+        assert (spool.stat().st_mode & 0o777) == 0o700
+    written = alertmod.send("disk almost full", "warning", 30, source="test")
+    assert written.parent == spool and written.suffix == ".json"
     assert _wait(lambda: bus.current() and bus.current()[0].message == "disk almost full")
-    assert bus.current()[0].level == "warning" and bus.current()[0].timeout == 30.0 and bus.current()[0].source == "test"
-    # a wrong token, bad JSON and a bad timeout are refused
-    assert bus._receive(b'{"token": "nope", "message": "x"}', "127.0.0.1") == "error: bad token"
-    assert bus._receive(b"not json", "127.0.0.1").startswith("error")
-    bad_timeout = ('{"token": "%s", "message": "x", "timeout": "soon"}' % bus.token).encode()
-    assert bus._receive(bad_timeout, "127.0.0.1").startswith("error: timeout")
-    sticky = ('{"token": "%s", "message": "sticky", "timeout": null}' % bus.token).encode()
-    assert bus._receive(sticky, "127.0.0.1") == "ok"
-    assert any(a.message == "sticky" and a.timeout is None for a in bus.current())
-    # the address file is found when the environment has nothing
-    os.environ.pop(alertmod.ADDR_ENV), os.environ.pop(alertmod.TOKEN_ENV)
-    assert alertmod.target(tmp_path / "home") == (host, port, bus.token)
-    assert alertmod.send("via file", home=tmp_path / "home") == "ok"
+    first = bus.current()[0]
+    assert first.level == "warning" and first.timeout == 30.0 and first.source == "test"
+    assert _wait(lambda: not list(spool.glob("*.json")))  # consumed
+    # the sender's label comes from the environment
+    assert alertmod.source_label() == f"pid {os.getppid()}"
+    monkeypatch.setenv(alertmod.SUB_ENV, "2:bash --norc extra")
+    assert alertmod.source_label() == "sub 2 (bash --norc)"
+    alertmod.send("from inside")
+    assert _wait(lambda: any(a.source == "sub 2 (bash --norc)" for a in bus.current()))
+    # junk, a bad timeout and a stale file are handled without posting junk
+    (spool / "0-junk.json").write_text("not json")
+    (spool / "1-list.json").write_text("[1, 2]")
+    (spool / "2-stale.json").write_text(json.dumps({"time": time.time() - 3600, "message": "old", "level": "info"}))
+    (spool / "3-bad.json").write_text(json.dumps({"time": time.time(), "message": "odd", "timeout": "soon"}))
+    assert _wait(lambda: any(a.message == "odd" for a in bus.current()))
+    assert bus.current()[-1].timeout == 15.0 and not any(a.message == "old" for a in bus.current())
+    assert _wait(lambda: not list(spool.glob("*.json")))
     bus.close()
-    assert not (tmp_path / "home" / alertmod.ADDR_FILE).exists()
-    with pytest.raises(OSError, match="no ShellCraft"):
-        alertmod.send("gone", home=tmp_path / "home")
+    alertmod.send("after close", home=home)  # nobody watching: the file waits in the spool
+    assert list(spool.glob("*.json"))
 
 
-def test_command_line_client_and_shim(bus, tmp_path, capsys, monkeypatch):
+def test_command_line_client_and_shim(bus, home, capsys):
     assert alertmod.main(["-l", "critical", "-t", "9", "build", "failed"]) == 0
     assert _wait(lambda: any(a.message == "build failed" and a.level == "critical" and a.timeout == 9.0
                              for a in bus.current()))
@@ -90,24 +102,22 @@ def test_command_line_client_and_shim(bus, tmp_path, capsys, monkeypatch):
     assert alertmod.main(["-c"]) == 2
     assert alertmod.parse_args(["-s", "hello", "there"]) == ("hello there", "info", None, False, False)
     assert alertmod.parse_args(["--list"])[4] is True
-    folder = alertmod.shim_dir(tmp_path / "home")
+    folder = alertmod.shim_dir(home)
     script = folder / ("alert.cmd" if sys.platform == "win32" else "alert")
     assert script.exists() and "core.alerts" in script.read_text()
-    env = alertmod.with_shim({"PATH": "/usr/bin"}, tmp_path / "home")
+    env = alertmod.with_shim({"PATH": "/usr/bin"}, home)
     assert env["PATH"].startswith(str(folder) + os.pathsep)
     if sys.platform != "win32":
         import subprocess
 
         done = subprocess.run([str(script), "-l", "warning", "from the shim"], capture_output=True, text=True,
-                              env={**os.environ, "PATH": env["PATH"]})
+                              env={**os.environ, "PATH": env["PATH"], alertmod.SUB_ENV: "1:bash"})
         assert done.returncode == 0, done.stderr
-        assert _wait(lambda: any(a.message == "from the shim" for a in bus.current()))
+        assert _wait(lambda: any(a.message == "from the shim" and a.source == "sub 1 (bash)" for a in bus.current()))
 
 
 @pytest.fixture
-def ictx(tmp_path, monkeypatch):
-    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("SHELLCRAFT_DEPTH", raising=False)
+def ictx(home, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     ctx = ShellContext(registry=ModuleRegistry(tmp_path / "modules"))
     ctx.interactive = True
@@ -121,8 +131,8 @@ def test_alert_builtin_posts_lists_and_dismisses(ictx):
     run_line("alert -l warning -t 40 disk at 90%", ictx)
     run_line("alert -l critical -s pager is down", ictx)
     listed = to_text(run_line("alert --list", ictx).output)
-    assert listed.startswith("1. [critical] pager is down  (sticky") and "2. [warning] disk at 90%" in listed
-    assert "3. [info] deploy finished" in listed
+    assert listed.startswith("1. [critical] pager is down  (sticky, from main shell)")
+    assert "2. [warning] disk at 90%" in listed and "3. [info] deploy finished" in listed
     assert "1 alert dismissed" in to_text(run_line("alert -c 2", ictx).output)
     assert "2 alerts dismissed" in to_text(run_line("alert -c", ictx).output)
     assert "no alerts" in to_text(run_line("alert --list", ictx).output)
@@ -136,30 +146,31 @@ def test_alert_builtin_posts_lists_and_dismisses(ictx):
 
 def test_nested_shell_forwards_to_the_main_shell(ictx, bus, monkeypatch):
     monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
+    monkeypatch.setenv(alertmod.SUB_ENV, "3:shellcraft --no-banner")
     out = to_text(run_line("alert -l warning from inside", ictx).output)
     assert "sent to the main shell" in out
-    assert _wait(lambda: any(a.message == "from inside" and a.level == "warning" and a.source == "shellcraft ⤷1"
-                             for a in bus.current()))
+    assert _wait(lambda: any(a.message == "from inside" and a.level == "warning"
+                             and a.source == "sub 3 (shellcraft --no-banner) shellcraft ⤷1" for a in bus.current()))
     with pytest.raises(PipelineError, match="main ShellCraft"):
         run_line("alert --list", ictx)
 
 
-def test_panel_lines_show_alerts_first(bus):
+def test_panel_lines_show_alerts_first_with_their_source(bus):
     from core.footer import panel_lines
 
-    bus.post("all good", "info")
-    bus.post("look here", "critical")
+    bus.post("all good", "info", source="main shell")
+    bus.post("look here", "critical", source="sub 1 (bash)")
     lines = panel_lines([], 0, None, 80, alerts=bus.current())
     assert [style for _t, style, _x, _h in lines] == ["alert.critical", "alert.info"]  # no stack without jobs
-    assert lines[0][2].startswith(" ✖ look here") and lines[0][2].rstrip().endswith("critical · sticky")
-    assert lines[1][2].startswith(" ● all good") and "info · " in lines[1][2]
+    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("critical · sticky")
+    assert lines[1][2].startswith(" ● all good · from main shell") and "info · " in lines[1][2]
     long = AlertBus()
     long.post("x" * 200, "warning")
     text = panel_lines([], 0, None, 60, alerts=long.current())[0][2]
     assert "…" in text and len(text) <= 60
 
 
-def test_mcp_tool_send_tui_alert(bus, registry, tmp_path, monkeypatch):
+def test_mcp_tool_send_tui_alert(bus, registry):
     import anyio
     from mcp.client import Client
 
@@ -177,13 +188,9 @@ def test_mcp_tool_send_tui_alert(bus, registry, tmp_path, monkeypatch):
     ok = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "model says hi", "severity": "warning",
                                                  "timeout_seconds": 20}))
     assert not ok.is_error and "alert shown (warning)" in ok.content[0].text
-    assert _wait(lambda: any(a.message == "model says hi" and a.timeout == 20.0 and a.source == "mcp"
+    assert _wait(lambda: any(a.message == "model says hi" and a.timeout == 20.0 and a.source.startswith("mcp · ")
                              for a in bus.current()))
     bad = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "x", "severity": "loud"}))
     assert bad.is_error and "severity" in bad.content[0].text
     empty = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "   "}))
     assert empty.is_error and "required" in empty.content[0].text
-    bus.close()
-    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "nowhere"))
-    gone = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "nobody home"}))
-    assert gone.is_error and "no ShellCraft" in gone.content[0].text

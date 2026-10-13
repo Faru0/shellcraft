@@ -169,7 +169,7 @@ def alert_lines(alerts: list, width: int) -> list[tuple[int | None, str, str, bo
 
     lines: list[tuple[int | None, str, str, bool]] = []
     for alert in alerts:
-        left = f" {ICONS[alert.level]} {alert.message}"
+        left = f" {ICONS[alert.level]} {alert.message}" + (f" · from {alert.source}" if alert.source else "")
         remaining = alert.remaining
         right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " · sticky ")
         room = max(10, width - get_cwidth(right) - 1)

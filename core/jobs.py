@@ -251,6 +251,11 @@ class JobTable:
     def get(self, number: int) -> Job | None:
         return self.jobs.get(number)
 
+    @property
+    def next_number(self) -> int:
+        """The number the next job will get."""
+        return self._next
+
     def __iter__(self):
         return iter(sorted(self.jobs.values(), key=lambda j: j.number))
 

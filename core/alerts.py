@@ -2,18 +2,16 @@
 
 The main shell runs an `AlertBus`: a short list of alerts (info / warning / critical), each with
 a timeout, shown at the top of the panel under the prompt and of the footer inside a subshell.
-It listens on a loopback TCP port with a random token; the address and the token are put in the
-environment (`SHELLCRAFT_ALERT_ADDR`, `SHELLCRAFT_ALERT_TOKEN`), so every child the shell starts
-(`sub bash`, `sub shellcraft`, `mcp start`) inherits them, and written to `~/.shellcraft/alert.addr`
-(mode 600), so an MCP server started by an AI client on its own finds the running shell too.
+Alerts reach it through a **spool folder**, `~/.shellcraft/alerts/` (owner-only): a sender drops
+one small JSON file there (written whole, then renamed into place) and the shell's watcher thread
+picks it up within a quarter of a second and deletes it. No port, no token: the folder's
+permissions are the trust boundary, and it works the same on Linux, macOS and Windows.
 
 Senders: the `alert` builtin (local in the main shell, forwarded by a nested one), the `alert`
 command on the PATH of subshells (a shim that runs `python -m core.alerts`), the `shellcraft-alert`
-console script, and the `send_tui_alert` MCP tool. The wire format is one JSON object per line:
-`{"token": …, "level": …, "message": …, "timeout": …}`; the reply is `ok` or an error line.
-
-TCP on 127.0.0.1 is used because it works the same on Linux, macOS and Windows; the token keeps
-other local users and processes from pushing text into the shell.
+console script, and the `send_tui_alert` MCP tool. Each says where it came from (`source`): the
+shell, `sub 2 (bash)`, a nested ShellCraft, an outside script with its pid, or the MCP client's
+name. A file older than STALE seconds (left by a shell that was not running) is dropped unread.
 """
 
 from __future__ import annotations
@@ -21,8 +19,6 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import socket
-import socketserver
 import stat
 import sys
 import threading
@@ -36,8 +32,10 @@ ICONS = {"info": "●", "warning": "▲", "critical": "✖"}
 DEFAULT_TIMEOUT = {"info": 15.0, "warning": 60.0, "critical": None}  # None: stays until dismissed
 MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300
-ADDR_ENV, TOKEN_ENV = "SHELLCRAFT_ALERT_ADDR", "SHELLCRAFT_ALERT_TOKEN"
-ADDR_FILE = "alert.addr"
+SPOOL = "alerts"  # the folder under ~/.shellcraft
+SUB_ENV = "SHELLCRAFT_SUB"  # "N:command" in a subshell's environment: the sender's label
+POLL = 0.25  # seconds between looks at the spool
+STALE = 300.0  # a spooled file older than this (no shell was running) is dropped
 
 
 @dataclass
@@ -67,12 +65,11 @@ class AlertBus:
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
-        self.token = secrets.token_urlsafe(18)
-        self.address: tuple[str, int] | None = None
+        self.spool: Path | None = None
         self._lock = threading.Lock()
-        self._server: socketserver.ThreadingTCPServer | None = None
         self._timer: threading.Timer | None = None
-        self._addr_file: Path | None = None
+        self._stop = threading.Event()
+        self._watcher: threading.Thread | None = None
 
     # ── the list ─────────────────────────────────────────────────────────────
 
@@ -141,75 +138,64 @@ class AlertBus:
             except Exception:  # noqa: BLE001 — a redraw problem must not kill the listener
                 pass
 
-    # ── the listener ─────────────────────────────────────────────────────────
+    # ── the spool ────────────────────────────────────────────────────────────
 
-    def listen(self, home: Path | None = None) -> tuple[str, int]:
-        """Start the loopback listener; export the address and token to this process's
-        environment (children inherit them) and to `home/alert.addr` for MCP servers."""
-        bus = self
+    def watch(self, home: Path) -> Path:
+        """Create the spool folder (owner-only) and start the thread that reads it."""
+        self.spool = spool_dir(home)
+        self._stop.clear()
+        self._watcher = threading.Thread(target=self._poll, daemon=True, name="shellcraft:alerts")
+        self._watcher.start()
+        return self.spool
 
-        class Handler(socketserver.StreamRequestHandler):
-            def handle(self) -> None:
-                line = self.rfile.readline(4096)
-                reply = bus._receive(line, self.client_address[0])
-                try:
-                    self.wfile.write(reply.encode() + b"\n")
-                except OSError:
-                    pass
+    def _poll(self) -> None:
+        while not self._stop.wait(POLL):
+            self.drain()
 
-        class Server(socketserver.ThreadingTCPServer):
-            daemon_threads = True
-            allow_reuse_address = True
-
-        self._server = Server(("127.0.0.1", 0), Handler)
-        host, port = self._server.server_address[:2]
-        self.address = (host, port)
-        threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True,
-                         name="shellcraft:alerts").start()
-        os.environ[ADDR_ENV] = f"{host}:{port}"
-        os.environ[TOKEN_ENV] = self.token
-        if home is not None:
-            try:
-                home.mkdir(parents=True, exist_ok=True)
-                self._addr_file = home / ADDR_FILE
-                self._addr_file.write_text(f"{host}:{port}\n{self.token}\n", encoding="utf-8")
-                if sys.platform != "win32":
-                    os.chmod(self._addr_file, stat.S_IRUSR | stat.S_IWUSR)
-            except OSError:
-                self._addr_file = None
-        return host, port
-
-    def _receive(self, line: bytes, client: str) -> str:
+    def drain(self) -> int:
+        """Read and delete every spooled alert now; returns how many were posted."""
+        if self.spool is None:
+            return 0
         try:
-            data = json.loads(line.decode("utf-8", errors="replace"))
-        except ValueError:
-            return "error: not a JSON line"
-        if not isinstance(data, dict) or not secrets.compare_digest(str(data.get("token", "")), self.token):
-            return "error: bad token"
-        timeout: Any = data.get("timeout", "default")
-        if timeout not in (None, "default"):
+            files = sorted(p for p in self.spool.iterdir() if p.suffix == ".json")
+        except OSError:
+            return 0
+        posted = 0
+        for path in files:
             try:
-                timeout = float(timeout)
-            except (TypeError, ValueError):
-                return "error: timeout must be a number of seconds"
-        self.post(str(data.get("message", "")), str(data.get("level", "info")), timeout,
-                  source=str(data.get("source", "")) or client)
-        return "ok"
-
-    def close(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
-        if self._server is not None:
-            self._server.shutdown()
-            self._server.server_close()
-            self._server = None
-        for key in (ADDR_ENV, TOKEN_ENV):
-            os.environ.pop(key, None)
-        if self._addr_file is not None:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
             try:
-                self._addr_file.unlink()
+                path.unlink()
             except OSError:
                 pass
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            if time.time() - float(data.get("time", 0) or 0) > STALE:
+                continue  # left behind while no shell was running
+            timeout: Any = data.get("timeout", "default")
+            if timeout not in (None, "default"):
+                try:
+                    timeout = float(timeout)
+                except (TypeError, ValueError):
+                    timeout = "default"
+            self.post(str(data.get("message", "")), str(data.get("level", "info")), timeout,
+                      source=str(data.get("source", "")))
+            posted += 1
+        return posted
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._timer is not None:
+            self._timer.cancel()
+        if self._watcher is not None:
+            self._watcher.join(POLL * 2)
+            self._watcher = None
 
 
 # ── sending (subshells, nested shells, the MCP tool, the console script) ──────
@@ -221,38 +207,44 @@ def depth_forward() -> int:
     return depth()
 
 
-def target(home: Path | None = None) -> tuple[str, int, str] | None:
-    """Where the running shell listens: from the environment, else from `home/alert.addr`."""
-    addr, token = os.environ.get(ADDR_ENV), os.environ.get(TOKEN_ENV)
-    if not addr or not token:
-        if home is None:
-            from core.config import config_dir
+def spool_dir(home: Path | None = None) -> Path:
+    """`home/alerts`, created owner-only."""
+    if home is None:
+        from core.config import config_dir
 
-            home = config_dir()
+        home = config_dir()
+    folder = home / SPOOL
+    folder.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
         try:
-            addr, token = (home / ADDR_FILE).read_text(encoding="utf-8").splitlines()[:2]
-        except (OSError, ValueError):
-            return None
-    host, _, port = addr.rpartition(":")
-    if not port.isdigit():
-        return None
-    return host or "127.0.0.1", int(port), token
+            os.chmod(folder, stat.S_IRWXU)
+        except OSError:
+            pass
+    return folder
+
+
+def source_label() -> str:
+    """Who is sending, from the environment: `sub 2 (bash)` inside a subshell, else the pid."""
+    sub = os.environ.get(SUB_ENV, "")
+    number, _, command = sub.partition(":")
+    if number.isdigit():
+        return f"sub {number} ({' '.join(command.split()[:2]) or 'program'})"
+    return f"pid {os.getppid()}"
 
 
 def send(message: str, level: str = "info", timeout: float | None | str = "default",
-         source: str = "", home: Path | None = None, connect_timeout: float = 2.0) -> str:
-    """Send one alert to the running shell; returns its reply ("ok") or raises OSError."""
-    where = target(home)
-    if where is None:
-        raise OSError("no ShellCraft shell is listening (start the interactive shell first)")
-    host, port, token = where
-    payload = {"token": token, "level": level, "message": message, "timeout": timeout, "source": source}
-    with socket.create_connection((host, port), timeout=connect_timeout) as sock:
-        sock.sendall(json.dumps(payload).encode("utf-8") + b"\n")
-        reply = sock.makefile("rb").readline().decode("utf-8", errors="replace").strip()
-    if reply != "ok":
-        raise OSError(reply or "no reply")
-    return reply
+         source: str = "", home: Path | None = None) -> Path:
+    """Drop one alert into the spool for the running shell; returns the file written. Raises
+    OSError when the folder cannot be written."""
+    folder = spool_dir(home)
+    payload = {"time": time.time(), "level": level, "message": message, "timeout": timeout,
+               "source": source or source_label()}
+    name = f"{time.time():.6f}-{os.getpid()}-{secrets.token_hex(3)}"
+    tmp = folder / f"{name}.tmp"
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    final = folder / f"{name}.json"
+    os.replace(tmp, final)  # whole or not there: the watcher never sees a half-written file
+    return final
 
 
 def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, bool]:
@@ -291,9 +283,9 @@ def main(argv: list[str] | None = None) -> int:
         print("alert: a message is needed", file=sys.stderr)
         return 2
     try:
-        send(message, level, timeout, source=f"pid {os.getppid()}")
+        send(message, level, timeout)
     except OSError as exc:
-        print(f"alert: {exc}", file=sys.stderr)
+        print(f"alert: cannot write the alert: {exc}", file=sys.stderr)
         return 1
     return 0
 

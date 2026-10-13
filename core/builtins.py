@@ -598,11 +598,13 @@ the lowest level makes room. Inside a subshell the alerts appear in the footer a
 
 ## How it reaches the shell
 
-The main shell listens on a loopback port with a random token; `SHELLCRAFT_ALERT_ADDR` and
-`SHELLCRAFT_ALERT_TOKEN` in a child's environment say where, and `~/.shellcraft/alert.addr`
-lets an MCP server started by an AI client find the shell too. Subshells get an `alert` command
-on their PATH; outside ShellCraft, `shellcraft-alert MESSAGE` (or `python -m core.alerts`) does
-the same.
+Senders drop one small JSON file into `~/.shellcraft/alerts/`, a folder only you can write to,
+and the shell's watcher picks it up within a quarter of a second. No port, no token. Each alert
+names its sender: `main shell`, `sub 2 (bash)` (the subshell's number and command, from
+`SHELLCRAFT_SUB` in its environment), a nested ShellCraft, `pid N` for an outside script, or
+`mcp · <client name>` for an AI client. Subshells get an `alert` command on their PATH; outside
+ShellCraft, `shellcraft-alert MESSAGE` (or `python -m core.alerts`) does the same. A file left
+in the spool while no shell was running is dropped after five minutes.
 """
 
 
@@ -624,7 +626,8 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         if not message:
             raise CommandError("alert: a message is needed")
         try:
-            alertmod.send(message, level, timeout, source=f"shellcraft ⤷{alertmod.depth_forward()}")
+            source = f"{alertmod.source_label()} shellcraft ⤷{alertmod.depth_forward()}"
+            alertmod.send(message, level, timeout, source=source)
         except OSError as exc:
             raise CommandError(f"alert: {exc}") from None
         return Text(f"✓ sent to the main shell: {message}", style="sc.success")
@@ -646,7 +649,7 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return Text(f"✓ {gone} alert{'s' if gone != 1 else ''} dismissed", style="sc.success")
     if not message:
         raise CommandError("alert: a message is needed (man alert)")
-    bus.post(message, level, timeout, source="shell")
+    bus.post(message, level, timeout, source="main shell")
     return ""
 
 
@@ -695,10 +698,11 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return _sub_command(ctx, table, command)
     else:
         argv = list(args)
-    from core.alerts import with_shim
+    from core.alerts import SUB_ENV, with_shim
     from core.config import config_dir
 
     env = with_shim(env if env is not None else dict(os.environ), config_dir())  # `alert` on the PATH
+    env[SUB_ENV] = f"{table.next_number}:{command}"  # so an alert from inside says which subshell sent it
     try:
         job = table.start_program(argv, command, env=env, cwd=os.getcwd())
     except jobmod.JobsUnsupported:

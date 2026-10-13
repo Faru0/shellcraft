@@ -53,7 +53,7 @@ ALERT_INPUT_SCHEMA: dict[str, Any] = {
 }
 ALERT_DESCRIPTION = ("Show a short alert in the user's ShellCraft terminal status panel (green info, amber warning, "
                      "red critical). Use it to flag something the user should see now: a finished task, a risk, "
-                     "a question waiting. Fails when no interactive ShellCraft is running.")
+                     "a question waiting. It is picked up by the interactive ShellCraft when one is running.")
 MAN_URI = "shellcraft://man/"
 WATCH_INTERVAL = 1.0  # seconds between checks of the modules directory
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
@@ -197,7 +197,8 @@ class ShellcraftMCP:
         self._remember(request_ctx)
         arguments = dict(params.arguments or {})
         if params.name == ALERT_TOOL:
-            return await _call(lambda: _send_alert(arguments), self.timeout)
+            client = _client_name(request_ctx)
+            return await _call(lambda: _send_alert(arguments, client), self.timeout)
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -315,8 +316,17 @@ async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.C
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
 
 
-def _send_alert(arguments: dict[str, Any]) -> str:
-    """The send_tui_alert tool: forward to the running shell's alert listener."""
+def _client_name(request_ctx: Any) -> str:
+    """The connected client's name from its initialize request (`claude-code`, `Claude Desktop`…)."""
+    try:
+        info = request_ctx.session.client_params.client_info
+        return str(info.name or "").strip() or "mcp client"
+    except AttributeError:
+        return "mcp client"
+
+
+def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
+    """The send_tui_alert tool: drop the alert into the running shell's spool."""
     from core import alerts
 
     message = str(arguments.get("message", "")).strip()
@@ -334,7 +344,7 @@ def _send_alert(arguments: dict[str, Any]) -> str:
     else:
         timeout = "default"
     try:
-        alerts.send(message, severity, timeout, source="mcp")
+        alerts.send(message, severity, timeout, source=f"mcp · {client}")
     except OSError as exc:
         raise CommandError(f"send_tui_alert: {exc}") from None
     return f"alert shown ({severity}): {message}"
