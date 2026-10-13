@@ -63,7 +63,7 @@ shellcraft/
 ├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
-│   ├── ingest/             # standalone script → module wizard (python tools/ingest), not a shell command
+│   ├── ingest/             # the module wizard and checker: the `ingest` builtin, `shellcraft ingest`, `python tools/ingest`
 │   │   ├── __main__.py     # the wizard and the `check` sub-command
 │   │   ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
 │   │   ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
