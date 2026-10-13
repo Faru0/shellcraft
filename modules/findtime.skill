@@ -1,0 +1,26 @@
+# findtime.skill: the MCP tool description AI clients read. Drafted from the code by
+# `python -m tools.ingest`; review the lines marked TODO, then run:
+#   python -m tools.ingest check modules/findtime.py
+
+summary = "Time_find.py - Simple script to fetch the current time from the internet."
+
+# TODO: also say when NOT to use it, and which tool to use instead.
+when_to_use = '''
+Use to time_find.py - Simple script to fetch the current time from the internet.
+Give its inputs as the parameters below.'''
+
+usage = "findtime [ARGS...]"
+
+# TODO: replace with a real call and its real output.
+examples = ['{}  -> the text findtime prints']
+
+notes = '''
+Output is plain text: exactly what the script prints.
+Needs network access.
+A bad option or a failure comes back as a tool error with a one-line message.'''
+
+# Tests run by `python -m tools.ingest check`, never shown to AI clients. For example:
+# [[tests]]
+# args = ["--some-option", "value"]
+# stdin = "input text"
+# contains = "expected output"     # or: expect = "exact output", or: error = "message"
