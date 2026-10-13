@@ -72,7 +72,7 @@ class ThemeDef:
                 "sc.footer.done": f"{self.success} on {self._surface()}",
                 "sc.footer.failed": f"{self.error} on {self._surface()}",
                 "sc.footer.current": f"bold {self._surface_text()} on {self._surface()}",
-                "sc.footer.hover": f"bold {self._on_accent()} on {self.accent}",
+                "sc.footer.hover": f"bold {self.accent} on {self._surface()}",
                 # Markdown (man pages) picks up the palette too.
                 "markdown.h1": f"bold {self.prompt}",
                 "markdown.h1.border": self.accent,
@@ -126,7 +126,7 @@ class ThemeDef:
                 "toolbar.job.running": f"bg:{surface} {self.warning} noreverse",
                 "toolbar.job.done": f"bg:{surface} {self.success} noreverse",
                 "toolbar.job.failed": f"bg:{surface} {self.error} noreverse",
-                "toolbar.job.hover": f"bg:{self.accent} {self._on_accent()} bold noreverse",
+                "toolbar.job.hover": f"bg:{surface} {self.accent} bold noreverse",
                 "toolbar.job.current": f"bg:{surface} {text} bold noreverse",
                 "search-toolbar": f"bg:{surface} {text}",
                 "search-toolbar.text": f"bg:{surface} {self.prompt}",

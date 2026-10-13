@@ -110,13 +110,15 @@ class Footer:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
         the prompt. Records which tab each row is."""
         lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True)
-        self.row_tabs = [tab for tab, _style, _text in lines]
+        self.row_tabs = [tab for tab, _style, _text, _hovered in lines]
         console = self.ui.console
         out = []
-        for _tab, style, text in lines:
+        for _tab, style, text, hovered in lines:
+            rich = Text(text, style=f"sc.footer.{style}", no_wrap=True, overflow="crop")
+            if hovered:
+                rich.stylize("sc.footer.hover", 0, MARK)  # the filled circle, in the accent color
             with console.capture() as capture:
-                console.print(Text(text, style=f"sc.footer.{style}", no_wrap=True, overflow="crop"), end="",
-                              width=cols, no_wrap=True, overflow="crop", crop=True, highlight=False,
+                console.print(rich, end="", width=cols, no_wrap=True, overflow="crop", crop=True, highlight=False,
                               markup=False, soft_wrap=True)
             out.append(capture.get())
         return out
@@ -154,12 +156,16 @@ class Footer:
 
 # ── the stack, shared by the panel under the prompt and the footer in a subshell ─
 
+MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
+
+
 def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: int = 0,
-                attached: bool = False, cursor: int | None = None) -> list[tuple[int | None, str, str]]:
-    """The lines of the shell stack: (tab, style, text) each, where tab is 0 for this shell, a
-    job number, or None for the header, and style is one of header, current, main, running,
-    done, failed, hover. `current` is the attached job (0 at the prompt), `hover` the line under
-    the mouse, `cursor` the index chosen with ↓ / ↑ at the prompt.
+                attached: bool = False, cursor: int | None = None) -> list[tuple[int | None, str, str, bool]]:
+    """The lines of the shell stack: (tab, style, text, hovered) each, where tab is 0 for this
+    shell, a job number, or None for the header; style is one of header, current, main, running,
+    done, failed; and hovered says the line is under the mouse or chosen with ↓ / ↑, which fills
+    its circle (` ● `) without changing the line's colors. `current` is the attached job (0 at
+    the prompt): its circle is filled too.
 
         ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
         ● main
@@ -172,21 +178,22 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
     head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns" if attached else "↓ to manage")
-    lines: list[tuple[int | None, str, str]] = [(None, "header", head)]
-    main = f" {'●' if current == 0 else '○'} main" + (f" ⤷{depth}" if depth else "")
-    lines.append((0, "hover" if hover == 0 else "current" if current == 0 else "main", main))
+    lines: list[tuple[int | None, str, str, bool]] = [(None, "header", head, False)]
+    main_hover = hover == 0
+    main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
+    lines.append((0, "current" if current == 0 else "main", main, main_hover))
     shown = jobs[: MAX_ROWS - 2]
     for index, job in enumerate(shown):
-        mark = "●" if current == job.number else "○"
+        chosen = hover == job.number or cursor == index
+        mark = "●" if current == job.number or chosen else "○"
         left = f" {mark} {job.number}  {job.short(width // 2)}"
         state = "running" if job.running else "done" if job.status == 0 else "failed"
         right = f"{format_duration(job.elapsed)} · {job.label} "
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
-        chosen = hover == job.number or cursor == index
-        style = "hover" if chosen else "current" if current == job.number else state
-        lines.append((job.number, style, left + " " * pad + right))
+        style = "current" if current == job.number else state
+        lines.append((job.number, style, left + " " * pad + right, chosen))
     if len(jobs) > len(shown):
-        lines.append((None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)"))
+        lines.append((None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)", False))
     return lines
 
 

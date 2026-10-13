@@ -523,7 +523,7 @@ from the prompt or from inside another subshell.
 ```
 sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
-sub shellcraft [ARGS...]   # a nested ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷2)
+sub shellcraft [ARGS...]   # a nested ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷1)
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
 ```
 
@@ -550,6 +550,9 @@ was, and the mouse wheel scrolls through its scrollback (any key returns to the 
 Subshells are shown on the terminal's alternate screen, so the prompt comes back untouched.
 On Windows programs run on ConPTY through the `pywinpty` package; without it, `sub PROGRAM`
 runs the program in the foreground (you are back when it exits) and it is not listed as a job.
+
+Only the main ShellCraft starts subshells: inside `sub shellcraft` the `sub` and `jobs`
+commands are refused, so the main shell stays the one place that orchestrates them.
 
 ## Examples
 
@@ -581,8 +584,13 @@ a click on the job's tab in the footer. `man sub` explains the two kinds of job.
 
 
 def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
+    from core.jobs import depth
+
     if not ctx.interactive or ctx.jobs is None:
         raise CommandError(f"{name}: only in the interactive shell")
+    if depth():
+        raise CommandError(f"{name}: only the main ShellCraft starts subshells (this one is ⤷{depth()}: "
+                           "press Ctrl-] to go back to it)")
     return ctx.jobs
 
 

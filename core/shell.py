@@ -36,7 +36,7 @@ from core.completer import ShellCompleter
 from core.config import config_dir, history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit, set_width_source
-from core.footer import Footer, panel_lines, parse_mouse
+from core.footer import MARK, Footer, panel_lines, parse_mouse
 from core.highlight import KEYWORDS, ShellLexer
 from core.jobs import JobTable, depth
 from core.output import make_spinner_runner, show, show_error
@@ -558,11 +558,14 @@ class Shell:
         lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
                             cursor=self._panel_cursor)
         parts: StyleAndTextTuples = []
-        for i, (tab, style, text) in enumerate(lines):
+        for i, (tab, style, text, hovered) in enumerate(lines):
             if i:
                 parts.append(("", "\n"))
             cls = "class:toolbar.key" if style == "header" else f"class:toolbar.job.{style}"
             handler = self._panel_entry(tab) if tab else self._panel_hover_handler(None)
+            if hovered:  # the filled circle in the accent color; the line keeps its own colors
+                parts.append(("class:toolbar.job.hover", text[:MARK], handler))
+                text = text[MARK:]
             parts.append((cls, text, handler))
         return parts
 

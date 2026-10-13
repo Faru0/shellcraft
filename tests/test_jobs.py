@@ -139,6 +139,14 @@ def test_sub_runs_a_shell_command_in_the_background(ictx):
     assert "no subshells" in to_text(run_line("jobs", ictx).output)
 
 
+def test_only_the_main_shellcraft_starts_subshells(ictx, monkeypatch):
+    monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
+    with pytest.raises(PipelineError, match="only the main ShellCraft"):
+        run_line("sub seq 1", ictx)
+    with pytest.raises(PipelineError, match="only the main ShellCraft"):
+        run_line("jobs", ictx)
+
+
 def test_sub_and_jobs_refuse_outside_the_interactive_shell(ictx):
     ictx.interactive = False
     with pytest.raises(PipelineError, match="interactive"):
@@ -212,8 +220,10 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert _wait(lambda: not job.running)
     # the same stack at the prompt and in the footer
     lines = panel_lines([job], 0, None, 80, cursor=None)
-    assert [t for t, _s, _x in lines] == [None, 0, 1] and lines[1][2] == " ● main" and lines[2][2].startswith(" ○ 1  seq 2")
-    assert "done" in lines[2][2] and lines[2][1] == "done"
+    assert [t for t, _s, _x, _h in lines] == [None, 0, 1] and lines[1][2] == " ● main" and lines[2][2].startswith(" ○ 1  seq 2")
+    assert "done" in lines[2][2] and lines[2][1] == "done" and not lines[2][3]
+    hovered = panel_lines([job], 0, 1, 80)  # hover fills the circle, the line keeps its style
+    assert hovered[2][2].startswith(" ● 1 ") and hovered[2][1] == "done" and hovered[2][3]
     attached = panel_lines([job], 1, None, 80, attached=True)
     assert attached[1][2] == " ○ main" and attached[2][2].startswith(" ● 1 ") and attached[2][1] == "current"
     assert "Ctrl-] alone returns" in attached[0][2]
@@ -258,12 +268,15 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert "done" in lines[2]
     entry = next(f for f in sh._toolbar() if "seq 3" in f[1])
     assert entry[0] == "class:toolbar.job.done" and entry[2](move_event()) is None and sh._panel_hover == job.number
-    assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
+    frags = list(sh._toolbar())
+    circle = next(f for f in frags if f[1] == " ● ")
+    assert circle[0] == "class:toolbar.job.hover"  # only the circle: the rest of the line keeps its style
+    assert next(f for f in frags if "seq 3" in f[1])[0] == "class:toolbar.job.done"
     sh._panel_hover = None
     down = [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["down"]]
     assert len(down) == 2  # enter the panel, move in it
     sh._panel_cursor = 0
-    assert next(f for f in sh._toolbar() if "seq 3" in f[1])[0] == "class:toolbar.job.hover"
+    assert any(f[1] == " ● " and f[0] == "class:toolbar.job.hover" for f in sh._toolbar())
     enter = next(b for b in sh.session.key_bindings.bindings if list(b.keys) == [Keys.Enter])
     enter.handler(None)
     assert sh._panel_cursor is None and ran[-1] == f"jobs {job.number}"
