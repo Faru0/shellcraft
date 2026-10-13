@@ -18,7 +18,7 @@ The manual steps are below if you'd rather do it by hand.
 |------------|----------|
 | `windows/` | `python-3.14.7-amd64.exe`, the official python.org installer (newest stable) |
 | `linux/`   | Python 3.14 `.deb` packages + dependencies for **Ubuntu 26.04 LTS (amd64)** |
-| `wheels/`  | Every Python dependency (runtime, `dev`, `censys`) for Windows x64 and Linux x86_64, CPython 3.11 – 3.14 |
+| `wheels/`  | Every Python dependency (runtime, `dev`, `censys`) for Windows x64 and Linux x86_64, CPython 3.11 – 3.14, including `pyte` (the subshell emulator) and `pywinpty` (ConPTY for `sub` on Windows, one wheel per CPython version) |
 
 ## Windows
 
