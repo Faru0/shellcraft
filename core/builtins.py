@@ -512,9 +512,10 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 SUB_DOC = """# sub
 
 Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
-or a ShellCraft command running in the background. Every subshell is a numbered **job**, shown in
-the bar under the prompt; `jobs` lists them, **Alt-N** (or a click on the bar, with
-`settings mouse_always on`) selects job N.
+or a ShellCraft command running in the background. Every subshell is a numbered **job**, a tab
+in the footer on the terminal's last row (`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓`); `jobs`
+lists them, **Ctrl-] N** or a click on its tab selects job N, from the prompt or from inside
+another subshell.
 
 ## Usage
 
@@ -528,16 +529,19 @@ sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub gre
 ## How it works
 
 - A **program** runs on its own pseudo-terminal and you are attached to it at once: what you
-  type goes to it, what it prints you see. Press **Ctrl-]** to detach: the program keeps running
-  in the background, and `jobs N` or **Alt-N** attaches again (its last lines are shown, and
-  full-screen programs redraw). When it exits you are back at the prompt with its status in `$?`.
-  Jobs still running when you leave ShellCraft are stopped.
+  type goes to it, what it prints you see. Press **Ctrl-]** to detach (or **Ctrl-] 0**): the
+  program keeps running in the background, and `jobs N`, **Ctrl-] N** or a click on its tab
+  attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-] N** inside
+  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program.
+  When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
+  leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
-  `jobs N` or **Alt-N** shows the output so far (in the pager when it is long); finished jobs
+  `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); finished jobs
   print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
-- The bar: `⤷ 1:bash ● 2:grep -r … ✓` — ● running, ✓ done, ✗ failed. `jobs -c` clears the
-  finished ones, `jobs -k N` stops one.
+- The footer: tab 0 is this shell, then one tab per job — ● running, ✓ done, ✗ failed; the
+  current tab and the one under the mouse are highlighted. `jobs -c` clears the finished ones,
+  `jobs -k N` stops one, `settings footer off` removes the footer (Ctrl-] N still works).
 
 On Windows there is no pseudo-terminal: `sub PROGRAM` runs it in the foreground (you are back
 when it exits) and it is not listed as a job; background commands work the same as elsewhere.
@@ -549,7 +553,7 @@ sub                         # a bash to poke around in; `exit` returns
 sub shellcraft --theme nord # try a theme in a nested shell
 sub find / -name "*.log"    # slow search in the background, keep working
 jobs                        # what is running, and what finished
-jobs 1                      # attach to job 1 (Ctrl-] to leave it running)
+jobs 1                      # attach to job 1 (Ctrl-] leaves it running, Ctrl-] 2 jumps to job 2)
 ```
 """
 
@@ -566,8 +570,8 @@ jobs -k N            # stop job N
 jobs -c              # forget the finished jobs (their logs stay in ~/.shellcraft/jobs/)
 ```
 
-**Alt-N** at the prompt does the same as `jobs N`, and so does a click on the job in the bar
-under the prompt when `settings mouse_always` is on. `man sub` explains the two kinds of job.
+**Ctrl-] N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
+a click on the job's tab in the footer. `man sub` explains the two kinds of job.
 """
 
 
@@ -638,25 +642,38 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
 
     job = table.start_command(line, run)
     return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  running in the background (jobs {job.number} or Alt-{job.number} shows it)",
+                         (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
                           "sc.muted"))
 
 
 def _attach(ctx: ShellContext, job: Any) -> Any:
-    """Hand the terminal to a program job; back with its status, or detached."""
+    """Hand the terminal to a program job; back with its status, detached, or switched to
+    another tab (Ctrl-] N, or a click on the footer)."""
     assert ctx.jobs is not None
-    if ctx.ui is not None:
-        ctx.ui.console.file.flush()
-    how = ctx.jobs.attach(job)
-    if how == "detached":
-        return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] detached: ", "sc.muted"),
-                             (job.command, "sc.accent"),
-                             (f" keeps running (jobs {job.number} or Alt-{job.number} to return)", "sc.muted"))
-    ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
-    status = job.status or 0
-    note = Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
-                         (f" {job.label}", "sc.success" if status == 0 else "sc.error"))
-    return WithStatus(note, status) if status else note
+    while True:
+        if ctx.ui is not None:
+            ctx.ui.console.file.flush()
+        how, target = ctx.jobs.attach(job, footer=ctx.footer)
+        if how == "switch":
+            if target == 0:
+                how = "detached"
+            else:
+                nxt = ctx.jobs.get(target)
+                if nxt is None:
+                    raise CommandError(f"jobs: no job {target} (jobs lists them)")
+                if nxt.kind != "program" or not nxt.running:
+                    return select_job(ctx, target)
+                job = nxt
+                continue
+        if how == "detached":
+            return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] detached: ", "sc.muted"),
+                                 (job.command, "sc.accent"),
+                                 (f" keeps running (jobs {job.number} or Ctrl-] {job.number} to return)", "sc.muted"))
+        ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
+        status = job.status or 0
+        note = Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                             (f" {job.label}", "sc.success" if status == 0 else "sc.error"))
+        return WithStatus(note, status) if status else note
 
 
 def select_job(ctx: ShellContext, number: int) -> Any:
@@ -703,7 +720,7 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind,
                     Text(job.command, style="sc.accent"))
         plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.command}")
-    hint = Text("jobs N or Alt-N selects · Ctrl-] detaches · jobs -k N stops · jobs -c clears", style="sc.muted")
+    hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -k N stops · jobs -c clears", style="sc.muted")
     return Styled(Group(tbl, hint), "\n".join(plain) + "\n")
 
 

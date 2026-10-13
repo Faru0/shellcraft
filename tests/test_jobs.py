@@ -83,9 +83,16 @@ def test_attach_forwards_keys_and_detaches_on_ctrl_bracket(tmp_path):
     assert b"ping" in seen  # and was copied to the terminal while attached
     os.write(term_master, b"x" + jobmod.DETACH_KEY)
     thread.join(3)
-    assert result["how"] == "detached" and job.running and job.sink is None
+    assert result["how"] == ("detached", 0) and job.running and job.sink is None
+    # Ctrl-] then a digit: switch to that tab
+    thread = threading.Thread(target=attach, daemon=True)
+    thread.start()
+    assert _wait(lambda: job.sink == term_slave)
+    os.write(term_master, jobmod.DETACH_KEY + b"2")
+    thread.join(3)
+    assert result["how"] == ("switch", 2) and job.running
     assert table.kill(job) and _wait(lambda: not job.running) and job.label == "killed"
-    assert table.attach(job, stdin_fd=term_slave, stdout_fd=term_slave, raw=False) == "exited"
+    assert table.attach(job, stdin_fd=term_slave, stdout_fd=term_slave, raw=False) == ("exited", 129)  # 128 + SIGHUP
     os.close(term_master)
     os.close(term_slave)
 
@@ -148,12 +155,12 @@ def test_sub_and_jobs_refuse_outside_the_interactive_shell(ictx):
 def test_sub_program_attaches_and_reports_its_exit(ictx, monkeypatch):
     """`sub PROGRAM`: started on a pty and attached; here the attach is stubbed to return at
     once, so the exit status reaches `$?` through WithStatus."""
-    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: (_wait(lambda: not job.running) and "exited"))
+    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", job.status) if _wait(lambda: not job.running) else ("exited", 1))
     result = run_line("sub sh -c 'exit 4'", ictx)
     assert result.status == 4 and "exit 4" in to_text(result.output)
     job = ictx.jobs.get(1)
     assert job.kind == "program" and job.command == "sh -c exit 4"  # shown as parsed, quotes gone
-    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: "detached")
+    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("detached", 0))
     result = run_line("sub sh -c 'sleep 5'", ictx)  # sleep itself is a builtin: that would be a command job
     assert "detached" in to_text(result.output) and ictx.jobs.get(2).running
     assert "stopped" in to_text(run_line("jobs -k 2", ictx).output)
@@ -179,41 +186,64 @@ def test_login_shell_and_foreground_fallback(monkeypatch):
 
 # ── the shell: bar, hotkeys, hover ───────────────────────────────────────────
 
-def test_bar_lists_jobs_hover_highlights_and_alt_n_selects(repl_shell, monkeypatch):
-    from prompt_toolkit.data_structures import Point
-    from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch):
+    from types import SimpleNamespace
 
     from core import shell as shell_module
+    from core.footer import parse_mouse
 
     sh, ctx = repl_shell
-    assert sh.session.bottom_toolbar is None  # no jobs, nothing typed: no bar
+    footer = sh.footer
+    assert ctx.footer is footer and not footer.enabled and sh.session.bottom_toolbar is None
+    footer.size = lambda: (24, 80)
+    footer.enabled = True
+    line = footer.render(80)
+    assert "0:⚡shellcraft" in line and "Ctrl-] N" in line and footer.spans[0][2] == 0
     job = ctx.jobs.start_command("seq 2", lambda: (0, "1\n2\n"))
     assert _wait(lambda: not job.running)
-    sh._update_toolbar()
-    bar = list(sh._toolbar())
-    texts = [f[1] for f in bar]
-    assert any("1:seq 2 ✓" in t for t in texts) and any("Alt-N selects" in t for t in texts)
-    entry = next(f for f in bar if "1:seq 2" in f[1])
-    assert entry[0] == "class:toolbar.job.done"
-    move = MouseEvent(Point(0, 0), MouseEventType.MOUSE_MOVE, MouseButton.NONE, frozenset())
-    assert entry[2](move) is None and sh._hover_job == 1  # repaint with the highlight
-    assert entry[2](move) is NotImplemented  # unchanged: no repaint
-    assert next(f for f in sh._toolbar() if "1:seq 2" in f[1])[0] == "class:toolbar.job.hover"
-    filler = next(f for f in sh._toolbar() if f[1] == " ")
-    assert filler[2](move) is None and sh._hover_job is None
+    seq = footer.sequence()  # sets the scroll region above the last row, paints the footer there
+    assert "\x1b[1;23r" in seq and "\x1b[24;1H" in seq and "1:seq 2 ✓" in seq
+    x0, x1, tab = next(sp for sp in footer.spans if sp[2] == 1)
+    assert footer.hit(x0 + 1, 24) == 1 and footer.hit(x0 + 1, 23) is None and footer.hit(0, 24) is None
+    assert footer.set_hover(1) and not footer.set_hover(1)
+    assert "1:seq 2" in footer.render(80)  # still there, now in the hover style
+    assert footer.set_hover(None)
+    # the mouse is on at the prompt while there are subshells, so the tabs can be clicked
+    assert sh.session.app.mouse_support() is True
+    ctx.jobs.clear_finished()
+    assert sh.session.app.mouse_support() is False
 
     ran = []
     monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())
     monkeypatch.setattr(sh, "_run_clicked", lambda line: ran.append(line))
-    up = MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, frozenset())
-    entry[2](up)
-    assert ran == ["jobs 1"]
-    binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["escape", "1"])
+    job = ctx.jobs.start_command("seq 3", lambda: (0, "1\n2\n3\n"))
+    assert _wait(lambda: not job.running)
+    footer.render(80)
+    x0, x1, tab = next(sp for sp in footer.spans if sp[2] == job.number)
+    click = SimpleNamespace(data=f"\x1b[<0;{x0 + 1};24m", key_sequence=[SimpleNamespace(key="<vt100-mouse-event>")])
+    assert sh._footer_mouse(click) is None and ran == [f"jobs {job.number}"]
+    move = SimpleNamespace(data=f"\x1b[<35;{x0 + 1};24M", key_sequence=click.key_sequence)
+    assert sh._footer_mouse(move) is None and footer.hover == job.number
+    assert parse_mouse("\x1b[<64;5;5M") == ("scroll", 5, 5) and parse_mouse("LEFT;MOUSE_UP;3;4") == ("up", 4, 5)
+    assert parse_mouse("junk") is None
+    # Ctrl-] N at the prompt
+    binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-]", str(job.number)])
     binding.handler(None)
-    assert ran == ["jobs 1", "jobs 1"]
+    assert ran[-1] == f"jobs {job.number}"
+    assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys][:1] == ["escape"]]  # no Alt-N
     # the prompt's jobs segment counts running jobs only
     ctx.config["prompt"] = {"left": ["jobs"]}
     assert not [f for f in sh._prompt() if "⤷" in f[1]]
+
+
+def test_footer_keeps_a_programs_margins_above_it_and_spots_split_escapes():
+    from core.footer import Footer, incomplete_escape
+
+    assert Footer.clamp_margins(b"a\x1b[rb", 23) == b"a\x1b[1;23rb"
+    assert Footer.clamp_margins(b"\x1b[5;24r", 23) == b"\x1b[5;23r"
+    assert Footer.clamp_margins(b"\x1b[2;10r", 23) == b"\x1b[2;10r"
+    assert incomplete_escape(b"abc\x1b[3") and incomplete_escape(b"x\x1b") and incomplete_escape(b"\x1b]0;title")
+    assert not incomplete_escape(b"abc\x1b[3m") and not incomplete_escape(b"\x1b]0;t\x07") and not incomplete_escape(b"plain")
 
 
 def test_completion_menu_follows_the_mouse(repl_shell):

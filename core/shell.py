@@ -19,6 +19,7 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPress
+from prompt_toolkit.key_binding.bindings.mouse import load_mouse_bindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenuControl
@@ -35,6 +36,7 @@ from core.completer import ShellCompleter
 from core.config import config_dir, history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit, set_width_source
+from core.footer import Footer, parse_mouse
 from core.highlight import KEYWORDS, ShellLexer
 from core.jobs import JobTable, depth
 from core.output import make_spinner_runner, show, show_error
@@ -180,7 +182,11 @@ class Shell:
         ctx.jobs = JobTable(config_dir() / "jobs")
         ctx.jobs.on_change = self._jobs_changed
         self._cleanup.callback(self._stop_jobs)
-        self._hover_job: int | None = None  # the bar entry under the mouse
+        # The tab bar on the terminal's last row: this shell and its subshells. Enabled by loop()
+        # (after the banner), redrawn after every prompt render, gone at exit.
+        self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth())
+        self._cleanup.callback(self.footer.disable)
+        self._default_mouse = load_mouse_bindings()
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
@@ -217,6 +223,7 @@ class Shell:
             mouse_support=Condition(self._mouse_wanted),
             key_bindings=self._key_bindings(),
         )
+        self.session.app.after_render += lambda _app: self.footer.draw()
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
         self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
@@ -243,13 +250,40 @@ class Shell:
             pass
 
     def _key_bindings(self) -> KeyBindings:
-        """Alt-1 … Alt-9 select a subshell (attach to it, or show its output)."""
+        """Ctrl-] then a digit selects a tab (attach to a subshell, or show its output), the same
+        key as inside an attached program. (Alt-N is left alone: terminals use it for their own
+        tabs.) Mouse events are looked at first for a click on the footer's tabs."""
         kb = KeyBindings()
-        for digit in "123456789":
-            @kb.add("escape", digit)
+        for digit in "0123456789":
+            @kb.add("c-]", digit)
             def _(event: Any, number: int = int(digit)) -> None:
-                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+                if number:
+                    run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+
+        @kb.add(Keys.Vt100MouseEvent)
+        @kb.add(Keys.WindowsMouseEvent)
+        def _mouse(event: Any) -> Any:
+            return self._footer_mouse(event)
+
         return kb
+
+    def _footer_mouse(self, event: Any) -> Any:
+        """A click or a move on the footer row acts on its tabs; anything else goes to
+        prompt_toolkit's own mouse handling."""
+        parsed = parse_mouse(event.data)
+        if parsed is not None:
+            kind, x, y = parsed
+            tab = self.footer.hit(x, y)
+            if kind == "move" and self.footer.set_hover(tab):
+                self.footer.draw()
+            if tab is not None:
+                if kind == "up" and tab:
+                    self.footer.set_hover(None)
+                    run_in_terminal(lambda: self._run_clicked(f"jobs {tab}"))
+                return None
+        for binding in self._default_mouse.get_bindings_for_keys((event.key_sequence[0].key,)):
+            return binding.handler(event)
+        return NotImplemented
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -349,10 +383,13 @@ class Shell:
     # ── the input line: highlighting, the toolbar and the mouse ──────────────
 
     def _mouse_wanted(self) -> bool:
-        """Mouse reporting on while a completion menu is open, or always with `mouse_always`."""
+        """Mouse reporting on while a completion menu is open, while there are subshells (so the
+        footer's tabs can be clicked), or always with `mouse_always`."""
         if not self.ui.mouse:
             return False
-        return self.ui.mouse_always or self.session.default_buffer.complete_state is not None
+        if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
+            return True
+        return self.footer.enabled and self.ctx.jobs is not None and len(self.ctx.jobs) > 0
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -431,10 +468,6 @@ class Shell:
 
     def _wheel_then(self, default: Callable[[MouseEvent], Any]) -> Callable[[MouseEvent], Any]:
         def handler(event: MouseEvent) -> Any:
-            if event.event_type == MouseEventType.MOUSE_MOVE and self._hover_job is not None:
-                self._hover_job = None  # the mouse left the bar
-                default(event)
-                return None
             if event.event_type not in (MouseEventType.SCROLL_UP, MouseEventType.SCROLL_DOWN):
                 return default(event)
             up = event.event_type == MouseEventType.SCROLL_UP
@@ -457,63 +490,10 @@ class Shell:
         buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
         text = buffer.text if buffer is not None else ""
         wanted = bool(text.strip()) and settings.get(self.ctx.config, "toolbar")
-        self.session.bottom_toolbar = self._toolbar if wanted or self._jobs_bar_wanted() else None
-
-    def _jobs_bar_wanted(self) -> bool:
-        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
+        self.session.bottom_toolbar = self._toolbar if wanted else None
 
     def _toolbar(self) -> FormattedText:
-        """The lines under the prompt: the subshells bar (bottom left, while there are jobs), and
-        the usage of the command being typed."""
-        parts: StyleAndTextTuples = []
-        if self._jobs_bar_wanted():
-            parts += self._jobs_bar()
-        text = self.session.default_buffer.text
-        if text.strip() and settings.get(self.ctx.config, "toolbar"):
-            if parts:
-                parts.append(("", "\n"))
-            parts += list(self._usage_line())
-        return FormattedText(parts or [("class:toolbar", " ")])
-
-    def _jobs_bar(self) -> StyleAndTextTuples:
-        """`⤷ 1:bash ● 2:grep -r … ✓`: one entry per subshell, the one under the mouse
-        highlighted; a click selects it (mouse_always), Alt-N always does."""
-        assert self.ctx.jobs is not None
-        parts: StyleAndTextTuples = [("class:toolbar.key", " ⤷ ", self._bar_hover(None))]
-        for job in self.ctx.jobs:
-            icon = "●" if job.running else "✓" if job.status == 0 else "✗"
-            state = "running" if job.running else "done" if job.status == 0 else "failed"
-            style = "class:toolbar.job.hover" if self._hover_job == job.number else f"class:toolbar.job.{state}"
-            parts.append((style, f" {job.number}:{job.short()} {icon} ", self._bar_entry(job.number)))
-            parts.append(("class:toolbar", " ", self._bar_hover(None)))
-        parts.append(("class:toolbar", " Alt-N selects · jobs ", self._bar_hover(None)))
-        return parts
-
-    def _bar_entry(self, number: int) -> Callable[[MouseEvent], Any]:
-        """A bar entry's mouse handler: hover highlights it, a click selects it."""
-        def handler(event: MouseEvent) -> Any:
-            if event.event_type == MouseEventType.MOUSE_MOVE:
-                return self._set_hover(number)
-            if event.event_type == MouseEventType.MOUSE_UP:
-                self._hover_job = None
-                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
-                return None
-            return NotImplemented
-        return handler
-
-    def _bar_hover(self, number: int | None) -> Callable[[MouseEvent], Any]:
-        def handler(event: MouseEvent) -> Any:
-            if event.event_type == MouseEventType.MOUSE_MOVE:
-                return self._set_hover(number)
-            return NotImplemented
-        return handler
-
-    def _set_hover(self, number: int | None) -> Any:
-        """None when nothing changed (no repaint), else repaint with the new highlight."""
-        if self._hover_job == number:
-            return NotImplemented
-        self._hover_job = number
-        return None
+        return self._usage_line()
 
     def _usage_line(self) -> FormattedText:
         """One line under the prompt: the usage of the command being typed."""
@@ -569,7 +549,7 @@ class Shell:
         if self.ctx.jobs is not None:
             for note in self.ctx.jobs.pop_notifications():
                 self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
-        self._hover_job = None
+        self.footer.set_hover(None)
         self._update_toolbar()
         line = self.session.prompt(message)
         if transient:
@@ -577,6 +557,8 @@ class Shell:
         return line
 
     def loop(self) -> int:
+        if settings.get(self.ctx.config, "footer") and self.ui.console.is_terminal:
+            self.footer.enable()
         while True:
             try:
                 line = self._ask(self._prompt)

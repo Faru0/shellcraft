@@ -18,6 +18,7 @@ state changes, so the shell can redraw the bar.
 from __future__ import annotations
 
 import os
+import re
 import select
 import shutil
 import signal
@@ -28,7 +29,10 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-DETACH_KEY = b"\x1d"  # Ctrl-]
+DETACH_KEY = b"\x1d"  # Ctrl-]: alone it detaches; followed by a digit it switches to that tab
+PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
+MOUSE_MODE_RE = re.compile(rb"\x1b\[\?(?:1000|1002|1003|1006|1015)[hl]")
+MOUSE_SEQ_RE = re.compile(rb"\x1b\[<\d+;\d+;\d+[Mm]")
 TAIL_BYTES = 64 * 1024  # kept in memory per job
 REPLAY_BYTES = 4096  # shown again when attaching, so a shell's last lines are visible
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
@@ -55,6 +59,8 @@ class Job:
         self.pid: int | None = None
         self.master_fd: int | None = None
         self.sink: int | None = None  # the terminal's fd while attached: output is copied there too
+        self.on_output: Callable[[bytes], bytes] | None = None  # while attached: filters output to the sink
+        self.mouse_on = False  # the program turned on mouse reporting (seen in its output)
         # command jobs
         self.thread: threading.Thread | None = None
 
@@ -95,6 +101,10 @@ class Job:
                 del self._tail[: len(self._tail) - TAIL_BYTES]
             sink = self.sink
         if sink is not None:
+            if MOUSE_MODE_RE.search(data):
+                self.mouse_on = MOUSE_MODE_RE.findall(data)[-1].endswith(b"h")
+            if self.on_output is not None:
+                data = self.on_output(data)
             try:
                 os.write(sink, data)
             except OSError:
@@ -236,14 +246,20 @@ class JobTable:
             self._done(job, status)
 
     def attach(self, job: Job, stdin_fd: int = 0, stdout_fd: int = 1, raw: bool = True,
-               replay: int = REPLAY_BYTES) -> str:
-        """Hand the terminal to a program job until it exits ("exited") or the user presses
-        Ctrl-] ("detached"). The last `replay` bytes of its output are shown first, and the
-        pseudo-terminal is resized to the terminal, which makes full-screen programs redraw."""
+               replay: int = REPLAY_BYTES, footer: Any = None) -> tuple[str, int]:
+        """Hand the terminal to a program job until it exits, or the user leaves it.
+
+        Returns ("exited", status), ("detached", 0) after Ctrl-] alone, or ("switch", tab) after
+        Ctrl-] followed by a digit, or a click on a footer tab (0 is the shell itself). The last
+        `replay` bytes of its output are shown first, and the pseudo-terminal is resized to the
+        terminal (minus the footer row, when there is a footer), which makes full-screen
+        programs redraw. With a `footer` (core.footer.Footer), the program's scroll-region
+        commands are kept above it and it is redrawn after the program's output.
+        """
         if job.kind != "program" or job.master_fd is None:
             raise ValueError("not a program job")
         if not job.running:
-            return "exited"
+            return "exited", job.status or 0
         master = job.master_fd
         old_attrs: Any = None
         if raw:
@@ -253,25 +269,54 @@ class JobTable:
             old_attrs = termios.tcgetattr(stdin_fd)
             tty.setraw(stdin_fd)
         previous_winch: Any = None
+        pending_redraw = False
+
+        def size() -> tuple[int, int]:
+            rows, cols = _terminal_size(stdout_fd)
+            return (max(1, rows - 1) if footer is not None else rows), cols
+
+        def filter_output(data: bytes) -> bytes:
+            """Keep the program's margins above the footer and redraw it after its output."""
+            nonlocal pending_redraw
+            if footer is None:
+                return data
+            from core.footer import incomplete_escape
+
+            data = footer.clamp_margins(data, size()[0])
+            pending_redraw = incomplete_escape(data)
+            if not pending_redraw:
+                data += footer.render_bytes()
+            return data
+
+        def mouse_wanted() -> bool:
+            return footer is not None and not job.mouse_on
+
         try:
+            if footer is not None:
+                footer.current = job.number
+                footer.draw()
             if replay:
+                last = job.tail(replay)
                 try:
-                    os.write(stdout_fd, job.tail(replay))
+                    os.write(stdout_fd, footer.clamp_margins(last, size()[0]) if footer is not None else last)
                 except OSError:
                     pass
+            job.on_output = filter_output
             job.sink = stdout_fd
 
             def resize(*_: Any) -> None:
                 try:
-                    rows, cols = _terminal_size(stdout_fd)
+                    rows, cols = size()
                     _set_winsize(master, rows, cols)
+                    if footer is not None:
+                        footer.draw()
                 except OSError:
                     pass
 
             # A size change: the program gets SIGWINCH through its pty. Setting the size twice
             # (one row off, then right) makes it redraw right away, the way tmux's attach does.
             try:
-                rows, cols = _terminal_size(stdout_fd)
+                rows, cols = size()
                 _set_winsize(master, max(1, rows - 1), cols)
                 _set_winsize(master, rows, cols)
             except OSError:
@@ -281,12 +326,29 @@ class JobTable:
                     previous_winch = signal.signal(signal.SIGWINCH, resize)
                 except (ValueError, OSError, AttributeError):
                     previous_winch = None
+            # The footer's tabs are clickable even when the program has no use for the mouse:
+            # reporting is turned on for it, and clicks elsewhere are dropped, not forwarded.
+            our_mouse = False
+            if mouse_wanted():
+                _mouse(stdout_fd, True)
+                our_mouse = True
+            prefix_at: float | None = None  # when Ctrl-] was pressed and no digit has followed
             while job.running:
+                if our_mouse and job.mouse_on:  # the program took the mouse itself
+                    our_mouse = False
+                elif not our_mouse and mouse_wanted():
+                    _mouse(stdout_fd, True)
+                    our_mouse = True
                 try:
                     ready, _, _ = select.select([stdin_fd], [], [], 0.1)
                 except (OSError, ValueError):
                     break
                 if not ready:
+                    if prefix_at is not None and time.monotonic() - prefix_at > PREFIX_WAIT:
+                        return "detached", 0
+                    if footer is not None and pending_redraw:
+                        footer.draw()
+                        pending_redraw = False
                     continue
                 try:
                     data = os.read(stdin_fd, 4096)
@@ -294,19 +356,69 @@ class JobTable:
                     break
                 if not data:  # the terminal went away
                     break
+                if prefix_at is not None:
+                    prefix_at = None
+                    if data[:1].isdigit():
+                        return "switch", int(data[:1])
+                    if data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
+                        data = data[1:]
+                        try:
+                            os.write(master, DETACH_KEY)
+                        except OSError:
+                            break
+                    else:
+                        return "detached", 0
+                # Mouse: a click on a footer tab switches; the rest goes to the program only if
+                # it asked for the mouse, else it is dropped (it would be garbage to it).
+                if footer is not None and b"\x1b[<" in data:
+                    from core.footer import parse_mouse
+
+                    forward = bytearray()
+                    pos = 0
+                    for m in MOUSE_SEQ_RE.finditer(data):
+                        forward += data[pos:m.start()]
+                        pos = m.end()
+                        parsed = parse_mouse(m.group().decode())
+                        if parsed is not None:
+                            kind, x, y = parsed
+                            tab = footer.hit(x, y)
+                            if kind == "move" and footer.set_hover(tab):
+                                footer.draw()
+                            if kind == "up" and tab is not None and tab != job.number:
+                                footer.set_hover(None)
+                                return "switch", tab
+                            if tab is not None:
+                                continue
+                        if job.mouse_on:
+                            forward += m.group()
+                    forward += data[pos:]
+                    data = bytes(forward)
                 cut = data.find(DETACH_KEY)
                 if cut >= 0:
+                    rest = data[cut + 1:]
                     data = data[:cut]
+                    if rest[:1].isdigit():
+                        if data:
+                            try:
+                                os.write(master, data)
+                            except OSError:
+                                break
+                        return "switch", int(rest[:1])
+                    prefix_at = time.monotonic()
                 if data:
                     try:
                         os.write(master, data)
                     except OSError:
                         break
-                if cut >= 0:
-                    return "detached"
-            return "exited"
+            return "exited", job.status or 0
         finally:
             job.sink = None
+            job.on_output = None
+            if footer is not None and our_mouse:
+                _mouse(stdout_fd, False)
+            if footer is not None:
+                footer.current = 0
+                footer.set_hover(None)
             if previous_winch is not None:
                 try:
                     signal.signal(signal.SIGWINCH, previous_winch)
@@ -384,6 +496,14 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
     import termios
 
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+def _mouse(fd: int, on: bool) -> None:
+    """Turn the terminal's mouse reporting (clicks, SGR coordinates) on or off."""
+    try:
+        os.write(fd, b"\x1b[?1000h\x1b[?1006h" if on else b"\x1b[?1000l\x1b[?1006l")
+    except OSError:
+        pass
 
 
 def _wait(pid: int) -> int:

@@ -10,11 +10,13 @@ and the project uses [semantic versioning](https://semver.org/).
 - **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program
   (`vim`, `htop`, `ssh`, `python`…), `sub shellcraft` nests a ShellCraft (its prompt shows the
   depth), and `sub COMMAND` runs a builtin or module in the background with its output collected.
-  Each is a numbered job: a bar under the prompt lists them, **Alt-N** or a click selects one
-  (attach again, or show the output so far), **Ctrl-]** detaches from a program and leaves it
-  running, `jobs` lists, stops (`-k N`) and clears (`-c`) them, and finished jobs are announced at
-  the next prompt. Programs run on a pseudo-terminal (POSIX); on Windows `sub PROGRAM` runs in the
-  foreground. A `jobs` prompt segment shows how many are running.
+  Each is a numbered job. A **footer** on the terminal's last row shows this shell and every
+  subshell as tabs, at the prompt and inside an attached program alike (a scroll region keeps it
+  in place); a click on a tab or **Ctrl-] N** switches to it from anywhere, **Ctrl-]** alone
+  comes back, and the current and hovered tabs are highlighted. `jobs` lists, selects, stops
+  (`-k N`) and clears (`-c`) them, finished jobs are announced at the next prompt, and the
+  `footer` setting turns the bar off. Programs run on a pseudo-terminal (POSIX); on Windows
+  `sub PROGRAM` runs in the foreground. A `jobs` prompt segment shows how many are running.
 - **The completion menu follows the mouse:** the entry under the pointer is highlighted (and put
   on the line, as ↑ / ↓ do), so a click picks what you see.
 - **`ingest` inside the shell and `shellcraft ingest` from a terminal.** The module wizard and
