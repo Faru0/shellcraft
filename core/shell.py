@@ -18,11 +18,12 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory, InMemoryHistory
-from prompt_toolkit.key_binding import KeyPress
+from prompt_toolkit.key_binding import KeyBindings, KeyPress
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.menus import CompletionsMenuControl
 from prompt_toolkit.lexers import DynamicLexer
-from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.search import SearchDirection, do_incremental_search
 from prompt_toolkit.styles import DynamicStyle
 from rich.text import Text
@@ -31,10 +32,11 @@ from core import aliases, gitinfo, histexpand, script, settings
 from core.banner import render_banner
 from core.builtins import BUILTINS
 from core.completer import ShellCompleter
-from core.config import history_path
+from core.config import config_dir, history_path
 from core.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from core.context import ShellContext, ShellExit, set_width_source
 from core.highlight import KEYWORDS, ShellLexer
+from core.jobs import JobTable, depth
 from core.output import make_spinner_runner, show, show_error
 from core.parser import ParseError
 from core.pipeline import STATUS_INTERRUPTED, STATUS_SYNTAX, PipelineError, run_line
@@ -43,7 +45,7 @@ from core.watch import ModuleWatcher
 # Prompt segments, in the order `prompt` lists them. The left prompt and the right prompt
 # (`prompt -r`) are each a list of these names, saved under "prompt" in config.json.
 SEGMENTS: dict[str, str] = {
-    "name": "the ⚡shellcraft label",
+    "name": "the ⚡shellcraft label (with ⤷N inside `sub shellcraft`)",
     "user": "user@host",
     "path": "the working directory (~ for home)",
     "git": "⎇ branch, when the directory is in a git repository",
@@ -52,6 +54,7 @@ SEGMENTS: dict[str, str] = {
     "duration": "⏱ 4.2s when the last command took more than 2 seconds",
     "clock": "the time (HH:MM)",
     "python": "the Python version",
+    "jobs": "⤷ N while subshells started with `sub` are running",
 }
 DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
@@ -174,6 +177,10 @@ class Shell:
     def _setup(self) -> None:
         ctx = self.ctx
         self._cleanup.callback(self._stop_mcp_http)  # registered last, so it runs first on close
+        ctx.jobs = JobTable(config_dir() / "jobs")
+        ctx.jobs.on_change = self._jobs_changed
+        self._cleanup.callback(self._stop_jobs)
+        self._hover_job: int | None = None  # the bar entry under the mouse
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
@@ -208,6 +215,7 @@ class Shell:
             # off as the menu opens and closes, so a click picks a completion and the wheel scrolls
             # the list, while the terminal keeps the mouse (selection, scrollback) at other times.
             mouse_support=Condition(self._mouse_wanted),
+            key_bindings=self._key_bindings(),
         )
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
@@ -216,6 +224,32 @@ class Shell:
         self.session.default_buffer.on_text_changed += lambda _buffer: self._update_toolbar()
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
+
+    def _stop_jobs(self) -> None:
+        """At exit: stop the subshells still running, and say so."""
+        jobs = self.ctx.jobs
+        if jobs is None:
+            return
+        stopped = jobs.cleanup()
+        if stopped:
+            names = ", ".join(f"[{j.number}] {j.command}" for j in stopped)
+            self.ui.console.print(Text(f"⤷ stopped: {names}", style="sc.muted"), markup=False, highlight=False)
+
+    def _jobs_changed(self) -> None:
+        """A job started or finished (from its worker thread): redraw the bar."""
+        try:
+            self.session.app.invalidate()
+        except Exception:  # noqa: BLE001 — no app running: the next prompt shows it
+            pass
+
+    def _key_bindings(self) -> KeyBindings:
+        """Alt-1 … Alt-9 select a subshell (attach to it, or show its output)."""
+        kb = KeyBindings()
+        for digit in "123456789":
+            @kb.add("escape", digit)
+            def _(event: Any, number: int = int(digit)) -> None:
+                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+        return kb
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -239,7 +273,11 @@ class Shell:
         """The fragments of one prompt segment, or [] when it has nothing to show right now. With
         `mouse_always` on, some carry a click handler (a third element) that runs a command."""
         if name == "name":
-            return [("class:name", " ⚡shellcraft ", self._click("help"))]
+            label = f" ⚡shellcraft ⤷{depth()} " if depth() else " ⚡shellcraft "
+            return [("class:name", label, self._click("help"))]
+        if name == "jobs":
+            running = len(self.ctx.jobs.running) if self.ctx.jobs is not None else 0
+            return [("class:mcp", f"⤷ {running}", self._click("jobs"))] if running else []
         if name == "user":
             return [("class:user", self.user_host)]
         if name == "path":
@@ -354,8 +392,28 @@ class Shell:
         for control in self.session.layout.find_all_controls():
             if isinstance(control, BufferControl):
                 control.mouse_handler = self._wheel_then(control.mouse_handler)  # type: ignore[method-assign]
+            elif isinstance(control, CompletionsMenuControl):
+                control.mouse_handler = self._hover_then(control.mouse_handler)  # type: ignore[method-assign]
             elif isinstance(control, FormattedTextControl) and getattr(control.text, "__name__", "") == "before":
                 control.text = self._prompt_above
+
+    def _hover_then(self, default: Callable[[MouseEvent], Any]) -> Callable[[MouseEvent], Any]:
+        """The completion menu follows the mouse: the entry under it becomes the current one (as
+        ↑ / ↓ do), so the highlight shows what a click would pick. prompt_toolkit's own handler
+        only reacts to clicks and the wheel."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE and event.button == MouseButton.NONE:
+                buffer = self.session.default_buffer
+                state = buffer.complete_state
+                if state is None or not state.completions:
+                    return NotImplemented
+                index = max(0, min(event.position.y, len(state.completions) - 1))
+                if state.complete_index == index:
+                    return NotImplemented
+                buffer.go_to_completion(index)
+                return None
+            return default(event)
+        return handler
 
     def _prompt_above(self) -> StyleAndTextTuples:
         """The prompt's fragments above its last line (what PromptSession's `before` returns),
@@ -373,6 +431,10 @@ class Shell:
 
     def _wheel_then(self, default: Callable[[MouseEvent], Any]) -> Callable[[MouseEvent], Any]:
         def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE and self._hover_job is not None:
+                self._hover_job = None  # the mouse left the bar
+                default(event)
+                return None
             if event.event_type not in (MouseEventType.SCROLL_UP, MouseEventType.SCROLL_DOWN):
                 return default(event)
             up = event.event_type == MouseEventType.SCROLL_UP
@@ -392,11 +454,68 @@ class Shell:
         return self._lexer if settings.get(self.ctx.config, "highlight") else None
 
     def _update_toolbar(self) -> None:
-        text = self.session.default_buffer.text
+        buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
+        text = buffer.text if buffer is not None else ""
         wanted = bool(text.strip()) and settings.get(self.ctx.config, "toolbar")
-        self.session.bottom_toolbar = self._toolbar if wanted else None
+        self.session.bottom_toolbar = self._toolbar if wanted or self._jobs_bar_wanted() else None
+
+    def _jobs_bar_wanted(self) -> bool:
+        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
 
     def _toolbar(self) -> FormattedText:
+        """The lines under the prompt: the subshells bar (bottom left, while there are jobs), and
+        the usage of the command being typed."""
+        parts: StyleAndTextTuples = []
+        if self._jobs_bar_wanted():
+            parts += self._jobs_bar()
+        text = self.session.default_buffer.text
+        if text.strip() and settings.get(self.ctx.config, "toolbar"):
+            if parts:
+                parts.append(("", "\n"))
+            parts += list(self._usage_line())
+        return FormattedText(parts or [("class:toolbar", " ")])
+
+    def _jobs_bar(self) -> StyleAndTextTuples:
+        """`⤷ 1:bash ● 2:grep -r … ✓`: one entry per subshell, the one under the mouse
+        highlighted; a click selects it (mouse_always), Alt-N always does."""
+        assert self.ctx.jobs is not None
+        parts: StyleAndTextTuples = [("class:toolbar.key", " ⤷ ", self._bar_hover(None))]
+        for job in self.ctx.jobs:
+            icon = "●" if job.running else "✓" if job.status == 0 else "✗"
+            state = "running" if job.running else "done" if job.status == 0 else "failed"
+            style = "class:toolbar.job.hover" if self._hover_job == job.number else f"class:toolbar.job.{state}"
+            parts.append((style, f" {job.number}:{job.short()} {icon} ", self._bar_entry(job.number)))
+            parts.append(("class:toolbar", " ", self._bar_hover(None)))
+        parts.append(("class:toolbar", " Alt-N selects · jobs ", self._bar_hover(None)))
+        return parts
+
+    def _bar_entry(self, number: int) -> Callable[[MouseEvent], Any]:
+        """A bar entry's mouse handler: hover highlights it, a click selects it."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_hover(number)
+            if event.event_type == MouseEventType.MOUSE_UP:
+                self._hover_job = None
+                run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+                return None
+            return NotImplemented
+        return handler
+
+    def _bar_hover(self, number: int | None) -> Callable[[MouseEvent], Any]:
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_hover(number)
+            return NotImplemented
+        return handler
+
+    def _set_hover(self, number: int | None) -> Any:
+        """None when nothing changed (no repaint), else repaint with the new highlight."""
+        if self._hover_job == number:
+            return NotImplemented
+        self._hover_job = number
+        return None
+
+    def _usage_line(self) -> FormattedText:
         """One line under the prompt: the usage of the command being typed."""
         text = self.session.default_buffer.text
         words = _last_segment_words(text)
@@ -447,7 +566,11 @@ class Shell:
         and replaced by a compact `❯ command` line."""
         transient = self._transient()
         self.session.app.erase_when_done = transient
-        self.session.bottom_toolbar = None
+        if self.ctx.jobs is not None:
+            for note in self.ctx.jobs.pop_notifications():
+                self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
+        self._hover_job = None
+        self._update_toolbar()
         line = self.session.prompt(message)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)

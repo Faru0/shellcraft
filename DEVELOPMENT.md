@@ -35,6 +35,7 @@ shellcraft/
 │   ├── histexpand.py       # !!, !$, !*, !N, !prefix (interactive shell only)
 │   ├── highlight.py        # syntax highlighting of the input line (a prompt_toolkit Lexer)
 │   ├── gitinfo.py          # the git branch for the prompt, read from .git/HEAD
+│   ├── jobs.py             # subshells (`sub`): programs on a pty with attach / detach, commands in threads, the job table
 │   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── context.py          # ShellContext (state + permission flags), Styled, to_text()
@@ -106,7 +107,7 @@ shellcraft/
 | Flag | Blocks | Off in MCP |
 | --- | --- | --- |
 | `allow_redirect` | `>` / `>>` | yes |
-| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `prompt`, `settings`, `exit`, `reload`, `clear`, `banner`, `alias`, `unalias`, `history`, `mcp`, `time`, `export`, `unset`), and `modules enable` / `disable` | yes |
+| `allow_stateful` | builtins marked `stateful` (`cd`, `theme`, `prompt`, `settings`, `exit`, `reload`, `clear`, `banner`, `alias`, `unalias`, `history`, `mcp`, `sub`, `jobs`, `ingest`, `time`, `export`, `unset`), and `modules enable` / `disable` | yes |
 | `allow_writes` | builtins marked `writes` (`tee`, `mkdir`, `cp`, `mv`, `rm`, `touch`) | yes |
 | `allow_sensitive` | builtins marked `sensitive` (`env`, `history`), and `$NAME` reading the environment | yes |
 | `allow_aliases` | the user's aliases | yes |
@@ -210,6 +211,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_commands_more.py` | the new switches (`grep -r/-A/-B/-C/-w/-x/-o`, `ls -t/-S/-R/-d`, `find -size/-mtime/-newer/-empty/-not`, `sort -h/-V/-s`, `cat -s/-A`, `head/tail -c`, `tail -f`, `tree -I/--du`) and builtins (`printf`, `seq`, `xargs`, `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`, `type`) |
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
 | `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
+| `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the bar (hover, click, Alt-N), the completion menu following the mouse |
 | `test_console.py` | `core.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |

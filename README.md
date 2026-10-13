@@ -24,13 +24,14 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **58 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
+| 🧰 **61 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
 | 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
 | ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
 | ⌨️ **Smart input** | Syntax highlighting as you type, a toolbar with the usage of the command you are typing, ghost-text suggestions from history, Ctrl-R, and Tab completion for commands, switches (with descriptions), switch values, positional values and paths (quoted when they need it). |
 | 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `help NAME` for the short version. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, two light variants, or your own; `theme preview` tries one. |
+| ⤷ **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. Ctrl-] detaches, the bar under the prompt lists them, Alt-N (or a click) selects one. |
 | 🤖 **Built-in MCP server** | Claude Desktop, Claude Code and other AI clients can use your modules as typed tools, safely sandboxed from writes. |
 | 🔑 **Settings & API keys** | On/off settings and masked API keys for modules, saved in one config file. |
 
@@ -177,7 +178,7 @@ Loops also work over MCP, with the same restrictions.
 - **The toolbar** under the prompt shows the usage of the command you are typing, or says it is not found (`settings toolbar off`).
 - **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it. **Ctrl-R** searches the history as you type.
 - **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), **positional values** from a module's `.skill` (`queryCensys <Tab>` → `host cert search`), arguments for `help`, `man`, `theme`, `prompt`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else. A name with spaces is quoted for you, and completion works inside quotes.
-- **The mouse** works in the completion menu: click an entry to pick it, scroll the wheel to move through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
+- **The mouse** works in the completion menu: the entry under the mouse is highlighted as you move, a click picks it, the wheel moves through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
 - **`settings mouse_always on`** keeps the mouse on at the prompt: click to place the cursor, click a prompt segment (`⚡` → `help`, the path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error again), click the toolbar to open the man page of the command you are typing, and roll the wheel over the input line to move through the history (or through the matches during Ctrl-R). The command runs above the prompt and what you typed stays. The cost: the terminal needs **Shift** for text selection and wheel scrollback, which is why it is off by default.
 - **Clickable paths:** file names printed by `ls`, `tree`, `find`, `du` and `grep` are terminal hyperlinks. Ctrl-click (Cmd-click on macOS) opens the file or folder, in Windows Terminal, GNOME Terminal, kitty, WezTerm, iTerm2 and others; the rest show plain names. `settings links off` turns it off.
 - **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
@@ -208,6 +209,28 @@ matches, the mouse wheel scrolls, `?` lists the keys, and `q` closes it. The sta
 command whose output you are reading, and its keys (`/`, `n`, `w`, `?`, `q`) can be clicked; the bar
 on the right is a scrollbar you can click or drag, and a click on a line marks it so `n` / `N`
 search on from there. Turn the viewer off with `settings pager off`.
+
+### Subshells
+
+```
+sub                          # your own shell (bash, zsh, pwsh…); exit brings you back to ShellCraft
+sub vim notes.md             # any program, with the keyboard and the screen handed to it
+sub htop                     # Ctrl-] detaches: it keeps running, you are back at the prompt
+sub shellcraft --theme nord  # a nested ShellCraft (its prompt shows ⚡shellcraft ⤷1)
+sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
+jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
+```
+
+Every subshell is a numbered job. While there are any, a bar sits under the prompt, bottom left:
+`⤷ 1:bash ● 2:find / … ✓` (● running, ✓ done, ✗ failed). **Alt-N** selects job N: a program is
+attached again (its last lines are shown, full-screen programs redraw), a command's output so far
+is shown. With `settings mouse_always on` a click on the bar does the same, and the entry under
+the mouse lights up. A finished job prints `⤷ [N] done: …` at the next prompt, and jobs still
+running when you leave ShellCraft are stopped. `man sub` has the details.
+
+Programs run on their own pseudo-terminal, which Windows does not have: there `sub PROGRAM` runs
+the program in the foreground (you are back when it exits), and background commands work the same
+as everywhere else.
 
 <details>
 <summary>Command-line options and environment variables</summary>
@@ -242,7 +265,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` |
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |

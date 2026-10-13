@@ -85,6 +85,10 @@ class ShellCompleter(Completer):
             if segment[0] == "help" and len(segment) == 1:
                 yield from self._arguments("man", word)
                 return
+            if segment[0] == "sub" and len(segment) == 1:  # a command to run in the background, or a nested shell
+                yield from self._complete(word, {"shellcraft": "a nested ShellCraft"})
+                yield from self._commands(word)
+                return
             if len(segment) == 1 and segment[0] in ("man", "theme", "settings", "prompt"):
                 yield from self._arguments(segment[0], word)
                 return

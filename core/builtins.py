@@ -15,7 +15,7 @@ from rich.text import Text
 
 from core import aliases, settings
 from core.config import history_path, save_config
-from core.context import CommandError, Paged, ShellExit, Styled
+from core.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
 from core.themes import all_themes
 
 if TYPE_CHECKING:
@@ -507,6 +507,211 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if code:
         raise CommandError(f"ingest: exited with status {code}", code)
     return ""
+
+
+SUB_DOC = """# sub
+
+Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
+or a ShellCraft command running in the background. Every subshell is a numbered **job**, shown in
+the bar under the prompt; `jobs` lists them, **Alt-N** (or a click on the bar, with
+`settings mouse_always on`) selects job N.
+
+## Usage
+
+```
+sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
+sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
+sub shellcraft [ARGS...]   # a nested ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷2)
+sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
+```
+
+## How it works
+
+- A **program** runs on its own pseudo-terminal and you are attached to it at once: what you
+  type goes to it, what it prints you see. Press **Ctrl-]** to detach: the program keeps running
+  in the background, and `jobs N` or **Alt-N** attaches again (its last lines are shown, and
+  full-screen programs redraw). When it exits you are back at the prompt with its status in `$?`.
+  Jobs still running when you leave ShellCraft are stopped.
+- A **command** (a builtin or a module) runs in a worker thread with its output collected.
+  `jobs N` or **Alt-N** shows the output so far (in the pager when it is long); finished jobs
+  print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
+  (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
+- The bar: `⤷ 1:bash ● 2:grep -r … ✓` — ● running, ✓ done, ✗ failed. `jobs -c` clears the
+  finished ones, `jobs -k N` stops one.
+
+On Windows there is no pseudo-terminal: `sub PROGRAM` runs it in the foreground (you are back
+when it exits) and it is not listed as a job; background commands work the same as elsewhere.
+
+## Examples
+
+```
+sub                         # a bash to poke around in; `exit` returns
+sub shellcraft --theme nord # try a theme in a nested shell
+sub find / -name "*.log"    # slow search in the background, keep working
+jobs                        # what is running, and what finished
+jobs 1                      # attach to job 1 (Ctrl-] to leave it running)
+```
+"""
+
+JOBS_DOC = """# jobs
+
+List the subshells started with `sub`, select one, stop one, or clear the finished ones.
+
+## Usage
+
+```
+jobs                 # the table: number, state, elapsed time, command
+jobs N               # select job N: attach to a program (Ctrl-] detaches), or show a command's output
+jobs -k N            # stop job N
+jobs -c              # forget the finished jobs (their logs stay in ~/.shellcraft/jobs/)
+```
+
+**Alt-N** at the prompt does the same as `jobs N`, and so does a click on the job in the bar
+under the prompt when `settings mouse_always` is on. `man sub` explains the two kinds of job.
+"""
+
+
+def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
+    if not ctx.interactive or ctx.jobs is None:
+        raise CommandError(f"{name}: only in the interactive shell")
+    return ctx.jobs
+
+
+@builtin("sub", "Open a subshell: a program, a nested ShellCraft, or a command in the background",
+         "sub [PROGRAM | shellcraft | COMMAND] [ARGS...]", stateful=True, direct=True, doc=SUB_DOC)
+def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import jobs as jobmod
+
+    table = _jobs_or_refuse(ctx, "sub")
+    command = " ".join(args) if args else os.path.basename(jobmod.login_shell()[0])
+    env: dict[str, str] | None = None
+    if not args:
+        argv = jobmod.login_shell()
+    elif args[0] == "shellcraft":
+        argv, env = jobmod.nested_shellcraft(args[1:])
+    elif _is_shell_command(ctx, args[0]):
+        return _sub_command(ctx, table, command)
+    else:
+        argv = list(args)
+    try:
+        job = table.start_program(argv, command, env=env, cwd=os.getcwd())
+    except jobmod.JobsUnsupported:
+        if ctx.ui is not None:
+            ctx.ui.console.file.flush()
+        code = jobmod.run_foreground(argv, env)
+        return WithStatus("", code) if code else ""
+    except FileNotFoundError:
+        raise CommandError(f"sub: {args[0]}: not a command, a module or a program on PATH") from None
+    return _attach(ctx, job)
+
+
+def _is_shell_command(ctx: ShellContext, name: str) -> bool:
+    name = name[1:] if name.startswith("\\") else name
+    resolved = aliases.expand_command(script_command(name), aliases.get_all(ctx.config)).name
+    return resolved in BUILTINS or ctx.registry.get(resolved) is not None
+
+
+def script_command(name: str) -> Any:
+    from core.script import shparser
+
+    return shparser.Command(name, [])
+
+
+def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
+    """A ShellCraft command line as a background job: its own context (no shell state changes,
+    output collected), run through the normal pipeline in a worker thread."""
+    import dataclasses
+
+    from core.context import _direct
+    from core.parser import ParseError
+    from core.pipeline import PipelineError, run_line
+
+    background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
+                                     emit=None, emit_error=None, jobs=None)
+
+    def run() -> tuple[int, str]:
+        try:
+            result = run_line(line, background)
+        except (ParseError, PipelineError) as exc:
+            return getattr(exc, "status", 1) or 1, f"✗ {exc}\n"
+        return background.last_status, to_text(result.output) if result is not None else ""
+
+    job = table.start_command(line, run)
+    return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
+                         (f"  running in the background (jobs {job.number} or Alt-{job.number} shows it)",
+                          "sc.muted"))
+
+
+def _attach(ctx: ShellContext, job: Any) -> Any:
+    """Hand the terminal to a program job; back with its status, or detached."""
+    assert ctx.jobs is not None
+    if ctx.ui is not None:
+        ctx.ui.console.file.flush()
+    how = ctx.jobs.attach(job)
+    if how == "detached":
+        return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] detached: ", "sc.muted"),
+                             (job.command, "sc.accent"),
+                             (f" keeps running (jobs {job.number} or Alt-{job.number} to return)", "sc.muted"))
+    ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
+    status = job.status or 0
+    note = Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                         (f" {job.label}", "sc.success" if status == 0 else "sc.error"))
+    return WithStatus(note, status) if status else note
+
+
+def select_job(ctx: ShellContext, number: int) -> Any:
+    """`jobs N` / Alt-N: attach to a program, or show a command's output so far."""
+    table = _jobs_or_refuse(ctx, "jobs")
+    job = table.get(number)
+    if job is None:
+        raise CommandError(f"jobs: no job {number} (jobs lists them)")
+    if job.kind == "program":
+        if not job.running:
+            raise CommandError(f"jobs: [{number}] {job.command} has finished ({job.label})")
+        return _attach(ctx, job)
+    text = job.output
+    head = Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                         (f"  {job.label}, {job.elapsed:.1f}s", "sc.muted"))
+    body = text if text else "(no output yet)\n" if job.running else "(no output)\n"
+    return Styled(Group(head, Text.from_ansi(body.rstrip("\n"))), f"{to_text(head)}\n{body}")
+
+
+@builtin("jobs", "List, select or stop the subshells started with sub", "jobs [N | -k N | -c]",
+         stateful=True, direct=True, doc=JOBS_DOC)
+def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    table = _jobs_or_refuse(ctx, "jobs")
+    if args and args[0] in ("-c", "--clear"):
+        n = table.clear_finished()
+        return Text(f"✓ {n} finished job{'s' if n != 1 else ''} cleared", style="sc.success")
+    if args and args[0] in ("-k", "--kill"):
+        job = table.get(_job_number(args[1:2]))
+        if job is None:
+            raise CommandError("jobs: -k needs the number of a job (jobs lists them)")
+        if not table.kill(job):
+            return Text(f"[{job.number}] {job.command} had already finished", style="sc.muted")
+        return Text(f"✓ [{job.number}] {job.command} stopped", style="sc.success")
+    if args:
+        return select_job(ctx, _job_number(args))
+    if not len(table):
+        return Text("no subshells: sub PROGRAM, sub shellcraft, or sub COMMAND starts one (man sub)", style="sc.muted")
+    tbl = Table(title="Subshells", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    for col in ("#", "state", "time", "kind", "command"):
+        tbl.add_column(col, style="sc.muted" if col in ("time", "kind") else "")
+    plain = []
+    for job in table:
+        style = "sc.warning" if job.running else "sc.success" if job.status == 0 else "sc.error"
+        tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind,
+                    Text(job.command, style="sc.accent"))
+        plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.command}")
+    hint = Text("jobs N or Alt-N selects · Ctrl-] detaches · jobs -k N stops · jobs -c clears", style="sc.muted")
+    return Styled(Group(tbl, hint), "\n".join(plain) + "\n")
+
+
+def _job_number(words: list[str]) -> int:
+    word = (words[0] if words else "").lstrip("%")
+    if not word.isdigit():
+        raise CommandError(f"jobs: expected a job number, got {words[0] if words else 'nothing'}")
+    return int(word)
 
 
 MODULES_DOC = """# modules

@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program
+  (`vim`, `htop`, `ssh`, `python`…), `sub shellcraft` nests a ShellCraft (its prompt shows the
+  depth), and `sub COMMAND` runs a builtin or module in the background with its output collected.
+  Each is a numbered job: a bar under the prompt lists them, **Alt-N** or a click selects one
+  (attach again, or show the output so far), **Ctrl-]** detaches from a program and leaves it
+  running, `jobs` lists, stops (`-k N`) and clears (`-c`) them, and finished jobs are announced at
+  the next prompt. Programs run on a pseudo-terminal (POSIX); on Windows `sub PROGRAM` runs in the
+  foreground. A `jobs` prompt segment shows how many are running.
+- **The completion menu follows the mouse:** the entry under the pointer is highlighted (and put
+  on the line, as ↑ / ↓ do), so a click picks what you see.
 - **`ingest` inside the shell and `shellcraft ingest` from a terminal.** The module wizard and
   its checker were only reachable as `python tools/ingest`. The `ingest` builtin runs them in
   place with the shell's own modules folder, and a new module works at the next prompt;
