@@ -419,13 +419,12 @@ class Shell:
     # ── the input line: highlighting, the toolbar and the mouse ──────────────
 
     def _mouse_wanted(self) -> bool:
-        """Mouse reporting on while a completion menu is open, while there are subshells (so the
-        footer's tabs can be clicked), or always with `mouse_always`."""
+        """Mouse reporting on while a completion menu is open, or always with `mouse_always`.
+        Otherwise the terminal keeps the mouse: the wheel scrolls its scrollback, text can be
+        selected. The panel's lines are clickable with `mouse_always`; ↓ and Ctrl-] N always work."""
         if not self.ui.mouse:
             return False
-        if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
-            return True
-        return self._panel_wanted()
+        return self.ui.mouse_always or self.session.default_buffer.complete_state is not None
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt

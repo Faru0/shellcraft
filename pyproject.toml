@@ -13,6 +13,8 @@ dependencies = [
     "rich>=13.7",
     "mcp>=2.0,<3",
     "requests>=2.31",
+    "pyte>=0.8.2",                                   # the terminal emulator behind `sub` (one screen per subshell)
+    "pywinpty>=2.0; platform_system == 'Windows'",   # ConPTY for `sub PROGRAM` on Windows
 ]
 
 [project.optional-dependencies]

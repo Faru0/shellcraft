@@ -230,20 +230,28 @@ Every subshell is a numbered job. At the prompt, a **panel** under it lists them
  ○ 2  find / -name "*.log"                                    4.0s · done
 ```
 
-The line under the mouse lights up, a click switches to it, and **↓** on an empty line moves into
-the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves). **Ctrl-] N** switches from anywhere.
-Inside a subshell the panel gives way to a one-row **footer** at the bottom of the terminal with
-the same shells as tabs (`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:find / … ✓`), so you can still click
-across or press Ctrl-] N; **Ctrl-]** alone, or tab 0, brings you back to the prompt, and
-**Ctrl-] Ctrl-]** sends a Ctrl-] to the program. (Alt-N is not used: terminals need it for their
-own tabs.) Switching to a program attaches it again (its last lines are shown, full-screen
-programs redraw); switching to a command shows its output so far. A finished job prints
-`⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are stopped, and
-`settings footer off` removes the footer. `man sub` has the details.
+**↓** on an empty line moves into the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves), and
+**Ctrl-] N** switches from anywhere. With `settings mouse_always on` the line under the mouse
+lights up and a click switches to it; without it the terminal keeps the mouse at the prompt, so
+the wheel scrolls your scrollback as usual.
 
-Programs run on their own pseudo-terminal, which Windows does not have: there `sub PROGRAM` runs
-the program in the foreground (you are back when it exits), and background commands work the same
-as everywhere else.
+Subshells are shown like the pages of a book. Each program has its own terminal emulator, so
+switching to it redraws its screen exactly as it was, scrollback included, and switching away
+and back never garbles anything. They are shown on the terminal's alternate screen, so coming
+back to the prompt restores it untouched. Inside a subshell the panel gives way to a one-row
+**footer** at the bottom of the terminal with the same shells as tabs
+(`⤷ 0:⚡shellcraft │ 1:bash ● │ 2:find / … ✓`): click a tab or press Ctrl-] N to turn the page;
+**Ctrl-]** alone, or tab 0, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to
+the program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
+to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
+terminals need it for their own tabs.) Switching to a command shows its output so far. A finished
+job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
+stopped, and `settings footer off` removes the footer. `man sub` has the details.
+
+Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY through the
+`pywinpty` package on Windows (installed with the requirements there). Without `pywinpty`,
+`sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
+exits) and it is not listed as a job.
 
 <details>
 <summary>Command-line options and environment variables</summary>

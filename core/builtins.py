@@ -544,8 +544,11 @@ sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub gre
   the current one and the one under the mouse are highlighted. `jobs -c` clears the finished
   ones, `jobs -k N` stops one, `settings footer off` removes the footer (Ctrl-] N still works).
 
-On Windows there is no pseudo-terminal: `sub PROGRAM` runs it in the foreground (you are back
-when it exits) and it is not listed as a job; background commands work the same as elsewhere.
+Each program has its own terminal emulator: switching to it redraws its screen exactly as it
+was, and the mouse wheel scrolls through its scrollback (any key returns to the live page).
+Subshells are shown on the terminal's alternate screen, so the prompt comes back untouched.
+On Windows programs run on ConPTY through the `pywinpty` package; without it, `sub PROGRAM`
+runs the program in the foreground (you are back when it exits) and it is not listed as a job.
 
 ## Examples
 
@@ -651,22 +654,29 @@ def _attach(ctx: ShellContext, job: Any) -> Any:
     """Hand the terminal to a program job; back with its status, detached, or switched to
     another tab (Ctrl-] N, or a click on the footer)."""
     assert ctx.jobs is not None
+    from core.jobs import Pages, Terminal
+
     footer = ctx.footer if settings.get(ctx.config, "footer") else None
+    if ctx.ui is not None:
+        ctx.ui.console.file.flush()
+    terminal = Terminal.real()
+    pages = Pages(terminal)  # subshells live on the alternate screen: the prompt comes back untouched
+    pages.begin()
     if footer is not None:
         footer.enable()
     try:
-        return _attach_loop(ctx, job, footer)
+        return _attach_loop(ctx, job, footer, terminal)
     finally:
         if footer is not None:
             footer.disable()
+        pages.end()
+        terminal.close()
 
 
-def _attach_loop(ctx: ShellContext, job: Any, footer: Any) -> Any:
+def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any:
     assert ctx.jobs is not None
     while True:
-        if ctx.ui is not None:
-            ctx.ui.console.file.flush()
-        how, target = ctx.jobs.attach(job, footer=footer)
+        how, target = ctx.jobs.attach(job, terminal=terminal, footer=footer)
         if how == "switch":
             if target == 0:
                 how = "detached"

@@ -69,12 +69,14 @@ def test_attach_forwards_keys_and_detaches_on_ctrl_bracket(tmp_path):
     tty.setraw(term_slave)  # as the real one is while attached: keys arrive at once, unbuffered
     result = {}
 
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+
     def attach():
-        result["how"] = table.attach(job, stdin_fd=term_slave, stdout_fd=term_slave, raw=False, replay=0)
+        result["how"] = table.attach(job, terminal=terminal, raw=False)
 
     thread = threading.Thread(target=attach, daemon=True)
     thread.start()
-    assert _wait(lambda: job.sink == term_slave)
+    assert _wait(lambda: job.sink is not None)
     os.write(term_master, b"ping\n")
     assert _wait(lambda: b"ping" in job.tail())  # reached cat, came back through the pty
     seen = b""
@@ -88,12 +90,12 @@ def test_attach_forwards_keys_and_detaches_on_ctrl_bracket(tmp_path):
     # Ctrl-] then a digit: switch to that tab
     thread = threading.Thread(target=attach, daemon=True)
     thread.start()
-    assert _wait(lambda: job.sink == term_slave)
+    assert _wait(lambda: job.sink is not None)
     os.write(term_master, jobmod.DETACH_KEY + b"2")
     thread.join(3)
     assert result["how"] == ("switch", 2) and job.running
     assert table.kill(job) and _wait(lambda: not job.running) and job.label == "killed"
-    assert table.attach(job, stdin_fd=term_slave, stdout_fd=term_slave, raw=False) == ("exited", 129)  # 128 + SIGHUP
+    assert table.attach(job, terminal=terminal, raw=False) == ("exited", 129)  # 128 + SIGHUP
     os.close(term_master)
     os.close(term_slave)
 
@@ -216,10 +218,13 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert footer.set_hover(1) and not footer.set_hover(1)
     assert "1:seq 2" in footer.render(80)  # still there, now in the hover style
     assert footer.set_hover(None)
-    # the mouse is on at the prompt while there are subshells, so the tabs can be clicked
-    assert sh.session.app.mouse_support() is True
-    ctx.jobs.clear_finished()
+    # the terminal keeps the mouse at the prompt (the wheel scrolls its scrollback); mouse_always
+    # makes the panel's lines clickable
     assert sh.session.app.mouse_support() is False
+    sh.ui.mouse_always = True
+    assert sh.session.app.mouse_support() is True
+    sh.ui.mouse_always = False
+    ctx.jobs.clear_finished()
 
     ran = []
     monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())
@@ -312,3 +317,133 @@ def repl_shell(monkeypatch, tmp_path):
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui, config={})
     with shell.Shell(ctx) as sh:
         yield sh, ctx
+
+
+# ── the emulator: pages, colors, the alternate screen, scrollback ────────────
+
+def test_program_page_is_rendered_from_the_emulator(tmp_path):
+    from core.jobs import Pages, Terminal, new_screen, render_screen
+
+    screen, stream = new_screen(4, 20)
+    stream.feed(b"\x1b[1;31mred\x1b[0m plain\r\n\x1b[38;2;10;20;30mtc\x1b[0m\r\n")
+    page = render_screen(screen).decode()
+    assert page.startswith("\x1b[?25l\x1b[H\x1b[2J") and "\x1b[0;1;31mred" in page and "\x1b[0;38;2;10;20;30mtc" in page
+    assert page.rstrip().endswith("\x1b[3;1H\x1b[?25h")  # the cursor on the third line, shown
+    job = jobmod.Job(1, "x", "program", tmp_path / "1.log")
+    job.screen, job.stream = screen, stream
+    shown = []
+    job.sink = shown.append
+    job.append(b"\x1b[?1049h\x1b[Hvim!\x1b[?1049l")  # the alternate screen: saved and restored
+    assert "vim!" not in render_screen(job.screen).decode() and "red" in render_screen(job.screen).decode()
+    assert b"\x1b[?1049" not in shown[0] and b"\x1b[H\x1b[2J" in shown[0]  # never reaches the terminal
+    assert b"red" in shown[0]  # the restored main page is drawn when the program leaves its alt screen
+    for i in range(10):
+        job.append(f"line {i}\r\n".encode())
+    job.scroll(-1)
+    assert job.scrolled == 1 and "line 9" not in render_screen(job.screen).decode()
+    job.scroll_bottom()
+    assert job.scrolled == 0 and "line 9" in render_screen(job.screen).decode()
+    job.page(6, 30)
+    assert (job.screen.lines, job.screen.columns) == (6, 30)
+    written = []
+    pages = Pages(Terminal(lambda t: None, written.append, lambda: (24, 80)))
+    pages.begin()
+    pages.begin()
+    pages.end()
+    assert written == [b"\x1b[?1049h\x1b[H\x1b[2J", b"\x1b[r\x1b[?25h\x1b[0m\x1b[?1049l"]
+
+
+@posix_only
+def test_wheel_scrolls_the_scrollback_and_the_page_is_redrawn(tmp_path):
+    import tty
+
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_program(["sh", "-c", "for i in $(seq 1 60); do echo line$i; done; sleep 30"], "sh", size=(5, 40))
+    assert _wait(lambda: b"line60" in job.tail())
+    term_master, term_slave = os.openpty()
+    tty.setraw(term_slave)
+    jobmod._set_winsize(term_slave, 5, 40)  # the fake terminal's size (a fresh pty says 0 × 0)
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    result = {}
+    thread = threading.Thread(target=lambda: result.update(how=table.attach(job, terminal=terminal, raw=False)), daemon=True)
+    thread.start()
+    assert _wait(lambda: job.sink is not None)
+    seen = b""
+    end = time.time() + 3
+    while b"line60" not in seen and time.time() < end:
+        seen += os.read(term_master, 65536)
+    assert b"line60" in seen and b"\x1b[?1000h" in seen  # the page, and the mouse taken for the wheel
+    os.write(term_master, b"\x1b[<64;5;3M")  # wheel up: a page back in the history
+    seen = b""
+    end = time.time() + 3
+    while b"\x1b[2J" not in seen and time.time() < end:
+        seen += os.read(term_master, 65536)
+    assert job.scrolled == 1 and b"line60" not in seen.split(b"\x1b[2J")[-1]
+    os.write(term_master, b"x")  # any key: back to the live page
+    assert _wait(lambda: job.scrolled == 0)
+    os.write(term_master, jobmod.DETACH_KEY)
+    thread.join(3)
+    assert result["how"] == ("detached", 0)
+    table.kill(job)
+    os.close(term_master)
+    os.close(term_slave)
+
+
+def test_windows_backend_through_a_fake_winpty(tmp_path, monkeypatch):
+    """The ConPTY path (pywinpty) with a fake PtyProcess: spawn, read, write, resize, exit."""
+    import types
+
+    class FakePty:
+        spawned = []
+
+        def __init__(self, argv, cwd, env, dimensions):
+            self.argv, self.cwd, self.env, self.dimensions = argv, cwd, env, dimensions
+            self.pid = 4242
+            self.chunks = ["hello from conpty\r\n", ""]
+            self.written = []
+            self.alive = True
+            self.exitstatus = None
+
+        @classmethod
+        def spawn(cls, argv, cwd=None, env=None, dimensions=(24, 80)):
+            inst = cls(argv, cwd, env, dimensions)
+            cls.spawned.append(inst)
+            return inst
+
+        def read(self, size=1024):
+            if self.chunks:
+                return self.chunks.pop(0)
+            if not self.alive:
+                raise EOFError
+            time.sleep(0.02)
+            return ""
+
+        def isalive(self):
+            return self.alive
+
+        def write(self, s):
+            self.written.append(s)
+            if s == "quit":
+                self.alive, self.exitstatus = False, 7
+            return len(s)
+
+        def setwinsize(self, rows, cols):
+            self.dimensions = (rows, cols)
+
+        def terminate(self, force=False):
+            self.alive, self.exitstatus = False, 1
+
+    monkeypatch.setitem(sys.modules, "winpty", types.SimpleNamespace(PtyProcess=FakePty))
+    monkeypatch.setattr(sys, "platform", "win32")
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_program([sys.executable, "-c", "pass"], "python", size=(10, 50))
+    assert job.winpty is FakePty.spawned[-1] and job.pid == 4242 and job.winpty.dimensions == (10, 50)
+    assert _wait(lambda: b"hello from conpty" in job.tail()) and "hello from conpty" in job.page().decode()
+    job.resize(12, 60)
+    assert job.winpty.dimensions == (12, 60) and (job.screen.lines, job.screen.columns) == (12, 60)
+    job.write(b"quit")
+    assert job.winpty.written == ["quit"] and _wait(lambda: not job.running) and job.status == 7
+    # without pywinpty the program is run in the foreground instead
+    monkeypatch.setitem(sys.modules, "winpty", None)
+    with pytest.raises(jobmod.JobsUnsupported):
+        table.start_program([sys.executable], "python")

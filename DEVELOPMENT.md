@@ -35,7 +35,7 @@ shellcraft/
 │   ├── histexpand.py       # !!, !$, !*, !N, !prefix (interactive shell only)
 │   ├── highlight.py        # syntax highlighting of the input line (a prompt_toolkit Lexer)
 │   ├── gitinfo.py          # the git branch for the prompt, read from .git/HEAD
-│   ├── jobs.py             # subshells (`sub`): programs on a pty with attach / detach / switch, commands in threads, the job table
+│   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
 │   ├── footer.py           # the tab bar on the terminal's last row (scroll region), clickable, Ctrl-] N
 │   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>

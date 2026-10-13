@@ -15,7 +15,11 @@ and the project uses [semantic versioning](https://semver.org/).
   subshell a one-row **footer** at the bottom of the terminal shows the same shells as tabs (a
   scroll region keeps it in place), clickable too. **Ctrl-] N** switches from anywhere, **Ctrl-]**
   alone comes back. `jobs` lists, selects, stops (`-k N`) and clears (`-c`) them, finished jobs
-  are announced at the next prompt, and the `footer` setting turns the strip off. Programs run on a pseudo-terminal (POSIX); on Windows
+  are announced at the next prompt, and the `footer` setting turns the strip off. Each program
+  has its own terminal emulator (`pyte`), so switching to it redraws its screen exactly,
+  scrollback included; subshells are shown on the alternate screen, so the prompt comes back
+  untouched; the wheel scrolls a subshell's scrollback; on Windows programs run on ConPTY
+  through `pywinpty`. Programs run on a pseudo-terminal (POSIX); on Windows
   `sub PROGRAM` runs in the foreground. A `jobs` prompt segment shows how many are running.
 - **The completion menu follows the mouse:** the entry under the pointer is highlighted (and put
   on the line, as ↑ / ↓ do), so a click picks what you see.
