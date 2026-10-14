@@ -43,6 +43,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`~/.shellcraft/rc` and `source FILE`:** a startup file of ShellCraft command lines, run as if
+  typed when the interactive shell starts (never in MCP mode): themes, `export`, `cd`, aliases,
+  modules, `sub`, `alert`, multi-line `for` / `if`. A failing line is reported with its line number
+  and the rest still run; `source` runs any such file by hand.
 - **Startup scripts (first version):** every `.py` in `~/.shellcraft/startup/` runs at startup in
   name order, before the first prompt. Scripts hand environment variables back through
   `$SHELLCRAFT_ENV_FILE` (`NAME=value` lines), which the shell, subshells and modules then inherit.

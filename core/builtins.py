@@ -659,6 +659,47 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
+SOURCE_DOC = """# source
+
+Run a file of ShellCraft command lines, as if each one were typed at the prompt: builtins,
+modules, aliases, `export`, `cd`, `theme`, `sub`, and `for` / `if` blocks over several lines.
+At startup the shell sources `~/.shellcraft/rc` this way (`man startup`).
+
+## Usage
+
+```
+source FILE
+source ~/.shellcraft/rc      # run the startup file again
+```
+
+Blank lines and lines starting with `#` are skipped. Each command's output is shown as it runs;
+a command that fails is reported with its line number (`rc:4: …`) and the next one runs anyway.
+`exit` in the file leaves the shell. A file may `source` another, up to 8 deep.
+"""
+
+
+@builtin("source", "Run a file of ShellCraft commands", "source FILE", stateful=True, direct=True,
+         doc=SOURCE_DOC)
+def _source(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import startup as startupmod
+    from core.commands._io import user_path
+
+    if len(args) != 1:
+        raise CommandError("usage: source FILE")
+    path = user_path(args[0])
+    try:
+        ran, failed = startupmod.source(path, ctx)
+    except FileNotFoundError:
+        raise CommandError(f"source: {args[0]}: no such file") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise CommandError(f"source: {args[0]}: {exc}") from None
+    except RecursionError as exc:
+        raise CommandError(str(exc)) from None
+    if failed:
+        return WithStatus("", 1)
+    return ""
+
+
 STARTUP_DOC = """# startup
 
 Python scripts that run when the interactive shell starts, before the first prompt: set
@@ -694,7 +735,27 @@ The variables apply only if the script exits with status 0, and a later script s
 earlier ones. What a script prints is shown under the banner. A script that fails, or runs longer
 than 30 seconds, is reported in one line and the shell starts anyway.
 
-`settings startup off`, or `shellcraft --no-startup` for one session, skips them.
+## The rc file: ShellCraft commands
+
+After the scripts, the shell runs `~/.shellcraft/rc`, a file of ShellCraft command lines, like
+bash's `~/.bashrc`. Each line runs as if you typed it at the prompt, so anything you can type works:
+
+```
+# ~/.shellcraft/rc
+theme nord
+export PROJECT_ROOT=~/projects
+cd ~/projects
+alert -l info "welcome back"
+sub find ~/projects -name "*.log" -mtime -1
+for h in web1 web2; do myip $h; done
+```
+
+Output is shown under the banner; a failing line is reported with its line number and the rest
+still run. `source ~/.shellcraft/rc` runs it again (`man source`). It never runs for `--mcp` /
+`--mcp-http`: AI clients get a clean shell.
+
+`settings startup off`, or `shellcraft --no-startup` for one session, skips both the scripts and
+the rc file.
 """
 
 
@@ -720,8 +781,11 @@ def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args:
         raise CommandError("usage: startup [run [NAME] | --folder]")
     found = startupmod.scripts()
+    rc = startupmod.rc_path()
+    rc_note = (f"rc file: {rc} ({len(startupmod.logical_lines(rc.read_text(encoding='utf-8', errors='replace')))} "
+               "commands; source it to run it again)") if rc.is_file() else f"no rc file ({rc}): man startup"
     if not found:
-        return Text(f"no startup scripts: put .py files in {startupmod.folder()} (man startup)", style="sc.muted")
+        return Text(f"no startup scripts in {startupmod.folder()}\n{rc_note}", style="sc.muted")
     table = Table(title="Startup scripts", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
     for col in ("#", "script", "last run", "set"):
         table.add_column(col)
@@ -733,7 +797,7 @@ def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         sets = ", ".join(sorted(n for n, v in (r.env if r else {}).items() if v is not None))
         table.add_row(str(i), Text(script.name, style="sc.path"), last, sets)
         plain.append(f"{i}\t{script.name}\t{last.plain}\t{sets}")
-    return Styled(table, "\n".join(plain) + "\n")
+    return Styled(Group(table, Text(rc_note, style="sc.muted")), "\n".join(plain) + f"\n{rc_note}\n")
 
 
 JOBS_DOC = """# jobs

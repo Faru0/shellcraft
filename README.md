@@ -266,9 +266,24 @@ Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY thro
 `sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
 exits) and it is not listed as a job.
 
-### Startup scripts
+### Startup: the rc file and scripts
 
-Python scripts in **`~/.shellcraft/startup/`** run when the interactive shell starts, in name order
+**`~/.shellcraft/rc`** is ShellCraft's `~/.bashrc`: a file of ShellCraft command lines that run when
+the interactive shell starts, as if you typed them. Anything you can type works there:
+
+```
+theme nord
+export PROJECT_ROOT=~/projects
+cd ~/projects
+sub find ~/projects -name "*.log" -mtime -1
+alert -l info "shell ready"
+```
+
+A failing line is reported with its line number (`✗ rc:4: …`) and the rest still run.
+`source FILE` runs any such file by hand (`source ~/.shellcraft/rc` reruns it). It never runs for
+`--mcp` / `--mcp-http`. `templates/startup/rc.example` is a commented example.
+
+For things a command line can't do, Python scripts in **`~/.shellcraft/startup/`** run when the interactive shell starts, in name order
 (`10-env.py`, `20-mounts.py`), before the first prompt. Use them to set environment variables for
 everything ShellCraft starts later, check a mount or a VPN, or print a reminder. A script is its own
 process, so it hands variables back by appending `NAME=value` lines to the file named in
@@ -281,9 +296,9 @@ with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
 ```
 
 The shell, every subshell and every module then see `PROJECT_ROOT`. A script that fails or runs
-longer than 30 s is reported in one line and the shell starts anyway. `startup` lists them with
-their last result, `startup run` runs them again, `settings startup off` or `--no-startup` skips
-them. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
+longer than 30 s is reported in one line and the shell starts anyway. They run before the rc file,
+so its lines see their variables. `startup` lists them with their last result, `startup run` runs
+them again, `settings startup off` or `--no-startup` skips both the scripts and the rc file. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
 
 ### Alerts in the status panel
 

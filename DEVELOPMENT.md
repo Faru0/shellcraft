@@ -37,7 +37,7 @@ shellcraft/
 │   ├── gitinfo.py          # the git branch for the prompt, read from .git/HEAD
 │   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
 │   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-] N
-│   ├── startup.py          # startup scripts: ~/.shellcraft/startup/*.py in order, the $SHELLCRAFT_ENV_FILE hand-back
+│   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
 │   ├── aliases.py          # aliases: the ~/.shellcraft/aliases file (parsed, cached by mtime, edited line by line), validation, expansion
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>

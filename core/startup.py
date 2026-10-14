@@ -22,8 +22,11 @@ SKELETON (2026-10-13). The shape is settled, the open questions are listed in TO
 - `settings startup off` or `shellcraft --no-startup` skips them; `startup` lists them and their
   last result, `startup run [NAME]` runs them again.
 
-Not done yet (see TODO.md): background scripts that keep running, running in `--mcp` mode,
-ShellCraft commands in a startup file (`alias`, `theme`… lines), per-script timeouts.
+After the Python scripts, the shell sources `~/.shellcraft/rc`: ShellCraft command lines, run as if
+typed at the prompt (`theme nord`, `export X=1`, `cd ~/work`, a module, `sub htop`), like
+`~/.bashrc`. Never in `--mcp` mode. `source FILE` runs any such file by hand.
+
+Not done yet (see TODO.md): background scripts that keep running, per-script timeouts.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 TIMEOUT = 30.0  # seconds a startup script may take before it is stopped
 FOLDER = "startup"
@@ -143,3 +147,88 @@ def run_all(home: Path | None = None, only: str | None = None) -> list[Result]:
             continue
         results.append(run_one(script))
     return results
+
+
+# ── the rc file: ShellCraft command lines, like ~/.bashrc ────────────────────
+
+RC_FILE = "rc"
+MAX_SOURCE_DEPTH = 8  # `source` inside a sourced file, at most this deep
+
+
+def rc_path(home: Path | None = None) -> Path:
+    if home is None:
+        from core.config import config_dir
+
+        home = config_dir()
+    return home / RC_FILE
+
+
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first line number, command) for each command in a file of ShellCraft lines: blank lines
+    and `#` comments skipped, an unfinished `for` / `if` / `{` joined with the lines after it, as
+    the prompt does. A block still open at the end is returned as is (running it reports why)."""
+    from core import script
+
+    out: list[tuple[int, str]] = []
+    pending: tuple[int, str] | None = None
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if pending is None:
+            if not line or line.startswith("#"):
+                continue
+            pending = (number, line)
+        elif line and not line.startswith("#"):
+            pending = (pending[0], script.join_continuation(pending[1], line))
+        if pending is not None and script.incomplete(pending[1]) is None:
+            out.append(pending)
+            pending = None
+    if pending is not None:
+        out.append(pending)
+    return out
+
+
+_depth = [0]
+
+
+def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
+    """Say which line of which file failed, then show the error as the prompt would."""
+    from core.context import ShellExit
+
+    if isinstance(exc, ShellExit):
+        raise exc
+    if ctx.emit is not None:
+        from rich.text import Text
+
+        ctx.emit(Text(f"✗ {where}", style="sc.warning"))
+    if ctx.emit_error is not None:
+        ctx.emit_error(exc, line)
+
+
+def source(path: Path, ctx: Any) -> tuple[int, int]:
+    """Run every command of a file in `ctx` as if typed at the prompt: output and errors go to
+    ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest. Returns
+    (commands run, commands that failed). Raises OSError when the file can't be read."""
+    from core.pipeline import run_line
+
+    if _depth[0] >= MAX_SOURCE_DEPTH:
+        raise RecursionError(f"source: nested more than {MAX_SOURCE_DEPTH} deep (a file sourcing itself?)")
+    text = Path(path).read_text(encoding="utf-8")
+    ran = failed = 0
+    _depth[0] += 1
+    try:
+        for number, line in logical_lines(text):
+            ran += 1
+            where = f"{Path(path).name}:{number}: {line}"
+            try:
+                result = run_line(line, ctx)
+            except Exception as exc:  # noqa: BLE001 — a failing line (or a bug) must not stop the file
+                failed += 1
+                _report(ctx, exc, where, line)
+                continue
+            if result is not None and ctx.emit is not None and result.output not in (None, ""):
+                ctx.emit(result.output)
+            if ctx.last_status:
+                failed += 1
+    finally:
+        _depth[0] -= 1
+    return ran, failed

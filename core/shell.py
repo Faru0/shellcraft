@@ -270,6 +270,16 @@ class Shell:
                 self.ui.console.print(Text(r.output.rstrip("\n"), style="sc.muted"), markup=False, highlight=False)
         return results
 
+    def run_rc(self) -> None:
+        """Source ~/.shellcraft/rc, as if each line were typed (core.startup.source)."""
+        from core import startup
+
+        path = startup.rc_path()
+        try:
+            startup.source(path, self.ctx)
+        except (OSError, UnicodeDecodeError, RecursionError) as exc:
+            self.ui.console.print(Text(f"⚙ {path}: {exc}", style="sc.warning"), markup=False, highlight=False)
+
     def _stop_jobs(self) -> None:
         """At exit: stop the subshells still running, and say so."""
         jobs = self.ctx.jobs
