@@ -15,7 +15,7 @@ from pathlib import Path
 
 import requests
 
-from core.config import load_config
+from shellcraft.config import load_config
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
 EXAMPLE = Path(__file__).resolve().parents[2] / "templates" / "example"

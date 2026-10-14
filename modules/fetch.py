@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from core.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError
 
 SUMMARY = "Fetch text from a URL or file (or pass stdin through)"
 SPINNER_TEXT = "fetching data…"

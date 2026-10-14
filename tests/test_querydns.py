@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from core.modkit import ModuleError
+from shellcraft.modkit import ModuleError
 from tests.conftest import FakeHTTP, FakeResponse
 
 KEY = "dd_test_key"

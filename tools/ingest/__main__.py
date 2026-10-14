@@ -36,7 +36,7 @@ from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
 from rich.text import Text
 
-from core.stdio import utf8_stdio
+from shellcraft.stdio import utf8_stdio
 from tools.ingest import ai, docs
 from tools.ingest.analyze import GUARD, KEEP, Analysis, analyze
 from tools.ingest.check import FAIL, WARN, check_module, name_problem, render

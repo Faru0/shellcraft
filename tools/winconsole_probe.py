@@ -4,7 +4,7 @@
     $env:SHELLCRAFT_CONSOLE="legacy-keys"; python tools\\winconsole_probe.py   classic key reader
     $env:SHELLCRAFT_CONSOLE="native";      python tools\\winconsole_probe.py   prompt_toolkit's own
 
-It opens the console exactly as the shell does (core.console) and runs a prompt that looks like the
+It opens the console exactly as the shell does (shellcraft.console) and runs a prompt that looks like the
 shell's, with Tab completion. The bottom toolbar shows the last keys prompt_toolkit received (key and
 raw data), the console modes and the size, live. Try: typing, Backspace in the middle of a line, Tab
 (twice, near the bottom of the window too), the arrows, Ctrl-C, resizing the window. Each accepted
@@ -28,8 +28,8 @@ from prompt_toolkit.completion import WordCompleter  # noqa: E402
 from prompt_toolkit.formatted_text import FormattedText  # noqa: E402
 from prompt_toolkit.input import create_input  # noqa: E402
 
-from core import console  # noqa: E402
-from core.diagnostics import _INPUT_FLAGS, _OUTPUT_FLAGS, _flags  # noqa: E402
+from shellcraft import console  # noqa: E402
+from shellcraft.diagnostics import _INPUT_FLAGS, _OUTPUT_FLAGS, _flags  # noqa: E402
 
 WORDS = ["alias", "banner", "cat", "cd", "diff", "echo", "fetch", "filter", "find", "grep", "help",
          "history", "ip2geo", "ls", "man", "modules", "myip", "queryCensys", "queryCert", "queryDns",
@@ -54,7 +54,7 @@ def _log_keys(input_: object, keys: deque[str], everything: list[str]) -> None:
 
 
 def main() -> int:
-    from core.stdio import utf8_stdio
+    from shellcraft.stdio import utf8_stdio
 
     utf8_stdio()
     keys: deque[str] = deque(maxlen=6)

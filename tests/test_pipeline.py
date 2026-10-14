@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from core.context import ShellExit
-from core.pipeline import PipelineError, run_line
+from shellcraft.context import ShellExit
+from shellcraft.pipeline import PipelineError, run_line
 from tests.conftest import OS_UPPER
 
 

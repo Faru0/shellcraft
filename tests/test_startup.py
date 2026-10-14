@@ -6,11 +6,11 @@ import os
 import pytest
 from rich.console import Console
 
-from core import startup
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
-from core.themes import UI, all_themes
+from shellcraft import startup
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.themes import UI, all_themes
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def test_startup_builtin_lists_and_reruns(home):
 def test_the_cli_runs_them_unless_told_not_to(home, started):
     import json
 
-    from core.cli import main
+    from shellcraft.cli import main
 
     main([])
     assert started.startup_runs == 0  # no scripts: nothing to run
@@ -131,13 +131,13 @@ def test_source_runs_lines_as_typed_and_keeps_going(home, tmp_path, monkeypatch)
 
 
 def test_cli_sources_the_rc_file_after_the_scripts(home, started):
-    from core.cli import main
+    from shellcraft.cli import main
 
     (home / "rc").write_text("echo hi\n")
     calls = []
-    import core.shell
+    import shellcraft.shell
 
-    core.shell.Shell.run_rc = lambda self: calls.append("rc")  # the stand-in shell from `started`
+    shellcraft.shell.Shell.run_rc = lambda self: calls.append("rc")  # the stand-in shell from `started`
     main([])
     main(["--no-startup"])
     assert calls == ["rc"]

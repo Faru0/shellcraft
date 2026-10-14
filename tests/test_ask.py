@@ -5,11 +5,11 @@ import io
 import pytest
 from rich.console import Console
 
-from core import ask
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
-from core.themes import UI, all_themes
+from shellcraft import ask
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.themes import UI, all_themes
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_no_terminal_no_asking(ictx):
 
 
 def test_rc_file_can_ask(ictx, answers, tmp_path):
-    from core import startup
+    from shellcraft import startup
 
     queue, _ = answers
     queue.append("Grace")

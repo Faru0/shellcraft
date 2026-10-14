@@ -5,9 +5,9 @@ import shutil
 
 import pytest
 
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
 from tests.conftest import MODULES_DIR
 
 
@@ -126,7 +126,7 @@ def test_man_and_which_know_disabled_modules(mods):
 
 
 def test_startup_reads_disabled_modules_from_config(mods, tmp_path, started):
-    from core import cli
+    from shellcraft import cli
 
     home = tmp_path / "home"
     home.mkdir()
@@ -140,7 +140,7 @@ def test_mcp_server_hides_disabled_modules(mods):
     import anyio
     from mcp.client import Client
 
-    from core.mcp_server import build_server
+    from shellcraft.mcp_server import build_server
 
     registry = ModuleRegistry(mods[0], ["myip"])
     registry.load()
@@ -156,7 +156,7 @@ def test_completion_offers_subcommands_and_the_right_modules(mods):
     from prompt_toolkit.completion import CompleteEvent
     from prompt_toolkit.document import Document
 
-    from core.completer import ShellCompleter
+    from shellcraft.completer import ShellCompleter
 
     completer = ShellCompleter(make_ctx(mods[0], ["myip"]))
 

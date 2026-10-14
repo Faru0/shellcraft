@@ -2,10 +2,10 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from core.completer import ShellCompleter
-from core.context import ShellContext
-from core.loader import SkillInfo
-from core.options import OptionSpec, builtin_options, from_markdown, from_skill, merge
+from shellcraft.completer import ShellCompleter
+from shellcraft.context import ShellContext
+from shellcraft.loader import SkillInfo
+from shellcraft.options import OptionSpec, builtin_options, from_markdown, from_skill, merge
 from tests.conftest import ROOT
 
 MYIP_SKILL = SkillInfo.parse((ROOT / "modules/myip.skill").read_text())

@@ -17,14 +17,15 @@ python -m build --wheel                                 # the packaging smoke te
 
 CI (`.gitlab-ci.yml`, mirrored in `.github/workflows/ci.yml`) runs the lint, the module checker,
 pytest on Linux and Windows for Python 3.11–3.14, and the packaging smoke test. Releases are
-listed in [CHANGELOG.md](CHANGELOG.md); the version lives in `core/__init__.py` only.
+listed in [CHANGELOG.md](CHANGELOG.md); the version lives in `shellcraft/__init__.py` only.
 
 ## Project layout
 
 ```
 shellcraft/
-├── main.py                 # launcher → core.cli.main
-├── core/
+├── main.py                 # launcher → shellcraft.cli.main
+├── core/                   # 0.2 compatibility shim: `core.X` is `shellcraft.X` (removed in 0.4)
+├── shellcraft/             # the package (was `core/` before 0.3.0)
 │   ├── cli.py              # argument parsing; chooses interactive / --mcp / --mcp-http mode
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
 │   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
@@ -85,9 +86,9 @@ shellcraft/
 
 1. The REPL first joins continuation lines (while `script.incomplete()` says a `{` or `(` is open) and expands `!!` / `!$` (`histexpand.expand()`), then saves the result to the history itself (the prompt's own history append is switched off).
 2. `run_line()` calls `script.parse_script()`. A single plain pipeline (the usual case) goes on exactly as before; anything else (`;`, `for`, `if`) is run by `script.execute()`, which runs each statement as in steps 3–5 with the loop variables, prints its output through `ctx.emit` (or collects it when there is none, as in MCP), reports a failing statement and goes on.
-3. `parser.parse(line, variables, …)` splits the line into segments and redirections (`>`, `>>`, `<`, `2>`, `2>>`, `2>&1`, `&>`), expanding `$?`, `$name` (shell, loop and, in the interactive shell, environment variables; never split into several words on a plain line), `$(( … ))` (`core/arith.py`), `$( … )` and globs. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. A lone `&` and `>&` (and `;`, `&&`, `||`, which only `script.py` splits on) raise a `ParseError` instead of becoming arguments. `x=1` on its own sets a shell variable (`ctx.variables`).
+3. `parser.parse(line, variables, …)` splits the line into segments and redirections (`>`, `>>`, `<`, `2>`, `2>>`, `2>&1`, `&>`), expanding `$?`, `$name` (shell, loop and, in the interactive shell, environment variables; never split into several words on a plain line), `$(( … ))` (`shellcraft/arith.py`), `$( … )` and globs. Quotes are respected, and backslashes stay literal, which keeps Windows paths intact. A lone `&` and `>&` (and `;`, `&&`, `||`, which only `script.py` splits on) raise a `ParseError` instead of becoming arguments. `x=1` on its own sets a shell variable (`ctx.variables`).
 4. `pipeline.run_pipeline()` first expands the user's aliases (`aliases.expand()`, unless `ctx.allow_aliases` is off, as in MCP). It then feeds each segment the previous segment's output as `stdin`. Each command name is resolved in this order:
-   1. a **builtin** (`core/builtins.py`, `core/commands/`)
+   1. a **builtin** (`shellcraft/builtins.py`, `shellcraft/commands/`)
    2. a **module** from `modules/`
    3. an **OS program**, only when `ctx.allow_system` is set (the `system_commands` setting or `--allow-system`)
 5. A `CommandError` / `ModuleError`, or any exception, stops the pipeline as a `PipelineError` that names the failing segment and carries its exit status (`CommandError(msg, status)`; 127 for not found). A command returns `WithStatus(value, n)` for a nonzero status that isn't an error (`grep` with no match). `ctx.last_status` (`$?`) is set from the result.
@@ -95,12 +96,12 @@ shellcraft/
 
 ### Terminal I/O on Windows and Linux
 
-- **Interactive shell on Windows:** `Shell` calls `core.console.create_prompt_toolkit_console()`, which opens `CONIN$` and `CONOUT$` directly. Keys come from prompt_toolkit's `Win32Input`, bound to the `CONIN$` handle for reading, raw/cooked mode and the VT-input check (prompt_toolkit would otherwise use `GetStdHandle`). Output is `DirectOutput`, prompt_toolkit's `Windows10_Output` bound to `CONOUT$`: each flush writes with the screen buffer in exactly `PROCESSED_OUTPUT | VIRTUAL_TERMINAL_PROCESSING` (no wrap, no delayed wrap) and restores the mode; between prompts it rests in `PROCESSED | WRAP_AT_EOL | VT`. CPR is off and the rows below the cursor come from the screen buffer, so the completion menu gets its room. `Shell` then rebuilds Rich with `core.console.build_console(file=<CONOUT$ stream>)`. The `Win32Input` internals this relies on are checked up front and prompt_toolkit is pinned to 3.0.x; if the console can't be opened, the shell says why on stderr (and in `--diag`) and falls back to prompt_toolkit's own console handling. The pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected; the process's std handles are never changed. Both console modes are restored on exit.
+- **Interactive shell on Windows:** `Shell` calls `shellcraft.console.create_prompt_toolkit_console()`, which opens `CONIN$` and `CONOUT$` directly. Keys come from prompt_toolkit's `Win32Input`, bound to the `CONIN$` handle for reading, raw/cooked mode and the VT-input check (prompt_toolkit would otherwise use `GetStdHandle`). Output is `DirectOutput`, prompt_toolkit's `Windows10_Output` bound to `CONOUT$`: each flush writes with the screen buffer in exactly `PROCESSED_OUTPUT | VIRTUAL_TERMINAL_PROCESSING` (no wrap, no delayed wrap) and restores the mode; between prompts it rests in `PROCESSED | WRAP_AT_EOL | VT`. CPR is off and the rows below the cursor come from the screen buffer, so the completion menu gets its room. `Shell` then rebuilds Rich with `shellcraft.console.build_console(file=<CONOUT$ stream>)`. The `Win32Input` internals this relies on are checked up front and prompt_toolkit is pinned to 3.0.x; if the console can't be opened, the shell says why on stderr (and in `--diag`) and falls back to prompt_toolkit's own console handling. The pager, the hidden API-key prompt and Rich all use the console, however stdin and stdout are redirected; the process's std handles are never changed. Both console modes are restored on exit.
   - **Why not delayed wrap:** until 2026-10-09 `CONOUT$` was kept in `DISABLE_NEWLINE_AUTO_RETURN` with the full window width. In Windows Terminal (ConPTY) the shell then showed a garbled prompt, and Backspace and Tab completion seemed to do nothing. The likely cause is the cursor drifting from prompt_toolkit's picture of the screen (ConPTY has known delayed-wrap quirks); it is the one setting that every earlier attempt shared and that stock prompt_toolkit never uses, so it's gone. Confirm with the probe below.
   - **`SHELLCRAFT_CONSOLE`** compares setups on a machine where something is wrong: `direct` (the default in the classic console), `legacy-keys` (direct, with the classic key reader and no VT input: the default in Windows Terminal, where `WT_SESSION` is set) or `native` (prompt_toolkit's own console handling). The `PromptSession` is bound to `CONIN$` / `CONOUT$` explicitly as well as through the app session. `python tools/winconsole_probe.py` runs a shell-like prompt on the same setup and shows every key received, the console modes and the size, live.
-- **Window size:** `core.console.build_console()` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree. On Windows that is prompt_toolkit's `Win32Output` size: the visible window of `CONOUT$` without its last column, so a full-width line never wraps early. `--diag` or the `diagnostics` setting prints every size source side by side.
-- **Console detection:** use `core.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
-- **Paging:** `show()` pages output taller than the window. A command can override that by returning `Paged(value, page=True/False)` (`core.context`): `man` always pages (`man -p` prints), `help` always prints. Pipes, files and MCP see only `value`.
+- **Window size:** `shellcraft.console.build_console()` makes Rich ask the current prompt_toolkit output for the size, so Rich and the prompt always agree. On Windows that is prompt_toolkit's `Win32Output` size: the visible window of `CONOUT$` without its last column, so a full-width line never wraps early. `--diag` or the `diagnostics` setting prints every size source side by side.
+- **Console detection:** use `shellcraft.stdio.is_console()`, never `isatty()`. On Windows `isatty()` is True for `NUL`.
+- **Paging:** `show()` pages output taller than the window. A command can override that by returning `Paged(value, page=True/False)` (`shellcraft.context`): `man` always pages (`man -p` prints), `help` always prints. Pipes, files and MCP see only `value`.
 - **Encoding:** `utf8_stdio()` makes stdout/stderr UTF-8 when they aren't already (Windows pipes and files default to cp1252), unless `PYTHONIOENCODING` is set. The MCP stdio transport wraps the binary streams as UTF-8 itself.
 - **OS commands:** output is decoded as UTF-8 with `\r\n` → `\n`. `cmd.exe` internal commands run with `/u`, so their output arrives as UTF-16.
 
@@ -126,7 +127,7 @@ a `Styled` or a Rich renderable) into plain text.
 
 ## Adding a builtin
 
-Builtins live in `core/commands/*.py` (or `core/builtins.py` for shell-level commands) and register
+Builtins live in `shellcraft/commands/*.py` (or `shellcraft/builtins.py` for shell-level commands) and register
 themselves with a decorator:
 
 ```python
@@ -139,12 +140,12 @@ def wc(ctx, args, stdin):
     ...
 ```
 
-- Parse arguments with `core.modkit.ArgParser`, and raise `ModuleError` for user errors.
+- Parse arguments with `shellcraft.modkit.ArgParser`, and raise `ModuleError` for user errors.
 - The `doc` Markdown is the `man` page, **and** its options table (``| `-x`, `--long N` | … |``) is what Tab completion reads. Keep every switch in that table.
-- New files in `core/commands/` must be imported in `core/commands/__init__.py`.
+- New files in `shellcraft/commands/` must be imported in `shellcraft/commands/__init__.py`.
 - Add tests to `tests/test_commands.py`.
 
-### Scripts (`core/script.py`)
+### Scripts (`shellcraft/script.py`)
 
 - **Two syntaxes.** Bash (default): `for NAME in WORD…; do …; done`, `while` / `until LIST; do …; done`, `if LIST; then …; [elif …; then …;] [else …;] fi`, `case WORD in PAT) …;; esac`. `-py`: `for -py NAME in ITEM… { … }`, `while -py COND { … }`, `if -py COND { … } [elif …] [else …]`. The parser tracks a mode ("top", "sh", "py"); a `-py` block's nested `for`/`if` inherit "py". `parse_list(end)` reads statements up to the end of the text, a `}`, `;;` or a set of bash keywords, and returns which one ended it. `a && b || c` is a `Chain`; `! cmd` sets `Simple.negate`. A block followed by `| …` or a redirection becomes a `Piped` statement: the block runs with its output collected, which then feeds the tail pipeline (`parse(..., allow_leading_pipe=True)`).
 - **Pipelines are kept as raw text** and syntax-checked with `parser.parse()` before anything runs (including the commands inside `$( … )`), so a typo in the tenth statement stops the script before the first one runs. Each `Simple` carries its mode: "top" statements (a plain line, or `a ; b` outside any block) parse exactly as before; "sh" ones get `parse(split=True, substitute=runner.substitute)`, i.e. bash word splitting and `$( … )` (not inside `[[ ]]`); "py" ones never split.
@@ -155,30 +156,30 @@ def wc(ctx, args, stdin):
 
 ## Adding a setting
 
-Add a `Setting(...)` to `SETTINGS` in `core/settings.py`. Read it with `settings.get(ctx.config, "key")`.
+Add a `Setting(...)` to `SETTINGS` in `shellcraft/settings.py`. Read it with `settings.get(ctx.config, "key")`.
 If the setting has to change the running session immediately, give it an `apply` callback. The
 `settings` builtin, its completion and its man page pick up new settings automatically.
 
 ### API keys (`ENV_SETTINGS`)
 
 Modules declare the environment variables they need as `ENV_SETTINGS = [EnvSetting(NAME, label,
-description)]` (`core/modkit.py`). The pieces:
+description)]` (`shellcraft/modkit.py`). The pieces:
 
 | Where | What |
 | --- | --- |
-| `core/loader.py` | `_env_settings()` validates the declaration (UPPER_CASE names, non-empty text, no duplicates). A bad one makes the module fail to load with a warning. |
-| `core/settings.py` | `env_settings(registry)` collects them, labelled `module · label`. `env_set` / `env_reset` / `export_env` keep `config["env"]` and `os.environ` in sync. `_ORIGINAL_ENV` remembers the shell's own values, so a reset can restore them. `mask()` and `env_status()` produce the display text, and `redact_line()` hides values from history. |
-| `core/cli.py` | Calls `export_env()` right after loading the config, before choosing the mode, so the REPL and `--mcp` both see the keys. |
-| `core/builtins.py` | The `settings` table rows, the hidden prompt (`prompt_toolkit.prompt(is_password=True)`, or `getpass` outside the REPL), set and reset. |
-| `core/shell.py` | `RedactingFileHistory` stores `settings NAME ••••`. |
-| `core/config.py` | `save_config()` writes with mode 600 while `"env"` is non-empty. |
+| `shellcraft/loader.py` | `_env_settings()` validates the declaration (UPPER_CASE names, non-empty text, no duplicates). A bad one makes the module fail to load with a warning. |
+| `shellcraft/settings.py` | `env_settings(registry)` collects them, labelled `module · label`. `env_set` / `env_reset` / `export_env` keep `config["env"]` and `os.environ` in sync. `_ORIGINAL_ENV` remembers the shell's own values, so a reset can restore them. `mask()` and `env_status()` produce the display text, and `redact_line()` hides values from history. |
+| `shellcraft/cli.py` | Calls `export_env()` right after loading the config, before choosing the mode, so the REPL and `--mcp` both see the keys. |
+| `shellcraft/builtins.py` | The `settings` table rows, the hidden prompt (`prompt_toolkit.prompt(is_password=True)`, or `getpass` outside the REPL), set and reset. |
+| `shellcraft/shell.py` | `RedactingFileHistory` stores `settings NAME ••••`. |
+| `shellcraft/config.py` | `save_config()` writes with mode 600 while `"env"` is non-empty. |
 | `tools/ingest/check.py` | `check_env_settings()` checks that every variable is named in the `.md` and the `.skill`. |
 
 `settings` is `stateful`, so MCP clients can never read or change keys through it.
 
 ## MCP server notes
 
-- `ShellcraftMCP` (`core/mcp_server.py`) owns the lowlevel `Server`. `build_server()` returns just the `Server` for tests and simple embedding.
+- `ShellcraftMCP` (`shellcraft/mcp_server.py`) owns the lowlevel `Server`. `build_server()` returns just the `Server` for tests and simple embedding.
 - **Tools:** a module with `.skill` `[[params]]` gets `params.input_schema()`, and a call's named values go through `ModuleSpec.argv()` (`params.to_argv()`) before `run(args, stdin)`. Other modules keep `MODULE_INPUT_SCHEMA` (a raw `args` array).
 - **Change notifications reach two kinds of clients:**
   - 2026-07-28+ clients open `subscriptions/listen`. `notify_changed()` publishes `ToolsListChanged` / `ResourcesListChanged` on the `InMemorySubscriptionBus`.
@@ -189,7 +190,7 @@ description)]` (`core/modkit.py`). The pieces:
 - **Limits and exposure:** every tool call runs under `anyio.fail_after(CALL_TIMEOUT)` (`SHELLCRAFT_MCP_TIMEOUT`); stdin and output are capped (`MAX_STDIN`, `MAX_OUTPUT`). A `.skill` with `expose = false` keeps a module out of the tool list, the man-page resources and `shellcraft_pipeline` (`ctx.module_filter`); `--expose NAME,...` narrows further.
 - **`--mcp-http` authentication:** `require_bearer()` wraps the ASGI app; every request must send `Authorization: Bearer <token>` (`--token`, `$SHELLCRAFT_MCP_TOKEN`, or a generated token logged at startup; `--no-token` turns it off). `mcp start` generates one per server, prints it, and passes `--parent-pid` so the child exits when the shell dies (`mcp_child.watch_parent()`).
 - **`--mcp-http`** runs uvicorn (an mcp dependency) in the same anyio task group as the watcher. `parse_http_address()` only accepts loopback addresses, and DNS-rebinding protection is always configured.
-- **`mcp start`** (`core/mcp_child.py`) runs `python -m core.cli --mcp-http` as a child process in its own process group (a new session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), so Ctrl-C at the prompt doesn't reach it. Its output goes to `~/.shellcraft/mcp-http.log`. `start()` hands the process to the shell as soon as it is spawned (`ctx.mcp_http`), before waiting for the port, so an interrupted start is still tracked; `Shell.close()` stops it.
+- **`mcp start`** (`shellcraft/mcp_child.py`) runs `python -m shellcraft.cli --mcp-http` as a child process in its own process group (a new session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), so Ctrl-C at the prompt doesn't reach it. Its output goes to `~/.shellcraft/mcp-http.log`. `start()` hands the process to the shell as soon as it is spawned (`ctx.mcp_http`), before waiting for the port, so an interrupted start is still tracked; `Shell.close()` stops it.
 
 ## Tests
 
@@ -216,11 +217,12 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
 | `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
+| `test_core_shim.py` | the `core` compatibility shim: same module objects, old modules load, `python -m core.cli` / `core.alerts` run |
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |
 | `test_startup.py` | startup scripts: order, `_helpers`, variables handed back (and unset), failures and timeouts changing nothing, the `startup` builtin, `--no-startup` and the setting |
 | `test_alerts.py` | alerts: severity ordering, the cap, expiry and dismissal, the spool folder (delivery, sender labels, junk and stale files), the command-line client and the subshell shim, the `alert` builtin (local, forwarded from a nested shell), alert lines in the panel with their source, the `send_tui_alert` MCP tool |
-| `test_console.py` | `core.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
+| `test_console.py` | `shellcraft.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |

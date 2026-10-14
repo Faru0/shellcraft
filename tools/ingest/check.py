@@ -28,13 +28,13 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-import core.pipeline  # noqa: F401 — registers every builtin, so name clashes are detected
-from core import params as params_mod
-from core.builtins import BUILTINS
-from core.context import to_text
-from core.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo
-from core.modkit import ModuleError
-from core.settings import SETTINGS
+import shellcraft.pipeline  # noqa: F401 — registers every builtin, so name clashes are detected
+from shellcraft import params as params_mod
+from shellcraft.builtins import BUILTINS
+from shellcraft.context import to_text
+from shellcraft.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo
+from shellcraft.modkit import ModuleError
+from shellcraft.settings import SETTINGS
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 REQUIRED_SKILL_KEYS = ("summary", "when_to_use", "usage", "examples")
@@ -192,7 +192,7 @@ def _judge(report: Report, label: str, outcome: Outcome, timeout: float, bad_fla
         report.add(FAIL, label, "printed to stdout instead of returning its output (use @script, or return the "
                                 f"text): {outcome.printed[:80]!r}")
     elif isinstance(outcome.error, SystemExit):
-        report.add(FAIL, label, "called sys.exit(); decorate run() with @script from core.modkit, or raise "
+        report.add(FAIL, label, "called sys.exit(); decorate run() with @script from shellcraft.modkit, or raise "
                                 "ModuleError")
     elif isinstance(outcome.error, ModuleError):
         report.add(PASS, label, f"clean error: {outcome.error}")

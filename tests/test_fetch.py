@@ -3,7 +3,7 @@ from email.message import Message
 
 import pytest
 
-from core.modkit import ModuleError
+from shellcraft.modkit import ModuleError
 from tests.conftest import FakeResponse
 
 

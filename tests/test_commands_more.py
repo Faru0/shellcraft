@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from core.context import to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft.context import to_text
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(line, ctx):
@@ -77,7 +77,7 @@ def test_tail_follow_prints_what_is_appended(ctx, tmp_path, monkeypatch):
         else:
             raise KeyboardInterrupt
 
-    import core.commands.text as text_mod
+    import shellcraft.commands.text as text_mod
 
     monkeypatch.setattr(text_mod.time if hasattr(text_mod, "time") else time, "sleep", fake_sleep)
     ctx.interactive = True
@@ -176,7 +176,7 @@ def test_xargs(ctx, tmp_path):
 def test_path_helpers(ctx, tmp_path):
     assert out("basename /a/b/c.txt", ctx) == "c.txt\n"
     assert out("basename /a/b/c.txt .txt", ctx) == "c\n"
-    assert out("basename -s .py core/cli.py core/shell.py", ctx) == "cli\nshell\n"
+    assert out("basename -s .py shellcraft/cli.py shellcraft/shell.py", ctx) == "cli\nshell\n"
     assert out("dirname /a/b/c.txt a.txt /x", ctx) == "/a/b\n.\n/\n"
     assert out("realpath .", ctx).strip() == str(tmp_path.resolve())
     (tmp_path / "d").mkdir()

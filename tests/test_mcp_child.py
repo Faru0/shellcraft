@@ -10,9 +10,9 @@ import urllib.request
 
 import pytest
 
-from core import mcp_child
-from core.context import to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft import mcp_child
+from shellcraft.context import to_text
+from shellcraft.pipeline import PipelineError, run_line
 
 pytestmark = pytest.mark.skipif(bool(mcp_child.mcp_available()), reason="needs the mcp package")
 
@@ -154,12 +154,12 @@ def test_mcp_clients_cannot_start_servers(ctx):
 
 
 def test_the_shell_stops_the_server_when_it_exits(monkeypatch, tmp_path, ctx):
-    from core import shell
+    from shellcraft import shell
 
     monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
     from rich.console import Console
 
-    from core.themes import UI, all_themes
+    from shellcraft.themes import UI, all_themes
 
     ctx.ui = UI(all_themes({})["cyberpunk"], Console(file=io.StringIO()))
     with shell.Shell(ctx):
@@ -172,8 +172,8 @@ def test_the_shell_stops_the_server_when_it_exits(monkeypatch, tmp_path, ctx):
 def test_prompt_marks_a_running_server(monkeypatch, ctx):
     from rich.console import Console
 
-    from core import shell
-    from core.themes import UI, all_themes
+    from shellcraft import shell
+    from shellcraft.themes import UI, all_themes
 
     def marker(sh):
         return "".join(f[1] for f in sh._prompt() if f[0].startswith("class:mcp"))
@@ -195,7 +195,7 @@ def test_prompt_marks_a_running_server(monkeypatch, ctx):
 def test_prompt_marker_shows_a_non_default_host(ctx):
     from types import SimpleNamespace
 
-    from core import shell
+    from shellcraft import shell
 
     fake = SimpleNamespace(ctx=ctx)
     ctx.mcp_http = SimpleNamespace(host="::1", port=9000, url="http://[::1]:9000/mcp", running=lambda: True)

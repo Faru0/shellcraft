@@ -22,22 +22,22 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "build>=1.2"]
 censys = ["censys-platform>=0.16"]  # for the queryCensys module
 
 [project.scripts]
-shellcraft = "core.cli:main"
-shellcraft-alert = "core.alerts:main"
+shellcraft = "shellcraft.cli:main"
+shellcraft-alert = "shellcraft.alerts:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "core.__version__"}
+version = {attr = "shellcraft.__version__"}
 
 [tool.setuptools]
-# The bundled modules/ folder is installed as core/bundled_modules (with its .md and .skill files),
+# The bundled modules/ folder is installed as shellcraft/bundled_modules (with its .md and .skill files),
 # so a plain `pip install .` works as well as an editable install.
-packages = ["core", "core.commands", "core.bundled_modules", "tools", "tools.ingest"]
+packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "core", "tools", "tools.ingest"]
 
 [tool.setuptools.package-dir]
-"core.bundled_modules" = "modules"
+"shellcraft.bundled_modules" = "modules"
 
 [tool.setuptools.package-data]
-"core.bundled_modules" = ["*.md", "*.skill"]
+"shellcraft.bundled_modules" = ["*.md", "*.skill"]
 "tools.ingest" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
@@ -57,10 +57,10 @@ ignore = ["E741", "SIM108", "SIM102", "SIM105", "SIM114", "B007", "B023", "B905"
 "tools/ingest/__main__.py" = ["E402"]  # sys.path is set up before the imports
 "tools/**" = ["E501"]
 "tests/**" = ["E501"]
-"core/commands/*.py" = ["E501"]  # man pages hold Markdown tables, whose rows can't wrap
+"shellcraft/commands/*.py" = ["E501"]  # man pages hold Markdown tables, whose rows can't wrap
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "tools", "tests"]
+known-first-party = ["shellcraft", "core", "tools", "tests"]
 
 [tool.mypy]
 python_version = "3.11"

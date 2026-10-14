@@ -10,12 +10,12 @@ import pytest
 from prompt_toolkit.keys import Keys
 from rich.console import Console
 
-from core import jobs as jobmod
-from core.context import ShellContext, to_text
-from core.jobs import JobTable
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
-from core.themes import UI, all_themes
+from shellcraft import jobs as jobmod
+from shellcraft.context import ShellContext, to_text
+from shellcraft.jobs import JobTable
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.themes import UI, all_themes
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="pseudo-terminals are POSIX only")
 
@@ -180,7 +180,7 @@ def test_sub_program_attaches_and_reports_its_exit(ictx, monkeypatch):
 def test_nested_shellcraft_argv_and_depth(monkeypatch):
     monkeypatch.delenv("SHELLCRAFT_DEPTH", raising=False)
     argv, env = jobmod.nested_shellcraft(["--no-banner"])
-    assert argv[:3] == [sys.executable, "-m", "core.cli"] and argv[-1] == "--no-banner"
+    assert argv[:3] == [sys.executable, "-m", "shellcraft.cli"] and argv[-1] == "--no-banner"
     assert env["SHELLCRAFT_DEPTH"] == "1" and "PYTHONPATH" in env
     monkeypatch.setenv("SHELLCRAFT_DEPTH", "2")
     assert jobmod.depth() == 2 and jobmod.nested_shellcraft([])[1]["SHELLCRAFT_DEPTH"] == "3"
@@ -207,8 +207,8 @@ def move_event():
 def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch):
     from types import SimpleNamespace
 
-    from core import shell as shell_module
-    from core.footer import panel_lines, parse_mouse
+    from shellcraft import shell as shell_module
+    from shellcraft.footer import panel_lines, parse_mouse
 
     sh, ctx = repl_shell
     footer = sh.footer
@@ -286,7 +286,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
 
 
 def test_footer_keeps_a_programs_margins_above_it_and_spots_split_escapes():
-    from core.footer import Footer, incomplete_escape
+    from shellcraft.footer import Footer, incomplete_escape
 
     assert Footer.clamp_margins(b"a\x1b[rb", 23) == b"a\x1b[1;23rb"
     assert Footer.clamp_margins(b"\x1b[5;24r", 23) == b"\x1b[5;23r"
@@ -327,7 +327,7 @@ def test_completion_menu_follows_the_mouse(repl_shell):
 
 @pytest.fixture
 def repl_shell(monkeypatch, tmp_path):
-    from core import shell
+    from shellcraft import shell
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
@@ -342,7 +342,7 @@ def repl_shell(monkeypatch, tmp_path):
 # ── the emulator: pages, colors, the alternate screen, scrollback ────────────
 
 def test_program_page_is_rendered_from_the_emulator(tmp_path):
-    from core.jobs import Pages, Terminal, new_screen, render_screen
+    from shellcraft.jobs import Pages, Terminal, new_screen, render_screen
 
     screen, stream = new_screen(4, 20)
     stream.feed(b"\x1b[1;31mred\x1b[0m plain\r\n\x1b[38;2;10;20;30mtc\x1b[0m\r\n")
@@ -505,7 +505,7 @@ def test_without_pyte_programs_still_work_and_the_user_is_told(tmp_path, monkeyp
 def test_windows_arrow_keys_reach_the_subshell():
     """The classic Windows console reports arrows as key codes with no character: they become
     the VT sequences the program expects; characters (and VT input) pass through as they are."""
-    from core.jobs import win_key
+    from shellcraft.jobs import win_key
 
     assert [win_key("\x00", vk) for vk in (0x26, 0x28, 0x27, 0x25)] == ["\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"]
     assert win_key("", 0x24) == "\x1b[H" and win_key("", 0x2E) == "\x1b[3~"

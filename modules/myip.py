@@ -7,7 +7,7 @@ import re
 
 import requests
 
-from core.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError
 
 SUMMARY = "Show your public IP or look up IP geolocation/ASN (ipconfig.io)"
 SPINNER_TEXT = "asking ipconfig.io…"

@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from core.cli import main
-from core.pipeline import PipelineError, run_line
-from core.themes import UI, all_themes
+from shellcraft.cli import main
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.themes import UI, all_themes
 
 FILTER = Path(__file__).resolve().parents[1] / "modules" / "filter.py"
 
@@ -23,8 +23,8 @@ def test_shellcraft_ingest_check_runs_the_checker(capsys, tmp_path, monkeypatch)
 
 
 def test_ingest_builtin_checks_modules_in_the_shell(tmp_path, monkeypatch, capsys):
-    from core.context import ShellContext
-    from core.loader import ModuleRegistry
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
     modules = tmp_path / "modules"  # the shell's own folder, not the bundled one

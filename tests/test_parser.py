@@ -1,6 +1,6 @@
 import pytest
 
-from core.parser import ParseError, parse, tokenize
+from shellcraft.parser import ParseError, parse, tokenize
 
 
 def test_blank_line():

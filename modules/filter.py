@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from core.commands.text import compile_pattern, match_lines
-from core.modkit import ArgParser
+from shellcraft.commands.text import compile_pattern, match_lines
+from shellcraft.modkit import ArgParser
 
 SUMMARY = "Keep lines matching a regex (grep-style)"
 

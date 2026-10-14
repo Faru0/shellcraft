@@ -1,4 +1,4 @@
-from core.themes import PRESETS, UI, all_themes
+from shellcraft.themes import PRESETS, UI, all_themes
 
 
 def test_invalid_custom_color_falls_back_to_base():
@@ -20,7 +20,7 @@ def test_color_must_work_in_rich_and_prompt_toolkit():
 
 
 def test_every_preset_color_is_valid_and_renders():
-    from core.themes import _COLOR_FIELDS, _valid_color
+    from shellcraft.themes import _COLOR_FIELDS, _valid_color
 
     assert {"dracula", "gruvbox", "catppuccin", "tokyonight"} <= set(PRESETS)
     for theme in PRESETS.values():

@@ -3,10 +3,10 @@ helpers across folders, hot reload of both, `ingest` writing there, the CLI wiri
 
 from pathlib import Path
 
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import run_line
-from core.watch import ModuleWatcher
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import run_line
+from shellcraft.watch import ModuleWatcher
 
 RUN = "def run(args, stdin):\n    return {!r}\n"
 
@@ -89,7 +89,7 @@ def test_modules_and_help_show_the_origin_and_ingest_writes_to_the_user_folder(t
     ctx.interactive = True
     from rich.console import Console
 
-    from core.themes import UI, all_themes
+    from shellcraft.themes import UI, all_themes
 
     ctx.ui = UI(all_themes({})["nord"], Console(file=__import__("io").StringIO()))
     (user / "sub").mkdir()
@@ -101,7 +101,7 @@ def test_modules_and_help_show_the_origin_and_ingest_writes_to_the_user_folder(t
 
 
 def test_the_cli_loads_the_user_folder(tmp_path, monkeypatch, started):
-    from core.cli import main
+    from shellcraft.cli import main
 
     home = tmp_path / "home"
     (home / "modules").mkdir(parents=True)

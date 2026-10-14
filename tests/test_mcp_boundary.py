@@ -8,9 +8,9 @@ import pytest
 from mcp.client import Client
 from mcp.shared.exceptions import MCPError
 
-from core import mcp_server
-from core.loader import ModuleRegistry
-from core.mcp_server import ALERT_TOOL, PIPELINE_TOOL, build_server, require_bearer, resolve_token
+from shellcraft import mcp_server
+from shellcraft.loader import ModuleRegistry
+from shellcraft.mcp_server import ALERT_TOOL, PIPELINE_TOOL, build_server, require_bearer, resolve_token
 
 
 def _call(server, fn):
@@ -61,8 +61,8 @@ def test_expose_narrows_the_tool_list(local):
 
 
 def test_the_shell_still_runs_unexposed_modules(local):
-    from core.context import ShellContext, to_text
-    from core.pipeline import run_line
+    from shellcraft.context import ShellContext, to_text
+    from shellcraft.pipeline import run_line
 
     assert to_text(run_line("secret", ShellContext(registry=local)).output) == "secret"
 
@@ -146,8 +146,8 @@ def test_lazy_registry_imports_on_first_use(tmp_path):
     assert spec.run([], "") == "ran"
     assert spec.loaded and "_lazy_marker" in sys.modules
 
-    from core.context import ShellContext
-    from core.pipeline import PipelineError, run_line
+    from shellcraft.context import ShellContext
+    from shellcraft.pipeline import PipelineError, run_line
 
     with pytest.raises(PipelineError, match="nosuchmodule_xyz"):
         run_line("broken", ShellContext(registry=registry))
@@ -156,10 +156,10 @@ def test_lazy_registry_imports_on_first_use(tmp_path):
 
 def test_lazy_registry_lists_api_keys_before_first_use(tmp_path):
     (tmp_path / "keyed.py").write_text(
-        "from core.modkit import EnvSetting\n"
+        "from shellcraft.modkit import EnvSetting\n"
         "ENV_SETTINGS = [EnvSetting('LAZY_TEST_KEY', 'Lazy key', 'for the test')]\n"
         "def run(args, stdin):\n    return ''\n")
-    from core import settings
+    from shellcraft import settings
 
     registry = ModuleRegistry(tmp_path, lazy=True)
     registry.load()
@@ -169,7 +169,7 @@ def test_lazy_registry_lists_api_keys_before_first_use(tmp_path):
 def test_cli_passes_the_lazy_setting(tmp_path, monkeypatch, started):
     import json
 
-    from core import cli
+    from shellcraft import cli
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     (tmp_path / "m.py").write_text("def run(args, stdin):\n    return ''\n")

@@ -18,7 +18,7 @@ from pathlib import Path
 # RULE: parse arguments with ArgParser, and report problems by raising ModuleError.
 #       ArgParser is argparse, except it raises ModuleError instead of printing to the
 #       terminal and calling sys.exit(). sys.exit() would kill the whole shell or MCP server.
-from core.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError
 
 # OPTIONAL: one line shown by `help`, `modules` and Tab completion
 # (when the .skill file has no summary).

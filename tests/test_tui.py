@@ -13,12 +13,12 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
-from core import shell
-from core.context import ShellContext, to_text
-from core.highlight import highlight
-from core.loader import ModuleRegistry
-from core.output import page, show, spinner_label
-from core.themes import PRESETS, UI, all_themes
+from shellcraft import shell
+from shellcraft.context import ShellContext, to_text
+from shellcraft.highlight import highlight
+from shellcraft.loader import ModuleRegistry
+from shellcraft.output import page, show, spinner_label
+from shellcraft.themes import PRESETS, UI, all_themes
 
 
 def _ui(width=100, height=10, record=False):
@@ -85,7 +85,7 @@ def test_prompt_shows_the_git_branch(repl, tmp_path):
     sh, ctx = repl
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n")
-    from core import gitinfo
+    from shellcraft import gitinfo
 
     gitinfo._cache.clear()
     assert ("class:git", "⎇ feature/x") in [f[:2] for f in sh._prompt()]
@@ -99,8 +99,8 @@ def test_prompt_shows_the_git_branch(repl, tmp_path):
 
 
 def test_prompt_builtin(repl, tmp_path):
-    from core.context import to_text
-    from core.pipeline import PipelineError, run_line
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import PipelineError, run_line
 
     sh, ctx = repl
     assert "prompt name user path git mcp status duration" in to_text(run_line("prompt", ctx).output)
@@ -120,7 +120,7 @@ def test_mouse_only_while_a_completion_menu_is_open(repl):
     follows the setting too."""
     from prompt_toolkit.buffer import CompletionState
 
-    from core.pipeline import run_line
+    from shellcraft.pipeline import run_line
 
     sh, ctx = repl
     buffer = sh.session.default_buffer
@@ -143,8 +143,8 @@ def test_mouse_always_clicks_segments_toolbar_and_wheels_history(repl, monkeypat
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 
-    from core import shell as shell_module
-    from core.pipeline import run_line
+    from shellcraft import shell as shell_module
+    from shellcraft.pipeline import run_line
 
     sh, ctx = repl
     run_line("settings mouse_always on", ctx)
@@ -241,7 +241,7 @@ def _click(col, row):
 
 
 def test_pager_mouse_scrollbar_mark_wheel_and_status_keys():
-    from core.output import PAGER_HINTS
+    from shellcraft.output import PAGER_HINTS
 
     # The scrollbar is the last column: its last row is the end of the text, its first the top.
     assert _page(_click(100, 10) + "q", width=100)["top"] == 50
@@ -285,7 +285,7 @@ def test_pager_keys_scroll_search_wrap_and_quit():
 
 
 def test_pager_title_is_shortened():
-    from core.output import _short
+    from shellcraft.output import _short
 
     assert _short("man grep", 30) == "man grep"
     assert _short("a" * 50, 20) == "a" * 19 + "…"
@@ -298,7 +298,7 @@ def test_spinner_label_adds_elapsed_time_and_the_cancel_hint():
 
 
 def test_highlight_in_theme_colors_restores_the_lines_own_color():
-    from core.output import _highlight
+    from shellcraft.output import _highlight
 
     line = "\x1b[31mred match red\x1b[0m"
     out = _highlight(line, "match", "\x1b[7m", "\x1b[0m")
@@ -308,7 +308,7 @@ def test_highlight_in_theme_colors_restores_the_lines_own_color():
 # ── show() ───────────────────────────────────────────────────────────────────
 
 def test_show_pages_only_above_the_terminal_height(monkeypatch):
-    from core import output
+    from shellcraft import output
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(title))
@@ -326,8 +326,8 @@ def test_show_renders_styled_wrapping_paged(monkeypatch):
     and never paged, however tall it is."""
     from rich.text import Text
 
-    from core import output
-    from core.context import Paged, Styled
+    from shellcraft import output
+    from shellcraft.context import Paged, Styled
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(title))
@@ -342,7 +342,7 @@ def test_show_renders_styled_wrapping_paged(monkeypatch):
 
 
 def test_show_sends_huge_plain_text_straight_to_the_pager(monkeypatch):
-    from core import output
+    from shellcraft import output
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))
@@ -354,7 +354,7 @@ def test_show_sends_huge_plain_text_straight_to_the_pager(monkeypatch):
 # ── themes ───────────────────────────────────────────────────────────────────
 
 def test_theme_switch_persists_preview_does_not(tmp_path, monkeypatch):
-    from core.pipeline import PipelineError, run_line
+    from shellcraft.pipeline import PipelineError, run_line
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     ui = _ui()
@@ -380,7 +380,7 @@ def test_light_themes_and_surface_colors():
 
 
 def test_theme_warnings_reach_the_banner(tmp_path):
-    from core.banner import render_banner
+    from shellcraft.banner import render_banner
 
     ui = _ui(width=120)
     panel = render_banner(ui, ModuleRegistry(tmp_path), ["theme 'x': invalid color"])
@@ -389,7 +389,7 @@ def test_theme_warnings_reach_the_banner(tmp_path):
 
 
 def test_banner_falls_back_on_narrow_terminals(tmp_path):
-    from core.banner import render_banner
+    from shellcraft.banner import render_banner
 
     for width, expected in ((120, "███"), (40, "S H E L L C R A F T")):
         ui = _ui(width=width, record=True)
@@ -400,7 +400,7 @@ def test_banner_falls_back_on_narrow_terminals(tmp_path):
 # ── completion ───────────────────────────────────────────────────────────────
 
 def test_completer_handles_quotes_and_positional_values(tmp_path, monkeypatch, registry):
-    from core.completer import ShellCompleter, split_word
+    from shellcraft.completer import ShellCompleter, split_word
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "my file.txt").write_text("")
@@ -419,8 +419,8 @@ def test_completer_handles_quotes_and_positional_values(tmp_path, monkeypatch, r
 
 
 def test_help_narrow_layout(tmp_path):
-    from core.context import to_text
-    from core.pipeline import run_line
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import run_line
 
     ui = _ui(width=60, record=True)
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
@@ -435,7 +435,7 @@ def test_paged_text_keeps_long_lines_for_sideways_scrolling(monkeypatch):
     """Long lines reach the pager whole (← / → scroll them, w wraps), not wrapped by Rich."""
     from rich.text import Text
 
-    from core import output
+    from shellcraft import output
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))

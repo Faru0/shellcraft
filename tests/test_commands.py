@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from core.context import Styled, to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft.context import Styled, to_text
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(line, ctx):

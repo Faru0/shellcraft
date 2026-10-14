@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any
 
-from core.modkit import ArgParser, EnvSetting, ModuleError
+from shellcraft.modkit import ArgParser, EnvSetting, ModuleError
 
 SUMMARY = "Look up a host or certificate, or search, in the Censys Platform (needs an API token)"
 SPINNER_TEXT = "asking Censys…"

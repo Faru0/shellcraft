@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-from core import pipeline
-from core.stdio import is_console, utf8_stdio
+from shellcraft import pipeline
+from shellcraft.stdio import is_console, utf8_stdio
 
 
 def test_is_console_rejects_non_terminals(tmp_path):

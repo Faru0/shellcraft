@@ -5,6 +5,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (robustness and packaging)
+
+- **The package is `shellcraft` now, not `core`** (a generic name that could collide with other
+  packages in site-packages). Module authors: write `from shellcraft.modkit import …`. A `core`
+  compatibility shim stays for the 0.3 releases: `import core.X` returns the very same module as
+  `shellcraft.X` (with a DeprecationWarning), and `python -m core.cli` / `python -m core.alerts`
+  still run, so modules and alert shims from 0.2 keep working. It is removed in 0.4.
+
 ### Added (robustness and packaging)
 
 - **Your own modules folder, `~/.shellcraft/modules`,** loaded next to the bundled one (or

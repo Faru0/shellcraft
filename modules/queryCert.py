@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-from core.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError
 
 SUMMARY = "List a domain's TLS certificates and subdomains from Certificate Transparency logs (crt.sh)"
 SPINNER_TEXT = "searching crt.sh (can take a while)…"

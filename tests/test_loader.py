@@ -1,6 +1,6 @@
 import pytest
 
-from core.loader import ModuleRegistry, SkillInfo
+from shellcraft.loader import ModuleRegistry, SkillInfo
 
 
 def test_sample_modules_have_all_three_files(registry):
@@ -47,7 +47,7 @@ def test_summary_fallbacks(tmp_path):
 
 def test_modules_import_helpers_from_the_folder(tmp_path):
     """`_name.py` is a helper: never a command, importable as `import _name` or `from . import _name`."""
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
 
     (tmp_path / "_localthing.py").write_text("VALUE = 'local'\n\ndef helper():\n    return VALUE\n")
     (tmp_path / "uses.py").write_text("import _localthing\nfrom . import _localthing as rel\n\n"
@@ -67,7 +67,7 @@ def test_modules_import_helpers_from_the_folder(tmp_path):
 def test_every_py_is_a_command_skill_makes_a_tool_md_makes_a_man_page(tmp_path):
     """A .py without run() is a plain script (run as `python FILE ARGS`, stdin piped, never
     imported); only a module with a .skill is an MCP tool; only one with a .md has a man page."""
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
 
     (tmp_path / "_util.py").write_text("def shout(s):\n    return s.upper()\n")
     (tmp_path / "plain.py").write_text('"""Shout the arguments and stdin."""\nimport sys\nimport _util\n'
@@ -91,10 +91,10 @@ def test_every_py_is_a_command_skill_makes_a_tool_md_makes_a_man_page(tmp_path):
 
 
 def test_help_flags_module_files_without_run(tmp_path):
-    from core.builtins import SCRIPT_HINT
-    from core.context import ShellContext, to_text
-    from core.loader import ModuleRegistry
-    from core.pipeline import run_line
+    from shellcraft.builtins import SCRIPT_HINT
+    from shellcraft.context import ShellContext, to_text
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import run_line
 
     (tmp_path / "plain.py").write_text('"""Print hi."""\nprint("hi")\n')
     (tmp_path / "proper.py").write_text('"""Proper."""\ndef run(args, stdin):\n    return "ok"\n')
@@ -107,9 +107,9 @@ def test_help_flags_module_files_without_run(tmp_path):
 
 
 def test_modules_lists_helpers_with_description_and_users(tmp_path):
-    from core.context import ShellContext, to_text
-    from core.loader import ModuleRegistry, helpers
-    from core.pipeline import run_line
+    from shellcraft.context import ShellContext, to_text
+    from shellcraft.loader import ModuleRegistry, helpers
+    from shellcraft.pipeline import run_line
 
     (tmp_path / "_net.py").write_text('"""Shared HTTP helpers."""\n')
     (tmp_path / "_fmt.py").write_text("X = 1\n")

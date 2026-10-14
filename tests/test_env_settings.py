@@ -7,13 +7,13 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from core import settings
-from core.cli import main
-from core.completer import ShellCompleter
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
-from core.shell import RedactingInMemoryHistory
+from shellcraft import settings
+from shellcraft.cli import main
+from shellcraft.completer import ShellCompleter
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.shell import RedactingInMemoryHistory
 
 KEY = "DNSDUMPSTER_API_KEY"
 SECRET = "dd_secret_value_1234abcd"
@@ -88,7 +88,7 @@ def test_prompt_reads_hidden_value(ctx, monkeypatch):
 
 
 def test_prompt_without_terminal_explains(ctx, monkeypatch):
-    monkeypatch.setattr("core.stdio.is_console", lambda stream: False)
+    monkeypatch.setattr("shellcraft.stdio.is_console", lambda stream: False)
     with pytest.raises(PipelineError, match=f"use: settings {KEY} VALUE"):
         run_line(f"settings {KEY}", ctx)
 
@@ -109,9 +109,9 @@ def test_startup_exports_saved_keys_in_every_mode(tmp_path, clean_env, started):
     assert main([]) == 0
     assert os.environ[KEY] == SECRET and "bad name" not in os.environ
     del os.environ[KEY]
-    import core.mcp_server
+    import shellcraft.mcp_server
 
-    clean_env.setattr(core.mcp_server, "serve", lambda registry, **kwargs: None)
+    clean_env.setattr(shellcraft.mcp_server, "serve", lambda registry, **kwargs: None)
     assert main(["--mcp"]) == 0
     assert os.environ[KEY] == SECRET
 
@@ -160,12 +160,12 @@ def write_module(tmp_path, body):
     ('ENV_SETTINGS = [EnvSetting("lower_case", "L", "d")]', "UPPER_CASE"),
     ('ENV_SETTINGS = [EnvSetting("A_KEY", "", "d")]', "non-empty"),
     ('ENV_SETTINGS = [EnvSetting("A_KEY", "L", "d"), EnvSetting("A_KEY", "L", "d")]', "declared twice"),
-    ('ENV_SETTINGS = ["A_KEY"]', "must be core.modkit.EnvSetting"),
+    ('ENV_SETTINGS = ["A_KEY"]', "must be shellcraft.modkit.EnvSetting"),
     ('ENV_SETTINGS = "A_KEY"', "must be a list"),
 ])
 def test_loader_rejects_bad_declarations(tmp_path, declaration, error):
     registry = write_module(tmp_path, f"""\
-        from core.modkit import EnvSetting
+        from shellcraft.modkit import EnvSetting
         {declaration}
         def run(args, stdin):
             return ""

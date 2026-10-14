@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.modkit import ModuleError
+from shellcraft.modkit import ModuleError
 
 HOST = {
     "extensions": {},

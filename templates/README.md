@@ -66,7 +66,7 @@ As little as possible. For a typical script:
 
 ```diff
  import argparse
-+from core.modkit import script
++from shellcraft.modkit import script
  ...
 -def main():
 +def main(argv=None):
@@ -88,7 +88,7 @@ As little as possible. For a typical script:
   becomes `run()` itself, so its body doesn't even move.
 - `parse_args()` gets the `args` list; `sys.argv[1:]` becomes `args`; `sys.stdin.read()` becomes
   `stdin`.
-- `@script("mytool")` (from `core.modkit`) does the rest: what the code `print()`s becomes the
+- `@script("mytool")` (from `shellcraft.modkit`) does the rest: what the code `print()`s becomes the
   command's output, `sys.exit(0)` ends normally, and any other exit, argparse errors included,
   becomes a clean one-line error. Concurrent MCP calls each capture only their own output.
 
@@ -147,7 +147,7 @@ Editing a helper reloads the modules that use it (hot reload). `modules` lists t
    - `args` are the words after the command name, already split and unquoted.
    - `stdin` is the previous pipeline stage's output (`""` if none).
 3. **Return your output; never `print()` it.** Printing bypasses pipes and redirects, and it corrupts the MCP stdio transport.
-4. **Never call `sys.exit()`.** Parse arguments with `core.modkit.ArgParser`, which is argparse but raises `ModuleError` instead of exiting.
+4. **Never call `sys.exit()`.** Parse arguments with `shellcraft.modkit.ArgParser`, which is argparse but raises `ModuleError` instead of exiting.
 5. **Fail with `ModuleError("prog: clear one-line message")`.** Other exceptions still work, but they show up as `TypeError: …` noise.
 6. **Accept stdin and FILE arguments,** like Unix tools. Relative paths resolve against the shell's current directory.
 7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` just work.
@@ -165,7 +165,7 @@ environment variable, and read it from `os.environ` when `run()` is called:
 
 ```python
 import os
-from core.modkit import EnvSetting, ModuleError
+from shellcraft.modkit import EnvSetting, ModuleError
 
 ENV_SETTINGS = [
     EnvSetting("MYSERVICE_API_KEY", "MyService API key",

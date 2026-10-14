@@ -10,8 +10,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.context import ShellContext  # noqa: E402
-from core.loader import ModuleRegistry  # noqa: E402
+from shellcraft.context import ShellContext  # noqa: E402
+from shellcraft.loader import ModuleRegistry  # noqa: E402
 
 MODULES_DIR = ROOT / "modules"
 
@@ -22,7 +22,7 @@ OS_UPPER = f'"{sys.executable}" -c "print(input().upper())"'
 @pytest.fixture
 def started(monkeypatch):
     """Run cli.main() through startup with a stand-in shell; returns the contexts it was given."""
-    import core.shell
+    import shellcraft.shell
 
     class StubShell:
         def __init__(self, ctx):
@@ -47,7 +47,7 @@ def started(monkeypatch):
         def loop(self):
             return 0
 
-    monkeypatch.setattr(core.shell, "Shell", StubShell)
+    monkeypatch.setattr(shellcraft.shell, "Shell", StubShell)
     contexts = _Contexts()
     return contexts
 
@@ -80,7 +80,7 @@ API_KEY_VARS = ("DNSDUMPSTER_API_KEY", "CENSYS_API_TOKEN", "CENSYS_ORG_ID")
 @pytest.fixture
 def clean_env(monkeypatch):
     """No API keys in os.environ, and every change the test makes is undone afterwards."""
-    from core import settings
+    from shellcraft import settings
 
     for name in API_KEY_VARS:
         monkeypatch.setenv(name, "x")  # records the original value (or its absence) for undo

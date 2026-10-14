@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from core import config as config_mod
-from core import settings
-from core.context import ShellContext, to_text
-from core.parser import ParseError, parse
-from core.pipeline import PipelineError, run_line
+from shellcraft import config as config_mod
+from shellcraft import settings
+from shellcraft.context import ShellContext, to_text
+from shellcraft.parser import ParseError, parse
+from shellcraft.pipeline import PipelineError, run_line
 from tests.conftest import ROOT
 
 # ── the launchers ────────────────────────────────────────────────────────────
@@ -21,18 +21,18 @@ def test_main_py_version_prints_only_the_version():
     """`main.py` used to clear the screen before parsing arguments, in every mode (MCP included)."""
     out = subprocess.run([sys.executable, str(ROOT / "main.py"), "--version"], capture_output=True,
                          text=True, cwd=ROOT, timeout=60)
-    from core import __version__
+    from shellcraft import __version__
 
     assert out.stdout == f"ShellCraft {__version__}\n"
     assert "\x1b" not in out.stdout and out.returncode == 0
 
 
 def test_cli_clears_the_screen_only_in_the_interactive_shell(tmp_path, monkeypatch, started):
-    from core import cli
+    from shellcraft import cli
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     cleared: list = []
-    import core.themes as themes
+    import shellcraft.themes as themes
 
     class FakeFile:
         def write(self, text):
@@ -82,7 +82,7 @@ def test_redirect_does_not_create_missing_directories(ctx, tmp_path):
 
 
 def test_tilde_user_forms_in_the_tokenizer(monkeypatch):
-    from core.parser import expand_tilde
+    from shellcraft.parser import expand_tilde
 
     assert expand_tilde("~nosuchuser_xyz/f") == "~nosuchuser_xyz/f"
     assert expand_tilde("~") == os.path.expanduser("~")
@@ -131,7 +131,7 @@ def test_wc_c_counts_bytes_and_m_characters(ctx):
 
 
 def test_pwd_in_a_deleted_directory_fails_cleanly(ctx, tmp_path):
-    from core import shell
+    from shellcraft import shell
 
     gone = tmp_path / "gone"
     gone.mkdir()
@@ -197,7 +197,7 @@ def test_malformed_config_sections_are_dropped_with_a_warning(tmp_path, monkeypa
 
 
 def test_malformed_config_does_not_crash_startup(tmp_path, monkeypatch, started):
-    from core import cli
+    from shellcraft import cli
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     (tmp_path / "config.json").write_text(json.dumps({"env": [1], "settings": [1]}))
@@ -267,9 +267,9 @@ def test_history_redaction_covers_every_statement(line, stored):
 def test_shell_loop_survives_an_unexpected_exception(monkeypatch, tmp_path):
     from rich.console import Console
 
-    from core import shell
-    from core.loader import ModuleRegistry
-    from core.themes import UI, all_themes
+    from shellcraft import shell
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.themes import UI, all_themes
     from tests.test_histexpand import _ScriptedSession
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))

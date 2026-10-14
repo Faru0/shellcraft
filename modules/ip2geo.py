@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from core.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError
 
 SUMMARY = "Geolocate IPs or domains: country, city, ISP, ASN, proxy/hosting flags (ip-api.com)"
 SPINNER_TEXT = "asking ip-api.com…"

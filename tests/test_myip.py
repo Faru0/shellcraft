@@ -5,7 +5,7 @@ import pytest
 import requests
 from urllib3.exceptions import MaxRetryError, NameResolutionError
 
-from core.modkit import ModuleError
+from shellcraft.modkit import ModuleError
 
 RECORDS = {
     None: {"ip": "203.0.113.42", "country": "Testland", "country_iso": "TL", "asn": "AS64500",

@@ -1,4 +1,4 @@
-"""core.console: the Windows console devices (checked with fakes on any OS) and the Rich console."""
+"""shellcraft.console: the Windows console devices (checked with fakes on any OS) and the Rich console."""
 
 import contextlib
 import io
@@ -10,7 +10,7 @@ from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.output import DummyOutput
 
-from core import console
+from shellcraft import console
 
 
 def _sized_output(rows, columns):

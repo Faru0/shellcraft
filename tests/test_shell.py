@@ -4,9 +4,9 @@ import ntpath
 import pytest
 from prompt_toolkit.data_structures import Size
 
-from core import shell
-from core.context import ShellContext
-from core.output import _find_line, _highlight, _next_match
+from shellcraft import shell
+from shellcraft.context import ShellContext
+from shellcraft.output import _find_line, _highlight, _next_match
 
 
 @pytest.mark.parametrize("cwd, home, expected", [
@@ -62,8 +62,8 @@ def test_shell_hot_reload_before_a_command(tmp_path):
 
     from rich.console import Console
 
-    from core.loader import ModuleRegistry
-    from core.watch import ModuleWatcher
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.watch import ModuleWatcher
 
     (tmp_path / "one.py").write_text("def run(args, stdin):\n    return '1'\n")
     registry = ModuleRegistry(tmp_path)
@@ -112,7 +112,7 @@ def _fake_windows_console(events):
 def _windows_ui():
     from rich.console import Console
 
-    from core.themes import UI, all_themes
+    from shellcraft.themes import UI, all_themes
 
     return UI(all_themes({})["cyberpunk"], Console(highlight=False))
 
@@ -120,7 +120,7 @@ def _windows_ui():
 def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path):
     from prompt_toolkit.application.current import get_app_session
 
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
 
     events = []
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
@@ -151,7 +151,7 @@ def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path
 def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_path):
     from prompt_toolkit.application.current import get_app_session
 
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
 
     events = []
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
@@ -172,8 +172,8 @@ def test_shell_restores_the_windows_console_when_setup_fails(monkeypatch, tmp_pa
 
 
 def test_shell_falls_back_and_says_why_when_the_windows_console_fails(monkeypatch, tmp_path, capsys):
-    from core.diagnostics import console_report
-    from core.loader import ModuleRegistry
+    from shellcraft.diagnostics import console_report
+    from shellcraft.loader import ModuleRegistry
 
     def broken(cleanup):
         raise OSError("no console")
@@ -188,14 +188,14 @@ def test_shell_falls_back_and_says_why_when_the_windows_console_fails(monkeypatc
         assert ui.console is original
     assert "Windows console not opened (no console)" in capsys.readouterr().err
 
-    import core.diagnostics as diagnostics
+    import shellcraft.diagnostics as diagnostics
     monkeypatch.setattr(diagnostics.sys, "platform", "win32")
     monkeypatch.setattr(diagnostics.sys, "getwindowsversion", lambda: "10.0.26100", raising=False)
     assert "not open: no console" in console_report(ui, None, "no console")
 
 
 def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
-    from core import cli
+    from shellcraft import cli
 
     events = []
 
@@ -227,8 +227,8 @@ def test_diagnostics_report_lists_every_size_source(monkeypatch):
 
     from prompt_toolkit.application.current import create_app_session
 
-    from core.console import build_console
-    from core.diagnostics import console_report
+    from shellcraft.console import build_console
+    from shellcraft.diagnostics import console_report
 
     monkeypatch.setenv("COLUMNS", "300")
     ui = _windows_ui()
@@ -246,7 +246,7 @@ def test_diagnostics_report_lists_every_size_source(monkeypatch):
 
 
 def test_diagnostics_report_never_raises():
-    from core.diagnostics import _flags, _try
+    from shellcraft.diagnostics import _flags, _try
 
     assert _try(lambda: 1 / 0) == "<ZeroDivisionError: division by zero>"
     assert _flags(0x0007, {1: "A", 2: "B", 4: "C"}) == "0x0007 A | B | C"
@@ -260,7 +260,7 @@ def test_diagnostics_report_never_raises():
 def test_cli_prints_diagnostics_first_when_asked(monkeypatch, tmp_path, argv, setting, printed):
     import json
 
-    from core import cli
+    from shellcraft import cli
 
     events = []
 
@@ -300,7 +300,7 @@ class _Tty(io.StringIO):
 def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
     from prompt_toolkit.application.current import get_app_session
 
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     monkeypatch.setenv("COLORTERM", "truecolor")
@@ -319,8 +319,8 @@ def test_shell_runs_the_prompt_in_truecolor(monkeypatch, tmp_path):
 def _screen(monkeypatch, height=10):
     from rich.console import Console
 
-    from core import output
-    from core.themes import UI, all_themes
+    from shellcraft import output
+    from shellcraft.themes import UI, all_themes
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))
@@ -334,9 +334,9 @@ def _screen(monkeypatch, height=10):
     ("man echo", False, False),  # `settings pager off` still means never
 ])
 def test_help_prints_and_man_pages(monkeypatch, tmp_path, line, pager_setting, paged):
-    from core.loader import ModuleRegistry
-    from core.output import show
-    from core.pipeline import run_line
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.output import show
+    from shellcraft.pipeline import run_line
 
     ui, pages = _screen(monkeypatch)
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
@@ -346,7 +346,7 @@ def test_help_prints_and_man_pages(monkeypatch, tmp_path, line, pager_setting, p
 
 
 def test_auto_pager_still_pages_tall_output(monkeypatch):
-    from core.output import show
+    from shellcraft.output import show
 
     ui, pages = _screen(monkeypatch, height=10)
     show(ui, "\n".join(map(str, range(50))))
@@ -355,9 +355,9 @@ def test_auto_pager_still_pages_tall_output(monkeypatch):
 
 
 def test_paged_output_is_plain_for_pipes(tmp_path):
-    from core.context import to_text
-    from core.loader import ModuleRegistry
-    from core.pipeline import run_line
+    from shellcraft.context import to_text
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import run_line
 
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())
     assert to_text(run_line("man echo", ctx).output).lstrip().startswith("echo")
@@ -366,9 +366,9 @@ def test_paged_output_is_plain_for_pipes(tmp_path):
 
 @pytest.mark.parametrize("line", ["man -p echo", "man --print echo", "man echo -p"])
 def test_man_p_prints_without_the_pager(monkeypatch, tmp_path, line):
-    from core.loader import ModuleRegistry
-    from core.output import show
-    from core.pipeline import run_line
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.output import show
+    from shellcraft.pipeline import run_line
 
     ui, pages = _screen(monkeypatch)
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
@@ -379,8 +379,8 @@ def test_man_p_prints_without_the_pager(monkeypatch, tmp_path, line):
 
 @pytest.mark.parametrize("line", ["man", "man -p", "man echo grep", "man -x echo"])
 def test_man_usage_errors(tmp_path, line):
-    from core.loader import ModuleRegistry
-    from core.pipeline import PipelineError, run_line
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import PipelineError, run_line
 
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=_windows_ui())
     with pytest.raises(PipelineError, match=r"usage: man \[-p\] COMMAND"):
@@ -388,6 +388,6 @@ def test_man_usage_errors(tmp_path, line):
 
 
 def test_man_p_completes(tmp_path):
-    from core.options import builtin_options
+    from shellcraft.options import builtin_options
 
     assert any("-p" in o.flags and "--print" in o.flags for o in builtin_options("man"))

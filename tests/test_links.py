@@ -4,9 +4,9 @@ import io
 
 from rich.console import Console
 
-from core.context import to_text
-from core.pipeline import run_line
-from core.themes import UI, all_themes
+from shellcraft.context import to_text
+from shellcraft.pipeline import run_line
+from shellcraft.themes import UI, all_themes
 
 
 def _screen(ctx, line):

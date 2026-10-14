@@ -2,9 +2,9 @@
 
 import pytest
 
-from core import script
-from core.parser import ParseError, parse
-from core.pipeline import PipelineError, run_line
+from shellcraft import script
+from shellcraft.parser import ParseError, parse
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(ctx, line):

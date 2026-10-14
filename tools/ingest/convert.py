@@ -3,7 +3,7 @@
 The edit works on source lines, not on a re-printed AST, so comments, blank lines, quoting and
 formatting survive. What changes:
 
-- one import line:            from core.modkit import script
+- one import line:            from shellcraft.modkit import script
 - `if __name__ == "__main__":` → @script("<name>") + def run(args: list[str], stdin: str) -> str:
   (its body keeps its indentation; without that block, the def goes where the last top-level
   code was)
@@ -128,8 +128,8 @@ def convert(analysis: Analysis, name: str) -> Conversion:
         body_indent = unit
 
     decorator = analysis.import_name
-    import_line = ("from core.modkit import script\n" if decorator == "script"
-                   else "from core.modkit import script as shellcraft_script\n")
+    import_line = ("from shellcraft.modkit import script\n" if decorator == "script"
+                   else "from shellcraft.modkit import script as shellcraft_script\n")
     run_header = [f"@{decorator}(\"{name}\")\n", "def run(args: list[str], stdin: str) -> str:\n"]
 
     # Where the import goes: after the leading block of imports (or the docstring/__future__).

@@ -22,14 +22,14 @@ done from Linux without changing Linux behaviour.
 
 | # | What | Where | Fix |
 | --- | --- | --- | --- |
-| 1 | The footer inside a subshell is padded to the full width; the Windows console wraps the last cell at once, so the footer creeps a row | `core/footer.py` `size()` / `panel_lines()` | take the width from the app session's output (`cols - 1`), as Rich does |
-| 2 | An attached program's output is written without pending wrap; full-width lines and PSReadLine / vim redraws drift a row | `core/jobs.py` `_windows_terminal()` | while attached, set `PROCESSED \| WRAP \| VT \| DISABLE_NEWLINE_AUTO_RETURN` on `CONOUT$`; restore after |
-| 3 | Emoji / non-BMP characters typed into a subshell are sent as CESU-8 | `core/jobs.py` key reader | re-pair surrogates before encoding (`encode("utf-16","surrogatepass").decode("utf-16")`) |
-| 4 | `direct` mode loses non-BMP input at the prompt and the mouse on the classic console | prompt_toolkit's VT reader | default to `legacy-keys` on every Windows console (`core/console.py::console_mode`) |
-| 5 | `alert` is only `alert.cmd` on Windows; Git Bash inside `sub bash` won't find it | `core/alerts.py::shim_dir` | also write the POSIX `alert` script there |
+| 1 | The footer inside a subshell is padded to the full width; the Windows console wraps the last cell at once, so the footer creeps a row | `shellcraft/footer.py` `size()` / `panel_lines()` | take the width from the app session's output (`cols - 1`), as Rich does |
+| 2 | An attached program's output is written without pending wrap; full-width lines and PSReadLine / vim redraws drift a row | `shellcraft/jobs.py` `_windows_terminal()` | while attached, set `PROCESSED \| WRAP \| VT \| DISABLE_NEWLINE_AUTO_RETURN` on `CONOUT$`; restore after |
+| 3 | Emoji / non-BMP characters typed into a subshell are sent as CESU-8 | `shellcraft/jobs.py` key reader | re-pair surrogates before encoding (`encode("utf-16","surrogatepass").decode("utf-16")`) |
+| 4 | `direct` mode loses non-BMP input at the prompt and the mouse on the classic console | prompt_toolkit's VT reader | default to `legacy-keys` on every Windows console (`shellcraft/console.py::console_mode`) |
+| 5 | `alert` is only `alert.cmd` on Windows; Git Bash inside `sub bash` won't find it | `shellcraft/alerts.py::shim_dir` | also write the POSIX `alert` script there |
 | 6 | Ctrl+Backspace deletes one character, not a word | prompt_toolkit | document Alt+Backspace |
 | 7 | `⚡` is one cell wide in the classic console; `⤷` is missing from Consolas | fonts | note in the README (Cascadia Mono, or `prompt` without `name`) |
-| 8 | Ctrl / Shift+arrow modifiers are dropped in the no-VT-input subshell fallback | `core/jobs.py::win_key` | map `ControlKeyState` to `ESC [ 1;5 C` style |
+| 8 | Ctrl / Shift+arrow modifiers are dropped in the no-VT-input subshell fallback | `shellcraft/jobs.py::win_key` | map `ControlKeyState` to `ESC [ 1;5 C` style |
 
 **Verification pass** (30 minutes; Windows Terminal and the classic console, each with the default
 mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
@@ -50,13 +50,10 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Robustness and packaging
 
-- [ ] **Rename `core` to a `shellcraft/` package**: the generic top-level name can collide in
-  site-packages. Breaking for module authors (`core.modkit` → `shellcraft.modkit`); do it with the
-  user modules folder and keep a `core` shim for one release.
 - [ ] **API keys in plain text** in `config.json`; mode 600 does nothing on Windows. Offer the OS
-  keyring (`keyring`) as an optional backend; until then, say so in the README. — `core/settings.py`
+  keyring (`keyring`) as an optional backend; until then, say so in the README. — `shellcraft/settings.py`
 - [ ] **Ctrl-C abandons a module's worker thread**, which keeps running. A cooperative cancel flag
-  in `modkit`, or at least a note in the module guide to pass timeouts. — `core/output.py`
+  in `modkit`, or at least a note in the module guide to pass timeouts. — `shellcraft/output.py`
 - [ ] **`findtime` on the GitHub copy fails `ingest check --strict`** (unknown options accepted, no
   `[[tests]]`): finish it, or move it out of the bundled `modules/`.
 - [ ] **The two copies drift.** `Install/` (110 files, ~113 MB of history) exists only in the GitHub
@@ -67,18 +64,21 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 ## P1 — Shell features
 
 - [ ] **True streaming between pipeline segments** (`yes | head`, `tail -f | grep`): a thread per
-  segment with a queue. The one architectural item left. — `core/pipeline.py`
+  segment with a queue. The one architectural item left. — `shellcraft/pipeline.py`
 - [ ] **Subshells, leftovers**: `cmd &` as a spelling of `sub cmd`; a follow mode for a running
-  command job's output. — `core/jobs.py`
+  command job's output. — `shellcraft/jobs.py`
 - [ ] **Startup, open questions** (the rc file is done; these are about `~/.shellcraft/startup/*.py`):
   long-running scripts as `sub` jobs (a marker line, or a separate folder?); a dependency order
   beyond name order; per-script timeouts and arguments; whether a script may stop the shell from
-  starting. Untested on Windows. — `core/startup.py`
+  starting. Untested on Windows. — `shellcraft/startup.py`
 - [ ] **Shell grammar**: functions and `local`, `select`, `&&` / `||` inside `[[ ]]`, `>&2`,
   `%VAR%`. More Python in the rc file beyond `input()` / `int(input())` if wanted.
 - [ ] **A `diag` builtin**: the `--diag` report on demand, after resizing the window.
 
 ## P2 — Ideas
+
+- [ ] **Remove the `core` compatibility shim** in 0.4 (`core/`: three files; the package is
+  `shellcraft` since 0.3.0).
 
 - [ ] **Module scaffolding**: `new-module NAME` copying the template trio, renamed.
 - [ ] **Modules as packages**: `modules/<name>/` folders, per-module requirements, version and author
@@ -98,12 +98,12 @@ Left for later on purpose (2026-10-13). The GitHub Actions runs have all failed 
 the GitLab pipeline has not been checked.
 
 - [ ] **Make the GitHub CI green.** Known causes: the packaging smoke test runs its import check from
-  inside the checkout, so the source tree's `core/` shadows the installed wheel (run it from `/tmp`,
+  inside the checkout, so the source tree's `shellcraft/` shadows the installed wheel (run it from `/tmp`,
   or with `python -P`); `tests/test_console.py::test_rich_falls_back_to_its_own_size_without_an_output`
   fails when `TERM=dumb` (`monkeypatch.delenv("TERM")`); the `lint` job's module checker fails on
   `findtime` and needs its log read (repository admin rights). Same package step in `.gitlab-ci.yml`.
 - [ ] **mypy's annotation debt** (136 errors, none a real bug): informational in CI today; gate
-  `core/commands/` first, then the rest.
+  `shellcraft/commands/` first, then the rest.
 - [ ] A CI badge in the README once it is green.
 
 ---

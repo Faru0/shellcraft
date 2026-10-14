@@ -2,8 +2,8 @@
 
 import pytest
 
-from core.histexpand import expand, last_word
-from core.parser import ParseError
+from shellcraft.histexpand import expand, last_word
+from shellcraft.parser import ParseError
 
 
 @pytest.mark.parametrize("line, previous, expected", [
@@ -58,10 +58,10 @@ class _ScriptedSession:
 def repl(monkeypatch, tmp_path):
     from rich.console import Console
 
-    from core import shell
-    from core.context import ShellContext
-    from core.loader import ModuleRegistry
-    from core.themes import UI, all_themes
+    from shellcraft import shell
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.themes import UI, all_themes
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)

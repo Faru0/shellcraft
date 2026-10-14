@@ -6,9 +6,9 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from core.completer import ShellCompleter
-from core.context import ShellContext, to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft.completer import ShellCompleter
+from shellcraft.context import ShellContext, to_text
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(line, ctx):
@@ -17,7 +17,7 @@ def out(line, ctx):
 
 def saved(tmp_path):
     """The aliases kept in ~/.shellcraft/aliases (the test's home)."""
-    from core.aliases import parse_file
+    from shellcraft.aliases import parse_file
 
     file = tmp_path / ".home" / "aliases"
     return parse_file(file.read_text())[0] if file.exists() else {}
@@ -149,7 +149,7 @@ def test_bad_lines_are_skipped_and_listed(ctx, tmp_path):
 
 
 def test_config_aliases_move_into_the_file_once(tmp_path, monkeypatch, started):
-    from core.cli import main
+    from shellcraft.cli import main
 
     home = tmp_path / ".home"
     home.mkdir()

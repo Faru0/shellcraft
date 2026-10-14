@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from core import params as params_mod
-from core.modkit import ModuleError, script
+from shellcraft import params as params_mod
+from shellcraft.modkit import ModuleError, script
 from tests.conftest import ROOT
 from tools.ingest import ai, docs
 from tools.ingest.__main__ import main as ingest_main
@@ -24,7 +24,7 @@ def write(tmp_path: Path, name: str, code: str) -> Path:
 
 
 def load(path: Path):
-    from core.loader import ModuleRegistry
+    from shellcraft.loader import ModuleRegistry
     return ModuleRegistry(path.parent).load_file(path.stem, path)
 
 
@@ -192,7 +192,7 @@ def test_flat_script_converts_and_runs(tmp_path):
     a = analyze(write(tmp_path, "orig", FLAT))
     c = convert(a, "shout")
     added = [ln[1:] for ln in c.diff(a.source, "shout").splitlines() if ln.startswith("+") and not ln.startswith("+++")]
-    assert "from core.modkit import script" in added
+    assert "from shellcraft.modkit import script" in added
     assert '@script("shout")' in added and "def run(args: list[str], stdin: str) -> str:" in added
     assert "    args = parser.parse_args(args)" in added
     assert "    text = \" \".join(args.words) or stdin" in added
@@ -215,7 +215,7 @@ def test_main_guard_conversion_is_minimal(tmp_path):
     added = [ln[1:] for ln in diff if ln.startswith("+") and not ln.startswith("+++")]
     assert removed == ["def main():", "    opts = p.parse_args()", 'if __name__ == "__main__":',
                        "    sys.exit(main())"]
-    assert added == ["from core.modkit import script", "def main(argv=None):", "    opts = p.parse_args(argv)",
+    assert added == ["from shellcraft.modkit import script", "def main(argv=None):", "    opts = p.parse_args(argv)",
                      '@script("lines")', "def run(args: list[str], stdin: str) -> str:", "    sys.exit(main(args))"]
     assert '"""multi\nline"""' in c.source  # multi-line strings untouched
     run = load(write(tmp_path, "lines", c.source)).run
@@ -236,14 +236,14 @@ def test_conversion_keeps_tabs_and_multiline_strings(tmp_path):
 def test_import_alias_when_script_name_is_taken(tmp_path):
     a = analyze(write(tmp_path, "m", "script = 'mine'\nprint(script)\n"))
     c = convert(a, "m")
-    assert "from core.modkit import script as shellcraft_script" in c.source
+    assert "from shellcraft.modkit import script as shellcraft_script" in c.source
     assert '@shellcraft_script("m")' in c.source
 
 
 def test_manual_steps_describe_every_change(tmp_path):
     a = analyze(write(tmp_path, "orig", WITH_MAIN))
     steps = "\n".join(convert(a, "lines").steps)
-    assert "from core.modkit import script" in steps
+    assert "from shellcraft.modkit import script" in steps
     assert 'Replace line 21' in steps and "def main(argv=None):" in steps and "sys.exit(main(args))" in steps
 
 

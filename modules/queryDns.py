@@ -9,7 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from core.modkit import ArgParser, EnvSetting, ModuleError
+from shellcraft.modkit import ArgParser, EnvSetting, ModuleError
 
 SUMMARY = "Look up a domain's DNS records, IPs, ASNs and netblocks (DnsDumpster API)"
 SPINNER_TEXT = "asking DnsDumpster…"

@@ -10,12 +10,12 @@ import time
 import pytest
 from rich.console import Console
 
-from core import alerts as alertmod
-from core.alerts import AlertBus
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.pipeline import PipelineError, run_line
-from core.themes import UI, all_themes
+from shellcraft import alerts as alertmod
+from shellcraft.alerts import AlertBus
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.themes import UI, all_themes
 
 
 def _wait(pred, timeout=5.0):
@@ -104,7 +104,7 @@ def test_command_line_client_and_shim(bus, home, capsys):
     assert alertmod.parse_args(["--list"])[4] is True
     folder = alertmod.shim_dir(home)
     script = folder / ("alert.cmd" if sys.platform == "win32" else "alert")
-    assert script.exists() and "core.alerts" in script.read_text()
+    assert script.exists() and "shellcraft.alerts" in script.read_text()
     env = alertmod.with_shim({"PATH": "/usr/bin"}, home)
     assert env["PATH"].startswith(str(folder) + os.pathsep)
     if sys.platform != "win32":
@@ -156,7 +156,7 @@ def test_nested_shell_forwards_to_the_main_shell(ictx, bus, monkeypatch):
 
 
 def test_panel_lines_show_alerts_first_with_their_source(bus):
-    from core.footer import panel_lines
+    from shellcraft.footer import panel_lines
 
     bus.post("all good", "info", source="main shell")
     bus.post("look here", "critical", source="sub 1 (bash)")
@@ -174,7 +174,7 @@ def test_mcp_tool_send_tui_alert(bus, registry):
     import anyio
     from mcp.client import Client
 
-    from core.mcp_server import ALERT_TOOL, build_server
+    from shellcraft.mcp_server import ALERT_TOOL, build_server
 
     def call(fn):
         async def main():

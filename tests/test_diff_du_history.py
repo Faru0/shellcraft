@@ -5,8 +5,8 @@ import subprocess
 import pytest
 from prompt_toolkit.history import InMemoryHistory
 
-from core.context import ShellContext, Styled, to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft.context import ShellContext, Styled, to_text
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(line, ctx):

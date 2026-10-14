@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from core import settings
-from core.cli import main
-from core.context import ShellContext, to_text
-from core.pipeline import PipelineError, run_line
+from shellcraft import settings
+from shellcraft.cli import main
+from shellcraft.context import ShellContext, to_text
+from shellcraft.pipeline import PipelineError, run_line
 from tests.conftest import OS_UPPER
 
 

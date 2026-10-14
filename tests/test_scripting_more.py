@@ -4,10 +4,10 @@ import os
 
 import pytest
 
-from core.arith import ArithError, evaluate
-from core.context import to_text
-from core.parser import ParseError, parse
-from core.pipeline import PipelineError, run_line
+from shellcraft.arith import ArithError, evaluate
+from shellcraft.context import to_text
+from shellcraft.parser import ParseError, parse
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(ctx, line):
@@ -120,7 +120,7 @@ def test_case_multiline_and_errors(ctx):
 
 @pytest.mark.parametrize("line", ["while [ 1 ]; do echo x", "case x in", "case x in a) echo"])
 def test_while_and_case_continue_on_the_next_line(line):
-    from core.script import incomplete
+    from shellcraft.script import incomplete
 
     assert incomplete(line) is not None
 
@@ -184,7 +184,7 @@ def test_globs_on_plain_lines(ctx, tmp_path):
 # ── history expansion ────────────────────────────────────────────────────────
 
 def test_history_designators():
-    from core.histexpand import expand
+    from shellcraft.histexpand import expand
 
     history = ["ls -l", "cat f", "grep x y"]
     assert expand("!1", "grep x y", history) == ("ls -l", True)

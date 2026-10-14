@@ -7,7 +7,7 @@ Make **exactly the changes listed below and nothing else**. This is a minimal, m
   hints, reorder code, or "improve" anything — even if it looks wrong.
 - Keep every line that is not mentioned exactly as it is (apart from the indentation the
   changes require).
-- `@{{DECORATOR}}("{{NAME}}")` (imported from `core.modkit`) turns what the body `print()`s into the
+- `@{{DECORATOR}}("{{NAME}}")` (imported from `shellcraft.modkit`) turns what the body `print()`s into the
   output and `sys.exit()` into a clean error, so prints and exits stay as they are.
 
 ## Changes to make
