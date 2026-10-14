@@ -37,6 +37,20 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
+CLEAR_SCREEN = "\x1b[H\x1b[2J\x1b[3J"  # home, clear the screen, clear the scrollback
+
+
+def clear_screen(ui: UI) -> None:
+    """Clear the terminal as `clear` does in bash and `cls` on Windows: the screen and the
+    scrollback (ESC[3J). Written straight to the terminal: Rich's own clear sends only ESC[2J,
+    which Windows Terminal turns into scrolling the old text away rather than removing it."""
+    try:
+        ui.console.file.write(CLEAR_SCREEN)
+        ui.console.file.flush()
+    except (OSError, ValueError):
+        pass
+
+
 def strip_links(text: str) -> str:
     return _OSC_RE.sub("", text)
 

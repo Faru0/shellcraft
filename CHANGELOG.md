@@ -7,6 +7,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`jq`:** a builtin that looks inside JSON with Python's `json.loads`: `cat f.json | jq`
+  pretty-prints, `jq f.json -k` lists the keys, `-f ['name']` / `-f [5]['name']` / `-f .items[0].id`
+  picks a value, `-i N` starts inside element N of a list and `-i *` goes through every element
+  (`jq -i * -f ['name']`, `jq -i * -k`). `-r FILE` reads a file, `-c` prints compact JSON, `-n`
+  counts. JSON Lines and Python-style dictionaries are accepted. Words on a `jq` line are not
+  globbed, so `*` and `[name]` arrive as typed. It is not the jq language, and it shadows a jq
+  program on the PATH (run that one by its full path, such as `/usr/bin/jq`).
 - **Background startup scripts:** `# shellcraft: background` at the top of a script in
   `~/.shellcraft/startup/` starts it as a subshell when the prompt appears, so it never slows the
   start; `# shellcraft: restart` restarts it after a crash (2 s, 4 s … 60 s; gives up with a red
@@ -74,6 +81,12 @@ and the project uses [semantic versioning](https://semver.org/).
   threads end; before, it was only marked killed and kept running until the shell exited.
 - One cancellation mechanism: a pipeline segment's stop flag is also `modkit`'s cancel event, so a
   module checking `modkit.cancelled()` stops when `head` has its lines or on Ctrl-C.
+
+### Fixed
+
+- **`clear` on Windows 11:** `clear` (and `banner -c`) now clear the screen and the scrollback
+  the way the startup clear does, by writing the terminal codes directly. Before, they used Rich's
+  clear, which Windows Terminal turned into scrolling the old text out of view, or skipped.
 
 ## [0.3.0] — 2026-10-13
 

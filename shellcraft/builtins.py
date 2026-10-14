@@ -100,7 +100,9 @@ def _exit(ctx: ShellContext, args: list[str], stdin: str) -> str:
 @builtin("clear", "Clear the screen", "clear", stateful=True)
 def _clear(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if ctx.ui:
-        ctx.ui.console.clear()
+        from shellcraft.output import clear_screen
+
+        clear_screen(ctx.ui)
     return ""
 
 
@@ -1493,7 +1495,9 @@ def _banner(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if ctx.ui is None:
         raise CommandError("banner: needs the interactive shell")
     if args:
-        ctx.ui.console.clear()
+        from shellcraft.output import clear_screen
+
+        clear_screen(ctx.ui)
     return Paged(render_banner(ctx.ui, ctx.registry), page=False)
 
 

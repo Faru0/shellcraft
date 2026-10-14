@@ -27,6 +27,27 @@ def test_main_py_version_prints_only_the_version():
     assert "\x1b" not in out.stdout and out.returncode == 0
 
 
+def test_clear_and_banner_c_clear_screen_and_scrollback(ctx, monkeypatch):
+    """`clear` used Rich's console.clear(): ESC[2J only, which Windows Terminal scrolls away instead
+    of clearing, and nothing at all when Rich did not see a terminal."""
+    import io
+
+    from rich.console import Console
+
+    from shellcraft.output import CLEAR_SCREEN
+    from shellcraft.themes import UI, all_themes
+
+    screen = io.StringIO()  # not a terminal, as Rich sees it: the clear must still be written
+    ctx.ui = UI(all_themes({})["nord"], Console(file=screen))
+    ctx.interactive = True
+    assert run_line("clear", ctx).status == 0
+    assert screen.getvalue() == CLEAR_SCREEN == "\x1b[H\x1b[2J\x1b[3J"
+    screen.truncate(0)
+    screen.seek(0)
+    run_line("banner -c", ctx)
+    assert screen.getvalue() == CLEAR_SCREEN
+
+
 def test_cli_clears_the_screen_only_in_the_interactive_shell(tmp_path, monkeypatch, started):
     from shellcraft import cli
 

@@ -36,6 +36,16 @@ UNSUPPORTED = (">&", "&&", "||", ";", "&")
 _WORD_START_ONLY = ("2>&1", "1>&2", "2>>", "2>", "&")
 TO_STDERR = (">&2", "1>&2")
 _VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Commands whose arguments are never globbed: `jq -i *` and `jq -f [name]` mean what they say.
+NO_GLOB = frozenset({"jq"})
+
+
+def _segment_command(tokens: list[Token]) -> str | None:
+    """The command word of the segment being tokenized (the first word after the last operator)."""
+    for k in range(len(tokens) - 1, -1, -1):
+        if tokens[k].op:
+            return tokens[k + 1].value if k + 1 < len(tokens) else None
+    return tokens[0].value if tokens else None
 
 
 class ParseError(Exception):
@@ -222,7 +232,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
 
         def flush() -> None:
             nonlocal buf, quoted, globbable
-            _emit(tokens, "".join(buf), start, quoted, globbable, glob)
+            _emit(tokens, "".join(buf), start, quoted, globbable, glob and _segment_command(tokens) not in NO_GLOB)
             buf, quoted, globbable = [], False, []
 
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
@@ -285,7 +295,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             if expanded_word != word:
                 globbable = [False] * (len(expanded_word) - len(word) + 1) + globbable[1:]
                 word = expanded_word
-        _emit(tokens, word, start, quoted, globbable, glob)
+        _emit(tokens, word, start, quoted, globbable, glob and _segment_command(tokens) not in NO_GLOB)
     return tokens
 
 
