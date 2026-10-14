@@ -17,13 +17,15 @@ def _screen(ctx, line):
     return console.file.getvalue()
 
 
-def test_file_names_are_hyperlinks_on_screen(ctx, tmp_path):
+def test_file_names_are_hyperlinks_on_screen_when_turned_on(ctx, tmp_path):
     (tmp_path / "a.txt").write_text("hello\n")
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "b.txt").write_text("hello\n")
     ctx.interactive = True
     ctx.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
     uri = (tmp_path / "a.txt").resolve().as_uri()
+    assert "file://" not in _screen(ctx, "ls")  # off by default
+    run_line("settings links on", ctx)
     for line in ("ls", "ls -l", "ls a.txt", "tree", "find . -name a.txt", "grep -r hello .", "grep -l hello a.txt"):
         assert uri in _screen(ctx, line), line
     assert (tmp_path / "sub").resolve().as_uri() in _screen(ctx, "du")

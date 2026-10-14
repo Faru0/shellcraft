@@ -61,6 +61,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- The `links` setting (clickable file names in `ls`, `tree`, `find`, `du`, `grep`) is now off by
+  default: accidental clicks in a listing opened files. `settings links on` brings it back.
 - `clear_on_start` clears the scrollback as well (`ESC[3J`), so the shell starts on a fresh
   screen like a new program, instead of leaving the old lines above.
 - The default `--mcp-http` / `mcp start` address is `127.0.0.1:38765` (was `:8765`), to stay
