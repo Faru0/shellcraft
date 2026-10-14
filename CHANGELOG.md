@@ -3,7 +3,11 @@
 All notable changes to ShellCraft. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and the project uses [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] — 2026-10-13
+
+Subshells and the subshell panel, alerts, the rc file and startup scripts, the aliases file,
+mouse support, a user modules folder, the `shellcraft` package name, API keys in the OS keyring,
+and Ctrl-C that reaches running modules.
 
 ### Changed (robustness and packaging)
 

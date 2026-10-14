@@ -5,7 +5,7 @@
 > Windows 11 console analysis and the TUI split-pane notes; those documents are in the git history
 > (`git log --diff-filter=D --name-only -- '*.md'`), where their full reasoning can still be read.
 >
-> **State:** 0.2.0 plus a long *Unreleased* section. 65 builtins shown by `help`, 7 bundled modules,
+> **State:** 0.3.0 (tagged `v0.3.0` in both copies). 65 builtins shown by `help`, 7 bundled modules,
 > about 770 tests (Linux, Python 3.14). Two copies: the private GitLab one and the GitHub mirror,
 > which also carries the offline `Install/` bundle and the `findtime` module.
 
@@ -55,7 +55,6 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
   publish the bundle as a GitHub Release asset (or `git lfs track "Install/**"`), then
   `git rm --cached -r Install`, add `Install/` to `.gitignore`, and point `Install/README.md`'s
   readers at the release. After that the two copies' trees are the same file for file.
-- [ ] **A release**: tag 0.3.0 on both remotes; the *Unreleased* section is a release's worth.
 
 ## P1 — Shell features
 
@@ -96,8 +95,8 @@ the GitLab pipeline has not been checked.
 - [ ] **Make the GitHub CI green.** Known causes: the packaging smoke test runs its import check from
   inside the checkout, so the source tree's `shellcraft/` shadows the installed wheel (run it from `/tmp`,
   or with `python -P`); `tests/test_console.py::test_rich_falls_back_to_its_own_size_without_an_output`
-  fails when `TERM=dumb` (`monkeypatch.delenv("TERM")`); the `lint` job's module checker fails on
-  `findtime` and needs its log read (repository admin rights). Same package step in `.gitlab-ci.yml`.
+  fails when `TERM=dumb` (`monkeypatch.delenv("TERM")`); the `lint` job's module checker failed on
+  `findtime` (fixed in 0.3.0) and may need its log read (repository admin rights). Same package step in `.gitlab-ci.yml`.
 - [ ] **mypy's annotation debt** (136 errors, none a real bug): informational in CI today; gate
   `shellcraft/commands/` first, then the rest.
 - [ ] A CI badge in the README once it is green.
