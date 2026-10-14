@@ -43,6 +43,7 @@ class ShellContext:
     jobs: Any = None  # the subshells started with `sub` (core.jobs.JobTable); the REPL sets it
     footer: Any = None  # the tab bar on the last row (core.footer.Footer); the REPL sets it
     alerts: Any = None  # the status alerts and their listener (core.alerts.AlertBus); the REPL sets it
+    startup_results: dict[str, Any] = field(default_factory=dict)  # core.startup.Result per script
     last_status: int = 0  # exit status of the last command: `$?`, and the prompt's [✗ N]
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.
     variables: dict[str, str] = field(default_factory=dict)

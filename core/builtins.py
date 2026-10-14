@@ -659,6 +659,83 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
+STARTUP_DOC = """# startup
+
+Python scripts that run when the interactive shell starts, before the first prompt: set
+environment variables for everything ShellCraft starts later, mount or sync something, check a
+VPN, print a reminder.
+
+## Usage
+
+```
+startup                  # the startup scripts, in order, with their last result
+startup run [NAME]       # run them again now (or just NAME)
+startup --folder         # where they live
+```
+
+## Writing one
+
+Put a `.py` file in `~/.shellcraft/startup/`. Every file there runs once, in name order, so number
+them: `10-env.py`, `20-mounts.py`. Files named `_name.py` are helpers the others can import.
+
+A script runs as its own process, so changing `os.environ` inside it does not reach the shell. To
+set variables for the shell and everything it starts later (subshells, modules, OS programs,
+`mcp start`), append `NAME=value` lines to the file named in `$SHELLCRAFT_ENV_FILE`:
+
+```python
+import os
+
+with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
+    f.write("PROJECT_ROOT=/srv/app\n")
+    f.write("OLD_VAR=\n")          # NAME= with nothing after it unsets the variable
+```
+
+The variables apply only if the script exits with status 0, and a later script sees those of the
+earlier ones. What a script prints is shown under the banner. A script that fails, or runs longer
+than 30 seconds, is reported in one line and the shell starts anyway.
+
+`settings startup off`, or `shellcraft --no-startup` for one session, skips them.
+"""
+
+
+@builtin("startup", "List or rerun the startup scripts", "startup [run [NAME] | --folder]", stateful=True,
+         doc=STARTUP_DOC)
+def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import startup as startupmod
+
+    if args in (["--folder"], ["-f"]):
+        return f"{startupmod.folder()}\n"
+    if args[:1] == ["run"]:
+        only = args[1] if len(args) > 1 else None
+        results = startupmod.run_all(only=only)
+        if only is not None and not results:
+            raise CommandError(f"startup: no startup script named {only} (startup lists them)")
+        ctx.startup_results.update({r.name: r for r in results})
+        lines = Text()
+        for r in results:
+            lines.append(f"⚙ {r.name}  {r.label} ({r.seconds:.1f}s)\n", style="sc.success" if r.ok else "sc.warning")
+            if r.output.strip():
+                lines.append(r.output.rstrip("\n") + "\n", style="sc.muted")
+        return lines if results else Text("no startup scripts", style="sc.muted")
+    if args:
+        raise CommandError("usage: startup [run [NAME] | --folder]")
+    found = startupmod.scripts()
+    if not found:
+        return Text(f"no startup scripts: put .py files in {startupmod.folder()} (man startup)", style="sc.muted")
+    table = Table(title="Startup scripts", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    for col in ("#", "script", "last run", "set"):
+        table.add_column(col)
+    plain = []
+    for i, script in enumerate(found, 1):
+        r = ctx.startup_results.get(script.stem)
+        last = Text("not run this session", style="sc.muted") if r is None else \
+            Text(f"{r.label} ({r.seconds:.1f}s)", style="sc.success" if r.ok else "sc.warning")
+        sets = ", ".join(sorted(n for n, v in (r.env if r else {}).items() if v is not None))
+        table.add_row(str(i), Text(script.name, style="sc.path"), last, sets)
+        plain.append(f"{i}\t{script.name}\t{last.plain}\t{sets}")
+    return Styled(table, "\n".join(plain) + "\n")
+
+
 JOBS_DOC = """# jobs
 
 List the subshells started with `sub`, select one, stop one, or clear the finished ones.

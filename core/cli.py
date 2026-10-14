@@ -27,6 +27,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="modules directory (default: $SHELLCRAFT_MODULES or the bundled modules)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
+    p.add_argument("--no-startup", action="store_true", help="don't run the scripts in ~/.shellcraft/startup/")
     p.add_argument("--diag", action="store_true",
                    help="print the console diagnostics report at startup (like the diagnostics setting)")
     p.add_argument("--allow-system", action="store_true",
@@ -158,6 +159,11 @@ def main(argv: list[str] | None = None) -> int:
             shell.diagnostics()  # first, so it is there even if the banner is what breaks
         if show_banner:
             shell.banner(theme_warnings)
+        if not args.no_startup and settings.get(config, "startup"):
+            from core import startup
+
+            if startup.scripts():
+                shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (core.startup)
         return shell.loop()
 
 

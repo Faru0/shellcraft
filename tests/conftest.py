@@ -24,8 +24,6 @@ def started(monkeypatch):
     """Run cli.main() through startup with a stand-in shell; returns the contexts it was given."""
     import core.shell
 
-    contexts: list[ShellContext] = []
-
     class StubShell:
         def __init__(self, ctx):
             contexts.append(ctx)
@@ -42,11 +40,22 @@ def started(monkeypatch):
         def banner(self, *warnings):
             pass
 
+        def run_startup(self, only=None):
+            contexts.startup_runs += 1  # type: ignore[attr-defined]
+            return []
+
         def loop(self):
             return 0
 
     monkeypatch.setattr(core.shell, "Shell", StubShell)
+    contexts = _Contexts()
     return contexts
+
+
+class _Contexts(list):
+    """The contexts cli.main() gave the stand-in shell, and how often it ran the startup scripts."""
+
+    startup_runs = 0
 
 
 @pytest.fixture

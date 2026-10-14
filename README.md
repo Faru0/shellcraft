@@ -266,6 +266,25 @@ Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY thro
 `sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
 exits) and it is not listed as a job.
 
+### Startup scripts
+
+Python scripts in **`~/.shellcraft/startup/`** run when the interactive shell starts, in name order
+(`10-env.py`, `20-mounts.py`), before the first prompt. Use them to set environment variables for
+everything ShellCraft starts later, check a mount or a VPN, or print a reminder. A script is its own
+process, so it hands variables back by appending `NAME=value` lines to the file named in
+`$SHELLCRAFT_ENV_FILE`:
+
+```python
+import os
+with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
+    f.write("PROJECT_ROOT=/srv/app\n")
+```
+
+The shell, every subshell and every module then see `PROJECT_ROOT`. A script that fails or runs
+longer than 30 s is reported in one line and the shell starts anyway. `startup` lists them with
+their last result, `startup run` runs them again, `settings startup off` or `--no-startup` skips
+them. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
+
 ### Alerts in the status panel
 
 ```

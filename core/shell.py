@@ -250,6 +250,26 @@ class Shell:
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
 
+    def run_startup(self, only: str | None = None) -> list[Any]:
+        """Run the startup scripts and print one line each (and their output, if any)."""
+        from core import startup
+
+        if not startup.scripts():
+            return []
+        with self.ui.console.status(Text("running startup scripts…", style="sc.accent"), spinner="dots12",
+                                    spinner_style="sc.accent"):
+            results = startup.run_all(only=only)
+        self.ctx.startup_results = {r.name: r for r in results}
+        for r in results:
+            env = f", set {', '.join(sorted(n for n, v in r.env.items() if v is not None))}" if r.ok and r.env else ""
+            style = "sc.success" if r.ok else "sc.warning"
+            self.ui.console.print(Text.assemble(("⚙ ", style), (f"startup {r.name}", "sc.accent"),
+                                                (f"  {r.label} ({r.seconds:.1f}s{env})", style)),
+                                  markup=False, highlight=False)
+            if r.output.strip():
+                self.ui.console.print(Text(r.output.rstrip("\n"), style="sc.muted"), markup=False, highlight=False)
+        return results
+
     def _stop_jobs(self) -> None:
         """At exit: stop the subshells still running, and say so."""
         jobs = self.ctx.jobs

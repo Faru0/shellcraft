@@ -43,6 +43,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Startup scripts (first version):** every `.py` in `~/.shellcraft/startup/` runs at startup in
+  name order, before the first prompt. Scripts hand environment variables back through
+  `$SHELLCRAFT_ENV_FILE` (`NAME=value` lines), which the shell, subshells and modules then inherit.
+  Failures and timeouts (30 s) are reported without stopping the shell. `startup`, `startup run`,
+  `settings startup`, `--no-startup`; an example in `templates/startup/`.
 - **An aliases file:** aliases live in `~/.shellcraft/aliases`, one `alias NAME='COMMAND'` per line
   like `~/.bash_aliases`, with comments. Hand edits apply to the next command; `alias` and
   `unalias` rewrite only their own lines; `alias --file` shows the path; unusable lines are listed

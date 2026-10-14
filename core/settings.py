@@ -66,6 +66,9 @@ SETTINGS: dict[str, Setting] = {
         Setting("lazy_modules", "Lazy modules", True,
                 "Import a module's code the first time it runs, not at startup (faster start; "
                 "an import error shows up when the module is first used)."),
+        Setting("startup", "Startup scripts", True,
+                "Run the Python scripts in ~/.shellcraft/startup/ when the interactive shell starts "
+                "(man startup)."),
         Setting("clear_on_start", "Clear on start", True,
                 "Clear the screen when the interactive shell starts (never in --mcp mode)."),
         Setting("toolbar", "Bottom toolbar", True,

@@ -127,7 +127,14 @@ Items marked **(verified)** were reproduced during the assessment.
 - [x] **`alias` / `unalias`**: saved in `config.json`, expanded per pipeline step, `\NAME` skips an alias, not applied over MCP. — `core/aliases.py`
 - [x] **`history`, `diff`, `du`**: `history [N] | -c`; `diff` with classic and unified (`-u`/`-U N`) output, `-i -w -b -q -s -r`, directories and binary files, output identical to GNU diff; `du` with apparent sizes (`-s -h -a -d N -c -S -b`), matching GNU `du --apparent-size`.
 - [x] **More builtins** *(2026-10-12)*: `sleep`, `time`, `type`, `basename` / `dirname`, `realpath`, `stat`, `printf`, `seq`, `xargs`, `whoami`, `hostname`, `uname`, `export`, `unset`. Still open: `source`.
-- [ ] **Startup rc file** `~/.shellcraft/rc` (aliases, env, theme).
+- [ ] **Startup rc file** `~/.shellcraft/rc` (aliases, env, theme). *(Aliases: done, `~/.shellcraft/aliases`.)*
+- [ ] **Startup scripts, after the skeleton** *(2026-10-13: `core/startup.py`; scripts run in order, hand variables back through `$SHELLCRAFT_ENV_FILE`, failures and timeouts are reported)*. Open questions:
+  - **Background scripts**: something that should keep running (a watcher, a tunnel) would block the prompt today. Run marked scripts as `sub` jobs, so they show in the subshell panel? A marker in the file (`# shellcraft: background`) or a separate folder?
+  - **MCP mode**: run them for `--mcp` / `mcp start` too, so AI clients see the same variables? (Quietly, with no output on the MCP stream.)
+  - **Order and dependencies**: name order only, or a `requires = …` line?
+  - **ShellCraft commands at startup**: an `rc` file of ShellCraft lines (`theme nord`, `cd ~/work`, `sub htop`) next to the Python scripts?
+  - **Per-script timeout** and a way to pass arguments; whether a failing script should be able to stop the shell (`exit 2` = abort?).
+  - **Windows**: the same, untested there.
 - [x] **Input-line syntax highlighting** with a prompt_toolkit lexer (`core/highlight.py`), a bottom toolbar with the usage of the command being typed, a configurable prompt with the git branch and the last command's duration (`prompt`), a transient prompt, and a styled Ctrl-R. *(2026-10-12)*
 - [x] **Module authoring kit**: `templates/` (a reference module plus a guide) and `tools/ingest` (2026-10-06, replaces `modtest`/`mkprompt`): a standalone wizard that converts an existing script with minimal changes (`@script` in `core/modkit.py` captures its prints and exits), stops on conflicts, offers auto / manual / AI (Claude or OpenAI) application, drafts the `.md`/`.skill`, and checks the result (`tools/ingest check`).
 - [ ] **Module scaffolding**: a `new-module NAME` builtin that copies the template trio and renames it, and running `tools/ingest check --all --strict` in CI.
