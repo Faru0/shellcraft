@@ -31,6 +31,9 @@ and Ctrl-C that reaches running modules.
   (default `#? `), sets NAME to the chosen word (empty for an invalid answer) and `$REPLY` to what
   was typed, and repeats until `break`, Ctrl-D or Ctrl-C (status 130). An empty answer shows the
   menu again. Interactive shell only (`man select`).
+- **`&&`, `||`, `!` and `( … )` inside `[[ ]]`**, with bash precedence (`&&` binds tighter):
+  `[[ -f $f && ( $env == prod || $env == staging ) ]]`. The script splitter no longer cuts a
+  statement at an `&&` / `||` that is inside the brackets.
 
 ### Added (robustness and packaging)
 

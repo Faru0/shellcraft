@@ -585,8 +585,15 @@ class _Parser:
 
     def _simple(self, stop_at_open: bool) -> Simple:
         start, quote = self.i, None
+        brackets = 0  # open `[[ … ]]`: their `&&` / `||` belong to the test, not to the shell
         while self.i < self.n:
             ch = self.s[self.i]
+            if not quote and self._word_start(self.i):
+                end = self.i + 2
+                if self.s.startswith("[[", self.i) and (end >= self.n or self.s[end] in " \t"):
+                    brackets += 1
+                elif brackets and self.s.startswith("]]", self.i) and (end >= self.n or self.s[end] in " \t;&|"):
+                    brackets -= 1
             if quote:
                 if quote == '"' and ch == "\\" and self.s.startswith('\\"', self.i):
                     self.i += 2
@@ -603,7 +610,7 @@ class _Parser:
             elif self.mode == "sh" and self.s.startswith("$(", self.i):
                 self._skip_substitution()
                 continue
-            elif ch in ";\n" or self.s.startswith("&&", self.i) or self.s.startswith("||", self.i):
+            elif ch in ";\n" or (not brackets and (self.s.startswith("&&", self.i) or self.s.startswith("||", self.i))):
                 break
             elif self.depth and self._is_close(self.i):
                 break

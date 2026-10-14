@@ -33,8 +33,9 @@ class _Usage(Exception):
 
 class _Evaluator:
     """POSIX `test` expressions: ! EXPR, EXPR -a EXPR, EXPR -o EXPR, ( EXPR ), unary and binary
-    tests. `extended` is `[[ ]]`: `==` / `!=` match a glob pattern, `=~` a regex, `&&`/`||` are
-    not available (the shell splits on them), `-a`/`-o` still work."""
+    tests. `extended` is `[[ ]]`: `==` / `!=` match a glob pattern, `=~` a regex, and `&&` / `||`
+    join tests (`&&` binds tighter, as in bash; the script splitter and the tokenizer leave them in
+    the `[[ … ]]` words); `-a` / `-o` still work."""
 
     def __init__(self, args: list[str], extended: bool):
         self.args = args
@@ -61,7 +62,7 @@ class _Evaluator:
 
     def or_(self) -> bool:
         value = self.and_()
-        while self.peek() == "-o":
+        while self.peek() == "-o" or (self.extended and self.peek() == "||"):
             self.take()
             right = self.and_()
             value = value or right
@@ -69,7 +70,7 @@ class _Evaluator:
 
     def and_(self) -> bool:
         value = self.not_()
-        while self.peek() == "-a" and self.peek(1) is not None:
+        while (self.peek() == "-a" and self.peek(1) is not None) or (self.extended and self.peek() == "&&"):
             self.take()
             right = self.not_()
             value = value and right
@@ -155,10 +156,12 @@ test EXPRESSION
 | `-e F`, `-f F`, `-d F`, `-s F` | F exists / is a file / is a directory / is a non-empty file. |
 | `-r F`, `-w F`, `-x F`, `-L F` | F is readable / writable / executable / a symbolic link. |
 | `! E`, `E -a E`, `E -o E`, `( E )` | Not, and, or, grouping. |
+| `E && E`, `E \\|\\| E` | `[[ ]]` only: and, or. `&&` binds tighter than `\\|\\|`, as in bash. |
 
-`<` and `>` are redirections in ShellCraft, so compare numbers with `-lt` / `-gt`. Inside
-`[[ ]]` use `-a` / `-o` (or `[[ a ]] && [[ b ]]`), not `&&` / `||`. Quote variables in `[ ]`,
-as in bash: `[ "$x" = "a b" ]`; in `[[ ]]` they are never split.
+Inside `[[ ]]`, `&&` and `||` join tests the bash way: `[[ -f $f && $f == *.log ]]`,
+`[[ ! ( $a == x || $b == y ) ]]`. Parentheses are words of their own, with spaces around them.
+`<` and `>` are redirections in ShellCraft, so compare numbers with `-lt` / `-gt`. Quote variables
+in `[ ]`, as in bash: `[ "$x" = "a b" ]`; in `[[ ]]` they are never split.
 
 ## Examples
 
@@ -166,6 +169,7 @@ as in bash: `[ "$x" = "a b" ]`; in `[[ ]]` they are never split.
 for f in *.log; do if [ -s "$f" ]; then echo "$f"; fi; done
 [[ $host == *.gov ]] && queryDns $host
 if [ "$n" -gt 3 -a -d out ]; then echo big; fi
+if [[ -f config.json && ( $env == prod || $env == staging ) ]]; then echo deploy; fi
 ```
 """
 

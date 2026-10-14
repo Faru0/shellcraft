@@ -138,6 +138,10 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         # The longest operator wins: `&>` is a redirection, `&&` and a lone `&` are not supported.
         bad = next((o for o in UNSUPPORTED if line.startswith(o, i)), None)
         op = next((o for o in OPERATORS if line.startswith(o, i)), None)
+        if bad in ("&&", "||") and tokens and tokens[0].value == "[[" and not tokens[0].op:
+            tokens.append(Token(bad, i))  # inside `[[ … ]]`: the test's own and / or (core/commands/cond.py)
+            i += 2
+            continue
         if bad and (op is None or len(bad) >= len(op)):
             what = "background jobs are not supported; " if bad == "&" else ""
             raise ParseError(f"'{bad}' is not supported yet ({what}quote it to pass it as text)", i)
