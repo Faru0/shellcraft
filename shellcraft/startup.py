@@ -1,7 +1,6 @@
 """Startup scripts: Python files that run when the interactive shell starts, before the prompt.
 
-SKELETON (2026-10-13). The shape is settled, the open questions are listed in TODO.md under
-"Startup scripts". What works today:
+What runs, in order:
 
 - Every `*.py` in `~/.shellcraft/startup/` runs once, in name order (`10-env.py`, `20-mounts.py`,
   …), as `python FILE` with this interpreter and the shell's working directory. Files whose name
@@ -26,7 +25,8 @@ After the Python scripts, the shell sources `~/.shellcraft/rc`: ShellCraft comma
 typed at the prompt (`theme nord`, `export X=1`, `cd ~/work`, a module, `sub htop`), like
 `~/.bashrc`. Never in `--mcp` mode. `source FILE` runs any such file by hand.
 
-Not done yet (see TODO.md): background scripts that keep running, per-script timeouts.
+Header lines at the top of a script (`# shellcraft: background, restart, timeout=N`) start it as
+a subshell instead (the Supervisor, below), restart it after a crash, or give it more time.
 """
 
 from __future__ import annotations

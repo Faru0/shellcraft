@@ -638,7 +638,6 @@ details, the rules, a reference module and the checker:
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
-| [TODO.md](TODO.md) | What is left to do: Windows 11 fixes, open features, ideas |
 
 <div align="center">
 

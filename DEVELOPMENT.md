@@ -218,7 +218,7 @@ cd ~/Downloads/togithub/shellcraft && git am /tmp/sc-patch/*.patch && pytest -q 
 Never commit the same change by hand in both copies; a commit made only in the GitHub copy
 (`Install/`, `findtime`) stays there. To compare the two trees:
 `diff <(git -C A ls-tree -r HEAD --name-only) <(git -C B ls-tree -r HEAD --name-only)`.
-`Install/` is meant to leave git for a GitHub Release asset (see TODO.md).
+`Install/` could later move out of git, to a GitHub Release asset or Git LFS.
 
 ## Tests
 
