@@ -110,3 +110,35 @@ def test_colored_on_screen_plain_in_pipes(files):
     result = run_line("jq obj.json", files).output
     assert isinstance(result, Styled) and json.loads(to_text(result)) == DOC
     assert out("jq obj.json | cat", files).startswith("{\n")
+
+
+def test_where_filters_list_elements(files):
+    assert out("jq list.json -w 'age>30' -f name", files) == "ada\n"
+    assert out("jq list.json -w 'age<=5' -n", files) == "2\n"
+    assert out("jq list.json -w name~AD", files).startswith("{\n")  # contains, any case
+    assert out("jq list.json -w name -w age!=36 -f name", files) == "bob\n"  # both must match
+    assert out("jq list.json -w name=bob -f age", files) == "2\n"
+    assert out("jq list.json -w tags[0]=x -f name", files) == "ada\n"
+    result = run_line("jq list.json -w age=999", files)
+    assert result.status == 1 and to_text(result.output) == ""
+
+
+def test_paths_map_the_document_and_feed_back_into_f(files):
+    lines = out("jq obj.json -p", files).splitlines()
+    assert lines == ['.name = "ada"', ".items[0].id = 7", ".items[1].id = 8", ".ok = true"]
+    path = lines[2].split(" = ")[0]
+    assert out(f"jq obj.json -f {path}", files) == "8\n"
+    assert out("jq list.json -i 0 -p", files).splitlines()[0] == '.name = "ada"'
+    from shellcraft.commands.jq import leaf_paths
+
+    assert leaf_paths({"two words": [], "ok": {}}) == ['["two words"] = []', ".ok = {}"]
+
+
+def test_table_plain_in_pipes_and_rich_on_screen(files):
+    assert out("jq list.json -t", files) == "name\tage\ttags\nada\t36\t[\"x\"]\nbob\t2\t\n\t5\t\n"
+    assert out("jq obj.json -t", files).startswith("key\tvalue\nname\tada\nitems\t[{")
+    assert out("jq obj.json -f items[*].id -t", files) == "value\n7\n8\n"
+    files.interactive = True
+    files.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
+    shown = run_line("jq list.json -w name -t", files).output
+    assert isinstance(shown, Styled) and to_text(shown).startswith("name\tage\ttags\nada")

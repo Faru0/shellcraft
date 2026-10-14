@@ -177,8 +177,89 @@ def _keys(value: Any) -> list[str]:
     return []
 
 
+# ── -w / --where ─────────────────────────────────────────────────────────────
+
+_WHERE = re.compile(r"^\s*(?P<path>.+?)\s*(?P<op>==|!=|>=|<=|=|>|<|~)\s*(?P<value>.*?)\s*$", re.S)
+
+
+def parse_where(text: str) -> tuple[list[Any], str | None, Any]:
+    """`age>30`, `name=ada`, `name~AD` (contains, any case), `tags` (the key is there) →
+    (path, operator, value). The value is JSON when it parses (30, true, null), else text."""
+    m = _WHERE.match(text)
+    if not m:
+        return parse_path(text), None, None
+    raw = m.group("value")
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = raw[1:-1] if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"" else raw
+    return parse_path(m.group("path")), m.group("op"), value
+
+
+def matches(item: Any, condition: tuple[list[Any], str | None, Any]) -> bool:
+    path, op, want = condition
+    found, _ = apply([item], path)
+    if not found:
+        return False
+    have = found[0]
+    if op is None:
+        return True
+    if op in ("=", "=="):
+        return have == want or _as_text(have, True) == _as_text(want, True)
+    if op == "!=":
+        return not (have == want or _as_text(have, True) == _as_text(want, True))
+    if op == "~":
+        return _as_text(want, True).lower() in _as_text(have, True).lower()
+    numbers = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (have, want))
+    a, b = (have, want) if numbers else (_as_text(have, True), _as_text(want, True))
+    return {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[op]
+
+
+# ── -p / --paths ─────────────────────────────────────────────────────────────
+
+def leaf_paths(value: Any, prefix: str = "") -> list[str]:
+    """Every value with the path that reaches it, written so it can go back into -f."""
+    if isinstance(value, dict) and value:
+        out = []
+        for key, sub in value.items():
+            key = str(key)
+            step = f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key) else f"[{json.dumps(key)}]"
+            out += leaf_paths(sub, prefix + step)
+        return out
+    if isinstance(value, list) and value:
+        out = []
+        for n, sub in enumerate(value):
+            out += leaf_paths(sub, f"{prefix}[{n}]")
+        return out
+    return [f"{prefix or '.'} = {json.dumps(value, ensure_ascii=False)}"]
+
+
+# ── -t / --table ─────────────────────────────────────────────────────────────
+
+def table_rows(results: list[Any], spread: bool) -> tuple[list[str], list[list[str]]]:
+    """Columns and rows: a list of objects is one row each (the columns are every key seen, in
+    order), a single object is key/value pairs, anything else one value per row."""
+    items = results if spread or len(results) != 1 else results[0]
+    if isinstance(items, dict):
+        return ["key", "value"], [[str(k), _cell(v)] for k, v in items.items()]
+    if not isinstance(items, list):
+        items = [items]
+    if items and all(isinstance(i, dict) for i in items):
+        columns: list[str] = []
+        for item in items:
+            columns += [str(k) for k in item if str(k) not in columns]
+        return columns, [[_cell(item[c]) if c in item else "" for c in columns]
+                         for item in ({str(k): v for k, v in i.items()} for i in items)]
+    return ["value"], [[_cell(i)] for i in items]
+
+
+def _cell(value: Any) -> str:
+    text = _as_text(value, compact=True)
+    return text if len(text) <= 60 else text[:59] + "…"
+
+
 @builtin("jq", "Pretty-print JSON, list its keys, or pick values out of it",
-         "jq [FILE] [-r FILE] [-i N|*] [-f FILTER] [-k] [-c] [-n]", category="text", doc="""\
+         "jq [FILE] [-r FILE] [-i N|*] [-w COND]... [-f FILTER] [-k|-p|-t|-n] [-c]", category="text", doc="""\
 # jq
 
 Look inside JSON: pretty-print it, list its keys, or pick values out with a path written the way
@@ -195,6 +276,8 @@ jq [FILE] -f FILTER             pick a value: -f ['name'], -f [5]['name'], -f .i
 jq [FILE] -i N -f FILTER        the same, inside element N of a list
 jq [FILE] -i '*' -f FILTER      the same, for every element of a list
 jq [FILE] -k                    the keys (with -i: of each element)
+jq [FILE] -w 'age>30' -t        the elements of a list that match, as a table
+jq [FILE] -p                    every value with its path
 ```
 
 ## Options
@@ -207,6 +290,9 @@ jq [FILE] -k                    the keys (with -i: of each element)
 | `-r FILE`, `--read FILE` | Read FILE (the same as giving FILE on its own). |
 | `-c`, `--compact` | Objects and lists on one line each, without indentation. |
 | `-n`, `--count` | How many results the filter gives (the length of a single list or object). |
+| `-w COND`, `--where COND` | Keep only the list elements that match COND (give it more than once: all must match). COND is `PATH OP VALUE` with OP one of `=` `!=` `>` `<` `>=` `<=` `~` (contains, any case), or just `PATH` (the key is there). Quote it when it has `>` or `<`: `-w 'age>30'`. On a list it implies `-i '*'`. |
+| `-t`, `--table` | A list of objects as a table, one row each (a column for every key); a single object as key/value rows. Tab-separated with a header line in a pipe. |
+| `-p`, `--paths` | Every value with the path that reaches it, one per line (`.items[0].id = 7`): a map of the document, and each path works as a `-f` filter. |
 
 ## Output
 
@@ -227,6 +313,10 @@ cat list.json | jq -i 5 -f ['name']       # the same
 cat list.json | jq -i * -f ['name']       # "name" of every element
 cat list.json | jq -i * -k                # the keys of every element
 cat list.json | jq -n                     # how many elements
+cat list.json | jq -w 'age>30' -f name    # names of those over 30
+cat list.json | jq -w name~ad -w active=true -t   # matching elements as a table
+cat list.json | jq -t                     # the whole list as a table
+cat config.json | jq -p | grep -i port    # find where a value lives
 fetch https://api.example.com/users | jq -i * -f .address.city | sort | uniq -c
 ```
 
@@ -246,6 +336,9 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser.add_argument("-k", "--keys", action="store_true")
     parser.add_argument("-c", "--compact", action="store_true")
     parser.add_argument("-n", "--count", action="store_true")
+    parser.add_argument("-w", "--where", action="append", default=[], metavar="COND")
+    parser.add_argument("-t", "--table", action="store_true")
+    parser.add_argument("-p", "--paths", action="store_true")
     opts = parser.parse_args(args)
     if opts.file and opts.read:
         raise ModuleError("jq: give FILE or -r FILE, not both")
@@ -256,11 +349,35 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if opts.index is not None:
         index = opts.index.strip()
         steps.append(WILDCARD if index in ("*", "all") else _bracket(index))
-    steps += parse_path(opts.filter)
-    spread = any(s is WILDCARD for s in steps)
+    path = parse_path(opts.filter)
+    if opts.where and not steps and isinstance(data, list):
+        steps.append(WILDCARD)  # -w on a list looks at each element
+    spread = any(s is WILDCARD for s in steps + path)
     results, problems = apply([data], steps)
+    if opts.where:
+        conditions = [parse_where(c) for c in opts.where]
+        results = [r for r in results if all(matches(r, c) for c in conditions)]
+        if not results:
+            return WithStatus("", 1)  # nothing matched, like grep
+    results, more = apply(results, path)
+    problems += more
     if not results and problems:
         raise ModuleError(f"jq: {problems[0]}")
+    if opts.paths:
+        return "".join(line + "\n" for value in results for line in leaf_paths(value))
+    if opts.table:
+        columns, rows = table_rows(results, spread)
+        plain = "".join("\t".join(row) + "\n" for row in [columns, *rows])
+        if ctx.ui is None or not ctx.interactive:
+            return plain
+        from rich.table import Table
+
+        table = Table(header_style="sc.accent", border_style="sc.muted")
+        for column in columns:
+            table.add_column(column, overflow="fold")
+        for row in rows:
+            table.add_row(*row)
+        return Styled(table, plain)
 
     if opts.count:
         if len(results) == 1 and not spread and isinstance(results[0], (list, dict)):

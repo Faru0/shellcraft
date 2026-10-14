@@ -14,6 +14,10 @@ and the project uses [semantic versioning](https://semver.org/).
   counts. JSON Lines and Python-style dictionaries are accepted. Words on a `jq` line are not
   globbed, so `*` and `[name]` arrive as typed. It is not the jq language, and it shadows a jq
   program on the PATH (run that one by its full path, such as `/usr/bin/jq`).
+- **`jq -w`, `-t`, `-p`:** `-w COND` keeps the list elements that match (`-w 'age>30'`,
+  `-w name~ad` for contains, `-w active=true`, `-w email` for "has the key"; more than one must all
+  match; status 1 when none do). `-t` shows a list of objects as a table, tab-separated in a pipe.
+  `-p` prints every value with its path (`.items[0].id = 7`), and each path works as a `-f` filter.
 - **Background startup scripts:** `# shellcraft: background` at the top of a script in
   `~/.shellcraft/startup/` starts it as a subshell when the prompt appears, so it never slows the
   start; `# shellcraft: restart` restarts it after a crash (2 s, 4 s … 60 s; gives up with a red
