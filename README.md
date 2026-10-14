@@ -197,8 +197,22 @@ unalias ll              # remove one (unalias -a removes all)
 ```
 
 An alias replaces the first word of a command, and anything you type after it is added at the end.
-Aliases work in every step of a pipeline, are saved in `~/.shellcraft/config.json`, and apply in the
-shell, never to AI clients over MCP. `which ls` shows whether a name is an alias.
+Aliases work in every step of a pipeline and apply in the shell, never to AI clients over MCP.
+`which ls` shows whether a name is an alias.
+
+They are kept in **`~/.shellcraft/aliases`**, a plain text file like bash's `~/.bash_aliases`:
+
+```
+# my shortcuts
+alias ll='ls -l'
+alias errors='grep -i error'
+```
+
+Edit it in any editor and the change applies to the next command, no restart needed. `alias` and
+`unalias` edit the same file and leave your comments alone, `alias --file` prints its path, and a
+line that can't be used (a `|` in the value, an unclosed quote) is skipped and listed by `alias`
+with its line number. Aliases from older versions, saved in `config.json`, move into the file the
+first time the new version starts.
 
 ### Long output
 

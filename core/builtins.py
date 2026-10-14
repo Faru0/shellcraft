@@ -1199,8 +1199,9 @@ def _reload(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 ALIAS_DOC = """# alias
 
-Give a command a shorter name, or change what a command does by default. Aliases are saved in
-`~/.shellcraft/config.json`, so they last across sessions.
+Give a command a shorter name, or change what a command does by default. Aliases are kept in
+`~/.shellcraft/aliases`, a plain text file like bash's `~/.bash_aliases`, so they last across
+sessions and you can edit them in any editor.
 
 ## Usage
 
@@ -1208,9 +1209,28 @@ Give a command a shorter name, or change what a command does by default. Aliases
 alias                      # list every alias
 alias NAME                 # show one alias
 alias NAME='COMMAND ARGS'  # define (or replace) an alias
+alias --file               # where the aliases file is
 unalias NAME...            # remove aliases
 unalias -a                 # remove every alias
 ```
+
+## The aliases file
+
+`~/.shellcraft/aliases` has one alias per line, in the same form as `~/.bash_aliases`:
+
+```
+# my shortcuts
+alias ll='ls -l'
+alias errors='grep -i error'
+alias q="grep -F 'x'"
+```
+
+Comments and blank lines are kept. Edit the file in any editor: the change applies to the next
+command, no restart or `reload` needed. `alias NAME=…` and `unalias NAME` from the shell edit the
+same file and only touch the lines of the names you give. A line that can't be used (a pipe in
+the value, an unclosed quote) is skipped, and `alias` lists it with its line number so you can
+fix it. You can copy alias lines from your `~/.bash_aliases`; those that use `|`, `>` or `;` are
+reported, since a ShellCraft alias is a single command.
 
 An alias replaces the first word of a command; anything you type after it is added at the end.
 With `alias ls='ls -a -l'`, typing `ls -r src` runs `ls -a -l -r src`. It works in every step of
@@ -1236,8 +1256,16 @@ unalias ll
 @builtin("alias", "Define or list command aliases", "alias [NAME[=COMMAND]]", stateful=True, doc=ALIAS_DOC)
 def _alias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     defined = aliases.get_all(ctx.config)
+    if args in (["--file"], ["-f"]):
+        return f"{aliases.path()}\n"
     if not args:
-        return "".join(f"alias {n}={_quote(v)}\n" for n, v in sorted(defined.items()))
+        listing = "".join(f"alias {n}={_quote(v)}\n" for n, v in sorted(defined.items()))
+        problems = aliases.file_errors()
+        if not problems:
+            return listing
+        note = "\n".join(f"⚠ {aliases.path().name} {p} (skipped)" for p in problems)
+        return Styled(Group(Text(listing.rstrip("\n")), Text(note, style="sc.warning")),
+                      listing + "".join(f"# {p} (skipped)\n" for p in problems))
     if len(args) == 1 and "=" not in args[0]:
         name = args[0]
         if name not in defined:
@@ -1253,8 +1281,10 @@ def _alias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         aliases.set_alias(ctx.config, name, value)
     except aliases.AliasError as exc:
         raise CommandError(str(exc)) from None
+    except OSError as exc:
+        raise CommandError(f"alias: cannot write {aliases.path()}: {exc}") from None
     return _saved(ctx, Text.assemble(("✓ ", "sc.success"), ("alias ", ""), (name, "sc.accent"),
-                                     (f" → {value}", "")))
+                                     (f" → {value}", ""), (f"  (saved in {aliases.path()})", "sc.muted")))
 
 
 @builtin("unalias", "Remove command aliases", "unalias NAME... | unalias -a", stateful=True, doc=ALIAS_DOC)
@@ -1262,8 +1292,7 @@ def _unalias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if not args:
         raise CommandError("unalias: usage: unalias NAME... | unalias -a")
     if args == ["-a"]:
-        count = len(aliases.get_all(ctx.config))
-        ctx.config["aliases"] = {}
+        count = aliases.remove_all(ctx.config)
         return _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"removed {count} alias(es)"))
     missing = [n for n in args if not aliases.remove(ctx.config, n)]
     removed = [n for n in args if n not in missing]
@@ -1276,9 +1305,7 @@ def _unalias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 def _quote(value: str) -> str:
     """Quote an alias value so the line can be pasted back into the shell."""
-    if "'" not in value:
-        return f"'{value}'"
-    return '"' + value.replace('"', '\\"') + '"'
+    return aliases.quote(value)
 
 
 def _saved(ctx: ShellContext, msg: Text) -> Text:

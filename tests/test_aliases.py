@@ -16,7 +16,11 @@ def out(line, ctx):
 
 
 def saved(tmp_path):
-    return json.loads((tmp_path / ".home" / "config.json").read_text())
+    """The aliases kept in ~/.shellcraft/aliases (the test's home)."""
+    from core.aliases import parse_file
+
+    file = tmp_path / ".home" / "aliases"
+    return parse_file(file.read_text())[0] if file.exists() else {}
 
 
 def test_ls_alias_defaults_to_all_and_long(ctx, tmp_path):
@@ -28,7 +32,7 @@ def test_ls_alias_defaults_to_all_and_long(ctx, tmp_path):
     assert out("ls", ctx) == out("\\ls -a -l", ctx)
     assert ".hidden" in out("ls", ctx) and "-rw" in out("ls", ctx)
     assert out("\\ls", ctx) == plain  # the backslash skips the alias
-    assert saved(tmp_path)["aliases"] == {"ls": "ls -a -l"}
+    assert saved(tmp_path) == {"ls": "ls -a -l"}
 
 
 def test_typed_args_are_appended_and_pipes_work(ctx):
@@ -52,11 +56,11 @@ def test_list_show_and_remove(ctx, tmp_path):
     assert out("alias", ctx) == "alias ll='ls -l'\nalias q=\"grep -F 'x'\"\n"
     assert out("alias ll", ctx) == "alias ll='ls -l'\n"
     run_line("unalias ll", ctx)
-    assert saved(tmp_path)["aliases"] == {"q": "grep -F 'x'"}
+    assert saved(tmp_path) == {"q": "grep -F 'x'"}
     with pytest.raises(PipelineError, match="ll: not found"):
         run_line("unalias ll", ctx)
     run_line("unalias -a", ctx)
-    assert out("alias", ctx) == "" and saved(tmp_path)["aliases"] == {}
+    assert out("alias", ctx) == "" and saved(tmp_path) == {}
 
 
 @pytest.mark.parametrize("line, fragment", [
@@ -109,3 +113,49 @@ def test_completion_knows_aliases(ctx):
     assert "ll" in complete("l")
     assert complete("unalias ") == ["ll"]
     assert "-a" in complete("ll -")  # ls's switches
+
+
+# ── the aliases file (~/.shellcraft/aliases, like ~/.bash_aliases) ────────────
+
+def test_hand_edits_apply_to_the_next_command_and_comments_survive(ctx, tmp_path):
+    file = tmp_path / ".home" / "aliases"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text("# my shortcuts\nalias hi='echo hello'\n\nalias two='echo 2' three=\"echo 3\"\n")
+    assert out("hi there", ctx) == "hello there\n" and out("three", ctx) == "3\n"
+    file.write_text(file.read_text().replace("echo hello", "echo howdy"))
+    os.utime(file, ns=(1, os.stat(file).st_mtime_ns + 10_000_000))  # a new mtime, as an editor gives
+    assert out("hi", ctx) == "howdy\n"
+    run_line("alias hi='echo hey'", ctx)  # replaces the line where it was
+    run_line("alias q=\"grep -F 'x'\"", ctx)  # appended, quoted so it reads back the same
+    text = file.read_text()
+    assert text.startswith("# my shortcuts\nalias hi='echo hey'\n\nalias two='echo 2' three=")
+    assert text.endswith("alias q=\"grep -F 'x'\"\n") and saved(tmp_path)["q"] == "grep -F 'x'"
+    run_line("unalias two", ctx)  # the line defined two names: both go with it
+    assert "two" not in saved(tmp_path) and "# my shortcuts" in file.read_text()
+    run_line("unalias -a", ctx)
+    assert file.read_text().startswith("# my shortcuts") and saved(tmp_path) == {}
+
+
+def test_bad_lines_are_skipped_and_listed(ctx, tmp_path):
+    file = tmp_path / ".home" / "aliases"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text("alias ok='echo ok'\nalias piped='ls | wc -l'\nalias open='unclosed\n")
+    assert out("ok", ctx) == "ok\n"
+    listing = out("alias", ctx)
+    assert listing.startswith("alias ok='echo ok'\n")
+    assert "# line 2: alias piped: an alias must be a single command" in listing
+    assert "# line 3: No closing quotation (skipped)" in listing
+    assert out("alias --file", ctx) == f"{file}\n"
+
+
+def test_config_aliases_move_into_the_file_once(tmp_path, monkeypatch, started):
+    from core.cli import main
+
+    home = tmp_path / ".home"
+    home.mkdir()
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    (home / "config.json").write_text(json.dumps({"aliases": {"ll": "ls -l", "q": "grep -F 'x'"}}))
+    assert main([]) == 0
+    assert saved(tmp_path) == {"ll": "ls -l", "q": "grep -F 'x'"}
+    assert json.loads((home / "config.json").read_text()).get("aliases") in ({}, None)
+    assert (home / "aliases").read_text().startswith("# ShellCraft aliases, like ~/.bash_aliases")

@@ -43,6 +43,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **An aliases file:** aliases live in `~/.shellcraft/aliases`, one `alias NAME='COMMAND'` per line
+  like `~/.bash_aliases`, with comments. Hand edits apply to the next command; `alias` and
+  `unalias` rewrite only their own lines; `alias --file` shows the path; unusable lines are listed
+  by `alias` with their line number. Aliases saved in `config.json` by older versions move into the
+  file once, at startup.
 - **Alerts in the status panel:** `alert [-l info|warning|critical] [-t SECONDS | -s] MESSAGE`
   shows a green, amber or red line at the top of the panel (three at most, the most severe
   first, timed out or dismissed with `alert -c`). Subshells get an `alert` command on their

@@ -76,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     from core.loader import ModuleRegistry
 
     config = load_config()
+    try:
+        from core import aliases
+        from core.config import save_config
+
+        if aliases.migrate(config):  # aliases saved in config.json by older versions → ~/.shellcraft/aliases
+            save_config(config)
+    except OSError:
+        pass  # they keep working from config.json
     settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
 
     # Modules turned off with `modules disable` are skipped in every mode, the MCP server included.

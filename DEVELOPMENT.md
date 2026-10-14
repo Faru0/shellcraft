@@ -38,7 +38,7 @@ shellcraft/
 │   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
 │   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-] N
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
-│   ├── aliases.py          # alias storage, validation and expansion (run_pipeline calls expand())
+│   ├── aliases.py          # aliases: the ~/.shellcraft/aliases file (parsed, cached by mtime, edited line by line), validation, expansion
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── context.py          # ShellContext (state + permission flags), Styled, to_text()
 │   ├── builtins.py         # builtin registry (@builtin) + shell builtins: cd, help, man, theme, settings…
