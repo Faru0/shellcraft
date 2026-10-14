@@ -1,26 +1,56 @@
-# findtime.skill: the MCP tool description AI clients read. Drafted from the code by
-# `python -m tools.ingest`; review the lines marked TODO, then run:
-#   python -m tools.ingest check modules/findtime.py
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
 
-summary = "Time_find.py - Simple script to fetch the current time from the internet."
+summary = "Show the current time from an internet time source (UTC and local time), and how far the host's clock is off."
 
-# TODO: also say when NOT to use it, and which tool to use instead.
-when_to_use = '''
-Use to time_find.py - Simple script to fetch the current time from the internet.
-Give its inputs as the parameters below.'''
+when_to_use = """
+Use when you need the real current time independent of the host's clock, or to check whether the
+host's clock is right (--offset). Do not use it just to read the host's own clock: the `date`
+command does that without network access."""
 
-usage = "findtime [ARGS...]"
+usage = "findtime [-u] [-o] [-t SECONDS]"
 
-# TODO: replace with a real call and its real output.
-examples = ['{}  -> the text findtime prints']
+examples = [
+  '{}  -> "UTC:    2026-10-13 21:40:05 UTC\nLocal:  2026-10-13 17:40:05 EDT\nSource: timeapi.io"',
+  '{"utc": true}  -> "2026-10-13 21:40:05 UTC"',
+  '{"offset": true}  -> "... Offset: the local clock is 0.4 s ahead"',
+]
 
-notes = '''
-Output is plain text: exactly what the script prints.
-Needs network access.
-A bad option or a failure comes back as a tool error with a one-line message.'''
+notes = """
+Needs network access (timeapi.io, then the Date header of an HTTPS server as a fallback).
+Times are to the second. A source that can't be reached comes back as a tool error with a
+one-line message."""
 
-# Tests run by `python -m tools.ingest check`, never shown to AI clients. For example:
-# [[tests]]
-# args = ["--some-option", "value"]
-# stdin = "input text"
-# contains = "expected output"     # or: expect = "exact output", or: error = "message"
+[[params]]
+name = "utc"
+flag = "--utc"
+short = "-u"
+type = "boolean"
+description = "Print only the UTC time, one line."
+
+[[params]]
+name = "offset"
+flag = "--offset"
+short = "-o"
+type = "boolean"
+description = "Also show how far the host's clock is ahead or behind."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+short = "-t"
+metavar = "SECONDS"
+type = "number"
+description = "Seconds to wait for each time source (default 5, at most 60)."
+
+[[tests]]
+args = ["--bogus"]
+error = "unrecognized arguments"
+
+[[tests]]
+args = ["-t", "0"]
+error = "between 0 and 60"
+
+[[tests]]
+args = ["-u"]
+contains = " UTC"
+network = true

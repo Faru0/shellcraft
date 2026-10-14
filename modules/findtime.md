@@ -1,27 +1,38 @@
 # findtime
 
-Time_find.py - Simple script to fetch the current time from the internet.
+Show the current time from an internet time source, in UTC and the local time zone.
 
 ## Synopsis
 
 ```
-findtime [ARGS...]
+findtime [-u] [-o] [-t SECONDS]
 ```
 
 ## Description
 
-The output is the text the script prints.
+Asks timeapi.io for the time; if it can't be reached, falls back to the `Date` header of an HTTPS
+server (accurate to the second). Prints the UTC time, the same moment in the local time zone, and
+which source answered. `--offset` compares it with this machine's clock, to check that the clock
+is right. Needs network access; the local clock is never used as the answer.
 
-It connects to the network.
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-u`, `--utc` | Print only the UTC time, one line (`2026-10-13 21:40:05 UTC`). |
+| `-o`, `--offset` | Also show how far the local clock is ahead or behind. |
+| `-t SECONDS`, `--timeout SECONDS` | Seconds to wait for each source (default 5, at most 60). |
 
 ## Examples
 
 ```
 findtime
-findtime | head -5
-findtime > findtime.txt
+findtime -u
+findtime --offset
+findtime -u > now.txt
 ```
 
 ## Errors
 
-- `Could not retrieve Date header.`
+- `findtime: no time source could be reached (…)`: no network, or both sources down.
+- `findtime: --timeout must be between 0 and 60 seconds`
