@@ -100,7 +100,7 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [0.2.0] — 2026-10-12
 
-The fourth assessment ([UPGRADE-ASSESSMENT.md](UPGRADE-ASSESSMENT.md)) in one release: every crash
+The fourth assessment (`UPGRADE-ASSESSMENT.md`, now in the git history) in one release: every crash
 it found is fixed, the TUI got the polish it asked for, and the bash habits it listed now work.
 
 ### Fixed
