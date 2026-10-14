@@ -672,6 +672,8 @@ read NAME                       # read a line into $NAME
 read -p "Your name? " NAME      # with a prompt
 read -s -p "Token: " TOKEN      # without echoing what is typed
 name = input("Your name? ")     # the same, Python style (not inside for / if blocks)
+count = int(input("How many? "))   # asks again until the answer is a whole number
+ratio = float(input("Ratio? "))    # … or any number
 ```
 
 ## Options

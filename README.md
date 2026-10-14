@@ -284,6 +284,8 @@ It can also ask you something, Python style, and use the answer later:
 ```
 name = input("What is your name? ")
 echo "hello $name"
+count = int(input("How many servers? "))   # asks again until it gets a whole number
+for n in $(seq $count); do echo server-$n; done
 read -s -p "API token: " token      # the bash spelling; -s hides what you type
 ```
 

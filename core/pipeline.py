@@ -89,14 +89,21 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     from core import ask, script
 
     try:
-        asking = ask.parse_input_line(line)  # `name = input("prompt")`: Python, not shell syntax
+        asking = ask.parse_ask_line(line)  # `name = input("…")`, `n = int(input("…"))`: Python, not shell
     except ask.AskError as exc:
         ctx.last_status = STATUS_SYNTAX
         raise PipelineError(1, 1, "input", str(exc), STATUS_SYNTAX) from None
     if asking is not None:
-        name, prompt = asking
+        name, prompt, kind = asking
+
+        def say(message: str) -> None:
+            if ctx.ui is not None:
+                from rich.text import Text
+
+                ctx.ui.console.print(Text(message, style="sc.warning"), markup=False, highlight=False)
+
         try:
-            ctx.variables[name] = ask.ask(ctx, prompt)
+            ctx.variables[name] = ask.ask_as(ctx, prompt, kind, say)
         except ask.AskError as exc:
             ctx.last_status = exc.status
             raise PipelineError(1, 1, "input", str(exc), exc.status) from None

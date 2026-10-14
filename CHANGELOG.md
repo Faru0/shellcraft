@@ -43,7 +43,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
-- **Asking for a value:** `name = input("What is your name? ")` on a line of its own (at the prompt,
+- **Asking for a value:** `name = input("What is your name? ")`, `n = int(input("How many? "))` and
+  `float(input(…))` (which ask again until the answer is a number) on a line of its own (at the prompt,
   in an rc file, in a sourced file) and `read [-p PROMPT] [-s] NAME` store the answer in a shell
   variable for later lines (`$name`). Interactive shell only; Ctrl-C cancels with status 130.
 - **`~/.shellcraft/rc` and `source FILE`:** a startup file of ShellCraft command lines, run as if

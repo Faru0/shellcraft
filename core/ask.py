@@ -6,8 +6,9 @@ script or the prompt can ask once and use it later. Only the interactive shell c
 
 `input(...)` is recognised on a line of its own, before the shell's parser sees it (the
 parentheses are Python, not shell): `NAME = input()`, `NAME = input("prompt")`, with any Python
-string literal as the prompt (single or double quotes, escapes). Inside `for` / `if` blocks, use
-`read -p "prompt" NAME`, which is a normal command.
+string literal as the prompt (single or double quotes, escapes). `NAME = int(input("prompt"))` and
+`float(...)` ask until the answer is a number (Python would stop with a ValueError; a shell says
+so and asks again). Inside `for` / `if` blocks, use `read -p "prompt" NAME`.
 """
 
 from __future__ import annotations
@@ -17,6 +18,9 @@ import re
 from typing import Any
 
 INPUT_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*input\s*\((.*)\)\s*$", re.S)
+# NAME = int(input(...)) / float(input(...))
+NUMBER_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(int|float)\s*\(\s*input\s*\((.*)\)\s*\)\s*$", re.S)
+CONVERT = {"str": str, "int": int, "float": float}
 
 
 class AskError(Exception):
@@ -30,19 +34,52 @@ class AskError(Exception):
 def parse_input_line(line: str) -> tuple[str, str] | None:
     """(NAME, prompt) for `NAME = input("prompt")`, None for any other line. Raises AskError when
     it is an input() line whose prompt is not a plain string."""
-    m = INPUT_LINE.match(line)
-    if not m:
-        return None
-    name, raw = m.group(1), m.group(2).strip()
+    parsed = parse_ask_line(line)
+    return None if parsed is None else parsed[:2]
+
+
+def parse_ask_line(line: str) -> tuple[str, str, str] | None:
+    """(NAME, prompt, kind) for `NAME = input(…)`, `NAME = int(input(…))` or
+    `NAME = float(input(…))`, where kind is str, int or float; None for any other line."""
+    m = NUMBER_LINE.match(line)
+    if m:
+        name, kind, raw = m.group(1), m.group(2), m.group(3).strip()
+    else:
+        m = INPUT_LINE.match(line)
+        if not m:
+            return None
+        name, kind, raw = m.group(1), "str", m.group(2).strip()
+    return name, _prompt_literal(raw), kind
+
+
+def _prompt_literal(raw: str) -> str:
     if not raw:
-        return name, ""
+        return ""
     try:
         prompt = ast.literal_eval(raw)
     except (ValueError, SyntaxError):
         raise AskError(f"input: the prompt must be a string, like input(\"Your name? \"), not {raw}") from None
     if not isinstance(prompt, str):
         raise AskError(f"input: the prompt must be a string, not {type(prompt).__name__}")
-    return name, prompt
+    return prompt
+
+
+def ask_as(ctx: Any, prompt: str, kind: str = "str", say: Any = None) -> str:
+    """Ask until the answer converts with int / float (kind), and return it as text for the
+    shell variable (`7`, `2.5`). `say(message)` reports a wrong answer before asking again."""
+    convert = CONVERT[kind]
+    while True:
+        answer = ask(ctx, prompt)
+        if kind == "str":
+            return answer
+        try:
+            value = convert(answer.strip())
+        except ValueError:
+            message = f"'{answer.strip()}' is not {'a whole number' if kind == 'int' else 'a number'}; try again"
+            if say is not None:
+                say(message)
+            continue
+        return str(value)
 
 
 def ask(ctx: Any, prompt: str, hidden: bool = False) -> str:
