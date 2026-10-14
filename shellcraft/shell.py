@@ -210,6 +210,9 @@ class Shell:
         self.ui.mouse = settings.get(ctx.config, "mouse")
         self.ui.mouse_always = settings.get(ctx.config, "mouse_always")
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
+        # `echo oops >&2`: the error stream is shown in the error style, right away.
+        ctx.emit_stderr = lambda text: self.ui.console.print(Text(text.rstrip("\n"), style="sc.error"),
+                                                             markup=False, highlight=False)
         self.watcher = ModuleWatcher(*ctx.registry.directories)
 
         try:

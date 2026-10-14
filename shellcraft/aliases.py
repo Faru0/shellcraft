@@ -18,6 +18,7 @@ import os
 import re
 import shlex
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -221,7 +222,7 @@ def _config_section(config: dict[str, Any]) -> dict[str, Any]:
 
 def expand_command(cmd: Command, aliases: dict[str, str]) -> Command:
     if cmd.name.startswith(BYPASS) and len(cmd.name) > 1:
-        return Command(cmd.name[1:], cmd.args, cmd.stderr, cmd.merge_stderr, bypass=True)  # \ls: the real ls
+        return replace(cmd, name=cmd.name[1:], bypass=True)  # \ls: the real ls
     used: set[str] = set()
     while cmd.name in aliases and cmd.name not in used:
         used.add(cmd.name)
@@ -229,7 +230,7 @@ def expand_command(cmd: Command, aliases: dict[str, str]) -> Command:
             target = validate(cmd.name, aliases[cmd.name])
         except AliasError:
             break  # a hand-edited, broken entry in config.json: run the command as typed
-        cmd = Command(target.name, target.args + cmd.args, cmd.stderr, cmd.merge_stderr)
+        cmd = replace(cmd, name=target.name, args=target.args + cmd.args)
     return cmd
 
 

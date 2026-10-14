@@ -34,6 +34,12 @@ and Ctrl-C that reaches running modules.
 - **`&&`, `||`, `!` and `( … )` inside `[[ ]]`**, with bash precedence (`&&` binds tighter):
   `[[ -f $f && ( $env == prod || $env == staging ) ]]`. The script splitter no longer cuts a
   statement at an `&&` / `||` that is inside the brackets.
+- **`>&2` and `1>&2`:** a command's output goes to the error stream: `echo "error: bad input" >&2`
+  shows in the error style on screen and leaves `$?` alone; with `2> file` it goes to the file,
+  with `2>&1` it stays output. Inside a function or a loop it follows the call's or the block's
+  own redirection (`myfn 2> err.txt`, `done 2>&1 | grep …`), as do the body's failing commands. A
+  background `sub` job keeps it in the job's output. Without a screen (MCP) it goes to the
+  process's stderr. Other `>&` forms are still rejected, with a message saying which work.
 
 ### Added (robustness and packaging)
 

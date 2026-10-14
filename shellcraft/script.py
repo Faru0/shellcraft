@@ -1269,12 +1269,14 @@ def execute(program: Program, ctx: ShellContext) -> Any:
     return PipelineResult(output=output, status=ctx.last_status)
 
 
-def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext) -> Any:
+def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None) -> Any:
     """Run a shell function as a command: `$1`… are `args`, its commands read `stdin`, and what
     it prints is its output (so `fn | grep x` and `fn > file` work). Variables are the shell's
     (as in bash) except those declared `local`, which are put back when it returns. Its status
-    is `return N`'s, else the last command's."""
+    is `return N`'s, else the last command's. With `cmd` (the call as parsed), its `2> file` /
+    `2>&1` also take what the body sends to the error stream (`>&2`, failing commands)."""
     from core.context import CommandError, WithStatus
+    from core.pipeline import stderr_file_sink
 
     if not ctx.allow_aliases:
         raise CommandError(f"{fn.name}: shell functions are not available here (MCP)")
@@ -1285,6 +1287,12 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext) 
     runner.collect_only = True
     runner.frame = {}
     runner.stdin = stdin
+    if cmd is not None and cmd.stderr is not None:
+        runner.stderr_sink = stderr_file_sink(cmd.stderr)
+    elif cmd is not None and cmd.merge_stderr:
+        runner.stderr_sink = runner.collected.append  # `fn 2>&1 | grep`: errors join the output
+    if runner.stderr_sink is not None:
+        ctx.stderr_sinks.append(runner.stderr_sink)
     ctx.positional.append(list(args))
     status: int | None = None
     try:
@@ -1296,6 +1304,8 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext) 
         status = getattr(exc.error, "status", 1) or 1
     finally:
         ctx.positional.pop()
+        if runner.stderr_sink is not None:
+            ctx.stderr_sinks.pop()
         for name, old in runner.frame.items():
             if old is None:
                 ctx.variables.pop(name, None)
@@ -1320,6 +1330,8 @@ class _Runner:
         # put back when the call ends; and the function's input, which its commands read.
         self.frame: dict[str, str | None] | None = parent.frame if parent else None
         self.stdin = parent.stdin if parent else ""
+        # A function call's or block's `2> file` / `2>&1`: where its errors are reported.
+        self.stderr_sink: Callable[[str], None] | None = None
 
     def variables(self) -> Any:
         from shellcraft.pipeline import Variables
@@ -1339,6 +1351,16 @@ class _Runner:
     def report(self, exc: Exception, text: str) -> None:
         from shellcraft.pipeline import PipelineError
 
+        sink = self.stderr_sink
+        if sink is None and self.parent is None and self.ctx.stderr_sinks:
+            sink = self.ctx.stderr_sinks[-1]  # inside a call or block whose errors are redirected
+        if sink is not None:  # `2> file` / `2>&1`
+            if isinstance(exc, PipelineError):
+                message = exc.message[len(exc.name) + 2:] if exc.message.startswith(f"{exc.name}: ") else exc.message
+                sink(f"{exc.name}: {message}\n")
+            else:
+                sink(f"{getattr(exc, 'message', exc)}\n")
+            return
         if self.parent is not None:
             self.parent.report(exc, text)
         elif self.ctx.emit_error is not None:
@@ -1606,10 +1628,16 @@ class _Runner:
         inner = _Runner(self.ctx, parent=self)
         inner.vars = self.vars  # the same scope: `for … done | sort` is not a subshell for variables
         inner.collect_only = True
+        inner.stderr_sink = self._block_stderr(stmt, inner)
+        if inner.stderr_sink is not None:
+            self.ctx.stderr_sinks.append(inner.stderr_sink)
         try:
             inner.run_list([stmt.stmt])
         except (_Break, _Continue):
             pass
+        finally:
+            if inner.stderr_sink is not None:
+                self.ctx.stderr_sinks.pop()
         text = "".join(inner.collected)
         sh = stmt.mode == "sh"
         try:
@@ -1620,6 +1648,24 @@ class _Runner:
             return
         if result is not None and result.output is not None:
             self.show(result.output)
+
+    def _block_stderr(self, stmt: Piped, inner: _Runner) -> Callable[[str], None] | None:
+        """`done 2> err.txt` / `done 2>&1 | …`: where the block's error stream goes (its `>&2`
+        output and its failing commands), read from the tail's first, empty segment."""
+        from core.pipeline import stderr_file_sink
+
+        if "2>" not in stmt.tail:
+            return None
+        try:
+            pipeline = shparser.parse(stmt.tail, self.variables(), substitute=lambda _: "", allow_leading_pipe=True)
+        except ParseError:
+            return None
+        first = pipeline.segments[0] if pipeline and pipeline.segments else None
+        if first is None or first.name:
+            return None
+        if first.stderr is not None:
+            return stderr_file_sink(first.stderr)
+        return inner.collected.append if first.merge_stderr else None
 
     def run_if(self, stmt: If) -> None:
         for cond, body in stmt.branches:

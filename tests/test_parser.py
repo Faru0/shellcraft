@@ -54,7 +54,7 @@ def test_parse_errors(line, fragment):
     ("a;b", ";"),
     ("a && b", "&&"),
     ("a || b", "||"),
-    ("echo x >&2", ">&"),
+    ("echo x >&3", ">&"),  # >&2 and 1>&2 work now (tests/test_stderr_redirect.py)
     ("echo hi & ls", "&"),
 ])
 def test_unsupported_operators_are_rejected(line, op):

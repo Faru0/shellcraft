@@ -214,6 +214,8 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> Pipe
     status = 0
     for index, cmd in enumerate(pipeline.segments, start=1):
         if not cmd.name:  # the empty first segment of `done | sort`: the loop's output is the input
+            if cmd.to_stderr:  # `done >&2`: the block's output goes to the error stream
+                data = _to_stderr(cmd, data, ctx, index, total)
             continue
         stdin_text = to_text(data)
         try:
@@ -238,6 +240,8 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> Pipe
         status = data.status if isinstance(data, WithStatus) else 0
         if isinstance(data, WithStatus):
             data = data.value
+        if cmd.to_stderr:
+            data = _to_stderr(cmd, data, ctx, index, total)
 
     if pipeline.redirect:
         # The tokenizer already expanded an unquoted `~`; a quoted one stays literal, as in bash.
@@ -254,6 +258,51 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> Pipe
             raise PipelineError(total, total, pipeline.redirect.path, f"cannot write file: {detail}") from exc
         return PipelineResult(output=None, redirected_to=target.resolve(), status=status)
     return PipelineResult(output=data, status=status)
+
+
+def write_stderr(ctx: ShellContext, text: str) -> None:
+    """Text for the error stream: the innermost sink a function call or block pushed (its
+    `2> file` / `2>&1`), else the REPL's error printer, else the process's stderr (MCP, tests)."""
+    if not text:
+        return
+    if not text.endswith("\n"):
+        text += "\n"
+    if ctx.stderr_sinks:
+        ctx.stderr_sinks[-1](text)
+    elif ctx.emit_stderr is not None:
+        ctx.emit_stderr(text)
+    else:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+
+
+def stderr_file_sink(redirect: Any) -> Callable[[str], None]:
+    """A sink writing to a `2> file` / `2>> file` target. The file is created (or emptied) now, as
+    a shell does at the redirection, and appended to by each write."""
+    with open(redirect.path, "a" if redirect.append else "w", encoding="utf-8", newline=""):
+        pass
+
+    def write(text: str) -> None:
+        with open(redirect.path, "a", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    return write
+
+
+def _to_stderr(cmd: Command, data: Any, ctx: ShellContext, index: int, total: int) -> Any:
+    """`>&2`: the segment's output goes to the error stream (its own `2> file` if it has one;
+    with `2>&1` too it stays output). The next segment gets nothing; the status is unchanged."""
+    if cmd.merge_stderr:
+        return data
+    text = to_text(data)
+    if cmd.stderr is not None:
+        try:
+            with open(cmd.stderr.path, "a" if cmd.stderr.append else "w", encoding="utf-8", newline="") as fh:
+                fh.write(text if not text or text.endswith("\n") else text + "\n")
+        except OSError as exc:
+            raise PipelineError(index, total, cmd.stderr.path, f"cannot write file: {exc.strerror or exc}") from exc
+    else:
+        write_stderr(ctx, text)
+    return ""
 
 
 def _failed(cmd: Command, error: PipelineError, index: int, total: int) -> tuple[Any, int]:
@@ -304,7 +353,7 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
         from core import script
 
-        return script.call_function(ctx.functions[cmd.name], cmd.args, stdin, ctx)
+        return script.call_function(ctx.functions[cmd.name], cmd.args, stdin, ctx, cmd)
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
         if ((builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes)

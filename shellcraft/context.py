@@ -57,6 +57,11 @@ class ShellContext:
     # collected and returned as one text.
     emit: Callable[[Any], None] | None = None
     emit_error: Callable[[Exception, str], None] | None = None
+    # The error stream (`echo oops >&2`): the innermost entry of `stderr_sinks` (a function call or
+    # a block with `2> file` / `2>&1` pushes one), else `emit_stderr` (the REPL prints it in the
+    # error style), else the process's stderr (pipeline.write_stderr).
+    emit_stderr: Callable[[str], None] | None = None
+    stderr_sinks: list[Callable[[str], None]] = field(default_factory=list)
 
 
 @dataclass

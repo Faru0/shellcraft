@@ -3,8 +3,9 @@
 Grammar:  segment ( '|' segment )* with redirections anywhere after a segment's command word:
           '>' FILE, '>>' FILE (the pipeline's output), '<' FILE (the first command's input),
           '2>' FILE, '2>>' FILE (a failing command's error message), '2>&1' (the error message
-          becomes the command's output), '&>' FILE (output and errors).
-A lone `&` (background jobs) and `>&` are rejected with a ParseError instead of being passed on
+          becomes the command's output), '&>' FILE (output and errors), '>&2' / '1>&2' (the
+          command's output goes to the error stream: `echo "bad input" >&2`).
+A lone `&` (background jobs) and other `>&` forms are rejected with a ParseError instead of being passed on
 as arguments: `rm a & ls` must never mean `rm a '&' ls`. `;`, `&&` and `||` are split by
 shellcraft/script.py before a pipeline gets here, and are rejected here too.
 Quotes: '...' is literal, "..." allows \\" for a quote. Backslashes are otherwise
@@ -30,9 +31,10 @@ from shellcraft import arith
 
 # Longest first. The `2>` forms and a lone `&` only count at the start of a word, as in POSIX
 # shells, so `a2>b` is `a2 > b` and a URL's `?a=1&b=2` stays one word.
-OPERATORS = ("2>&1", "2>>", "2>", "&>", "|", ">>", ">", "<")
+OPERATORS = ("2>&1", "1>&2", ">&2", "2>>", "2>", "&>", "|", ">>", ">", "<")
 UNSUPPORTED = (">&", "&&", "||", ";", "&")
-_WORD_START_ONLY = ("2>&1", "2>>", "2>", "&")
+_WORD_START_ONLY = ("2>&1", "1>&2", "2>>", "2>", "&")
+TO_STDERR = (">&2", "1>&2")
 _VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -57,6 +59,7 @@ class Command:
     stderr: Redirect | None = None  # `2> file`: where a failure's message goes
     merge_stderr: bool = False  # `2>&1`: a failure's message becomes the command's output
     bypass: bool = False  # typed as `\name`: no alias and no shell function, the command itself
+    to_stderr: bool = False  # `>&2`: what the command prints goes to the error stream
 
 
 @dataclass
@@ -143,7 +146,8 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             i += 2
             continue
         if bad and (op is None or len(bad) >= len(op)):
-            what = "background jobs are not supported; " if bad == "&" else ""
+            what = {"&": "background jobs are not supported; ",
+                    ">&": "only >&2, 1>&2 and 2>&1 are; "}.get(bad, "")
             raise ParseError(f"'{bad}' is not supported yet ({what}quote it to pass it as text)", i)
         if op:
             tokens.append(Token(op, i, op=True))
@@ -293,30 +297,34 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
     redirect: Redirect | None = None
     stdin_path: str | None = None
     stderr: Redirect | None = None
-    merge_stderr = False
+    merge_stderr = to_stderr = False
     leading = allow_leading_pipe
     i = 0
 
     def close_segment(pos: int) -> None:
-        nonlocal current, stderr, merge_stderr
+        nonlocal current, stderr, merge_stderr, to_stderr
         if not current:
             raise ParseError("empty pipeline segment before '|'", pos)
-        segments.append(Command(current[0].value, [t.value for t in current[1:]], stderr, merge_stderr))
-        current, stderr, merge_stderr = [], None, False
+        segments.append(Command(current[0].value, [t.value for t in current[1:]], stderr, merge_stderr,
+                                to_stderr=to_stderr))
+        current, stderr, merge_stderr, to_stderr = [], None, False, False
 
     while i < len(tokens):
         tok = tokens[i]
         if tok.op and tok.value == "|":
             if leading and not current and not segments:
-                segments.append(Command("", [], stderr, merge_stderr))
-                stderr, merge_stderr = None, False
+                segments.append(Command("", [], stderr, merge_stderr, to_stderr=to_stderr))
+                stderr, merge_stderr, to_stderr = None, False, False
             else:
                 close_segment(tok.pos)
             leading = False
-        elif tok.op and tok.value == "2>&1":
+        elif tok.op and tok.value in ("2>&1", *TO_STDERR):
             if not current and not (leading and not segments):
-                raise ParseError("missing command before '2>&1'", tok.pos)
-            merge_stderr = True
+                raise ParseError(f"missing command before '{tok.value}'", tok.pos)
+            if tok.value == "2>&1":
+                merge_stderr = True
+            else:
+                to_stderr = True
         elif tok.op:  # > >> < 2> 2>> &>
             if not current and not (leading and not segments):
                 raise ParseError(f"missing command before '{tok.value}'", tok.pos)
@@ -345,8 +353,10 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
         i += 1
 
     if not current:
-        if leading and not segments and (redirect is not None or stdin_path is not None):
-            segments.append(Command("", [], stderr, merge_stderr))  # `} > out`: only a redirect
+        if leading and not segments and (redirect is not None or stdin_path is not None or stderr is not None
+                                         or merge_stderr or to_stderr):
+            # `} > out`, `done 2> err.txt`, `done >&2`: only a redirection of the block
+            segments.append(Command("", [], stderr, merge_stderr, to_stderr=to_stderr))
         elif tokens[-1].op and tokens[-1].value == "|":
             raise ParseError("pipeline ends with '|'", tokens[-1].pos)
         elif not segments:

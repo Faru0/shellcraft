@@ -969,15 +969,17 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
     from shellcraft.parser import ParseError
     from shellcraft.pipeline import PipelineError, run_line
 
+    errors: list[str] = []  # its `>&2` output: part of the job's output, never over the prompt
     background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
-                                     emit=None, emit_error=None, jobs=None)
+                                     emit=None, emit_error=None, jobs=None, emit_stderr=None,
+                                     stderr_sinks=[errors.append])
 
     def run() -> tuple[int, str]:
         try:
             result = run_line(line, background)
         except (ParseError, PipelineError) as exc:
-            return getattr(exc, "status", 1) or 1, f"✗ {exc}\n"
-        return background.last_status, to_text(result.output) if result is not None else ""
+            return getattr(exc, "status", 1) or 1, "".join(errors) + f"✗ {exc}\n"
+        return background.last_status, (to_text(result.output) if result is not None else "") + "".join(errors)
 
     job = table.start_command(line, run)
     return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
