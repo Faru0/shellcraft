@@ -124,6 +124,7 @@ On a narrow terminal (under 80 columns) the table becomes plain `name — summar
 """
 
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
+SCRIPT_HINT = "⚠ needs run() to work properly! see templates/README.md"  # a module file without run()
 KEYWORDS_HELP = ("for", "if", "while", "until", "case")
 
 
@@ -135,10 +136,15 @@ def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
                            and n not in KEYWORDS_HELP):
             b = BUILTINS[name]
             rows.append((label, name, b.summary, b.usage))
+    from core.loader import is_script
+
     for name in ctx.registry.names():
         spec = ctx.registry.get(name)
         usage = (spec.skill.usage if spec.skill and spec.skill.usage else "") if spec else ""
-        rows.append(("Modules", name, spec.summary if spec else "", usage))
+        summary = spec.summary if spec else ""
+        if spec is not None and is_script(spec.path):
+            summary = (summary + " " if summary else "") + SCRIPT_HINT
+        rows.append(("Modules", name, summary, usage))
     return rows
 
 

@@ -128,7 +128,7 @@ In a running shell, type `reload` to pick up a new module without restarting.
 | --- | --- |
 | `name.py` | Always a command: listed by `help`, Tab-completed, usable in pipelines. |
 | `name.py` with `def run(args, stdin)` | Imported, and `run()` is called (the rules below). |
-| `name.py` without `run()` | A plain Python script: run as `python name.py ARGS` with stdin piped in and stdout as the output, never imported. Its docstring's first line is the `help` summary; a nonzero exit is the error. |
+| `name.py` without `run()` | A plain Python script: run as `python name.py ARGS` with stdin piped in and stdout as the output, never imported. Its docstring's first line is the `help` summary, followed by "⚠ needs run() to work properly! see templates/README.md" as a reminder to convert it (`ingest name.py` does it); a nonzero exit is the error. |
 | `name.skill` | Makes it an **MCP tool** for AI clients. Without it the command is local to the shell. |
 | `name.md` | Gives it a **man page**. Without it `man name` says there is none. |
 | `_name.py` | A **helper**: never a command. Modules and scripts import it with `import _name` (or `from . import _name` inside a module). |

@@ -88,3 +88,19 @@ def test_every_py_is_a_command_skill_makes_a_tool_md_makes_a_man_page(tmp_path):
         with pytest.raises(Exception, match="no good"):
             registry.get("fails").run([], "")
 
+
+
+def test_help_flags_module_files_without_run(tmp_path):
+    from core.builtins import SCRIPT_HINT
+    from core.context import ShellContext, to_text
+    from core.loader import ModuleRegistry
+    from core.pipeline import run_line
+
+    (tmp_path / "plain.py").write_text('"""Print hi."""\nprint("hi")\n')
+    (tmp_path / "proper.py").write_text('"""Proper."""\ndef run(args, stdin):\n    return "ok"\n')
+    registry = ModuleRegistry(tmp_path)
+    registry.load()
+    text = to_text(run_line("help", ShellContext(registry=registry)).output)
+    plain = next(line for line in text.splitlines() if line.startswith("plain"))
+    proper = next(line for line in text.splitlines() if line.startswith("proper"))
+    assert "Print hi." in plain and SCRIPT_HINT in plain and SCRIPT_HINT not in proper
