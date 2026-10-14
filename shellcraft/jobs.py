@@ -81,6 +81,7 @@ class Job:
         # command jobs
         self.thread: threading.Thread | None = None
         self.process: Any = None  # a hidden program (start_hidden): subprocess.Popen
+        self.stop: Any = None  # a background command's stop flag (streams.StopFlag), set by kill()
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -586,10 +587,16 @@ class JobTable:
             before_start(job)
 
         def target() -> None:
+            from shellcraft.streams import Cancelled
+
             try:
                 status, text = run()
+            except Cancelled:  # stopped (jobs -k): kill() has reported it; end quietly
+                return
             except Exception as exc:  # noqa: BLE001 — a bug in the command is the job's failure
                 status, text = 1, f"✗ {type(exc).__name__}: {exc}\n"
+            if job.killed:
+                return  # kill() already reported it; whatever the stopped pipeline returned is dropped
             if text:
                 job.append(text.encode("utf-8", errors="replace"))
             self._done(job, status)
@@ -602,8 +609,9 @@ class JobTable:
     # ── stopping ─────────────────────────────────────────────────────────────
 
     def kill(self, job: Job) -> bool:
-        """Stop a running program job (SIGHUP, then SIGKILL; terminate on Windows). A command
-        job's thread cannot be stopped; it is marked killed. Returns whether it was running."""
+        """Stop a running job: a program with SIGHUP then SIGKILL (terminate on Windows); a command
+        through its stop flag, which stops every pipeline it runs (producers, `tail -f`, `sleep`,
+        OS programs, modules checking modkit.cancelled()). Returns whether it was running."""
         if not job.running:
             return False
         job.killed = True
@@ -639,7 +647,11 @@ class JobTable:
                             return True
                         time.sleep(0.05)
                 return True
+        if job.stop is not None:
+            job.stop.set()
         self._done(job, 130)
+        if job.thread is not None:
+            job.thread.join(2)  # give its pipelines a moment to wind down
         return True
 
     def cleanup(self) -> list[Job]:

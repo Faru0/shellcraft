@@ -555,3 +555,36 @@ def test_panel_x_stops_the_chosen_subshell(repl_shell, monkeypatch):
     stop.handler(None)
     assert ran == [f"jobs -k {job.number}"]
     assert "x stops" in "".join(f[1] for f in sh._toolbar())
+
+
+def _job_threads(job):
+    """The threads still working for a job: its worker and the pipeline segments it started."""
+    return [t for t in threading.enumerate()
+            if t.is_alive() and (t is job.thread or t.name.startswith("shellcraft:") and not t.name.startswith("shellcraft:job"))]
+
+
+@pytest.mark.parametrize("line", ["yes", "yes | cat", "sleep 60", "for i in 1 2 3; do sleep 60; done"])
+def test_jobs_kill_stops_a_background_commands_threads(ictx, line):
+    """`jobs -k N` stops the command for real: its worker thread ends, and so do the pipeline
+    segments it started (an endless producer, sleep, every statement of a loop)."""
+    before = {t for t in threading.enumerate()}
+    run_line(f"{line} &", ictx)  # a pipeline or a loop goes to the background with a trailing &
+    job = ictx.jobs.get(1)
+    time.sleep(0.3)
+    assert job.running and job.thread.is_alive()
+    assert "stopped" in to_text(run_line("jobs -k 1", ictx).output)
+    assert _wait(lambda: not job.thread.is_alive(), 3)
+    assert _wait(lambda: not [t for t in threading.enumerate() if t not in before and t.is_alive()
+                              and t.name.startswith("shellcraft:")], 3)
+    assert job.label == "killed" and ictx.jobs.pop_notifications().count(f"[1] killed: {line}") == 1
+
+
+@posix_only
+def test_jobs_kill_stops_a_quiet_os_program_in_a_background_pipeline(ictx):
+    ictx.allow_system = True
+    run_line("/bin/sleep 60 | cat &", ictx)  # the OS program, quiet: only the watcher can stop it
+    job = ictx.jobs.get(1)
+    time.sleep(0.3)
+    assert job.kind == "command" and job.running
+    run_line("jobs -k 1", ictx)
+    assert _wait(lambda: not job.thread.is_alive(), 3)

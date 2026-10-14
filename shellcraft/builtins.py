@@ -552,7 +552,8 @@ An `&` anywhere else is still an error.
   type goes to it, what it prints you see. Press **Ctrl-]** to detach (or **Ctrl-] 0**): the
   program keeps running in the background, and `jobs N`, **Ctrl-] N** or a click on its tab
   attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-] N** inside
-  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program, and **Ctrl-] x** ends the program you are in and returns to the prompt.
+  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program, and
+  **Ctrl-] x** ends the program you are in and returns to the prompt.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
@@ -1097,9 +1098,12 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
             holder[0].append(item_text(item).encode("utf-8", errors="replace"))
 
     errors: list[str] = []  # its `>&2` output: part of the job's output, never over the prompt
+    from shellcraft.streams import StopFlag
+
+    stop = StopFlag()  # `jobs -k` sets it: every pipeline the job runs stops
     background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
                                      emit=None, emit_error=None, jobs=None, emit_stderr=None,
-                                     stderr_sinks=[errors.append], live=record)
+                                     stderr_sinks=[errors.append], live=record, stop=stop)
 
     def run() -> tuple[int, str]:
         try:
@@ -1108,7 +1112,11 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
             return getattr(exc, "status", 1) or 1, "".join(errors) + f"✗ {exc}\n"
         return background.last_status, (to_text(result.output) if result is not None else "") + "".join(errors)
 
-    job = table.start_command(line, run, before_start=holder.append)
+    def started(job: Any) -> None:
+        holder.append(job)
+        job.stop = stop
+
+    job = table.start_command(line, run, before_start=started)
     return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
                          (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
                           "sc.muted"))
@@ -1627,7 +1635,9 @@ Inside the body:
 | --- | --- |
 | `$1` … `$9` | The arguments (empty when not given). |
 | `$#` | How many arguments. |
-| `$@`, `$*` | All the arguments, separated by spaces. |
+| `$@`, `$*` | All the arguments. Quoted, `"$@"` is one word per argument; `"$*"` is one word. |
+| `shift [N]` | Drop the first N arguments (default 1): `$2` becomes `$1`. |
+| `${1:-word}`, `${NAME-word}` | A default: `word` when the variable is unset (`-`) or unset or empty (`:-`). |
 | `local NAME[=VALUE]` | A variable of this call only: its old value comes back when the function returns. |
 | `return [N]` | Leave the function with status N (default: the last command's status). |
 

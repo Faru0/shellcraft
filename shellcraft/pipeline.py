@@ -77,6 +77,10 @@ class Variables(Mapping[str, str]):
             return os.environ[name]
         raise KeyError(name)
 
+    def arguments(self) -> list[str] | None:
+        """Inside a shell function, its arguments (for "$@"); None outside one."""
+        return list(self.ctx.positional[-1]) if self.ctx.positional else None
+
     def __contains__(self, name: object) -> bool:
         try:
             self[name]  # type: ignore[index]
@@ -266,7 +270,7 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: b
 def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ctx: ShellContext,
                   sink: Any) -> tuple[Any, int]:
     """Start every segment, wire them with channels, and gather the last one's output."""
-    cancel = threading.Event()
+    cancel = streams.StopFlag(ctx.stop)  # a child of a background job's flag: `jobs -k` stops it too
     upstream: Any = data
     try:
         for index, cmd in segments[:-1]:
@@ -534,7 +538,8 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
 
 # Shell functions take precedence over builtins, modules and programs, as in bash, except for
 # these, which keep the shell in charge of itself (the "special builtins" that matter here).
-SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias"})
+SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias",
+                              "shift"})
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
@@ -676,6 +681,17 @@ def _system_lines(argv: list[str], stdin: Any) -> Any:
                 pass
 
     threading.Thread(target=feed, daemon=True, name=f"shellcraft:{argv[0]}-stdin").start()
+
+    def watch() -> None:  # a quiet program (`tail -f` waiting) can't notice the stop: kill it
+        while proc.poll() is None:
+            if cancel is not None and cancel.wait(0.2):
+                if proc.poll() is None:
+                    proc.kill()
+                return
+            if cancel is None:
+                return
+
+    threading.Thread(target=watch, daemon=True, name=f"shellcraft:{argv[0]}-watch").start()
     assert proc.stdout is not None
     try:
         for raw in proc.stdout:

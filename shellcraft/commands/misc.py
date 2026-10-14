@@ -526,7 +526,9 @@ def sleep(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if not match:
         raise ModuleError(f"sleep: invalid time '{args[0]}' (e.g. 2, 0.5, 3s, 1m)")
     seconds = float(match.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[match.group(2)]
-    time.sleep(seconds)
+    from shellcraft import streams
+
+    streams.wait(seconds)  # wakes (Cancelled) when its pipeline or background job is stopped
     return ""
 
 
@@ -716,6 +718,33 @@ def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     else:
         text = "".join(ctx.functions[n].text.rstrip() + "\n" for n in names if n in ctx.functions)
     return WithStatus(text, 1) if missing else text
+
+
+@builtin("shift", "Drop a shell function's first arguments", "shift [N]", category="shell", stateful=True,
+         doc="""\
+# shift
+
+Inside a shell function, drop the first N arguments (default 1): `$2` becomes `$1`, and `$#`, `$@`
+and `$*` follow. With fewer than N arguments nothing changes and the status is 1, as in bash.
+
+```
+each() { while [ $# -gt 0 ]; do echo "arg: $1"; shift; done; }
+each a "b c" d
+```
+
+Outside a function `shift` is an error. See `man function`.
+""")
+def shift(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not ctx.positional:
+        raise CommandError("shift: can only be used in a function")
+    if len(args) > 1 or (args and not args[0].isdigit()):
+        raise CommandError("shift: usage: shift [N]")
+    count = int(args[0]) if args else 1
+    current = ctx.positional[-1]
+    if count > len(current):
+        return WithStatus("", 1)
+    del current[:count]
+    return ""
 
 
 @builtin("local", "Declare a variable local to a shell function", "local NAME[=VALUE]...", category="shell",

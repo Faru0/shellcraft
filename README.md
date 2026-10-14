@@ -186,6 +186,14 @@ a builtin or module of the same name (not over `exit`, `export`, `unset`, `sourc
 shell builtins), and `\name` runs the command itself. Functions last for the session (put them in
 `~/.shellcraft/rc` to keep them) and are never available to AI clients over MCP. `man function`.
 
+
+Inside a function, `"$@"` keeps each argument its own word, `shift` drops the first one, and
+`${1:-default}` gives a default when an argument is missing:
+
+```
+each() { while [ $# -gt 0 ]; do echo "arg: $1"; shift; done; }
+greet() { echo "hello ${1:-stranger}"; }
+```
 ### Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

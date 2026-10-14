@@ -56,8 +56,17 @@ and the project uses [semantic versioning](https://semver.org/).
   background `sub` job keeps it in the job's output. Without a screen (MCP) it goes to the
   process's stderr. Other `>&` forms are still rejected, with a message saying which work.
 
+- **`"$@"`, `shift` and default values in functions:** a quoted `"$@"` gives one word per argument
+  (prefix and suffix join the first and last; no arguments, no word), in commands and `for` lists;
+  `shift [N]` drops arguments (status 1 past the end); `${NAME:-word}` and `${NAME-word}` give a
+  default, everywhere variables expand.
+
 ### Changed
 
+- **`jobs -k` stops a background command for real:** each background command job has a stop flag
+  that every pipeline it runs inherits, so endless producers, `tail -f`, `sleep`, loops, modules
+  checking `modkit.cancelled()` and quiet OS programs (killed by a watcher) all stop, and its
+  threads end; before, it was only marked killed and kept running until the shell exited.
 - One cancellation mechanism: a pipeline segment's stop flag is also `modkit`'s cancel event, so a
   module checking `modkit.cancelled()` stops when `head` has its lines or on Ctrl-C.
 

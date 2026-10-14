@@ -1026,6 +1026,15 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
                 if word.startswith('\\"', i):
                     add('"', True)
                     i += 2
+                elif word[i] == "$" and (at := shparser.quoted_arguments(word, i, variables)) is not None:
+                    args, i = at  # "$@": one field per argument
+                    if not args and not fields[-1][0]:
+                        fields[-1] = (fields[-1][0], False)  # no arguments: no field, unless other text joins it
+                    for k, arg in enumerate(args):
+                        if k:
+                            new_field()
+                            fields[-1] = (fields[-1][0], True)
+                        add(arg, True)
                 elif word[i] == "$" and (var := expansion(i)) is not None:
                     add(var[0], True)
                     i = var[1]

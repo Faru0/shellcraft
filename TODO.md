@@ -58,15 +58,11 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Shell features
 
-- [ ] **Stopping a background command for real**: `jobs -k N` marks a command job killed, but its
-  thread (a `tail -f` in it, say) keeps running until the shell exits. Hand each background
-  pipeline its `shellcraft.streams` cancel event so `jobs -k` stops it. — `shellcraft/jobs.py`, `shellcraft/pipeline.py`
 - [ ] **Background startup scripts on Windows**: without `pywinpty` they run as hidden processes
   (output in the job log, `jobs -f N` follows it); with it, as subshells. Untested there.
   — `shellcraft/startup.py`, `shellcraft/jobs.py`
 - [ ] **Shell grammar**: `%VAR%`, `<` / `>` string comparisons inside `[[ ]]`. More Python in the
-  rc file beyond `input()` / `int(input())` if wanted. Functions: `"$@"` stays one word when quoted
-  (bash keeps each argument separate), `${1:-default}`, `shift`.
+  rc file beyond `input()` / `int(input())` if wanted.
 - [ ] **A `diag` builtin**: the `--diag` report on demand, after resizing the window.
 
 ## P2 — Ideas

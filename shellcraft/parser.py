@@ -76,6 +76,36 @@ class Pipeline:
     extra: list[Token] = field(default_factory=list)  # unused; kept for compatibility
 
 
+_DEFAULT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?])(:?)-(.*)", re.S)
+
+
+def _expand_simple(word: str, variables: Mapping[str, str]) -> str:
+    """The default word of ${NAME:-word}: its own `$x` / `${x}` expand, the rest is literal."""
+    out, i = [], 0
+    while i < len(word):
+        if word[i] == "$" and (var := expand_variable(word, i, variables)) is not None:
+            out.append(var[0])
+            i = var[1]
+        else:
+            out.append(word[i])
+            i += 1
+    return "".join(out)
+
+
+def quoted_arguments(line: str, i: int, variables: Mapping[str, str] | None) -> tuple[list[str], int] | None:
+    """At `$@` / `${@}` inside double quotes, in a shell function: (its arguments, index after),
+    so that "$@" becomes one word per argument as in bash. None elsewhere."""
+    if line.startswith("$@", i):
+        end = i + 2
+    elif line.startswith("${@}", i):
+        end = i + 4
+    else:
+        return None
+    arguments = getattr(variables, "arguments", None)
+    args = arguments() if callable(arguments) else None
+    return None if args is None else (list(args), end)
+
+
 def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> tuple[str, int] | None:
     """At a `$` (line[i]): (value, index after the reference) for a defined variable, else None."""
     if not variables or i + 1 >= len(line):
@@ -90,6 +120,12 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
         if close == -1:
             return None
         name, end = line[i + 2:close], close + 1
+        fallback = _DEFAULT.fullmatch(name)
+        if fallback:  # ${NAME:-word} (unset or empty) / ${NAME-word} (unset): the word instead
+            name, colon, word = fallback.group(1), fallback.group(2), fallback.group(3)
+            if name in variables and not (colon and variables[name] == ""):
+                return variables[name], end
+            return _expand_simple(word, variables), end
     else:
         match = _VAR_NAME.match(line, i + 1)
         if not match:
@@ -156,7 +192,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
 
         start = i
         buf: list[str] = []
-        quoted = expanded = False
+        quoted = expanded = no_arguments = False
         globbable: list[bool] = []  # per character: may it be a glob character (unquoted)?
 
         def expansion(at: int) -> tuple[str, int] | None:
@@ -215,6 +251,15 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                         continue
                     if line[end] == ch:
                         break
+                    if ch == '"' and line[end] == "$" and (at := quoted_arguments(line, end, variables)) is not None:
+                        args, end = at  # "$@": one word per argument; prefix / suffix join the first / last
+                        no_arguments = no_arguments or not args
+                        for k, arg in enumerate(args):
+                            if k:
+                                flush()
+                                quoted = True
+                            add(arg, False)
+                        continue
                     if ch == '"' and line[end] == "$" and (var := expansion(end)) is not None:
                         add(var[0], False)
                         end = var[1]
@@ -228,6 +273,8 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         word = "".join(buf)
         if expanded and not quoted and not word:
             continue  # an unquoted expansion that came to nothing is no argument at all
+        if no_arguments and not word:
+            continue  # "$@" with no arguments is no word at all, as in bash
         if not quoted and word.startswith("~"):
             expanded_word = expand_tilde(word)
             if expanded_word != word:

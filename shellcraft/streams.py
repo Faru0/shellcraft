@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import weakref
 from collections.abc import Iterator
 from typing import Any
 
@@ -44,6 +45,25 @@ class UpstreamFailed(BaseException):
     def __init__(self, error: Exception):
         super().__init__(str(error))
         self.error = error
+
+
+class StopFlag(threading.Event):
+    """A pipeline's stop flag that is also stopped by its parent's: a background job's flag is the
+    parent of every pipeline the job runs, so `jobs -k` stops all of them, while each pipeline's own
+    end (`head` has its lines) stops only that pipeline."""
+
+    def __init__(self, parent: threading.Event | None = None):
+        super().__init__()
+        self._children: weakref.WeakSet[StopFlag] = weakref.WeakSet()
+        if isinstance(parent, StopFlag):
+            parent._children.add(self)
+        if parent is not None and parent.is_set():
+            super().set()
+
+    def set(self) -> None:
+        super().set()
+        for child in list(self._children):
+            child.set()
 
 
 def current_cancel() -> threading.Event | None:

@@ -120,3 +120,37 @@ def test_not_over_mcp(ctx):
     ctx.functions["h"] = script.parse_script("h() { echo x; }").stmts[0]
     with pytest.raises(PipelineError, match="not available here"):
         run_line("h", ctx)
+
+
+# ── "$@", shift, ${NAME:-default} ────────────────────────────────────────────
+
+def test_quoted_at_keeps_each_argument_a_word(ctx):
+    run_line('count() { echo "$# args"; }', ctx)
+    run_line('fwd() { count "$@"; count $@; count "x$@y"; count "$*"; }', ctx)
+    assert out(ctx, 'fwd a "b c" d') == "3 args\n4 args\n3 args\n1 args\n"  # as bash
+    run_line('none() { count "$@"; count "pre$@"; }', ctx)
+    assert out(ctx, "none") == "0 args\n1 args\n"  # "$@" with no arguments is no word at all
+    run_line('loop() { for a in "$@"; do echo "[$a]"; done; }', ctx)
+    assert out(ctx, 'loop one "two words" three') == "[one]\n[two words]\n[three]\n"
+    assert out(ctx, "loop") == ""
+
+
+def test_shift(ctx):
+    run_line('each() { while [ $# -gt 0 ]; do echo "arg: $1"; shift; done; shift || echo "status $?"; }', ctx)
+    assert out(ctx, 'each a "b c"') == "arg: a\narg: b c\nstatus 1\n"
+    run_line('two() { shift 2; echo "$# left: $@"; }', ctx)
+    assert out(ctx, "two a b c d") == "2 left: c d\n"
+    with pytest.raises(PipelineError, match="only be used in a function"):
+        run_line("shift", ctx)
+    run_line('bad() { shift x; echo "after: $?"; }', ctx)  # inside a function: reported, and the call goes on
+    text = out(ctx, "bad")
+    assert "usage: shift [N]" in text and "after: 1" in text
+
+
+def test_default_values(ctx):
+    run_line('greet() { echo "hello ${1:-stranger}"; }', ctx)
+    assert out(ctx, "greet") == "hello stranger\n" and out(ctx, "greet Ada") == "hello Ada\n"
+    run_line('empty=""', ctx)
+    run_line("who=Grace", ctx)
+    assert out(ctx, 'echo "[${empty:-default}] [${empty-default}] [${nope-fall $who}] [${who:-x}]"') == \
+        "[default] [] [fall Grace] [Grace]\n"
