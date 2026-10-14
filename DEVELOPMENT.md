@@ -192,6 +192,29 @@ description)]` (`shellcraft/modkit.py`). The pieces:
 - **`--mcp-http`** runs uvicorn (an mcp dependency) in the same anyio task group as the watcher. `parse_http_address()` only accepts loopback addresses, and DNS-rebinding protection is always configured.
 - **`mcp start`** (`shellcraft/mcp_child.py`) runs `python -m shellcraft.cli --mcp-http` as a child process in its own process group (a new session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), so Ctrl-C at the prompt doesn't reach it. Its output goes to `~/.shellcraft/mcp-http.log`. `start()` hands the process to the shell as soon as it is spawned (`ctx.mcp_http`), before waiting for the port, so an interrupted start is still tracked; `Shell.close()` stops it.
 
+## Two copies: GitLab and GitHub
+
+ShellCraft lives in two repositories with the same code but separate histories (so the commit IDs
+differ):
+
+| Copy | Where | What is different |
+| --- | --- | --- |
+| GitLab (private) | `~/Documents/local/shellcraft` | **where commits are made** |
+| GitHub (public mirror) | `~/Downloads/togithub/shellcraft` | also carries `Install/` (the offline bundle) and the `findtime` module |
+
+A change is committed in the GitLab copy first, then carried over as a patch and pushed:
+
+```bash
+cd ~/Documents/local/shellcraft && git push origin main
+git format-patch -1 -o /tmp/sc-patch                    # -N for the last N commits
+cd ~/Downloads/togithub/shellcraft && git am /tmp/sc-patch/*.patch && pytest -q && git push origin main
+```
+
+Never commit the same change by hand in both copies; a commit made only in the GitHub copy
+(`Install/`, `findtime`) stays there. To compare the two trees:
+`diff <(git -C A ls-tree -r HEAD --name-only) <(git -C B ls-tree -r HEAD --name-only)`.
+`Install/` is meant to leave git for a GitHub Release asset (see TODO.md).
+
 ## Tests
 
 | File | Covers |

@@ -50,11 +50,11 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Robustness and packaging
 
-- [ ] **`findtime` on the GitHub copy fails `ingest check --strict`** (unknown options accepted, no
-  `[[tests]]`): finish it, or move it out of the bundled `modules/`.
-- [ ] **The two copies drift.** `Install/` (110 files, ~113 MB of history) exists only in the GitHub
-  copy; publish it as a GitHub Release asset or Git LFS, then `git rm --cached -r Install`. Make one
-  copy the only place commits are made (or use a true `git push --mirror`).
+- [ ] **Move `Install/` out of git** (the GitHub copy only: 110 files, ~113 MB of history, larger
+  with every refresh). Needs a decision and a tool this machine doesn't have yet (`gh`, or Git LFS):
+  publish the bundle as a GitHub Release asset (or `git lfs track "Install/**"`), then
+  `git rm --cached -r Install`, add `Install/` to `.gitignore`, and point `Install/README.md`'s
+  readers at the release. After that the two copies' trees are the same file for file.
 - [ ] **A release**: tag 0.3.0 on both remotes; the *Unreleased* section is a release's worth.
 
 ## P1 — Shell features
