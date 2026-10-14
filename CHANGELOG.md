@@ -61,6 +61,11 @@ and the project uses [semantic versioning](https://semver.org/).
   `shift [N]` drops arguments (status 1 past the end); `${NAME:-word}` and `${NAME-word}` give a
   default, everywhere variables expand.
 
+- **Comparisons inside `[[ ]]`:** `<`, `>`, `<=` and `>=` compare text order (bash's two, plus
+  Python's `<=` / `>=`), and Python's `in` / `not in` (contains) and `is` / `is not` (plain text
+  equality) work there too: `[[ err in $line && $a < $b ]]`. Outside `[[ ]]`, `<` and `>` are
+  still redirections.
+
 ### Changed
 
 - **`jobs -k` stops a background command for real:** each background command job has a stop flag

@@ -50,3 +50,30 @@ def test_splitter_and_tokenizer_keep_the_brackets_whole():
     assert [t.value for t in tokenize("[[ a || b ]]")] == ["[[", "a", "||", "b", "]]"]
     with pytest.raises(Exception, match="not supported"):
         tokenize("echo a && echo b")  # outside [[ ]] the shell splits on them first
+
+
+# ── text order and Python-style comparisons ──────────────────────────────────
+
+@pytest.mark.parametrize("test, expected", [
+    ("[[ apple < banana ]]", True), ("[[ banana < apple ]]", False),
+    ("[[ b > a ]]", True), ("[[ 10 < 9 ]]", True),  # text order, as in bash
+    ("[[ abc <= abc ]]", True), ("[[ abd >= abc ]]", True), ("[[ abc >= abd ]]", False),
+    ("[[ ell in hello ]]", True), ("[[ xyz in hello ]]", False),
+    ("[[ xyz not in hello ]]", True), ("[[ ell not in hello ]]", False),
+    ("[[ hello is hello ]]", True), ("[[ hello is not bye ]]", True), ("[[ h* is hello ]]", False),  # no patterns
+    ("[[ -n in ]]", True), ("[[ -n is ]]", True),  # a lone word after -n is still a string
+    ("[[ a < b && c in abc || x > z ]]", True), ("[[ ! ( a > b ) ]]", True),
+])
+def test_text_order_and_python_comparisons(ctx, test, expected):
+    run_line(test, ctx)
+    assert (ctx.last_status == 0) is expected
+
+
+def test_comparisons_in_if_and_loops_and_redirects_outside(ctx, tmp_path):
+    out = lambda line: to_text(run_line(line, ctx).output)  # noqa: E731
+    assert out('if [[ $USER_X < m ]]; then echo low; else echo high; fi'.replace("$USER_X", "alpha")) == "low\n"
+    assert out('for w in pear apple; do [[ $w < b ]] && echo "$w first"; done') == "apple first\n"
+    assert out('line="disk error"; [[ error in $line ]] && echo found') == "found\n"
+    run_line(f"echo kept > {tmp_path / 'r.txt'}", ctx)  # outside [[ ]], > is still a redirection
+    assert (tmp_path / "r.txt").read_text() == "kept\n"
+    assert tokenize("[[ a <= b ]]")[2].value == "<=" and not tokenize("[[ a <= b ]]")[2].op

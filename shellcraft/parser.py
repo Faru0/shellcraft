@@ -177,7 +177,12 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         # The longest operator wins: `&>` is a redirection, `&&` and a lone `&` are not supported.
         bad = next((o for o in UNSUPPORTED if line.startswith(o, i)), None)
         op = next((o for o in OPERATORS if line.startswith(o, i)), None)
-        if bad in ("&&", "||") and tokens and tokens[0].value == "[[" and not tokens[0].op:
+        in_test = bool(tokens) and tokens[0].value == "[[" and not tokens[0].op
+        if in_test and (cmp := next((c for c in ("<=", ">=", "<", ">") if line.startswith(c, i)), None)):
+            tokens.append(Token(cmp, i))  # inside `[[ … ]]`: a comparison, not a redirection
+            i += len(cmp)
+            continue
+        if bad in ("&&", "||") and in_test:
             tokens.append(Token(bad, i))  # inside `[[ … ]]`: the test's own and / or (shellcraft/commands/cond.py)
             i += 2
             continue

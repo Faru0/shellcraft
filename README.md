@@ -139,7 +139,8 @@ for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be 
 
 - Expansion inside these blocks is bash's: an unquoted `$x` or `$(…)` is split at whitespace
   (quote it: `"$x"`), and the `for` list gets brace expansion and globs.
-- Conditions are commands: `[ … ]`, `[[ … ]]` (with `==` patterns, `=~` regexes, and `&&`, `||`,
+- Conditions are commands: `[ … ]`, `[[ … ]]` (with `==` patterns, `=~` regexes, `<` / `>` / `<=` / `>=`
+  text order, Python's `in` / `not in` / `is` / `is not`, and `&&`, `||`,
   `!` and `( … )` inside: `[[ -f $f && ( $x == a || $x == b ) ]]`), `test`, `grep -q`,
   `true`/`false`. `!`, `&&` and `||` work anywhere. `man test` lists the tests.
 

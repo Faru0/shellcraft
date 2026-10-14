@@ -25,6 +25,10 @@ _UNARY = set(_FILE_TESTS) | set(_STRING_TESTS)
 _INT_OPS = {"-eq": int.__eq__, "-ne": int.__ne__, "-lt": int.__lt__, "-le": int.__le__,
             "-gt": int.__gt__, "-ge": int.__ge__}
 _STR_OPS = {"=", "==", "!="}
+# Only inside [[ ]]: text order as in bash (`<`, `>`) and Python (`<=`, `>=`), and Python's
+# `in` / `not in` (contains) and `is` / `is not` (equal / not equal, as plain text).
+_TEXT_ORDER = {"<": str.__lt__, ">": str.__gt__, "<=": str.__le__, ">=": str.__ge__}
+_WORD_OPS = {"in", "is"}
 
 
 class _Usage(Exception):
@@ -90,6 +94,15 @@ class _Evaluator:
                 raise _Usage("')' expected")
             return value
         op = self.peek()
+        if self.extended and op is not None:
+            two = f"{op} {self.peek(1)}" if self.peek(1) is not None else ""
+            if two in ("not in", "is not") and self.peek(2) is not None:
+                self.take()
+                self.take()
+                return self.binary(tok, two, self.take())
+            if (op in _TEXT_ORDER or op in _WORD_OPS) and self.peek(1) is not None:
+                self.take()
+                return self.binary(tok, op, self.take())
         if op in _STR_OPS or op in _INT_OPS or (self.extended and op == "=~"):
             self.take()
             return self.binary(tok, op, self.take())
@@ -113,6 +126,12 @@ class _Evaluator:
         if self.extended and op in ("==", "!="):
             match = fnmatch.fnmatchcase(left, right)
             return match if op == "==" else not match
+        if op in _TEXT_ORDER:
+            return _TEXT_ORDER[op](left, right)
+        if op in ("in", "not in"):
+            return (left in right) == (op == "in")
+        if op in ("is", "is not"):
+            return (left == right) == (op == "is")
         return (left == right) if op in ("=", "==") else (left != right)
 
 
@@ -152,6 +171,9 @@ test EXPRESSION
 | `-z S`, `-n S` | S is empty / not empty. `S` on its own is the same as `-n S`. |
 | `A = B`, `A == B`, `A != B` | The strings are equal / differ. In `[[ ]]`, B is a glob pattern: `[[ $f == *.log ]]`. |
 | `A =~ RE` | `[[ ]]` only: A matches the regular expression RE (Python syntax). |
+| `A < B`, `A > B`, `A <= B`, `A >= B` | `[[ ]]` only: A sorts before / after B as text (`[[ 10 < 9 ]]` is true: compare numbers with `-lt`, `-gt`…). |
+| `A in B`, `A not in B` | `[[ ]]` only, Python style: B contains / doesn't contain A (`[[ err in $line ]]`). |
+| `A is B`, `A is not B` | `[[ ]]` only, Python style: the same as `==` / `!=` without patterns: plain text equality. |
 | `A -eq B`, `-ne`, `-lt`, `-le`, `-gt`, `-ge` | Integer comparisons. |
 | `-e F`, `-f F`, `-d F`, `-s F` | F exists / is a file / is a directory / is a non-empty file. |
 | `-r F`, `-w F`, `-x F`, `-L F` | F is readable / writable / executable / a symbolic link. |

@@ -61,8 +61,7 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 - [ ] **Background startup scripts on Windows**: without `pywinpty` they run as hidden processes
   (output in the job log, `jobs -f N` follows it); with it, as subshells. Untested there.
   — `shellcraft/startup.py`, `shellcraft/jobs.py`
-- [ ] **Shell grammar**: `%VAR%`, `<` / `>` string comparisons inside `[[ ]]`. More Python in the
-  rc file beyond `input()` / `int(input())` if wanted.
+- [ ] **Shell grammar**: `%VAR%`. More Python in the rc file beyond `input()` / `int(input())` if wanted.
 - [ ] **A `diag` builtin**: the `--diag` report on demand, after resizing the window.
 
 ## P2 — Ideas
