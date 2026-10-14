@@ -126,7 +126,7 @@ On a narrow terminal (under 80 columns) the table becomes plain `name — summar
 
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
 SCRIPT_HINT = "⚠ needs run() to work properly! see templates/README.md"  # a module file without run()
-KEYWORDS_HELP = ("for", "if", "while", "until", "case", "function")
+KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 
 
 def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
@@ -1465,6 +1465,39 @@ countdown() { local n=$1; while [ $n -gt 0 ]; do echo $n; n=$((n - 1)); done; }
 countdown 3 | sort -n
 ```
 """
+
+SELECT_DOC = """# select
+
+A numbered menu, as in bash: pick a choice by number, the body runs with it, and the menu asks
+again until `break`.
+
+## Usage
+
+```
+select NAME in WORD...; do COMMANDS; done
+```
+
+The words are read like a `for` list (`$(…)`, `{a,b}`, globs). Each round, ShellCraft asks with
+`$PS3` (default `#? `); NAME is the chosen word, or empty when the answer is not one of the
+numbers, and `$REPLY` is exactly what was typed. An empty answer shows the menu again. `break`
+leaves the menu; Ctrl-D does too, and Ctrl-C leaves it with status 130.
+
+Only the interactive shell can ask, so `select` is refused over MCP and anywhere without a
+terminal. It works in functions and in `~/.shellcraft/rc`.
+
+## Example
+
+```
+PS3="Deploy which environment? "
+select env in dev staging prod; do
+  if [ -n "$env" ]; then echo "deploying to $env"; break; fi
+  echo "pick 1, 2 or 3 (you typed $REPLY)"
+done
+```
+"""
+
+builtin("select", "Ask the user to pick from a numbered menu", "select NAME in WORD...; do …; done",
+        doc=SELECT_DOC)(_keyword("select"))
 
 builtin("function", "Define a shell function: NAME() { …; }", "NAME() { COMMANDS; } | function NAME { COMMANDS; }",
         doc=FUNCTION_DOC)(_keyword("function"))

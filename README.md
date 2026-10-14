@@ -128,6 +128,7 @@ done
 
 n=0; while [ $n -lt 3 ]; do echo $n; n=$((n+1)); done     # while and until
 case $f in *.py) echo python;; *.md|*.txt) echo text;; *) echo other;; esac
+select env in dev staging prod; do echo "deploy to $env"; break; done   # a numbered menu ($PS3, $REPLY)
 for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be piped or redirected
 [ -f hosts.txt ] && echo found || echo missing
 ```

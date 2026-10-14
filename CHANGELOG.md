@@ -27,6 +27,10 @@ and Ctrl-C that reaches running modules.
   `.`, `local`, `declare`, `alias` and `unalias`; `\name` skips it. `declare -f` / `declare -F` list
   them, `unset -f` removes one, `type` and `which` report them; never available over MCP. `$1` and
   `$#` also work inside `$(( ))`, as do `$x` and `${x}`.
+- **`select` menus:** `select NAME in WORD...; do …; done` shows a numbered menu, asks with `$PS3`
+  (default `#? `), sets NAME to the chosen word (empty for an invalid answer) and `$REPLY` to what
+  was typed, and repeats until `break`, Ctrl-D or Ctrl-C (status 130). An empty answer shows the
+  menu again. Interactive shell only (`man select`).
 
 ### Added (robustness and packaging)
 

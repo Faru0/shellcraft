@@ -66,7 +66,7 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
   long-running scripts as `sub` jobs (a marker line, or a separate folder?); a dependency order
   beyond name order; per-script timeouts and arguments; whether a script may stop the shell from
   starting. Untested on Windows. — `shellcraft/startup.py`
-- [ ] **Shell grammar**: `select`, `&&` / `||` inside `[[ ]]`, `>&2`, `%VAR%`. More Python in the
+- [ ] **Shell grammar**: `&&` / `||` inside `[[ ]]`, `>&2`, `%VAR%`. More Python in the
   rc file beyond `input()` / `int(input())` if wanted. Functions: `"$@"` stays one word when quoted
   (bash keeps each argument separate), `${1:-default}`, `shift`.
 - [ ] **A `diag` builtin**: the `--diag` report on demand, after resizing the window.

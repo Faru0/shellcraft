@@ -40,7 +40,7 @@ from shellcraft.context import ShellContext, to_text
 from shellcraft.parser import ParseError, find_closing_paren
 
 KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
-            "case", "esac")
+            "case", "esac", "select")
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
@@ -125,6 +125,16 @@ class Jump:
 
 
 @dataclass
+class Select:
+    """`select NAME in WORD...; do LIST; done`: a numbered menu, read until `break`."""
+
+    var: str
+    items: list[Item]
+    body: list[Stmt]
+    pos: int
+
+
+@dataclass
 class Function:
     """`name() { LIST; }` or `function name { LIST; }`: defines a shell function when it runs."""
 
@@ -165,7 +175,7 @@ class Piped:
     mode: str = "sh"
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function]
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select]
 
 
 @dataclass
@@ -317,10 +327,12 @@ class _Parser:
     def _statement(self) -> Stmt:
         start = self.i
         word = self._bare_word(start)
-        if word in ("for", "if", "while", "until", "case"):
+        if word in ("for", "if", "while", "until", "case", "select"):
             stmt: Stmt
             if word == "for":
                 stmt = self._for()
+            elif word == "select":
+                stmt = self._select()
             elif word == "if":
                 stmt = self._if()
             elif word == "case":
@@ -389,6 +401,28 @@ class _Parser:
                 break
             self.i += 1
         return self.s[start:self.i].rstrip()
+
+    # select
+    def _select(self) -> Select:
+        """`select NAME in WORD...; do LIST; done`: the list is read like a bash `for` list."""
+        pos = self.i
+        self.i += len("select")
+        self._skip_space()
+        match = _NAME.match(self.s, self.i)
+        if not match:
+            if self._at_end():
+                raise self._incomplete("select: missing a variable name", " ")
+            raise self._error("select: expected a variable name (letters, digits and _)")
+        var = match.group()
+        self.i = match.end()
+        self._skip_space()
+        if self._at_end():
+            raise self._incomplete("select: missing 'in'", " ")
+        if self._bare_word(self.i) != "in":
+            raise self._error(f"select: give the choices: select {var} in WORD...; do …; done")
+        self.i += 2
+        loop = self._for_sh(var, pos)
+        return Select(var, loop.items, loop.body, pos)
 
     # functions
     def _function(self, keyword: bool) -> Function:
@@ -1342,6 +1376,8 @@ class _Runner:
                 self.run_piped(stmt)
             elif isinstance(stmt, Function):
                 self.define(stmt)
+            elif isinstance(stmt, Select):
+                self.run_select(stmt)
             elif stmt.kind == "break":
                 raise _Break
             elif stmt.kind == "return":
@@ -1481,6 +1517,53 @@ class _Runner:
                 else:
                     values.append(value)
         return values
+
+    def run_select(self, stmt: Select) -> None:
+        """Show the numbered choices, ask (`$PS3`, default `#? `), set NAME to the chosen word
+        (empty for an invalid answer) and `$REPLY` to what was typed, run the body; again until
+        `break`, Ctrl-D or Ctrl-C. An empty answer shows the menu again. Interactive only."""
+        from rich.text import Text
+
+        from core import ask
+        from core.pipeline import PipelineError
+
+        values = self.items(For(stmt.var, stmt.items, stmt.body, stmt.pos))
+        if not values:
+            self.ctx.last_status = 0
+            return
+        if not self.ctx.interactive or self.ctx.ui is None:
+            raise _Abort(PipelineError(1, 1, "select", "select needs the interactive shell (a terminal to ask on)"),
+                         "select")
+        prompt = self.vars.get("PS3") or self.ctx.variables.get("PS3") or "#? "
+        width = len(str(len(values)))
+        menu = Text("\n".join(f"{n:>{width}}) {value}" for n, value in enumerate(values, 1)))
+        show_menu = True
+        status = 0
+        while True:
+            if show_menu:
+                self.ctx.ui.console.print(menu, markup=False, highlight=False)
+                show_menu = False
+            try:
+                reply = ask.ask(self.ctx, prompt)
+            except ask.AskError as exc:
+                status = 130 if exc.status == 130 else status  # Ctrl-D ends it quietly, as in bash
+                break
+            self.vars["REPLY"] = reply
+            answer = reply.strip()
+            if not answer:
+                show_menu = True
+                continue
+            number = int(answer) if answer.isdigit() else 0
+            self.vars[stmt.var] = values[number - 1] if 1 <= number <= len(values) else ""
+            try:
+                self.run_list(stmt.body)
+            except _Break:
+                status = self.ctx.last_status
+                break
+            except _Continue:
+                pass
+            status = self.ctx.last_status
+        self.ctx.last_status = status
 
     def run_while(self, stmt: While) -> None:
         status = 0  # as in bash: the status of the last body command, or 0 when none ran
