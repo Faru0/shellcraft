@@ -207,6 +207,7 @@ class Shell:
         self._cleanup.callback(set_width_source, None)
         # A script (`for`, `if`, `a ; b`) prints each statement's output and errors as it runs.
         ctx.emit = lambda value: show(self.ui, value, pager=False)
+        ctx.live = self._print_live  # a pipeline's output that keeps coming (tail -f | grep), as it comes
         self.ui.mouse = settings.get(ctx.config, "mouse")
         self.ui.mouse_always = settings.get(ctx.config, "mouse_always")
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
@@ -252,6 +253,18 @@ class Shell:
         self.session.default_buffer.on_text_changed += lambda _buffer: self._update_toolbar()
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
+
+    def _print_live(self, item: Any) -> None:
+        """One streamed item of a running pipeline, printed at once (no pager: it is still coming)."""
+        from shellcraft.context import Styled
+
+        console = self.ui.console
+        if isinstance(item, Styled):
+            item = item.renderable
+        if isinstance(item, str):
+            item = Text.from_ansi(item[:-1] if item.endswith("\n") else item)
+        console.print(item, markup=False, highlight=False)
+        console.file.flush()
 
     def run_startup(self, only: str | None = None) -> list[Any]:
         """Run the startup scripts and print one line each (and their output, if any)."""

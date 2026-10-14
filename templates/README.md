@@ -146,7 +146,7 @@ Editing a helper reloads the modules that use it (hot reload). `modules` lists t
 2. **Entry point:** `def run(args: list[str], stdin: str) -> str`. (A converted script uses `@script` instead of rules 3–5.)
    - `args` are the words after the command name, already split and unquoted.
    - `stdin` is the previous pipeline stage's output (`""` if none).
-3. **Return your output; never `print()` it.** Printing bypasses pipes and redirects, and it corrupts the MCP stdio transport.
+3. **Return your output; never `print()` it.** Printing bypasses pipes and redirects, and it corrupts the MCP stdio transport. To stream, make `run()` a generator that `yield`s lines: they flow to the next command (and to the screen, if it keeps coming) as you yield them, and your generator is closed when the reader has had enough (`mymod | head -1`).
 4. **Never call `sys.exit()`.** Parse arguments with `shellcraft.modkit.ArgParser`, which is argparse but raises `ModuleError` instead of exiting.
 5. **Fail with `ModuleError("prog: clear one-line message")`.** Other exceptions still work, but they show up as `TypeError: …` noise.
 6. **Accept stdin and FILE arguments,** like Unix tools. Relative paths resolve against the shell's current directory.

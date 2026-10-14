@@ -85,7 +85,7 @@ history 20                                    # what you typed
 
 ### Pipes and redirection
 
-- `a | b | c` passes each command's output to the next command as input.
+- `a | b | c` passes each command's output to the next command as input. All of them run at once, and lines flow as they are made: `yes | head -3` stops `yes`, and `tail -f app.log | grep ERROR` prints each error the moment it is written (Ctrl-C stops it). A pipeline that finishes quickly looks as before, colors and pager included.
 - `> file` writes the final output to a file, and `>> file` appends to it.
 - Quote arguments that contain spaces or operators: `grep "a | b" notes.txt`. Backslashes are kept as typed, so Windows paths like `C:\data\log.txt` work.
 - If any command fails, the pipeline stops, an error panel names the failing step, and nothing is written to the redirect file.

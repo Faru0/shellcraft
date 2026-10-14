@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 from rich.text import Text
 
+from shellcraft import streams
 from shellcraft.builtins import builtin
 from shellcraft.commands._io import expand_count, joined, lines_out, linked, links_on, sources, user_path
 from shellcraft.context import Styled, WithStatus
@@ -81,6 +82,7 @@ def echo(ctx: ShellContext, args: list[str], stdin: str) -> str:
 # ── cat ──────────────────────────────────────────────────────────────────────
 
 @builtin("cat", "Concatenate files (or stdin) to the output", "cat [-n] [-s] [-A] [-E] [-T] [FILE...]", category="text",
+         streams=True,
          doc="""\
 # cat
 
@@ -105,7 +107,7 @@ cat -n script.py | grep def
 cat -A data.txt      # find stray tabs and Windows line endings
 ```
 """)
-def cat(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def cat(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
     parser = ArgParser("cat")
     parser.add_argument("-n", "--number", action="store_true")
     parser.add_argument("-s", "--squeeze-blank", action="store_true")
@@ -114,8 +116,11 @@ def cat(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser.add_argument("-T", "--show-tabs", action="store_true")
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args(args)
-    text = joined("cat", opts.files, stdin)
-    if not (opts.number or opts.squeeze_blank or opts.show_all or opts.show_ends or opts.show_tabs):
+    plain = not (opts.number or opts.squeeze_blank or opts.show_all or opts.show_ends or opts.show_tabs)
+    if plain and not opts.files:
+        return iter(streams.Lines.of(stdin))  # stdin passes through line by line, as it arrives
+    text = joined("cat", opts.files, streams.text(stdin))
+    if plain:
         return text
     lines = text.split("\n")
     if text.endswith("\n"):
@@ -163,7 +168,7 @@ def _grep_files(names: list[str], recursive: bool) -> list[str]:
 
 @builtin("grep", "Print lines matching a pattern",
          "grep [-i -v -c -n -F -l -L -q -w -x -o -r -h -H] [-m N] [-A N] [-B N] [-C N] [-e PAT]... PATTERN [FILE...]",
-         category="text", doc="""\
+         category="text", streams=True, doc="""\
 # grep
 
 Search stdin or FILEs for lines matching a Python regular expression. Matches are highlighted
@@ -212,7 +217,7 @@ grep -ow "[a-z]+@[a-z.]+" contacts.txt
 for f in *.py { if grep -q TODO $f { echo $f } }
 ```
 """)
-def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
+def grep(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
     parser = ArgParser("grep")
     parser.add_argument("-e", "--regexp", action="append", default=[], metavar="PAT")
     parser.add_argument("rest", nargs="*")
@@ -258,7 +263,10 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     regex = compile_pattern("grep", "|".join(f"(?:{p})" for p in parts) if len(parts) > 1 else parts[0],
                             opts.ignore_case)
 
-    inputs = sources("grep", _grep_files(files, opts.recursive), stdin)
+    if not files and not opts.recursive and not (opts.count or opts.files_with_matches or opts.files_without_match
+                                                  or context or opts.with_filename):
+        return _grep_lines(streams.Lines.of(stdin), regex, opts)  # stdin: matches flow on as they come
+    inputs = sources("grep", _grep_files(files, opts.recursive), streams.text(stdin))
     prefix_names = opts.with_filename or (len(inputs) > 1 and not opts.no_filename)
 
     plain: list[str] = []
@@ -333,6 +341,63 @@ def grep(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     return output if selected else WithStatus(output, 1)
 
 
+def _grep_lines(lines: Any, regex: re.Pattern, opts: Any) -> Any:
+    """grep over stdin as it arrives: one Styled item per output line; returns the status (0 when
+    something matched, 1 when nothing did), as grep does."""
+    if opts.max_count is not None and opts.max_count <= 0:
+        return 1
+    found = 0
+    for number, raw in enumerate(lines, start=1):
+        line = raw[:-1] if raw.endswith("\n") else raw
+        if line.endswith("\r"):
+            line = line[:-1]
+        if bool(regex.search(line)) == opts.invert_match:
+            continue
+        found += 1
+        if opts.quiet:
+            return 0
+        head = f"{number}:" if opts.line_number else ""
+        if opts.only_matching:
+            for match in regex.finditer(line):
+                if match.group():
+                    text = Text(head, style="sc.accent")
+                    text.append(match.group(), style="sc.match")
+                    yield Styled(text, head + match.group() + "\n")
+        else:
+            text = Text(head, style="sc.accent")
+            body = Text(line)
+            if not opts.invert_match:
+                body.highlight_regex(regex, style="sc.match")
+            text.append_text(body)
+            yield Styled(text, head + line + "\n")
+        if opts.max_count is not None and found >= opts.max_count:
+            break
+    return 0 if found else 1
+
+
+# ── yes ──────────────────────────────────────────────────────────────────────
+
+@builtin("yes", "Repeat a line until the reader stops", "yes [TEXT...]", category="text", doc="""\
+# yes
+
+Print `y` (or TEXT) on a line, again and again, until whatever reads it has had enough: `head`
+stops it, as does Ctrl-C at the prompt. Handy to feed a fixed answer, or to test a pipeline.
+
+## Examples
+
+```
+yes | head -3
+yes hello | head -n 2
+```
+""")
+def yes(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    line = (" ".join(args) if args else "y") + "\n"
+    batch = line * 64  # a few lines per item: fast, and still stops at once
+    while True:
+        streams.check()
+        yield batch
+
+
 # ── head / tail ──────────────────────────────────────────────────────────────
 
 def _head_tail(prog: str, opts, stdin: str, take_last: bool) -> str:
@@ -357,7 +422,8 @@ def _head_tail(prog: str, opts, stdin: str, take_last: bool) -> str:
     return lines_out(out)
 
 
-@builtin("head", "Output the first lines of input", "head [-n N | -N] [-c N] [FILE...]", category="text", doc="""\
+@builtin("head", "Output the first lines of input", "head [-n N | -N] [-c N] [FILE...]", category="text", streams=True,
+         doc="""\
 # head
 
 Print the first 10 lines of stdin or of each FILE.
@@ -375,16 +441,34 @@ cat app.log | head -3
 head -c 100 big.bin
 ```
 """)
-def head(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def head(ctx: ShellContext, args: list[str], stdin: Any) -> str:
     parser = ArgParser("head")
     parser.add_argument("-n", "--lines", type=int, default=10, metavar="N")
     parser.add_argument("-c", "--bytes", type=int, metavar="N")
     parser.add_argument("files", nargs="*")
-    return _head_tail("head", parser.parse_args(expand_count(args)), stdin, take_last=False)
+    opts = parser.parse_args(expand_count(args))
+    if opts.files or (opts.lines < 0) or (opts.bytes is not None and opts.bytes < 0):
+        return _head_tail("head", opts, streams.text(stdin), take_last=False)
+    # stdin: read only what is needed, then stop (the rest of the pipeline is told to stop too)
+    taken: list[str] = []
+    size = 0
+    if opts.bytes is not None:
+        for line in streams.Lines.of(stdin) if opts.bytes else ():
+            taken.append(line)
+            size += len(line.encode("utf-8", errors="replace"))
+            if size >= opts.bytes:
+                break
+        data = "".join(taken).encode("utf-8", errors="replace")[:opts.bytes]
+        return data.decode("utf-8", errors="ignore")
+    for line in streams.Lines.of(stdin) if opts.lines else ():
+        taken.append(line[:-1] if line.endswith("\n") else line)
+        if len(taken) >= opts.lines:
+            break
+    return lines_out(taken)
 
 
 @builtin("tail", "Output the last lines of input", "tail [-n N | -N] [-c N] [-f] [FILE...]", category="text",
-         direct=True, doc="""\
+         streams=True, doc="""\
 # tail
 
 Print the last 10 lines of stdin or of each FILE.
@@ -393,7 +477,7 @@ Print the last 10 lines of stdin or of each FILE.
 | --- | --- |
 | `-n N`, `--lines N` | Print the last N lines instead (`-N` is shorthand). |
 | `-c N`, `--bytes N` | Print the last N bytes instead. |
-| `-f`, `--follow` | Keep printing as FILE grows (one file, interactive shell only). Ctrl-C stops it. |
+| `-f`, `--follow` | Keep printing as FILE grows (one file, interactive shell only). Ctrl-C stops it. It can feed a pipeline: `tail -f app.log \\| grep ERROR` prints matches as they are written. |
 
 ## Examples
 
@@ -401,9 +485,10 @@ Print the last 10 lines of stdin or of each FILE.
 tail -n 20 app.log
 ls | sort | tail -1
 tail -f app.log
+tail -f app.log | grep -i error
 ```
 """)
-def tail(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def tail(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
     parser = ArgParser("tail")
     parser.add_argument("-n", "--lines", type=int, default=10, metavar="N")
     parser.add_argument("-c", "--bytes", type=int, metavar="N")
@@ -411,46 +496,47 @@ def tail(ctx: ShellContext, args: list[str], stdin: str) -> str:
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args(expand_count(args))
     if not opts.follow:
-        return _head_tail("tail", opts, stdin, take_last=True)
+        return _head_tail("tail", opts, streams.text(stdin), take_last=True)
     if len(opts.files) != 1 or opts.files[0] == "-":
         raise ModuleError("tail: -f follows exactly one FILE")
-    if not ctx.interactive or ctx.emit is None:
+    if not ctx.interactive and ctx.live is None:
         raise ModuleError("tail: -f only works in the interactive shell")
-    return _follow(ctx, opts, user_path(opts.files[0]))
-
-
-def _follow(ctx: ShellContext, opts, path: Path) -> str:
-    """`tail -f`: print the last lines, then whatever is appended, until Ctrl-C."""
-    import time
-
-    ctx.emit(_head_tail("tail", opts, "", take_last=True))
+    path = user_path(opts.files[0])
     try:
         position = path.stat().st_size
     except OSError as exc:
-        raise ModuleError(f"tail: {path}: {exc.strerror or exc}") from None
-    try:
-        while True:
-            time.sleep(0.5)
-            try:
-                size = path.stat().st_size
-            except OSError:
-                continue  # rotated away: wait for it to come back
-            if size < position:
-                position = 0  # truncated
-            if size > position:
-                with open(path, "rb") as fh:
-                    fh.seek(position)
-                    data = fh.read()
-                    position = fh.tell()
-                ctx.emit(data.decode("utf-8", errors="replace"))
-    except KeyboardInterrupt:
-        return ""
+        raise ModuleError(f"tail: {opts.files[0]}: {exc.strerror or exc}") from None
+    return _follow(opts, path, position)
+
+
+def _follow(opts: Any, path: Path, position: int) -> Any:
+    """`tail -f`: the last lines, then every complete line appended to the file, as it is
+    written, until the pipeline stops (Ctrl-C, or the reader finished)."""
+    initial = _head_tail("tail", opts, "", take_last=True)
+    yield from initial.splitlines(keepends=True)
+    pending = b""
+    while True:
+        streams.wait(0.25)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue  # rotated away: wait for it to come back
+        if size < position:
+            position = 0  # truncated
+        if size > position:
+            with open(path, "rb") as fh:
+                fh.seek(position)
+                pending += fh.read()
+                position = fh.tell()
+            *complete, pending = pending.split(b"\n")
+            for raw in complete:
+                yield raw.decode("utf-8", errors="replace") + "\n"
 
 
 # ── wc ───────────────────────────────────────────────────────────────────────
 
 @builtin("wc", "Count lines, words, bytes and characters", "wc [-l] [-w] [-c] [-m] [FILE...]", category="text",
-         doc="""\
+         streams=True, doc="""\
 # wc
 
 Count lines, words and bytes in stdin or each FILE. With no options, it prints all three.
@@ -471,7 +557,7 @@ ls | wc -l
 echo é | wc -m
 ```
 """)
-def wc(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def wc(ctx: ShellContext, args: list[str], stdin: Any) -> str:
     parser = ArgParser("wc")
     parser.add_argument("-l", "--lines", action="store_true")
     parser.add_argument("-w", "--words", action="store_true")
@@ -484,9 +570,21 @@ def wc(ctx: ShellContext, args: list[str], stdin: str) -> str:
         show = [True, True, True, False]
 
     rows: list[tuple[list[int], str]] = []
-    for name, text in sources("wc", opts.files, stdin):
-        counts = [text.count("\n") + (1 if text and not text.endswith("\n") else 0), len(text.split()),
-                  len(text.encode("utf-8", errors="replace")), len(text)]
+    if opts.files:
+        inputs = [(name, [text]) for name, text in sources("wc", opts.files, streams.text(stdin))]
+    else:
+        inputs = [("-", streams.Lines.of(stdin))]  # counted as it arrives, never held whole
+    for name, pieces in inputs:
+        counts = [0, 0, 0, 0]
+        last = ""
+        for piece in pieces:
+            counts[0] += piece.count("\n")
+            counts[1] += len(piece.split())
+            counts[2] += len(piece.encode("utf-8", errors="replace"))
+            counts[3] += len(piece)
+            last = piece or last
+        if last and not last.endswith("\n"):
+            counts[0] += 1
         rows.append(([c for c, s in zip(counts, show) if s], "" if name == "-" else name))
     if len(rows) > 1:
         rows.append(([sum(col) for col in zip(*(r[0] for r in rows))], "total"))
@@ -643,7 +741,8 @@ def uniq(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 # ── tee ──────────────────────────────────────────────────────────────────────
 
-@builtin("tee", "Copy stdin to files and to the output", "tee [-a] FILE...", category="text", writes=True, doc="""\
+@builtin("tee", "Copy stdin to files and to the output", "tee [-a] FILE...", category="text", writes=True,
+         streams=True, doc="""\
 # tee
 
 Write stdin to each FILE *and* pass it on unchanged, so you can save an intermediate result in
@@ -660,19 +759,33 @@ cat app.log | grep ERROR | tee errors.txt | wc -l
 echo checkpoint | tee -a run.log
 ```
 """)
-def tee(ctx: ShellContext, args: list[str], stdin: str) -> str:
+def tee(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
     parser = ArgParser("tee")
     parser.add_argument("-a", "--append", action="store_true")
     parser.add_argument("files", nargs="+")
     opts = parser.parse_args(args)
-    for name in opts.files:
-        path = user_path(name)
-        try:
-            with open(path, "a" if opts.append else "w", encoding="utf-8", newline="") as fh:
-                fh.write(stdin)
-        except OSError as exc:
-            raise ModuleError(f"tee: {name}: {exc.strerror or exc}") from None
-    return stdin
+    handles = []
+    try:
+        for name in opts.files:
+            handles.append(open(user_path(name), "a" if opts.append else "w", encoding="utf-8", newline=""))  # noqa: SIM115
+    except OSError as exc:
+        for fh in handles:
+            fh.close()
+        raise ModuleError(f"tee: {name}: {exc.strerror or exc}") from None
+    return _tee_lines(streams.Lines.of(stdin), handles)
+
+
+def _tee_lines(lines: Any, handles: list[Any]) -> Any:
+    """Each line to every file (flushed, so the file grows as the pipeline runs), then onwards."""
+    try:
+        for line in lines:
+            for fh in handles:
+                fh.write(line)
+                fh.flush()
+            yield line
+    finally:
+        for fh in handles:
+            fh.close()
 
 
 # ── cut ──────────────────────────────────────────────────────────────────────

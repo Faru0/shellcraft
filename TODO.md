@@ -58,8 +58,6 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Shell features
 
-- [ ] **True streaming between pipeline segments** (`yes | head`, `tail -f | grep`): a thread per
-  segment with a queue. The one architectural item left. — `shellcraft/pipeline.py`
 - [ ] **Subshells, leftovers**: `cmd &` as a spelling of `sub cmd`; a follow mode for a running
   command job's output. — `shellcraft/jobs.py`
 - [ ] **Startup, open questions** (the rc file is done; these are about `~/.shellcraft/startup/*.py`):

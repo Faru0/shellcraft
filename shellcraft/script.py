@@ -1340,6 +1340,12 @@ class _Runner:
 
     collect_only = False  # a piped block: output is collected even at the top level
 
+    @property
+    def shows_live(self) -> bool:
+        """Whether a statement's output may stream to the screen as it is made (core.streams):
+        only where show() prints, never inside `$( … )` or a piped block, which collect."""
+        return self.ctx.emit is not None and self.parent is None and not self.collect_only
+
     def show(self, value: Any) -> None:
         if self.ctx.emit is not None and self.parent is None and not self.collect_only:
             self.ctx.emit(value)
@@ -1480,7 +1486,7 @@ class _Runner:
             result = _run_parsed(stmt.text, self.ctx, self.variables(),
                                  split=sh and not stmt.text.lstrip().startswith("[["),
                                  substitute=self.substitute if expands else None, glob=expands,
-                                 stdin=self.stdin)
+                                 stdin=self.stdin, live=self.shows_live)
         except (ParseError, PipelineError) as exc:
             if show_errors:
                 self.report(exc, stmt.text)
@@ -1642,7 +1648,8 @@ class _Runner:
         sh = stmt.mode == "sh"
         try:
             result = _run_parsed(stmt.tail, self.ctx, self.variables(), split=sh,
-                                 substitute=self.substitute, glob=True, stdin=text, allow_leading_pipe=True)
+                                 substitute=self.substitute, glob=True, stdin=text, allow_leading_pipe=True,
+                                 live=self.shows_live)
         except (ParseError, PipelineError) as exc:
             self.report(exc, stmt.tail)
             return

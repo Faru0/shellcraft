@@ -7,16 +7,19 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
-from shellcraft import aliases, arith
+from shellcraft import aliases, arith, streams
 from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.modkit import ModuleError
 from shellcraft.parser import Command, ParseError, Pipeline, parse, tokenize
+from shellcraft.streams import Cancelled, Channel, Lines, UpstreamFailed
 
 # cmd.exe built-ins that have no executable on PATH.
 _WINDOWS_CMD_BUILTINS = {"dir", "type", "copy", "del", "erase", "move", "ren", "rename",
@@ -139,7 +142,7 @@ def run_simple(line: str, ctx: ShellContext) -> PipelineResult | None:
     if assigned := assign(line, ctx, variables, substitute):
         ctx.last_status = 0
         return PipelineResult(output="", status=0) if assigned else None
-    return _run_parsed(line, ctx, variables, substitute=substitute, glob=True)
+    return _run_parsed(line, ctx, variables, substitute=substitute, glob=True, live=True)
 
 
 def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
@@ -170,7 +173,7 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
 
 def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], split: bool = False,
                 substitute: Any = None, glob: bool = False, stdin: str = "",
-                allow_leading_pipe: bool = False) -> PipelineResult | None:
+                allow_leading_pipe: bool = False, live: bool = False) -> PipelineResult | None:
     try:
         pipeline = parse(line, variables, split, substitute, glob, allow_leading_pipe)
     except ParseError:
@@ -179,7 +182,7 @@ def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], spli
     if pipeline is None:
         return None
     try:
-        result = run_pipeline(pipeline, ctx, stdin)
+        result = run_pipeline(pipeline, ctx, stdin, live=live)
     except PipelineError as exc:
         ctx.last_status = exc.status
         raise
@@ -190,9 +193,17 @@ def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], spli
     return result
 
 
-def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> PipelineResult:
-    """Run the segments left to right, feeding each the previous one's output; `stdin` feeds the
-    first (the collected output of a loop for `done | sort`, or nothing)."""
+LIVE_AFTER = 0.3  # seconds of output still coming before a pipeline's output is printed live
+POLL_MIN = 0.01
+
+
+def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: bool = False) -> PipelineResult:
+    """Run the segments at the same time, each reading the previous one's output as it is
+    produced (core.streams); `stdin` feeds the first (the collected output of a loop for
+    `done | sort`, or nothing). With `live` and ctx.live set, output that keeps coming is handed
+    to ctx.live item by item (the REPL prints it, a background job records it) instead of being
+    collected; a pipeline that finishes within LIVE_AFTER of its first output returns it whole,
+    so it looks as before (colors, the pager)."""
     if ctx.allow_aliases:
         pipeline = aliases.expand(pipeline, aliases.get_all(ctx.config))
     redirects = [pipeline.redirect, pipeline.stdin_path, *(c.stderr for c in pipeline.segments)]
@@ -211,42 +222,22 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> Pipe
         except OSError as exc:
             raise PipelineError(1, total, pipeline.segments[0].name or "<",
                                 f"cannot read {pipeline.stdin_path}: {exc.strerror or exc}") from exc
+
+    segments = [(index, cmd) for index, cmd in enumerate(pipeline.segments, start=1) if cmd.name]
+    output: Any = data
     status = 0
-    for index, cmd in enumerate(pipeline.segments, start=1):
-        if not cmd.name:  # the empty first segment of `done | sort`: the loop's output is the input
-            if cmd.to_stderr:  # `done >&2`: the block's output goes to the error stream
-                data = _to_stderr(cmd, data, ctx, index, total)
-            continue
-        stdin_text = to_text(data)
-        try:
-            data = _run_command(cmd, stdin_text, ctx)
-        except (ShellExit, KeyboardInterrupt):
-            raise
-        except PipelineError as exc:
-            data, status = _failed(cmd, exc, index, total)
-            continue
-        except CommandError as exc:
-            data, status = _failed(cmd, PipelineError(index, total, cmd.name, str(exc), exc.status), index, total)
-            continue
-        except ModuleError as exc:
-            data, status = _failed(cmd, PipelineError(index, total, cmd.name, str(exc)), index, total)
-            continue
-        except Exception as exc:  # noqa: BLE001 — surface module bugs as styled errors
-            error = PipelineError(index, total, cmd.name, f"{type(exc).__name__}: {exc}")
-            error.__cause__ = exc
-            data, status = _failed(cmd, error, index, total)
-            continue
-        # Like a shell without pipefail, the status is the last command's.
-        status = data.status if isinstance(data, WithStatus) else 0
-        if isinstance(data, WithStatus):
-            data = data.value
-        if cmd.to_stderr:
-            data = _to_stderr(cmd, data, ctx, index, total)
+    first = pipeline.segments[0] if pipeline.segments else None
+    if first is not None and not first.name and first.to_stderr:
+        data = _to_stderr(first, data, ctx, 1, total)  # `done >&2`: the block's output goes to the error stream
+        output = data
+    if segments:  # none: `done |` alone, the loop's output is the output
+        sink = ctx.live if live and pipeline.redirect is None else None
+        output, status = _run_segments(segments, total, data, ctx, sink)
 
     if pipeline.redirect:
         # The tokenizer already expanded an unquoted `~`; a quoted one stays literal, as in bash.
         target = Path(pipeline.redirect.path)
-        text = to_text(data)
+        text = to_text(output)
         if text and not text.endswith("\n"):
             text += "\n"
         try:
@@ -257,7 +248,192 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "") -> Pipe
             detail = getattr(exc, "strerror", None) or str(exc)
             raise PipelineError(total, total, pipeline.redirect.path, f"cannot write file: {detail}") from exc
         return PipelineResult(output=None, redirected_to=target.resolve(), status=status)
-    return PipelineResult(output=data, status=status)
+    return PipelineResult(output=output, status=status)
+
+
+def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ctx: ShellContext,
+                  sink: Any) -> tuple[Any, int]:
+    """Start every segment, wire them with channels, and gather the last one's output."""
+    cancel = threading.Event()
+    upstream: Any = data
+    try:
+        for index, cmd in segments[:-1]:
+            if _main_thread(cmd):
+                # Shell-state builtins (`history`, `time`, `read`…) run here, on the main thread, as
+                # they always have; their output then feeds the next segment.
+                value, _ = _run_inline(cmd, upstream, index, total, ctx)
+                upstream = to_text(value)
+                continue
+            channel = Channel(cancel)
+            _start(cmd, index, total, ctx, upstream, channel, cancel, final=False)
+            upstream = channel
+        index, cmd = segments[-1]
+        if _main_thread(cmd):
+            return _run_inline(cmd, upstream, index, total, ctx)
+        out = Channel(cancel)
+        _start(cmd, index, total, ctx, upstream, out, cancel, final=True)
+        return _gather(out, ctx, sink, _label(segments, ctx))
+    finally:
+        cancel.set()  # producers still writing (the last segment finished early, or Ctrl-C) stop
+
+
+def _main_thread(cmd: Command) -> bool:
+    builtin = BUILTINS.get(cmd.name)
+    return builtin is not None and (builtin.stateful or builtin.direct)
+
+
+def _label(segments: list[tuple[int, Command]], ctx: ShellContext) -> str:
+    """The spinner's text: the first module's SPINNER_TEXT, else `running <last command>…`."""
+    for _, cmd in segments:
+        spec = ctx.registry.get(cmd.name) if cmd.name not in BUILTINS else None
+        if spec is not None and spec.spinner_text:
+            return spec.spinner_text
+    return f"running {segments[-1][1].name}…"
+
+
+def _as_error(cmd: Command, exc: BaseException, index: int, total: int) -> PipelineError:
+    if isinstance(exc, PipelineError):
+        return exc
+    if isinstance(exc, CommandError):
+        return PipelineError(index, total, cmd.name, str(exc), exc.status)
+    if isinstance(exc, ModuleError):
+        return PipelineError(index, total, cmd.name, str(exc))
+    error = PipelineError(index, total, cmd.name, f"{type(exc).__name__}: {exc}")
+    error.__cause__ = exc
+    return error
+
+
+def _stdin_for(cmd: Command, upstream: Any) -> Any:
+    """What a command reads: Lines for a streaming builtin, else the whole text (waiting for it)."""
+    builtin = BUILTINS.get(cmd.name)
+    if builtin is not None and builtin.streams:
+        return Lines(upstream if isinstance(upstream, Channel) else to_text(upstream))
+    if isinstance(upstream, Channel):
+        return Lines(upstream).read()
+    return to_text(upstream)
+
+
+def _run_inline(cmd: Command, upstream: Any, index: int, total: int, ctx: ShellContext) -> tuple[Any, int]:
+    """Run one command on this thread, to completion: (output, status)."""
+    try:
+        result = _call(cmd, _stdin_for(cmd, upstream), ctx)
+        if streams.is_stream(result):
+            result = streams.drain(result)
+    except (ShellExit, KeyboardInterrupt, Cancelled):
+        raise
+    except UpstreamFailed as up:
+        raise up.error from None
+    except Exception as exc:  # noqa: BLE001 — surface module bugs as styled errors
+        return _failed(cmd, _as_error(cmd, exc, index, total), index, total)
+    if isinstance(result, WithStatus):
+        return result.value, result.status
+    return ("" if result is None else result), 0
+
+
+def _start(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: Any, out: Channel,
+           cancel: threading.Event, final: bool) -> None:
+    threading.Thread(target=_produce, args=(cmd, index, total, ctx, upstream, out, cancel, final),
+                     daemon=True, name=f"shellcraft:{cmd.name}").start()
+
+
+def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: Any, out: Channel,
+             cancel: threading.Event, final: bool) -> None:
+    """One segment in its own thread: run it and write what it makes into `out`. The last
+    segment writes ("value", obj) for a whole result and ("item", obj) per streamed item, so the
+    caller can keep a single result as it is (a table, a man page); the others write text."""
+    streams.set_cancel(cancel)
+    result: Any = None
+    try:
+        try:
+            result = _call(cmd, _stdin_for(cmd, upstream), ctx)
+            status = 0
+            if isinstance(result, WithStatus):
+                status, result = result.status, result.value
+            if streams.is_stream(result):
+                while True:
+                    try:
+                        item = next(result)
+                    except StopIteration as stop:
+                        if isinstance(stop.value, int):
+                            status = stop.value
+                        break
+                    if item is None or item == "":
+                        continue
+                    out.put(("item", item) if final else streams.item_text(item))
+            elif final:
+                out.put(("value", "" if result is None else result))
+            else:
+                text = to_text(result)
+                if text:
+                    out.put(text if text.endswith("\n") else text + "\n")
+            out.end(status)
+        except Cancelled:
+            return
+        except UpstreamFailed as up:
+            out.fail(up.error)
+        except (ShellExit, KeyboardInterrupt) as exc:
+            out.fail(_as_error(cmd, exc, index, total))
+        except Exception as exc:  # noqa: BLE001 — surface module bugs as styled errors
+            try:
+                text, status = _failed(cmd, _as_error(cmd, exc, index, total), index, total)
+            except PipelineError as error:
+                out.fail(error)
+                return
+            if text:
+                out.put(("value", text) if final else text)
+            out.end(status)
+    except Cancelled:
+        return
+    finally:
+        if streams.is_stream(result) and hasattr(result, "close"):
+            try:
+                result.close()
+            except BaseException:  # noqa: BLE001 — a generator's cleanup must not escape the thread
+                pass
+        streams.set_cancel(None)
+
+
+def _gather(out: Channel, ctx: ShellContext, sink: Any, label: str) -> tuple[Any, int]:
+    """Read the last segment's channel on this thread: (output, status). The spinner shows until
+    something arrives; output that is still coming LIVE_AFTER seconds later is handed to `sink`
+    as it arrives (and the result is then empty), else it is returned whole."""
+    entry = ctx.runner(label, out.get)
+    items: list[Any] = []
+    value: Any = None
+    printing = False
+    deadline: float | None = None
+    status = 0
+    while True:
+        assert entry is not None
+        kind, payload = entry
+        if kind == "error":
+            raise payload
+        if kind == "end":
+            status = payload
+            break
+        tag, obj = payload
+        if tag == "value":
+            value = obj
+        elif printing:
+            sink(obj)
+        else:
+            items.append(obj)
+            if sink is not None and deadline is None:
+                deadline = time.monotonic() + LIVE_AFTER
+        timeout = None
+        if sink is not None and not printing and deadline is not None:
+            timeout = max(POLL_MIN, deadline - time.monotonic())
+        entry = out.get(timeout=timeout)
+        if entry is None:  # still coming: print what there is, and the rest as it arrives
+            for item in items:
+                sink(item)
+            items, printing = [], True
+            entry = out.get()
+    if printing:
+        return "", status
+    if value is not None and not items:
+        return value, status
+    return streams.combine(items), status
 
 
 def write_stderr(ctx: ShellContext, text: str) -> None:
@@ -350,33 +526,60 @@ SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local",
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
+    """One command to completion (what `xargs` and `time` run): through the spinner runner,
+    except the builtins that stay on the main thread; a streamed result is collected."""
+    if _main_thread(cmd):
+        result = _call(cmd, stdin, ctx)
+    else:
+        result = ctx.runner(f"running {cmd.name}…", lambda: _call(cmd, stdin, ctx))
+    return streams.drain(result) if streams.is_stream(result) else result
+
+
+def _call(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
+    """Resolve a command (builtin, module, OS program) and call it with `stdin` (a str, or Lines
+    for a streaming builtin). May return a value, a WithStatus or an iterator of items."""
     if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
         from shellcraft import script
 
-        return script.call_function(ctx.functions[cmd.name], cmd.args, stdin, ctx, cmd)
+        result: Any = script.call_function(ctx.functions[cmd.name], cmd.args, streams.text(stdin), ctx, cmd)
+    else:
+        result = _resolve(cmd, stdin, ctx)
+    if cmd.to_stderr:  # `>&2`: the output goes to the error stream, the status stays
+        if streams.is_stream(result):
+            result = streams.drain(result)
+        status = 0
+        if isinstance(result, WithStatus):
+            status, result = result.status, result.value
+        kept = _to_stderr(cmd, result, ctx, 1, 1)  # with 2>&1 too, the output stays output
+        return WithStatus(kept, status) if status else kept
+    return result
+
+
+def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
+    """Find the builtin, module or OS program for `cmd` and run it with `stdin`."""
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
         if ((builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes)
                 or (builtin.sensitive and not ctx.allow_sensitive)):
             raise CommandError(f"builtin '{cmd.name}' is not available in this context")
-        if builtin.stateful or builtin.direct:
-            # Shell-state builtins talk to the console themselves (`settings NAME` asks for a key,
-            # `clear`, `banner`, `mcp start` has its own spinner): they stay on the main thread.
-            return builtin.fn(ctx, cmd.args, stdin)
-        return ctx.runner(f"running {cmd.name}…", lambda: builtin.fn(ctx, cmd.args, stdin))
+        if builtin.streams:
+            return builtin.fn(ctx, cmd.args, Lines.of(stdin))
+        return builtin.fn(ctx, cmd.args, streams.text(stdin))
 
     spec = ctx.registry.get(cmd.name)
     if spec is not None:
         if ctx.module_filter is not None and not ctx.module_filter(cmd.name):
             raise CommandError(f"module '{cmd.name}' is not available to MCP clients", STATUS_NOT_FOUND)
-        label = spec.spinner_text or f"running {spec.name}…"
-        result = ctx.runner(label, lambda: _collect(spec.run(list(cmd.args), stdin)))
+        result = spec.run(list(cmd.args), streams.text(stdin))
+        if streams.is_stream(result):
+            return result  # a streaming module: its lines flow on as it yields them
+        result = _collect(result)
         return "" if result is None else result
 
     argv = _resolve_system(cmd)
     if argv is not None:
         if ctx.allow_system:
-            return ctx.runner(f"running {cmd.name}…", lambda: _run_system(argv, stdin))
+            return _stream_system(argv, stdin)
         if ctx.allow_stateful:  # only suggest the setting where the user can change it
             raise CommandError(f"command not found: {cmd.name} "
                                f"(OS commands are off — run: settings system_commands on)", STATUS_NOT_FOUND)
@@ -417,6 +620,67 @@ def _resolve_system(cmd: Command) -> list[str] | None:
 # cmd.exe with /u writes its internal commands' output to a pipe as UTF-16 (without /u it's the
 # OEM code page, e.g. cp437, which garbles accented file names from `dir`).
 _CMD_UNICODE = ["cmd", "/d", "/u", "/c"]
+
+
+def _stream_system(argv: list[str], stdin: Any) -> Any:
+    """An OS program in a pipeline: its stdin is fed from a thread as the input arrives, and its
+    output lines flow on as it writes them. A nonzero exit is an error, as before. cmd.exe's own
+    commands (UTF-16 output) keep the collected path."""
+    if argv[:len(_CMD_UNICODE)] == _CMD_UNICODE:
+        return _run_system(argv, streams.text(stdin))
+    return _system_lines(argv, stdin)
+
+
+def _system_lines(argv: list[str], stdin: Any) -> Any:
+    import tempfile
+
+    errors = tempfile.TemporaryFile()  # noqa: SIM115 — closed in the finally below; a file, not a pipe, so stderr never blocks stdout
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors,
+                                cwd=os.getcwd())
+    except OSError as exc:
+        errors.close()
+        raise CommandError(str(exc)) from exc
+    failed: list[BaseException] = []
+    cancel = streams.current_cancel()
+
+    def feed() -> None:
+        streams.set_cancel(cancel)
+        assert proc.stdin is not None
+        try:
+            source = stdin if isinstance(stdin, Lines) else Lines("" if stdin is None else str(stdin))
+            for line in source:
+                proc.stdin.write(line.encode("utf-8"))
+                proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass  # the program stopped reading: fine, as in a shell
+        except (UpstreamFailed, Cancelled) as exc:
+            failed.append(exc)
+            proc.kill()
+        finally:
+            try:
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+
+    threading.Thread(target=feed, daemon=True, name=f"shellcraft:{argv[0]}-stdin").start()
+    assert proc.stdout is not None
+    try:
+        for raw in proc.stdout:
+            yield raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+        code = proc.wait()
+        if failed:
+            raise failed[0]
+        if code != 0:
+            errors.seek(0)
+            detail = errors.read().decode("utf-8", errors="replace").strip() or "no output"
+            raise CommandError(f"exited with status {code}: {detail}", code)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        proc.stdout.close()
+        errors.close()
 
 
 def _run_system(argv: list[str], stdin: str) -> str:

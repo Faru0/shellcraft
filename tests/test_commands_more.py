@@ -63,28 +63,31 @@ def test_head_and_tail_bytes(ctx):
     assert out("echo é | head -c 1", ctx) == ""  # half a character is dropped, not garbled
 
 
-def test_tail_follow_prints_what_is_appended(ctx, tmp_path, monkeypatch):
+def test_tail_follow_prints_what_is_appended(ctx, tmp_path):
+    """`tail -f` streams: the last lines, then each line appended, handed to the live output as
+    it is written, until Ctrl-C (here: interrupt_main from a timer)."""
+    import _thread
+    import threading
+    import time
+
     path = tmp_path / "grow.log"
     path.write_text("one\n")
     seen = []
-    ticks = {"n": 0}
-
-    def fake_sleep(seconds):
-        ticks["n"] += 1
-        if ticks["n"] == 1:
-            with open(path, "a") as fh:
-                fh.write("two\n")
-        else:
-            raise KeyboardInterrupt
-
-    import shellcraft.commands.text as text_mod
-
-    monkeypatch.setattr(text_mod.time if hasattr(text_mod, "time") else time, "sleep", fake_sleep)
     ctx.interactive = True
-    ctx.emit = seen.append
-    assert out("tail -f grow.log", ctx) == ""
-    assert "".join(seen) == "one\ntwo\n"
-    ctx.interactive = False
+    ctx.live = lambda item: seen.append(item)
+
+    def writer():
+        time.sleep(0.6)
+        with open(path, "a") as fh:
+            fh.write("two\n")
+        time.sleep(0.8)
+        _thread.interrupt_main()
+
+    threading.Thread(target=writer, daemon=True).start()
+    with pytest.raises(KeyboardInterrupt):
+        run_line("tail -f grow.log", ctx)
+    assert "".join(seen) == "one\ntwo\n" and ctx.last_status == 130
+    ctx.interactive, ctx.live = False, None
     with pytest.raises(PipelineError, match="interactive"):
         run_line("tail -f grow.log", ctx)
 

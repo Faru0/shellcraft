@@ -64,6 +64,15 @@ and Ctrl-C that reaches running modules.
 
 ### Added
 
+- **Streaming pipelines:** every command of a pipeline runs at the same time, and lines flow to
+  the next one as they are made. `yes | head -3` returns at once (the producer is stopped when the
+  reader has enough), `tail -f app.log | grep ERROR` prints each match the moment it is written,
+  and output that keeps coming is printed live (Ctrl-C stops it, status 130). A pipeline that
+  finishes quickly looks exactly as before (colors, the pager). `cat`, `grep`, `head`, `tail -f`,
+  `wc`, `tee` and the new `yes` read their input as it arrives; OS programs in a pipeline stream
+  through their pipes; a module whose `run()` yields lines streams too. Builtins opt in with
+  `@builtin(..., streams=True)` and get `core.streams.Lines` as stdin.
+
 - **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program
   (`vim`, `htop`, `ssh`, `python`…), `sub shellcraft` nests a ShellCraft (its prompt shows the
   depth), and `sub COMMAND` runs a builtin or module in the background with its output collected.

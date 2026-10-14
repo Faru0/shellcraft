@@ -38,6 +38,7 @@ class Builtin:
     sensitive: bool = False  # may reveal secrets (e.g. env vars); disabled for MCP pipelines
     hidden: bool = False  # left out of `help` (still runs and has a man page)
     direct: bool = False  # runs on the main thread, without a spinner (it prints as it goes)
+    streams: bool = False  # gets stdin as core.streams.Lines (lines as they arrive), not a str
 
 
 BUILTINS: dict[str, Builtin] = {}
@@ -45,9 +46,10 @@ BUILTINS: dict[str, Builtin] = {}
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
             category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False,
-            direct: bool = False):
+            direct: bool = False, streams: bool = False):
     def register(fn):
-        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden, direct)
+        BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden, direct,
+                                 streams)
         return fn
     return register
 

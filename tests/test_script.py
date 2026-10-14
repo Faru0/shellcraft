@@ -3,6 +3,7 @@
 import pytest
 
 from shellcraft import script
+from shellcraft.context import to_text
 from shellcraft.parser import ParseError, parse
 from shellcraft.pipeline import PipelineError, run_line
 
@@ -54,9 +55,9 @@ def test_parse_error_is_status_2(ctx):
 
 def test_grep_no_match_is_status_1_without_an_error(ctx):
     result = run_line("echo hello | grep zzz", ctx)
-    assert result.status == ctx.last_status == 1 and result.output.text == ""
+    assert result.status == ctx.last_status == 1 and to_text(result.output) == ""
     assert run_line("echo hello | grep ell", ctx).status == 0
-    assert run_line("echo hello | grep -q ell", ctx).output.text == ""  # -q: status only
+    assert to_text(run_line("echo hello | grep -q ell", ctx).output) == ""  # -q: status only
     assert ctx.last_status == 0
     assert run_line("echo hello | grep zz | wc -l", ctx).status == 0  # no pipefail: last command's
 

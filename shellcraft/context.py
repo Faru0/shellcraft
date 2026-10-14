@@ -56,6 +56,9 @@ class ShellContext:
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
     # collected and returned as one text.
     emit: Callable[[Any], None] | None = None
+    # Where a pipeline's output goes as it is produced, once it keeps coming (core.streams): the
+    # REPL prints each item, a background job appends it. None: the output is collected.
+    live: Callable[[Any], None] | None = None
     emit_error: Callable[[Exception, str], None] | None = None
     # The error stream (`echo oops >&2`): the innermost entry of `stderr_sinks` (a function call or
     # a block with `2> file` / `2>&1` pushes one), else `emit_stderr` (the REPL prints it in the
@@ -113,6 +116,11 @@ def to_text(value: Any, width: int | None = None) -> str:
         return ""
     if isinstance(value, str):
         return value
+    from collections.abc import Iterator
+
+    if isinstance(value, Iterator) and not isinstance(value, bytes):  # a streamed result: drain it
+        parts = [to_text(item, width) for item in value]
+        return "".join(p if p.endswith("\n") or not p else p + "\n" for p in parts)
     if width is None:
         width = _ui_width() or 100
     buf = io.StringIO()
