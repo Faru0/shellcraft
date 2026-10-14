@@ -3,7 +3,11 @@
 This is the module author's guide. For installing and using ShellCraft, see the main
 [README](../README.md). For working on the shell itself, see [DEVELOPMENT.md](../DEVELOPMENT.md).
 
-A module is **three files with the same base name** in `modules/`:
+A module is **three files with the same base name** in a modules folder: your own,
+**`~/.shellcraft/modules`** (created when you first `ingest` a script; put files there by hand too),
+or the bundled `modules/` of a checkout. Both are loaded; a module in your folder shadows a bundled
+one of the same name, and `modules` shows where each comes from. Keep your own modules in your
+folder: they survive updates and never end up in a checkout's git status.
 
 | File | For | Required? |
 | --- | --- | --- |
@@ -35,7 +39,7 @@ shellcraft ingest path/to/myscript.py              # from a terminal, after pip 
 python tools/ingest path/to/myscript.py            # from a checkout, without installing
 ```
 
-Inside the shell the module goes to the shell's own modules folder and is picked up at the next
+Inside the shell the module goes to your own modules folder, `~/.shellcraft/modules`, and is picked up at the next
 prompt, so you can run it right away.
 
 It walks you through six steps:
@@ -53,7 +57,8 @@ It walks you through six steps:
    error messages, API keys), with `TODO` where judgement is needed. Optionally an AI finishes them.
 6. **Check.** The checker below runs on the result.
 
-The module is written to `modules/<name>.py` (`--modules DIR` to change that).
+Inside the shell the module is written to `~/.shellcraft/modules/<name>.py`; from a checkout,
+`python tools/ingest` writes to `modules/<name>.py`. `--modules DIR` changes either.
 
 ### What changes in your code
 
@@ -275,7 +280,7 @@ skips its plain smoke calls (`run([], "")`), unless you pass `--network`.
 
 ```bash
 ingest check modules/wordfreq.py                   # one module (inside ShellCraft)
-ingest check --all                                 # every module in the shell's modules folder
+ingest check --all                                 # every module in your modules folder (~/.shellcraft/modules)
 ingest check modules/x.py --network                # include network tests
 shellcraft ingest check --all --strict             # from a terminal; warnings fail too (good for CI)
 python tools/ingest check --all --strict           # from a checkout, without installing

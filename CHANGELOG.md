@@ -5,6 +5,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (robustness and packaging)
+
+- **Your own modules folder, `~/.shellcraft/modules`,** loaded next to the bundled one (or
+  `--modules DIR`). A module there shadows a bundled one of the same name; `modules` has a `from`
+  column and `help` marks them `(user module)`; hot reload watches both folders; `_helpers` import
+  across both (yours first). `ingest` inside the shell now writes there instead of into a checkout.
+
 ### Added
 
 - **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program

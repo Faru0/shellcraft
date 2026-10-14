@@ -361,7 +361,7 @@ def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "py
 
 def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
     """`modules_dir` and `prog` are set by `shellcraft ingest` and the `ingest` builtin, which run
-    the same wizard with the shell's own modules folder as the default."""
+    the same wizard with the user's modules folder (~/.shellcraft/modules) as the default."""
     argv = sys.argv[1:] if argv is None else argv
     utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
     if argv[:1] == ["check"]:

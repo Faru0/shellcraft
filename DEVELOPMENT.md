@@ -54,7 +54,7 @@ shellcraft/
 │   │   └── _io.py          #   shared file/stdin helpers
 │   ├── loader.py           # module discovery, enable/disable; ModuleSpec; SkillInfo (.skill parsing)
 │   ├── params.py           # .skill [[params]]: validation, MCP input schema, named values → CLI args
-│   ├── watch.py            # ModuleWatcher: polls the modules folder for hot reload
+│   ├── watch.py            # ModuleWatcher: polls the module folders (main + ~/.shellcraft/modules) for hot reload
 │   ├── options.py          # switch metadata from .skill [[params]]/[[args]] and .md tables (Tab completion)
 │   ├── completer.py        # Tab completion: commands, switches, values, paths
 │   ├── output.py           # delayed spinner (with elapsed time), error panels, the pager
@@ -216,6 +216,7 @@ description)]` (`core/modkit.py`). The pieces:
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
 | `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
+| `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |
 | `test_startup.py` | startup scripts: order, `_helpers`, variables handed back (and unset), failures and timeouts changing nothing, the `startup` builtin, `--no-startup` and the setting |
 | `test_alerts.py` | alerts: severity ordering, the cap, expiry and dismissal, the spool folder (delivery, sender labels, junk and stale files), the command-line client and the subshell shim, the `alert` builtin (local, forwarded from a nested shell), alert lines in the panel with their source, the `send_tui_alert` MCP tool |

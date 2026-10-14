@@ -145,6 +145,8 @@ def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
         summary = spec.summary if spec else ""
         if spec is not None and is_script(spec.path):
             summary = (summary + " " if summary else "") + SCRIPT_HINT
+        if ctx.registry.origin(name) == "user":
+            summary = (summary + " " if summary else "") + "(user module)"
         rows.append(("Modules", name, summary, usage))
     return rows
 
@@ -487,7 +489,7 @@ ingest check --all [--strict] [--network]
 | Option | Meaning |
 | --- | --- |
 | `--name NAME` | The command name (asked for when left out). |
-| `--modules DIR` | Where the module goes (default: this shell's modules folder). |
+| `--modules DIR` | Where the module goes (default: your modules folder, `~/.shellcraft/modules`). |
 | `--model MODEL` | The AI model to use for the conversion, instead of the default. |
 | `check --all` | Every module in the modules folder. |
 | `check --strict` | Warnings fail too (good for CI). |
@@ -508,7 +510,9 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from tools.ingest.__main__ import main as ingest_main
 
     try:
-        code = ingest_main(args, modules_dir=ctx.registry.directory, prog="ingest")
+        target = ctx.registry.user_directory or ctx.registry.directory  # ~/.shellcraft/modules
+        target.mkdir(parents=True, exist_ok=True)
+        code = ingest_main(args, modules_dir=target, prog="ingest")
     except SystemExit as exc:  # argparse: --help, or a usage error already printed
         code = exc.code if isinstance(exc.code, int) else 1
     if code:
@@ -1087,7 +1091,9 @@ def _job_number(words: list[str]) -> int:
 
 MODULES_DOC = """# modules
 
-List the modules in the modules folder, and turn them on or off. A disabled module is not
+List the modules, and turn them on or off. Modules come from two folders: the bundled one (or
+`--modules DIR`) and yours, `~/.shellcraft/modules`, where a module shadows a bundled one of the
+same name; the `from` column says which (`user` or `bundled`). A disabled module is not
 imported at all: it is not a command, not an MCP tool and has no man page until you enable it
 again. The choice is saved in `~/.shellcraft/config.json`, so it lasts across sessions and also
 applies to `--mcp` / `--mcp-http` (`mcp restart` passes a change on to a running server).
@@ -1137,7 +1143,8 @@ def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     registry = ctx.registry
     names = registry.all_names() if show_all else registry.names()
     disabled = registry.disabled_names()
-    title = f"{'All modules' if show_all else 'Modules'} in {registry.directory}"
+    folders = " + ".join(str(d) for d in registry.directories if d.is_dir() or d == registry.directory)
+    title = f"{'All modules' if show_all else 'Modules'} in {folders}"
     table = Table(title=title, title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
     if show_all:
         table.add_column("state", justify="center")
@@ -1145,6 +1152,7 @@ def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     table.add_column(".py", justify="center")
     table.add_column(".md", justify="center")
     table.add_column(".skill", justify="center")
+    table.add_column("from", style="sc.muted")
     table.add_column("summary")
     ok, missing = Text("✓", style="sc.success"), Text("·", style="sc.muted")
     plain: list[str] = []
@@ -1154,7 +1162,7 @@ def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         has_md = bool(spec.doc_md) if spec else bool(py and py.with_suffix(".md").is_file())
         has_skill = bool(spec.skill) if spec else bool(py and py.with_suffix(".skill").is_file())
         summary = registry.describe(name)
-        row = [name, ok, ok if has_md else missing, ok if has_skill else missing, summary]
+        row = [name, ok, ok if has_md else missing, ok if has_skill else missing, registry.origin(name), summary]
         if show_all:
             if name in disabled:
                 state = Text("○ off", style="sc.muted")
@@ -1163,15 +1171,15 @@ def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             else:
                 state = Text("● on", style="sc.success")
             row.insert(0, state)
-            plain.append(f"{state.plain[2:]:<5}  {name}  {summary}".rstrip())
+            plain.append(f"{state.plain[2:]:<5}  {name}  {registry.origin(name)}  {summary}".rstrip())
         else:
-            plain.append(f"{name}  {summary}".rstrip())
+            plain.append(f"{name}  {registry.origin(name)}  {summary}".rstrip())
         table.add_row(*row, style="sc.muted" if name in disabled else None)
     parts: list[Any] = [table]
     notes: list[str] = []
     from core.loader import helpers
 
-    found = helpers(registry.directory)
+    found = [h for d in registry.directories for h in helpers(d)]
     if found:
         aid = Table(title="Helpers (_name.py: imported by modules, not commands)", title_style="sc.prompt",
                     border_style="sc.border", header_style="sc.accent")

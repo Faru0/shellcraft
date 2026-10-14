@@ -563,7 +563,10 @@ To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/py
 
 ## Write your own module
 
-A module is up to three files in `modules/`: the code (`.py`, always a command), its manual (`.md`,
+Put your modules in **`~/.shellcraft/modules`**: it is loaded next to the bundled ones, a module there
+shadows a bundled one of the same name, and `modules` shows where each comes from.
+
+A module is up to three files: the code (`.py`, always a command), its manual (`.md`,
 for `man`) and its AI description (`.skill`, which makes it an MCP tool). The code is either a
 `run(args, stdin)` function that returns text or a plain Python script that prints; files named
 `_name.py` are helpers the others import.

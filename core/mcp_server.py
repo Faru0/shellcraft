@@ -279,7 +279,7 @@ class ShellcraftMCP:
         return changed
 
     async def watch(self, interval: float = WATCH_INTERVAL) -> None:
-        watcher = ModuleWatcher(self.registry.directory)
+        watcher = ModuleWatcher(*self.registry.directories)
         while True:
             await anyio.sleep(interval)
             await self.reload_if_changed(watcher)
@@ -384,7 +384,7 @@ def _log_startup(app: ShellcraftMCP, watch: bool) -> None:
         log.warning(warning)
     log.info("serving %d module(s): %s", len(app.registry), ", ".join(app.registry.names()) or "none")
     if watch:
-        log.info("hot reload on: watching %s", app.registry.directory)
+        log.info("hot reload on: watching %s", ", ".join(str(d) for d in app.registry.directories))
 
 
 def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = True,

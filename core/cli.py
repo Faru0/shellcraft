@@ -89,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Modules turned off with `modules disable` are skipped in every mode, the MCP server included.
     disabled = config.get("disabled_modules")
+    from core.config import config_dir
+
     registry = ModuleRegistry(modules_dir, disabled if isinstance(disabled, list) else (),
+                              user_directory=config_dir() / "modules",
                               lazy=settings.get(config, "lazy_modules"))
     registry.load()
     expose = [n.strip() for n in args.expose.split(",") if n.strip()] if args.expose else None

@@ -31,7 +31,7 @@ def is_script(py: Path) -> bool:
         return False
 
 
-def _script_runner(py: Path, directory: Path) -> Callable[[list[str], str], str]:
+def _script_runner(py: Path, directory: Path | list[Path]) -> Callable[[list[str], str], str]:
     """run(args, stdin) for a plain script: this interpreter, the shell's cwd, the modules folder
     on PYTHONPATH (so `import _helper` works there too); a nonzero exit is the command's error."""
     def run(args: list[str], stdin: str) -> str:
@@ -41,7 +41,9 @@ def _script_runner(py: Path, directory: Path) -> Callable[[list[str], str], str]
         from core.modkit import ModuleError
 
         env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join(p for p in (str(directory.resolve()), env.get("PYTHONPATH")) if p)
+        folders = directory if isinstance(directory, list) else [directory]
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (*(str(d.resolve()) for d in folders), env.get("PYTHONPATH"))
+                                            if p)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         done = subprocess.run([sys.executable, str(py), *args], input=stdin.encode("utf-8"), capture_output=True,
                               cwd=os.getcwd(), env=env)
@@ -101,34 +103,49 @@ def helpers(directory: Path) -> list[tuple[str, Path, str, list[str]]]:
     return out
 
 
-def _import_path(directory: Path) -> None:
-    """Let modules import each other: the folder goes on sys.path (plain `import localthing`), and
-    `shellcraft_modules` is a package rooted there (`from . import localthing` inside a module)."""
-    folder = str(directory.resolve())
-    if folder not in sys.path:
-        sys.path.append(folder)  # at the end: a file called json.py must not shadow the stdlib
+_ADDED: list[str] = []  # the module folders _import_path last put on sys.path
+
+
+def _import_path(*directories: Path) -> None:
+    """Let modules import each other: the folders go on sys.path (plain `import _helper`), and
+    `shellcraft_modules` is a package rooted there (`from . import _helper` inside a module).
+    `directories` is in priority order (the user folder first), so its helpers win."""
+    folders = [str(d.resolve()) for d in directories]
+    for folder in set(_ADDED) | set(folders):  # folders of an earlier load (another --modules) go
+        while folder in sys.path:
+            sys.path.remove(folder)
+    sys.path.extend(folders)  # at the end: a file called json.py must not shadow the stdlib
+    _ADDED[:] = folders
     package = sys.modules.get(PACKAGE)
     if package is None:
         package = types.ModuleType(PACKAGE)
         package.__path__ = []  # type: ignore[attr-defined]
         sys.modules[PACKAGE] = package
-    if folder not in package.__path__:  # type: ignore[attr-defined]
-        package.__path__.insert(0, folder)  # type: ignore[attr-defined]
+    path = package.__path__  # type: ignore[attr-defined]
+    for folder in folders:
+        if folder in path:
+            path.remove(folder)
+    path[:0] = folders
 
 
-def _forget_imports(directory: Path) -> None:
-    """Drop every module imported from the folder (commands and helpers alike), so a reload sees
+def _forget_imports(*directories: Path) -> None:
+    """Drop every module imported from the folders (commands and helpers alike), so a reload sees
     the files as they are now."""
-    folder = str(directory.resolve())
+    folders = {str(d.resolve()) for d in directories}
+    # Helpers by name too: an `_x` imported from somewhere else must not stand in for ours.
+    helper_names = {py.stem for d in directories if d.is_dir() for py in d.glob("_*.py")}
     package = sys.modules.get(PACKAGE)
     for key, module in list(sys.modules.items()):
+        if key in helper_names:
+            del sys.modules[key]
+            continue
         if key.startswith(PACKAGE + "."):
             del sys.modules[key]
             if package is not None:  # `from . import x` would otherwise find the old one here
                 package.__dict__.pop(key.split(".", 1)[1], None)
             continue
         file = getattr(module, "__file__", None) or ""
-        if file and str(Path(file).resolve().parent) == folder:
+        if file and str(Path(file).resolve().parent) in folders:
             del sys.modules[key]
 RESERVED_NAMES = {"shellcraft_pipeline"}
 
@@ -290,39 +307,65 @@ class ModuleSpec:
 
 
 class ModuleRegistry:
-    """Loads every valid, enabled module in a directory; broken modules become warnings, not crashes.
+    """Loads every valid, enabled module in its folders; broken modules become warnings, not crashes.
 
+    The folders are the main one (the bundled modules, or `--modules DIR`) and the user's own,
+    `~/.shellcraft/modules` (`user_directory`); a user module shadows a main one of the same name.
     A disabled module (`modules disable NAME`, saved in config.json) is never imported: it isn't
     a command, an MCP tool or a man page until it is enabled again. `files` still lists it.
     """
 
-    def __init__(self, directory: Path, disabled: Iterable[str] = (), lazy: bool = False):
+    def __init__(self, directory: Path, disabled: Iterable[str] = (), lazy: bool = False,
+                 user_directory: Path | None = None):
         self.directory = Path(directory)
+        self.user_directory = Path(user_directory) if user_directory is not None else None
+        if self.user_directory is not None and self.user_directory.resolve() == self.directory.resolve():
+            self.user_directory = None
         self.modules: dict[str, ModuleSpec] = {}  # loaded and enabled
         self.files: dict[str, Path] = {}  # every module file with a valid name, enabled or not
         self.disabled: set[str] = set(disabled)
         self.lazy = lazy  # read .skill / .md at startup, import the .py on first use
         self.warnings: list[str] = []
 
+    @property
+    def directories(self) -> list[Path]:
+        """The module folders, the main one first; a later folder shadows an earlier one."""
+        return [self.directory] + ([self.user_directory] if self.user_directory is not None else [])
+
+    def origin(self, name: str) -> str:
+        """`user` for a module from ~/.shellcraft/modules, else `bundled` (or the --modules folder)."""
+        py = self.files.get(name)
+        if py is not None and self.user_directory is not None and py.parent == self.user_directory:
+            return "user"
+        return "bundled"
+
+    def _locate(self, name: str) -> Path | None:
+        """The file that defines module `name`: the last folder that has it."""
+        for folder in reversed(self.directories):
+            py = folder / f"{name}.py"
+            if py.is_file():
+                return py
+        return None
+
     def reload(self, changed: Iterable[str]) -> None:
         """Reload only the modules whose files changed (hot reload). A `.md`-only change re-reads
         the manual without re-importing, so a module-level cache in another module survives."""
         names = {Path(f).stem for f in changed}
-        if not names or not self.directory.is_dir():
+        if not names or not any(d.is_dir() for d in self.directories):
             self.load()
             return
         reimport = {Path(f).stem for f in changed if not f.endswith(".md")}
         if any(not f.endswith(".md") for f in changed):
             # A changed .py may be a helper that other modules import: every module imported from
             # the folder is forgotten, and the commands are re-imported on their next use.
-            _forget_imports(self.directory)
-            _import_path(self.directory)
+            _forget_imports(*self.directories)
+            _import_path(*reversed(self.directories))
             if self.lazy:
                 for other in list(self.modules):
                     if other not in names:
                         self.modules[other] = self.load_file(other, self.files[other])
         for name in sorted(names):
-            py = self.directory / f"{name}.py"
+            py = self._locate(name) or self.directory / f"{name}.py"
             self.warnings = [w for w in self.warnings if not w.startswith(f"{py.name}:")]
             if not py.is_file():  # deleted or renamed
                 self.files.pop(name, None)
@@ -350,16 +393,18 @@ class ModuleRegistry:
                 self.warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
 
     def load(self) -> None:
-        _forget_imports(self.directory)  # a deleted or renamed module must not linger after reload
+        _forget_imports(*self.directories)  # a deleted or renamed module must not linger after reload
         # Built aside and swapped in at the end, so a reload never shows a half-empty registry.
         modules: dict[str, ModuleSpec] = {}
         files: dict[str, Path] = {}
         warnings: list[str] = []
         if not self.directory.is_dir():
             warnings.append(f"modules directory not found: {self.directory}")
-        else:
-            _import_path(self.directory)
-            for py in sorted(self.directory.glob("*.py")):
+        _import_path(*reversed(self.directories))
+        for folder in self.directories:  # the main folder, then the user's: a later file wins
+            if not folder.is_dir():
+                continue
+            for py in sorted(folder.glob("*.py")):
                 name = py.stem
                 if name.startswith("_"):
                     continue
@@ -367,12 +412,13 @@ class ModuleRegistry:
                     warnings.append(f"{py.name}: invalid module name, skipped")
                     continue
                 files[name] = py
-                if name in self.disabled:
-                    continue
-                try:
-                    modules[name] = self.load_file(name, py)
-                except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
-                    warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
+        for name, py in files.items():
+            if name in self.disabled:
+                continue
+            try:
+                modules[name] = self.load_file(name, py)
+            except Exception as exc:  # noqa: BLE001 — one bad module must not stop the shell
+                warnings.append(f"{py.name}: {type(exc).__name__}: {exc}")
         self.modules, self.files, self.warnings = modules, files, warnings
 
     def load_file(self, name: str, py: Path) -> ModuleSpec:
@@ -413,7 +459,7 @@ class ModuleRegistry:
             skill = SkillInfo.parse(text) if (text := _read(py.with_suffix(".skill"))) is not None else None
             if skill and (errors := params_mod.problems(skill.params)):
                 raise ValueError(f"{name}.skill [[params]]: {'; '.join(errors)}")
-            return ModuleSpec(name=name, path=py, run=_script_runner(py, self.directory),
+            return ModuleSpec(name=name, path=py, run=_script_runner(py, self.directories),
                               doc_md=_read(py.with_suffix(".md")), skill=skill,
                               module_summary=_script_summary(py))
         import_name = f"shellcraft_modules.{name}"

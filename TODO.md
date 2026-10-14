@@ -50,10 +50,6 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Robustness and packaging
 
-- [ ] **A user modules folder** `~/.shellcraft/modules`, loaded next to the bundled ones, as the
-  default destination of `ingest` (today `ingest` inside a checkout writes into the tracked
-  `modules/`, which is how `findtime` landed there). Lets a `pip install` add modules without
-  `--modules`. — `core/cli.py`, `core/loader.py`
 - [ ] **Rename `core` to a `shellcraft/` package**: the generic top-level name can collide in
   site-packages. Breaking for module authors (`core.modkit` → `shellcraft.modkit`); do it with the
   user modules folder and keep a `core` shim for one release.

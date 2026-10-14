@@ -210,7 +210,7 @@ class Shell:
         self.ui.mouse = settings.get(ctx.config, "mouse")
         self.ui.mouse_always = settings.get(ctx.config, "mouse_always")
         ctx.emit_error = lambda exc, text: show_error(self.ui, exc, text)
-        self.watcher = ModuleWatcher(ctx.registry.directory)
+        self.watcher = ModuleWatcher(*ctx.registry.directories)
 
         try:
             path = history_path()
