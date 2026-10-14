@@ -169,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
                 shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
             if startup.rc_path().is_file():
                 shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
+            if startup.background_scripts():
+                shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
         return shell.loop()
 
 

@@ -511,3 +511,47 @@ def test_windows_arrow_keys_reach_the_subshell():
     assert win_key("", 0x24) == "\x1b[H" and win_key("", 0x2E) == "\x1b[3~"
     assert win_key("a", 0x41) == "a" and win_key("\x1b", 0x1B) == "\x1b"  # VT input: ESC [ A arrive as chars
     assert win_key("\x00", 0x10) == ""  # Shift alone: nothing
+
+
+@posix_only
+def test_ctrl_bracket_x_ends_the_attached_subshell(tmp_path, ictx, monkeypatch):
+    """Ctrl-] then x in an attached program: attach returns ("kill", N) and `sub` stops it."""
+    import tty
+
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_program(["cat"], "cat")
+    term_master, term_slave = os.openpty()
+    tty.setraw(term_slave)
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    result = {}
+    thread = threading.Thread(target=lambda: result.update(how=table.attach(job, terminal=terminal, raw=False)),
+                              daemon=True)
+    thread.start()
+    assert _wait(lambda: job.sink is not None)
+    os.write(term_master, jobmod.DETACH_KEY + b"x")
+    thread.join(3)
+    assert result["how"] == ("kill", job.number)
+    table.kill(job)
+    os.close(term_master)
+    os.close(term_slave)
+    # in the builtin: the kill result stops the job and reports it
+    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("kill", job.number))
+    note = to_text(run_line("sub sh -c 'sleep 30'", ictx).output)
+    killed = ictx.jobs.get(1)
+    assert "killed: sh -c sleep 30" in note and _wait(lambda: not killed.running) and killed.killed
+
+
+def test_panel_x_stops_the_chosen_subshell(repl_shell, monkeypatch):
+    from shellcraft import shell as shell_module
+
+    sh, ctx = repl_shell
+    ran = []
+    monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())
+    monkeypatch.setattr(sh, "_run_clicked", lambda line: ran.append(line))
+    job = ctx.jobs.start_command("seq 9", lambda: (0, "1\n"))
+    assert _wait(lambda: not job.running)
+    sh._panel_cursor = 0
+    stop = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["x"])
+    stop.handler(None)
+    assert ran == [f"jobs -k {job.number}"]
+    assert "x stops" in "".join(f[1] for f in sh._toolbar())

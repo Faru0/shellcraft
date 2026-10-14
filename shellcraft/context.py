@@ -44,6 +44,7 @@ class ShellContext:
     footer: Any = None  # the tab bar on the last row (shellcraft.footer.Footer); the REPL sets it
     alerts: Any = None  # the status alerts and their listener (shellcraft.alerts.AlertBus); the REPL sets it
     startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per script
+    supervisor: Any = None  # the background startup scripts (shellcraft.startup.Supervisor); the REPL sets it
     last_status: int = 0  # exit status of the last command: `$?`, and the prompt's [✗ N]
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.
     variables: dict[str, str] = field(default_factory=dict)

@@ -159,3 +159,109 @@ def test_rc_can_source_other_files_the_bash_way(home, tmp_path, monkeypatch):
     assert "work loaded\n" in shown and "a loaded\n" in shown and errors == []
     assert os.environ["SC_FIRST"] == "work"
     assert "." not in to_text(run_line("help", ctx).output).split()  # hidden; man source covers it
+
+
+# ── background scripts: header lines, the Supervisor, restart, stop ──────────
+
+posix_only = pytest.mark.skipif(__import__("sys").platform == "win32", reason="pseudo-terminals are POSIX only")
+
+
+def _wait(pred, timeout=8.0):
+    import time
+
+    end = time.time() + timeout
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_header_lines(home):
+    write(home, "a.py", "# shellcraft: background, restart\n# shellcraft: timeout=90\nprint(1)\n# shellcraft: timeout=5\n")
+    write(home, "b.py", "#!/usr/bin/env python3\n\"\"\"doc\"\"\"\n# shellcraft: background\n")
+    write(home, "c.py", "# shellcraft: timeout=nope\nimport os\n")
+    assert startup.header(home / "startup" / "a.py") == {"background": True, "restart": True, "timeout": 90.0}
+    assert startup.header(home / "startup" / "b.py")["background"] is False  # header ends at the first code line
+    assert startup.header(home / "startup" / "c.py")["timeout"] is None
+    assert [p.name for p in startup.background_scripts(home)] == ["a.py"]
+
+
+def test_run_all_skips_background_and_uses_its_own_timeout(home, monkeypatch):
+    write(home, "10-bg.py", "# shellcraft: background\nimport time\ntime.sleep(30)\n")
+    write(home, "20-slow.py", "# shellcraft: timeout=3\nimport time\ntime.sleep(1)\nprint('done')\n")
+    monkeypatch.setattr(startup, "TIMEOUT", 0.2)  # the default would kill 20-slow
+    results = startup.run_all(home)
+    assert [r.name for r in results] == ["20-slow"] and results[0].ok and results[0].output == "done\n"
+
+
+@posix_only
+def test_supervisor_starts_stops_and_restarts_on_crash(home, monkeypatch):
+    from shellcraft.alerts import AlertBus
+    from shellcraft.jobs import JobTable
+
+    monkeypatch.setattr(startup, "RESTART_DELAYS", (0.05,))
+    monkeypatch.setattr(startup, "CRASH_LIMIT", 3)
+    write(home, "30-crash.py", "# shellcraft: background, restart\nraise SystemExit(2)\n")
+    write(home, "40-once.py", "# shellcraft: background, restart\nprint('did my work')\n")  # exit 0: done
+    write(home, "50-loop.py", "# shellcraft: background\nimport time\nwhile True:\n    time.sleep(0.1)\n")
+    table, alerts = JobTable(home / "jobs"), AlertBus()
+    sup = startup.Supervisor(table, alerts, home)
+    started = sup.start_all()
+    assert [m.name for m in started] == ["30-crash", "40-once", "50-loop"]
+    crash, once, loop = (sup.scripts[n] for n in ("30-crash", "40-once", "50-loop"))
+    assert loop.job.kind == "program" and loop.job.command == "startup: 50-loop.py" and loop.job.running
+    # the crashing one is restarted until the limit, then a red alert
+    assert _wait(lambda: crash.gave_up)
+    assert len(crash.crashes) == 3 and any(a.level == "critical" and "30-crash.py" in a.message for a in alerts.current())
+    assert sum(1 for j in table if j.command == "startup: 30-crash.py") == 1  # one line in the panel, not one per restart
+    # a clean exit is not a crash: never restarted
+    assert _wait(lambda: not once.job.running) and once.job.status == 0 and once.crashes == []
+    # stop: killed, not restarted; start: a new subshell; restart: stop then start
+    first = loop.job
+    sup.stop("50-loop")
+    assert _wait(lambda: not first.running) and loop.stopped and first.killed
+    sup.start("50-loop")
+    assert loop.job is not first and loop.job.running and not loop.stopped
+    second = loop.job
+    sup.restart("50-loop")
+    assert _wait(lambda: not second.running) and loop.job is not second and loop.job.running
+    with pytest.raises(KeyError):
+        sup.start("nope")
+    sup.close()
+    table.cleanup()
+
+
+def test_startup_control_commands(home, monkeypatch):
+    ctx, shown, errors = _shell_ctx(home)
+    with pytest.raises(PipelineError, match="only in the interactive shell"):
+        run_line("startup stop", ctx)
+
+    class FakeSupervisor:
+        def __init__(self):
+            self.calls, self.scripts = [], {"20-loop": None}
+
+        def stop(self, name=None):
+            self.calls.append(("stop", name))
+            return []
+
+        def start(self, name):
+            self.calls.append(("start", name))
+            if name != "20-loop":
+                raise KeyError(name)
+            return type("M", (), {"path": home / "startup" / "20-loop.py", "job": type("J", (), {"number": 4})()})()
+
+        def restart(self, name):
+            self.calls.append(("restart", name))
+            return self.start(name)
+
+    ctx.supervisor = FakeSupervisor()
+    assert "started 20-loop.py as subshell [4]" in to_text(run_line("startup start 20-loop", ctx).output)
+    assert "restarted 20-loop.py" in to_text(run_line("startup restart 20-loop", ctx).output)
+    assert "stopped" in to_text(run_line("startup stop", ctx).output)
+    with pytest.raises(PipelineError, match="no background script named nope"):
+        run_line("startup start nope", ctx)
+    with pytest.raises(PipelineError, match="no background script named nope"):
+        run_line("startup stop nope", ctx)
+    with pytest.raises(PipelineError, match="usage: startup start NAME"):
+        run_line("startup start", ctx)

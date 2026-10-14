@@ -80,6 +80,7 @@ class Job:
         self.scrolled = 0  # pages scrolled back in the emulator's history while attached
         # command jobs
         self.thread: threading.Thread | None = None
+        self.process: Any = None  # a hidden program (start_hidden): subprocess.Popen
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ class JobTable:
         self.jobs: dict[int, Job] = {}
         self.notifications: list[str] = []  # "[1] done: grep -r …", printed at the next prompt
         self.on_change: Callable[[], None] | None = None  # the shell redraws its panel
+        self.on_done: list[Callable[[Job], None]] = []  # called when a job finishes
         self._next = 1
         self._lock = threading.Lock()
 
@@ -288,6 +290,11 @@ class JobTable:
         job._finish(status)
         self.notifications.append(f"[{job.number}] {job.label}: {job.command}")
         self._changed()
+        for hook in list(self.on_done):  # the startup Supervisor restarts what asked for it
+            try:
+                hook(job)
+            except Exception:  # noqa: BLE001 — a hook must not kill the reader thread
+                pass
 
     def pop_notifications(self) -> list[str]:
         notes, self.notifications = self.notifications, []
@@ -324,7 +331,14 @@ class JobTable:
             import pty
 
             job = self._add(command, "program")
-            pid, master = pty.fork()
+            import warnings
+
+            with warnings.catch_warnings():
+                # Python warns about forking a threaded process; the child here only calls
+                # execve (or _exit) at once, the one pattern that is safe after fork.
+                warnings.filterwarnings("ignore", message=".*use of forkpty\\(\\) may lead to deadlocks",
+                                        category=DeprecationWarning)
+                pid, master = pty.fork()
             if pid == 0:  # the child: a new session with the pty as its controlling terminal
                 try:
                     if cwd:
@@ -473,6 +487,8 @@ class JobTable:
                     prefix_at = None
                     if data[:1].isdigit():
                         return "switch", int(data[:1])
+                    if data[:1] in (b"x", b"X"):  # Ctrl-] x: end this subshell
+                        return "kill", job.number
                     if data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
                         data = data[1:]
                         job.write(DETACH_KEY)
@@ -514,10 +530,10 @@ class JobTable:
                 if cut >= 0:
                     rest = data[cut + 1:]
                     data = data[:cut]
-                    if rest[:1].isdigit():
+                    if rest[:1].isdigit() or rest[:1] in (b"x", b"X"):
                         if data:
                             job.write(data)
-                        return "switch", int(rest[:1])
+                        return ("switch", int(rest[:1])) if rest[:1].isdigit() else ("kill", job.number)
                     prefix_at = time.monotonic()
                 if data:
                     try:
@@ -537,6 +553,27 @@ class JobTable:
                 footer.set_hover(None)
             if raw:
                 term.raw(False)
+
+    def start_hidden(self, argv: list[str], command: str, env: dict[str, str] | None = None,
+                     cwd: str | None = None) -> Job:
+        """A program without a terminal (where there is no pseudo-terminal: Windows without
+        pywinpty): its output goes to the job's log, where `jobs -f N` follows it. It can't be
+        attached to; `jobs -k N` stops it."""
+        job = self._add(command, "command")
+        process = subprocess.Popen(argv, cwd=cwd or os.getcwd(), env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        job.pid, job.process = process.pid, process
+
+        def pump() -> None:
+            assert process.stdout is not None
+            for chunk in iter(lambda: process.stdout.read1(65536), b""):  # type: ignore[union-attr]
+                job.append(chunk)
+            self._done(job, process.wait())
+
+        job.thread = threading.Thread(target=pump, daemon=True, name=f"shellcraft:job{job.number}")
+        job.thread.start()
+        self._changed()
+        return job
 
     # ── ShellCraft commands in a thread ──────────────────────────────────────
 
@@ -570,6 +607,15 @@ class JobTable:
         if not job.running:
             return False
         job.killed = True
+        if job.process is not None:  # a hidden program (start_hidden)
+            for stop in (job.process.terminate, job.process.kill):
+                try:
+                    stop()
+                    job.process.wait(timeout=1)
+                    break
+                except (OSError, subprocess.TimeoutExpired):
+                    continue
+            return True
         if job.kind == "program":
             if job.winpty is not None:
                 for force in (False, True):

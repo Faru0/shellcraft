@@ -552,7 +552,7 @@ An `&` anywhere else is still an error.
   type goes to it, what it prints you see. Press **Ctrl-]** to detach (or **Ctrl-] 0**): the
   program keeps running in the background, and `jobs N`, **Ctrl-] N** or a click on its tab
   attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-] N** inside
-  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program.
+  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program, and **Ctrl-] x** ends the program you are in and returns to the prompt.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
@@ -804,6 +804,9 @@ VPN, print a reminder.
 startup                  # the startup scripts, in order, with their last result
 startup run [NAME]       # run them again now (or just NAME)
 startup --folder         # where they live
+startup stop [NAME]      # stop a background script (or all of them): no restart
+startup start NAME       # start a background script again
+startup restart NAME     # stop it and start it
 ```
 
 ## Writing one
@@ -826,6 +829,30 @@ with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
 The variables apply only if the script exits with status 0, and a later script sees those of the
 earlier ones. What a script prints is shown under the banner. A script that fails, or runs longer
 than 30 seconds, is reported in one line and the shell starts anyway.
+
+## Header lines: background, restart, timeout
+
+Lines at the top of a script, before its first line of code, change how it runs:
+
+```python
+# shellcraft: background        start it as a subshell when the prompt appears; never waited for
+# shellcraft: restart           start it again if it exits with an error
+# shellcraft: timeout=120       a normal script may take this long (default 30 s)
+```
+
+A **background** script (a watcher, a tunnel, a periodic check) starts the moment the prompt is
+ready, so the shell starts as fast as without it. It is a subshell like `sub python FILE`: listed
+in the panel as `startup: NAME.py`, Ctrl-] N or a click attaches to it, **Ctrl-] x** ends it,
+`jobs -k N` stops it, and it is stopped when you leave ShellCraft. `alert` is on its PATH, and its
+alerts say which script sent them. It can't set variables for the shell (it starts after the
+shell is ready): put those in a normal script, which runs first.
+
+With **restart**, a script that exits with an error is started again after 2, 4, 8… up to 60
+seconds; after 5 crashes in 10 minutes it is left stopped and a red alert says so. A clean exit
+(status 0), or a stop by you, is never restarted. `startup` shows each background script's state.
+
+Scripts run in name order (`10-env.py` before `20-watcher.py`); there are no dependency
+declarations and no arguments. A failing script never stops the shell from starting.
 
 ## The rc file: ShellCraft commands
 
@@ -854,13 +881,37 @@ the rc file.
 """
 
 
-@builtin("startup", "List or rerun the startup scripts", "startup [run [NAME] | --folder]", stateful=True,
+def _startup_control(ctx: ShellContext, action: str, name: str | None) -> Any:
+    """startup stop [NAME] / start NAME / restart NAME: the background startup scripts."""
+    supervisor = ctx.supervisor
+    if supervisor is None or not ctx.interactive:
+        raise CommandError(f"startup {action}: only in the interactive shell")
+    if action != "stop" and not name:
+        raise CommandError(f"usage: startup {action} NAME (startup lists them)")
+    try:
+        if action == "stop":
+            if name is not None and name not in supervisor.scripts:
+                raise KeyError(name)
+            done = supervisor.stop(name)
+            names = ", ".join(m.path.name for m in done) or "nothing to stop"
+            return Text(f"✓ stopped: {names}", style="sc.success")
+        managed = supervisor.start(name) if action == "start" else supervisor.restart(name)
+    except KeyError:
+        raise CommandError(f"startup {action}: no background script named {name} "
+                           "(a startup script with a `# shellcraft: background` line; startup lists them)") from None
+    return Text(f"✓ {action}ed {managed.path.name} as subshell [{managed.job.number}]", style="sc.success")
+
+
+@builtin("startup", "List or rerun the startup scripts",
+         "startup [run [NAME] | stop [NAME] | start NAME | restart NAME]", stateful=True,
          doc=STARTUP_DOC)
 def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import startup as startupmod
 
     if args in (["--folder"], ["-f"]):
         return f"{startupmod.folder()}\n"
+    if args[:1] in (["stop"], ["start"], ["restart"]):
+        return _startup_control(ctx, args[0], args[1] if len(args) > 1 else None)
     if args[:1] == ["run"]:
         only = args[1] if len(args) > 1 else None
         results = startupmod.run_all(only=only)
@@ -874,7 +925,8 @@ def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
                 lines.append(r.output.rstrip("\n") + "\n", style="sc.muted")
         return lines if results else Text("no startup scripts", style="sc.muted")
     if args:
-        raise CommandError("usage: startup [run [NAME] | --folder]")
+        raise CommandError("usage: startup [run [NAME] | stop [NAME] | start NAME | restart NAME"
+                           " | --folder]")
     found = startupmod.scripts()
     rc = startupmod.rc_path()
     rc_note = (f"rc file: {rc} ({len(startupmod.logical_lines(rc.read_text(encoding='utf-8', errors='replace')))} "
@@ -885,8 +937,24 @@ def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     for col in ("#", "script", "last run", "set"):
         table.add_column(col)
     plain = []
+    supervisor = ctx.supervisor
     for i, script in enumerate(found, 1):
         r = ctx.startup_results.get(script.stem)
+        info = startupmod.header(script)
+        if info["background"]:
+            managed = supervisor.scripts.get(script.stem) if supervisor is not None else None
+            job = managed.job if managed is not None else None
+            if job is None:
+                last = Text("background · not started", style="sc.muted")
+            else:
+                stopped = managed.stopped and not job.running
+                state = "gave up" if managed.gave_up else "stopped" if stopped else job.label
+                restarts = " · restarts" if managed.restart else ""
+                last = Text(f"background · [{job.number}] {state}{restarts}",
+                            style="sc.success" if job.running else "sc.warning")
+            table.add_row(str(i), Text(script.name, style="sc.path"), last, "")
+            plain.append(f"{i}\t{script.name}\t{last.plain}\t")
+            continue
         last = Text("not run this session", style="sc.muted") if r is None else \
             Text(f"{r.label} ({r.seconds:.1f}s)", style="sc.success" if r.ok else "sc.warning")
         sets = ", ".join(sorted(n for n, v in (r.env if r else {}).items() if v is not None))
@@ -1084,6 +1152,11 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
                     return select_job(ctx, target)
                 job = nxt
                 continue
+        if how == "kill":  # Ctrl-] x: end the subshell we are in, back to the prompt
+            ctx.jobs.kill(job)
+            ctx.jobs.pop_notifications()
+            return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] killed: ", "sc.muted"),
+                                 (job.command, "sc.accent"))
         if how == "detached":
             return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] detached: ", "sc.muted"),
                                  (job.command, "sc.accent"),

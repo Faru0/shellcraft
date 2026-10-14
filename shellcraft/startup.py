@@ -36,6 +36,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,6 +105,43 @@ def apply_env(changes: dict[str, str | None]) -> None:
             os.environ[name] = value
 
 
+_HEADER = re.compile(r"^#\s*shellcraft:\s*(.+)$", re.I)
+RESTART_DELAYS = (2.0, 4.0, 8.0, 16.0, 32.0, 60.0)  # seconds before each restart, then 60 s
+CRASH_LIMIT, CRASH_WINDOW = 5, 600.0  # this many crashes within this many seconds: give up
+
+
+def header(script: Path) -> dict[str, Any]:
+    """The `# shellcraft: …` lines at the top of a script: background, restart, timeout=N.
+    Several can share a line (`# shellcraft: background, restart`)."""
+    found: dict[str, Any] = {"background": False, "restart": False, "timeout": None}
+    try:
+        lines = script.read_text(encoding="utf-8", errors="replace").splitlines()[:30]
+    except OSError:
+        return found
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            break  # the header ends at the first line of code
+        m = _HEADER.match(line)
+        if not m:
+            continue
+        for word in re.split(r"[,\s]+", m.group(1).strip()):
+            key, _, value = word.partition("=")
+            key = key.lower()
+            if key in ("background", "restart"):
+                found[key] = True
+            elif key == "timeout":
+                try:
+                    found["timeout"] = max(1.0, float(value))
+                except ValueError:
+                    pass
+    return found
+
+
+def background_scripts(home: Path | None = None) -> list[Path]:
+    return [p for p in scripts(home) if header(p)["background"]]
+
+
 def run_one(script: Path, timeout: float = TIMEOUT) -> Result:
     """Run one startup script and apply the variables it handed back."""
     result = Result(script.stem)
@@ -140,13 +178,152 @@ def run_one(script: Path, timeout: float = TIMEOUT) -> Result:
 
 
 def run_all(home: Path | None = None, only: str | None = None) -> list[Result]:
-    """Run every startup script (or the one named `only`), in order."""
+    """Run every normal startup script (or the one named `only`), in order, each with its own
+    `timeout=` if it has one. Background scripts are left to the Supervisor."""
     results = []
     for script in scripts(home):
         if only is not None and script.stem != only:
             continue
-        results.append(run_one(script))
+        info = header(script)
+        if info["background"]:
+            continue
+        results.append(run_one(script, timeout=info["timeout"] or TIMEOUT))
     return results
+
+
+# ── background scripts: subshells started with the prompt, restarted on request ──
+
+@dataclass
+class Managed:
+    """One background script and its subshell."""
+
+    name: str
+    path: Path
+    restart: bool
+    job: Any = None
+    crashes: list[float] = field(default_factory=list)  # when it exited with an error lately
+    stopped: bool = False  # stopped by the user: never restarted
+    gave_up: bool = False
+    timer: Any = None
+
+
+class Supervisor:
+    """Starts the background startup scripts as program subshells (a hidden process where there is
+    no pseudo-terminal), and restarts those with `# shellcraft: restart` when they exit with an
+    error: after 2, 4, 8… up to 60 s, giving up (with a red alert) after CRASH_LIMIT crashes in
+    CRASH_WINDOW seconds. A clean exit (status 0), or a stop by the user, is never restarted."""
+
+    def __init__(self, table: Any, alerts: Any = None, home: Path | None = None):
+        self.table = table
+        self.alerts = alerts
+        self.home = home
+        self.scripts: dict[str, Managed] = {}
+        self.closed = False
+        table.on_done.append(self._job_done)
+
+    # ── control ──────────────────────────────────────────────────────────────
+
+    def start_all(self) -> list[Managed]:
+        for script in background_scripts(self.home):
+            self.start(script.stem)
+        return list(self.scripts.values())
+
+    def start(self, name: str) -> Managed:
+        """Start (or start again) background script NAME. Raises KeyError for an unknown name."""
+        managed = self.scripts.get(name)
+        if managed is None:
+            path = next((p for p in background_scripts(self.home) if p.stem == name), None)
+            if path is None:
+                raise KeyError(name)
+            managed = self.scripts[name] = Managed(name, path, header(path)["restart"])
+        if managed.job is not None and managed.job.running:
+            return managed
+        managed.stopped = managed.gave_up = False
+        managed.restart = header(managed.path)["restart"]
+        managed.job = self._spawn(managed)
+        return managed
+
+    def stop(self, name: str | None = None) -> list[Managed]:
+        """Stop one background script (or all): no restart until `start`."""
+        targets = [self.scripts[name]] if name is not None else list(self.scripts.values())
+        for managed in targets:
+            managed.stopped = True
+            if managed.timer is not None:
+                managed.timer.cancel()
+                managed.timer = None
+            if managed.job is not None and managed.job.running:
+                self.table.kill(managed.job)
+        return targets
+
+    def restart(self, name: str) -> Managed:
+        if name not in self.scripts:
+            self.start(name)  # raises KeyError for an unknown name
+        self.stop(name)
+        return self.start(name)
+
+    def close(self) -> None:
+        self.closed = True
+        for managed in self.scripts.values():
+            managed.stopped = True
+            if managed.timer is not None:
+                managed.timer.cancel()
+
+    def find(self, job: Any) -> Managed | None:
+        return next((m for m in self.scripts.values() if m.job is job), None)
+
+    # ── internals ────────────────────────────────────────────────────────────
+
+    def _spawn(self, managed: Managed) -> Any:
+        """Start the script as a subshell; its previous, finished subshell leaves the table, so a
+        restarted script keeps one line in the panel."""
+        old = managed.job
+        if old is not None and not old.running:
+            self.table.jobs.pop(old.number, None)
+        from shellcraft.alerts import SUB_ENV, with_shim
+        from shellcraft.config import config_dir
+        from shellcraft.jobs import JobsUnsupported
+
+        command = f"startup: {managed.path.name}"
+        env = with_shim(dict(os.environ), self.home or config_dir())
+        env[SUB_ENV] = f"{self.table.next_number}:{command}"  # alerts name the script
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (str(managed.path.parent), env.get("PYTHONPATH")) if p)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        argv = [sys.executable, str(managed.path)]
+        try:
+            return self.table.start_program(argv, command, env=env, cwd=os.getcwd())
+        except JobsUnsupported:  # Windows without pywinpty: a hidden process, its output in the job log
+            return self.table.start_hidden(argv, command, env=env, cwd=os.getcwd())
+
+    def _job_done(self, job: Any) -> None:
+        managed = self.find(job)
+        if managed is None or self.closed or managed.stopped or job.killed or not managed.restart:
+            return
+        if job.status == 0:
+            return  # finished its work: not a crash
+        now = time.monotonic()
+        managed.crashes = [t for t in managed.crashes if now - t < CRASH_WINDOW] + [now]
+        if len(managed.crashes) >= CRASH_LIMIT:
+            managed.gave_up = True
+            if self.alerts is not None:
+                self.alerts.post(f"startup {managed.path.name} crashed {CRASH_LIMIT} times in "
+                                 f"{int(CRASH_WINDOW // 60)} min: not restarted (startup start {managed.name})",
+                                 "critical", source="startup")
+            return
+        delay = RESTART_DELAYS[min(len(managed.crashes) - 1, len(RESTART_DELAYS) - 1)]
+        managed.timer = threading.Timer(delay, self._restart_now, args=(managed,))
+        managed.timer.daemon = True
+        managed.timer.start()
+
+    def _restart_now(self, managed: Managed) -> None:
+        managed.timer = None
+        if self.closed or managed.stopped:
+            return
+        try:
+            managed.job = self._spawn(managed)
+        except OSError as exc:
+            if self.alerts is not None:
+                self.alerts.post(f"startup {managed.path.name} could not restart: {exc}", "critical",
+                                 source="startup")
 
 
 # ── the rc file: ShellCraft command lines, like ~/.bashrc ────────────────────

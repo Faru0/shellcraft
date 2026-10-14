@@ -3,21 +3,36 @@
 All notable changes to ShellCraft. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and the project uses [semantic versioning](https://semver.org/).
 
-## [0.3.0] — 2026-10-13
+## [Unreleased]
 
-Subshells and the subshell panel, alerts, the rc file and startup scripts, the aliases file,
-mouse support, a user modules folder, the `shellcraft` package name, API keys in the OS keyring,
-and Ctrl-C that reaches running modules.
+### Added
 
-### Changed (robustness and packaging)
+- **Background startup scripts:** `# shellcraft: background` at the top of a script in
+  `~/.shellcraft/startup/` starts it as a subshell when the prompt appears, so it never slows the
+  start; `# shellcraft: restart` restarts it after a crash (2 s, 4 s … 60 s; gives up with a red
+  alert after 5 crashes in 10 minutes); `# shellcraft: timeout=N` gives a normal script more time.
+  `startup stop [NAME]`, `startup start NAME`, `startup restart NAME`. Example in
+  `templates/startup/30-watcher.example.py`.
+- **Ending a subshell:** Ctrl-] x inside an attached subshell ends it and returns to the prompt;
+  `x` or Delete on the chosen line of the subshell panel stops that one.
 
-- **The package is `shellcraft` now, not `core`** (a generic name that could collide with other
-  packages in site-packages). Module authors: write `from shellcraft.modkit import …`. A `core`
-  compatibility shim stays for the 0.3 releases: `import core.X` returns the very same module as
-  `shellcraft.X` (with a DeprecationWarning), and `python -m core.cli` / `python -m core.alerts`
-  still run, so modules and alert shims from 0.2 keep working. It is removed in 0.4.
-
-### Added (shell grammar)
+- **Following a background command:** `jobs -f N` prints what a command job has written so far and
+  then each new line as it comes, like `tail -f`, until the job ends (its status line) or Ctrl-C
+  (the job keeps running). Selecting a still-running command job (`jobs N`, Ctrl-] N, a click)
+  follows it the same way; a finished one shows its whole output. Background commands record
+  their output as it streams, so `tail -f app.log | grep ERROR &` can be followed.
+- **`cmd &`:** a trailing `&` runs the line in the background, like `sub cmd`: a builtin, module,
+  pipeline or loop as a command job (the line as typed, quotes kept), a single OS program as a
+  program job that is not attached (Ctrl-] N switches to it). Interactive shell only; an `&`
+  anywhere else is still a parse error, which now says only a trailing one is supported.
+- **Streaming pipelines:** every command of a pipeline runs at the same time, and lines flow to
+  the next one as they are made. `yes | head -3` returns at once (the producer is stopped when the
+  reader has enough), `tail -f app.log | grep ERROR` prints each match the moment it is written,
+  and output that keeps coming is printed live (Ctrl-C stops it, status 130). A pipeline that
+  finishes quickly looks exactly as before (colors, the pager). `cat`, `grep`, `head`, `tail -f`,
+  `wc`, `tee` and the new `yes` read their input as it arrives; OS programs in a pipeline stream
+  through their pipes; a module whose `run()` yields lines streams too. Builtins opt in with
+  `@builtin(..., streams=True)` and get `core.streams.Lines` as stdin.
 
 - **Shell functions:** `name() { …; }` and `function name { …; }`, on one line or several (at the
   prompt and in rc files), with `$1`…`$9`, `$#`, `$@`, `$*`, `local NAME[=VALUE]` (put back when the
@@ -41,6 +56,25 @@ and Ctrl-C that reaches running modules.
   background `sub` job keeps it in the job's output. Without a screen (MCP) it goes to the
   process's stderr. Other `>&` forms are still rejected, with a message saying which work.
 
+### Changed
+
+- One cancellation mechanism: a pipeline segment's stop flag is also `modkit`'s cancel event, so a
+  module checking `modkit.cancelled()` stops when `head` has its lines or on Ctrl-C.
+
+## [0.3.0] — 2026-10-13
+
+Subshells and the subshell panel, alerts, the rc file and startup scripts, the aliases file,
+mouse support, a user modules folder, the `shellcraft` package name, API keys in the OS keyring,
+and Ctrl-C that reaches running modules.
+
+### Changed (robustness and packaging)
+
+- **The package is `shellcraft` now, not `core`** (a generic name that could collide with other
+  packages in site-packages). Module authors: write `from shellcraft.modkit import …`. A `core`
+  compatibility shim stays for the 0.3 releases: `import core.X` returns the very same module as
+  `shellcraft.X` (with a DeprecationWarning), and `python -m core.cli` / `python -m core.alerts`
+  still run, so modules and alert shims from 0.2 keep working. It is removed in 0.4.
+
 ### Added (robustness and packaging)
 
 - **Ctrl-C reaches running modules:** `modkit.check_cancel()` (raises `Cancelled`, a
@@ -63,24 +97,6 @@ and Ctrl-C that reaches running modules.
   across both (yours first). `ingest` inside the shell now writes there instead of into a checkout.
 
 ### Added
-
-- **Following a background command:** `jobs -f N` prints what a command job has written so far and
-  then each new line as it comes, like `tail -f`, until the job ends (its status line) or Ctrl-C
-  (the job keeps running). Selecting a still-running command job (`jobs N`, Ctrl-] N, a click)
-  follows it the same way; a finished one shows its whole output. Background commands record
-  their output as it streams, so `tail -f app.log | grep ERROR &` can be followed.
-- **`cmd &`:** a trailing `&` runs the line in the background, like `sub cmd`: a builtin, module,
-  pipeline or loop as a command job (the line as typed, quotes kept), a single OS program as a
-  program job that is not attached (Ctrl-] N switches to it). Interactive shell only; an `&`
-  anywhere else is still a parse error, which now says only a trailing one is supported.
-- **Streaming pipelines:** every command of a pipeline runs at the same time, and lines flow to
-  the next one as they are made. `yes | head -3` returns at once (the producer is stopped when the
-  reader has enough), `tail -f app.log | grep ERROR` prints each match the moment it is written,
-  and output that keeps coming is printed live (Ctrl-C stops it, status 130). A pipeline that
-  finishes quickly looks exactly as before (colors, the pager). `cat`, `grep`, `head`, `tail -f`,
-  `wc`, `tee` and the new `yes` read their input as it arrives; OS programs in a pipeline stream
-  through their pipes; a module whose `run()` yields lines streams too. Builtins opt in with
-  `@builtin(..., streams=True)` and get `core.streams.Lines` as stdin.
 
 - **Subshells:** `sub` opens your own shell, `sub PROGRAM` hands the terminal to any program
   (`vim`, `htop`, `ssh`, `python`…), `sub shellcraft` nests a ShellCraft (its prompt shows the

@@ -202,7 +202,8 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
     running = sum(1 for j in jobs if j.running)
     head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
-    head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns" if attached else "↓ to manage")
+    head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
+                                                       else "↓ to manage · x stops")
     lines.append((None, "header", head, False))
     main_hover = hover == 0
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")

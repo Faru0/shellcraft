@@ -183,6 +183,10 @@ class Shell:
         ctx.jobs = JobTable(config_dir() / "jobs")
         ctx.jobs.on_change = self._jobs_changed
         self._cleanup.callback(self._stop_jobs)
+        from shellcraft.startup import Supervisor
+
+        ctx.supervisor = Supervisor(ctx.jobs, ctx.alerts)
+        self._cleanup.callback(ctx.supervisor.close)  # runs after _stop_jobs: nothing restarts at exit
         # The tab bar on the terminal's last row: this shell and its subshells. Enabled by loop()
         # (after the banner), redrawn after every prompt render, gone at exit.
         # Alerts from subshells, nested shells and MCP clients arrive through the spool folder
@@ -286,6 +290,20 @@ class Shell:
                 self.ui.console.print(Text(r.output.rstrip("\n"), style="sc.muted"), markup=False, highlight=False)
         return results
 
+    def start_background(self) -> list[Any]:
+        """Start the background startup scripts as subshells (never waits for them)."""
+        if self.ctx.supervisor is None:
+            return []
+        started = self.ctx.supervisor.start_all()
+        for managed in started:
+            if managed.job is not None:
+                where = f"  in the background as [{managed.job.number}]"
+                where += ", restarts if it crashes" if managed.restart else ""
+                line = Text.assemble(("⚙ ", "sc.success"), (f"startup {managed.name}", "sc.accent"),
+                                     (where, "sc.muted"))
+                self.ui.console.print(line, markup=False, highlight=False)
+        return started
+
     def run_rc(self) -> None:
         """Source ~/.shellcraft/rc, as if each line were typed (shellcraft.startup.source)."""
         from shellcraft import startup
@@ -353,6 +371,16 @@ class Shell:
         @kb.add("escape", filter=in_panel, eager=True)
         def _panel_leave(event: Any) -> None:
             self._panel_cursor = None
+
+        @kb.add("x", filter=in_panel)
+        @kb.add("delete", filter=in_panel)
+        def _panel_stop(event: Any) -> None:
+            """x / Delete on the chosen subshell: stop it (as `jobs -k N`)."""
+            jobs = self._panel_jobs()
+            if self._panel_cursor is None or not jobs:
+                return
+            number = jobs[min(self._panel_cursor, len(jobs) - 1)].number
+            run_in_terminal(lambda: self._run_clicked(f"jobs -k {number}"))
 
         @kb.add("enter", filter=in_panel)
         def _panel_pick(event: Any) -> None:

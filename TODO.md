@@ -61,10 +61,9 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 - [ ] **Stopping a background command for real**: `jobs -k N` marks a command job killed, but its
   thread (a `tail -f` in it, say) keeps running until the shell exits. Hand each background
   pipeline its `shellcraft.streams` cancel event so `jobs -k` stops it. — `shellcraft/jobs.py`, `shellcraft/pipeline.py`
-- [ ] **Startup, open questions** (the rc file is done; these are about `~/.shellcraft/startup/*.py`):
-  long-running scripts as `sub` jobs (a marker line, or a separate folder?); a dependency order
-  beyond name order; per-script timeouts and arguments; whether a script may stop the shell from
-  starting. Untested on Windows. — `shellcraft/startup.py`
+- [ ] **Background startup scripts on Windows**: without `pywinpty` they run as hidden processes
+  (output in the job log, `jobs -f N` follows it); with it, as subshells. Untested there.
+  — `shellcraft/startup.py`, `shellcraft/jobs.py`
 - [ ] **Shell grammar**: `%VAR%`, `<` / `>` string comparisons inside `[[ ]]`. More Python in the
   rc file beyond `input()` / `int(input())` if wanted. Functions: `"$@"` stays one word when quoted
   (bash keeps each argument separate), `${1:-default}`, `shift`.
@@ -106,6 +105,10 @@ the GitLab pipeline has not been checked.
 ## Won't do
 
 Recorded on purpose, so they are not proposed again.
+
+- **Startup scripts declaring dependencies, or taking arguments**: name order (`10-`, `20-`) is the
+  order, and a script reads environment variables instead of arguments (decided 2026-10-13).
+- **A failing startup script stopping the shell from starting**: it is reported, never fatal.
 
 - **Split panes / a multiplexer inside ShellCraft** (the old `TUI_UPGRADE.md`). It would turn every
   output path into a full-screen redraw, take away the terminal's scrollback and selection, and

@@ -274,7 +274,7 @@ Every subshell is a numbered job. At the prompt, a **panel** under it lists them
 ```
 
 The line under the mouse lights up and a click switches to it; **↓** on an empty line moves into
-the panel (↑ / ↓ walk it, **Enter** switches, Esc leaves); **Ctrl-] N** switches from anywhere.
+the panel (↑ / ↓ walk it, **Enter** switches, **x** or Delete stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere.
 While the panel shows, the terminal's mouse is used for it, so selecting text there needs Shift
 and the wheel moves through the history; with no subshells the terminal keeps the mouse as usual.
 
@@ -346,7 +346,19 @@ with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
 The shell, every subshell and every module then see `PROJECT_ROOT`. A script that fails or runs
 longer than 30 s is reported in one line and the shell starts anyway. They run before the rc file,
 so its lines see their variables. `startup` lists them with their last result, `startup run` runs
-them again, `settings startup off` or `--no-startup` skips both the scripts and the rc file. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
+them again, `settings startup off` or `--no-startup` skips both the scripts and the rc file.
+
+A script that should keep running (a watcher, a tunnel, a periodic check) starts in the
+background instead, with a header line, so the shell never waits for it:
+
+```python
+# shellcraft: background, restart
+```
+
+It becomes a subshell (`startup: 30-watcher.py` in the panel; Ctrl-] N attaches, **Ctrl-] x** ends
+it), `restart` starts it again after a crash (giving up after 5 crashes in 10 minutes, with an
+alert), and `startup stop / start / restart NAME` control it. `# shellcraft: timeout=120` gives a
+normal script more than 30 s. `templates/startup/30-watcher.example.py` is an example. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
 
 ### Alerts in the status panel
 
