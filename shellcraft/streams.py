@@ -51,7 +51,13 @@ def current_cancel() -> threading.Event | None:
 
 
 def set_cancel(event: threading.Event | None) -> None:
+    """This thread's pipeline stop flag. It is also modkit's cancel event for the thread, so a
+    module calling modkit.cancelled() / check_cancel() / sleep() stops when the pipeline does
+    (`head` has its lines, Ctrl-C), not only on the spinner's Ctrl-C."""
     _local.cancel = event
+    from shellcraft import modkit
+
+    modkit._cancel_event.set(event)
 
 
 def check() -> None:

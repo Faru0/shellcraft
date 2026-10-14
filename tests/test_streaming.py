@@ -126,3 +126,27 @@ def test_lines_join_partial_chunks():
     cancel.set()
     with pytest.raises(streams.Cancelled):
         streams.Channel(cancel).put("x")
+
+
+def test_a_module_checking_modkit_cancellation_stops_when_the_pipeline_does(tmp_path, monkeypatch):
+    """One mechanism: the pipeline's stop flag is the module's modkit cancel event."""
+    import time
+
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
+
+    (tmp_path / "ticker.py").write_text(
+        "from shellcraft import modkit\n"
+        "def run(args, stdin):\n"
+        "    n = 0\n"
+        "    while True:\n"
+        "        modkit.check_cancel()\n"
+        "        n += 1\n"
+        "        yield f'tick {n}\\n'\n"
+        "        modkit.sleep(0.01)\n")
+    registry = ModuleRegistry(tmp_path)
+    registry.load()
+    ctx = ShellContext(registry=registry)
+    started = time.monotonic()
+    out = to_text(run_line("ticker | head -2", ctx).output)
+    assert out == "tick 1\ntick 2\n" and time.monotonic() - started < 3
