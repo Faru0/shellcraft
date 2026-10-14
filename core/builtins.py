@@ -728,7 +728,22 @@ At startup the shell sources `~/.shellcraft/rc` this way (`man startup`).
 
 ```
 source FILE
+. FILE                       # the same, bash's short spelling
 source ~/.shellcraft/rc      # run the startup file again
+```
+
+## Splitting the rc file
+
+As in bash, a file can source others, so `~/.shellcraft/rc` can pull in separate files for
+separate uses, and skip the ones that don't exist:
+
+```
+# ~/.shellcraft/rc
+if [ -f ~/.shellcraft/rc.work ]; then
+    . ~/.shellcraft/rc.work
+fi
+[ -f ~/.shellcraft/rc.home ] && source ~/.shellcraft/rc.home
+for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
 ```
 
 Blank lines and lines starting with `#` are skipped. Each command's output is shown as it runs;
@@ -757,6 +772,11 @@ def _source(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if failed:
         return WithStatus("", 1)
     return ""
+
+
+# `. FILE`, bash's short spelling of `source FILE` (hidden from help; `man source` covers it).
+builtin(".", "Run a file of ShellCraft commands (same as source)", "source FILE", stateful=True, direct=True,
+        doc=SOURCE_DOC, hidden=True)(_source)
 
 
 STARTUP_DOC = """# startup

@@ -141,3 +141,21 @@ def test_cli_sources_the_rc_file_after_the_scripts(home, started):
     main([])
     main(["--no-startup"])
     assert calls == ["rc"]
+
+
+def test_rc_can_source_other_files_the_bash_way(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".shellcraft").mkdir()
+    (tmp_path / ".shellcraft" / "rc.work").write_text("export SC_FIRST=work\necho work loaded\n")
+    (tmp_path / "rc.d").mkdir()
+    (tmp_path / "rc.d" / "10-a.rc").write_text("echo a loaded\n")
+    rc = home / "rc"
+    rc.write_text("if [ -f ~/.shellcraft/rc.work ]; then\n    . ~/.shellcraft/rc.work\nfi\n"
+                  "[ -f ~/.shellcraft/rc.missing ] && source ~/.shellcraft/rc.missing\n"
+                  'for f in rc.d/*.rc; do [ -f "$f" ] && source "$f"; done\n')
+    ctx, shown, errors = _shell_ctx(home)
+    startup.source(rc, ctx)
+    assert "work loaded\n" in shown and "a loaded\n" in shown and errors == []
+    assert os.environ["SC_FIRST"] == "work"
+    assert "." not in to_text(run_line("help", ctx).output).split()  # hidden; man source covers it

@@ -289,6 +289,15 @@ for n in $(seq $count); do echo server-$n; done
 read -s -p "API token: " token      # the bash spelling; -s hides what you type
 ```
 
+As in bash, the rc file can pull in other files, so you can keep one per use case:
+
+```
+if [ -f ~/.shellcraft/rc.work ]; then
+    . ~/.shellcraft/rc.work
+fi
+for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
+```
+
 A failing line is reported with its line number (`✗ rc:4: …`) and the rest still run.
 `source FILE` runs any such file by hand (`source ~/.shellcraft/rc` reruns it). It never runs for
 `--mcp` / `--mcp-http`. `templates/startup/rc.template` is a short starter (a question, a variable, `myip`, a loop) and `templates/startup/rc.example` a longer commented one.

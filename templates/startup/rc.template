@@ -12,6 +12,11 @@ echo $GREETING
 # 3. Run a module: your public IP
 myip
 
-# 4. A loop: count down from 3
+# 4. Pull in another rc file, if it exists (one per use case, like ~/.bash_aliases in bash)
+if [ -f ~/.shellcraft/rc.work ]; then
+    . ~/.shellcraft/rc.work
+fi
+
+# 5. A loop: count down from 3
 for n in 3 2 1; do echo "starting in $n..."; done
 echo "ready!"
