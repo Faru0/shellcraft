@@ -430,6 +430,8 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 | `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
+| `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
+| `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer` | on | Inside a subshell, keep the subshell panel at the bottom of the terminal (click a line, or Ctrl-] N, to switch). |
 
 ### API keys

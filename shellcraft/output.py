@@ -46,12 +46,15 @@ def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]],
     ui = ctx.ui
 
     def runner(label: str, fn: Callable[[], Any]) -> Any:
+        from shellcraft.modkit import run_cancellable
+
         done = threading.Event()
+        cancel = threading.Event()  # set on Ctrl-C: modules that check modkit.cancelled() stop
         box: dict[str, Any] = {}
 
         def target() -> None:
             try:
-                box["value"] = fn()
+                box["value"] = run_cancellable(fn, cancel)
             except BaseException as exc:  # noqa: BLE001 — re-raised on the main thread
                 box["error"] = exc
             finally:
@@ -59,16 +62,21 @@ def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]],
 
         started = time.monotonic()
         threading.Thread(target=target, daemon=True, name=f"shellcraft:{label}").start()
-        if not done.wait(SPINNER_DELAY) and settings.get(ctx.config, "spinner"):
-            with ui.console.status(Text(label, style="sc.accent"), spinner="dots12",
-                                   spinner_style="sc.accent") as status:
-                shown = label
-                while not done.wait(0.05):
-                    text = spinner_label(label, time.monotonic() - started)
-                    if text != shown:
-                        shown = text
-                        status.update(Text(text, style="sc.accent"))
-        done.wait()
+        try:
+            if not done.wait(SPINNER_DELAY) and settings.get(ctx.config, "spinner"):
+                with ui.console.status(Text(label, style="sc.accent"), spinner="dots12",
+                                       spinner_style="sc.accent") as status:
+                    shown = label
+                    while not done.wait(0.05):
+                        text = spinner_label(label, time.monotonic() - started)
+                        if text != shown:
+                            shown = text
+                            status.update(Text(text, style="sc.accent"))
+            while not done.wait(0.1):  # in slices: an untimed wait only sees Ctrl-C once fn returns
+                pass
+        except KeyboardInterrupt:
+            cancel.set()  # the thread can't be killed; a module that checks modkit.cancelled() stops
+            raise
         if "error" in box:
             raise box["error"]
         return box.get("value")

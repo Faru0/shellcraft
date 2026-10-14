@@ -15,6 +15,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added (robustness and packaging)
 
+- **Ctrl-C reaches running modules:** `modkit.check_cancel()` (raises `Cancelled`, a
+  `ModuleError`), `modkit.cancelled()` and `modkit.sleep()` (wakes up on cancel) let a module
+  stop when the user presses Ctrl-C or an MCP call times out; the shell sets the worker thread's
+  cancel event in both cases. The bundled `fetch`, `ip2geo`, `queryDns` and `queryCert` check it
+  between targets and retries. With the spinner off, Ctrl-C now interrupts at once instead of
+  after the module finished.
+
 - **API keys in the OS keyring:** with the optional `keyring` package (the `keyring` extra) and a
   working backend, `settings NAME VALUE` stores the key in Windows Credential Manager / macOS
   Keychain / Secret Service and `config.json` keeps only `@keyring`; startup reads it back, `reset`

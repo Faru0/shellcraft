@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from shellcraft.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError, check_cancel
 
 SUMMARY = "Fetch text from a URL or file (or pass stdin through)"
 SPINNER_TEXT = "fetching data…"
@@ -117,6 +117,7 @@ def _guess_content_type(body: bytes) -> str:
 def _fetch_url(url: str, method: str, headers: dict[str, str], body: bytes | None, timeout: float,
                retries: int, max_size: int) -> str:
     for attempt in range(retries + 1):
+        check_cancel()
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:

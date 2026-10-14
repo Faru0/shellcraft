@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from shellcraft.modkit import ArgParser, EnvSetting, ModuleError
+from shellcraft.modkit import ArgParser, EnvSetting, ModuleError, check_cancel
+from shellcraft.modkit import sleep as modkit_sleep
 
 SUMMARY = "Look up a domain's DNS records, IPs, ASNs and netblocks (DnsDumpster API)"
 SPINNER_TEXT = "asking DnsDumpster…"
@@ -26,7 +26,7 @@ OUTPUTS = ("table", "hosts", "ips", "json")
 RATE_DELAY = 2.0  # the API allows 1 request per 2 seconds
 
 # Seam for tests: stubbed so the rate-limit wait doesn't slow them down.
-sleep = time.sleep
+sleep = modkit_sleep  # wakes up (Cancelled) on Ctrl-C
 
 
 def run(args: list[str], stdin: str) -> str:
@@ -53,6 +53,7 @@ def run(args: list[str], stdin: str) -> str:
     for i, domain in enumerate(dict.fromkeys(domains)):
         if i:
             sleep(RATE_DELAY)
+        check_cancel()
         results[domain] = _get(domain, key, opts.page, opts.timeout)
 
     if opts.output == "json":

@@ -296,11 +296,18 @@ def _run_pipeline(command: str, ctx: ShellContext) -> str:
 
 
 async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.CallToolResult:
+    import threading
+
+    from shellcraft.modkit import run_cancellable
+
+    cancel = threading.Event()
     try:
         with anyio.fail_after(timeout):
-            # abandon_on_cancel: a timed-out call returns an error now; its thread finishes on its own.
-            text = await anyio.to_thread.run_sync(fn, abandon_on_cancel=True)
+            # abandon_on_cancel: a timed-out call returns an error now; its thread is told to stop
+            # (modkit.cancelled()) and otherwise finishes on its own.
+            text = await anyio.to_thread.run_sync(lambda: run_cancellable(fn, cancel), abandon_on_cancel=True)
     except TimeoutError:
+        cancel.set()
         return _error(f"the call did not finish within {timeout:.0f} s and was abandoned")
     except ParseError as exc:
         return _error(f"parse error: {exc.message}")

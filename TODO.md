@@ -50,8 +50,6 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Robustness and packaging
 
-- [ ] **Ctrl-C abandons a module's worker thread**, which keeps running. A cooperative cancel flag
-  in `modkit`, or at least a note in the module guide to pass timeouts. — `shellcraft/output.py`
 - [ ] **`findtime` on the GitHub copy fails `ingest check --strict`** (unknown options accepted, no
   `[[tests]]`): finish it, or move it out of the bundled `modules/`.
 - [ ] **The two copies drift.** `Install/` (110 files, ~113 MB of history) exists only in the GitHub

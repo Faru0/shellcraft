@@ -157,6 +157,16 @@ Editing a helper reloads the modules that use it (hot reload). `modules` lists t
    - `ENV_SETTINGS = [...]`: API keys the module needs (see [API keys](#api-keys-env_settings) below).
    - a module docstring.
 9. **Keep `run()` free of side effects when it runs with no arguments,** or make it cheap. The checker calls `run([], "")` as a smoke test.
+10. **Let Ctrl-C stop you.** A module runs in a worker thread, which Ctrl-C at the prompt (or an MCP call's timeout) can't kill, so the shell asks it to stop instead. Pass a `timeout=` to every network call, call `check_cancel()` between the steps of a loop (it raises `Cancelled`, a `ModuleError`), and use `modkit.sleep()` instead of `time.sleep()`, which wakes up when the command is cancelled. `cancelled()` returns the flag without raising.
+
+   ```python
+   from shellcraft.modkit import check_cancel, sleep
+
+   for host in hosts:
+       check_cancel()          # stops here after Ctrl-C
+       results.append(lookup(host, timeout=10))
+       sleep(1)                # polite delay that Ctrl-C cuts short
+   ```
 
 ## API keys (`ENV_SETTINGS`)
 

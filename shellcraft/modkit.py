@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextvars
 import difflib
 import functools
 import io
@@ -15,6 +16,52 @@ from typing import Any, Callable, NoReturn
 
 class ModuleError(Exception):
     """A user-facing failure: the shell shows the message without a traceback."""
+
+
+# ── cooperative cancellation ─────────────────────────────────────────────────
+# A module runs in a worker thread. Ctrl-C at the prompt (or an MCP call's timeout) can't stop a
+# thread, so the shell sets this thread's cancel event instead, and a module that checks it stops
+# early. Modules that loop, poll or sleep should call check_cancel() between steps, use
+# modkit.sleep() instead of time.sleep(), and pass a timeout to every network call.
+
+class Cancelled(ModuleError):
+    """The user pressed Ctrl-C (or the MCP call timed out) while the module was running."""
+
+
+_cancel_event = contextvars.ContextVar("shellcraft_cancel_event", default=None)
+
+
+def cancelled() -> bool:
+    """True once the command running in this thread has been cancelled."""
+    event = _cancel_event.get()
+    return event is not None and event.is_set()
+
+
+def check_cancel() -> None:
+    """Raise Cancelled if the command was cancelled; call it between steps of a long loop."""
+    if cancelled():
+        raise Cancelled("cancelled")
+
+
+def sleep(seconds: float) -> None:
+    """time.sleep() that wakes up (raising Cancelled) as soon as the command is cancelled."""
+    event = _cancel_event.get()
+    if event is None:
+        import time
+
+        time.sleep(seconds)
+        return
+    if event.wait(max(0.0, seconds)):
+        raise Cancelled("cancelled")
+
+
+def run_cancellable(fn: Callable[[], Any], event: threading.Event) -> Any:
+    """Run fn() with `event` as its cancel event (the shell and the MCP server do this)."""
+    token = _cancel_event.set(event)
+    try:
+        return fn()
+    finally:
+        _cancel_event.reset(token)
 
 
 class ArgParser(argparse.ArgumentParser):

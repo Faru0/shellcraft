@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from shellcraft.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError, check_cancel
+from shellcraft.modkit import sleep as modkit_sleep
 
 SUMMARY = "Geolocate IPs or domains: country, city, ISP, ASN, proxy/hosting flags (ip-api.com)"
 SPINNER_TEXT = "asking ip-api.com…"
@@ -24,7 +24,7 @@ LANGS = ("en", "de", "es", "pt-BR", "fr", "ja", "zh-CN", "ru")
 OUTPUTS = ("table", "json", "tsv")
 
 # Seam for tests: stubbed so waiting out the rate-limit window doesn't slow them down.
-sleep = time.sleep
+sleep = modkit_sleep  # wakes up (Cancelled) on Ctrl-C
 
 
 def run(args: list[str], stdin: str) -> str:
@@ -45,6 +45,7 @@ def run(args: list[str], stdin: str) -> str:
 
     records = []
     for i, query in enumerate(queries or [""]):  # "" = the IP this request comes from
+        check_cancel()
         record, remaining, reset = _get(query, fields, opts.lang, opts.timeout)
         records.append(record)
         if remaining == 0 and i < len(queries) - 1:

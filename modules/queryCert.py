@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from shellcraft.modkit import ArgParser, ModuleError
+from shellcraft.modkit import ArgParser, ModuleError, check_cancel
+from shellcraft.modkit import sleep as modkit_sleep
 
 SUMMARY = "List a domain's TLS certificates and subdomains from Certificate Transparency logs (crt.sh)"
 SPINNER_TEXT = "searching crt.sh (can take a while)…"
@@ -22,7 +22,7 @@ HOSTNAME = re.compile(r"^(\*\.)?[a-z0-9_-]+(\.[a-z0-9_-]+)+$")  # names output s
 POLITE_DELAY = 1.0  # between domains: crt.sh is a free, shared service
 
 # Seam for tests: stubbed so the delay between domains doesn't slow them down.
-sleep = time.sleep
+sleep = modkit_sleep  # wakes up (Cancelled) on Ctrl-C
 
 
 def run(args: list[str], stdin: str) -> str:
@@ -38,12 +38,13 @@ def run(args: list[str], stdin: str) -> str:
     if not domains:
         raise ModuleError("queryCert: give a domain, e.g. `queryCert example.com` (or pipe domains in, one per line)")
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     certs: list[dict] = []
     seen: set[int] = set()
     for i, domain in enumerate(dict.fromkeys(domains)):
         if i:
             sleep(POLITE_DELAY)
+        check_cancel()
         query = f"%.{domain}" if opts.subdomains else domain
         for cert in _get(query, opts.expired, opts.timeout):
             if cert.get("id") in seen or (not opts.expired and _expired(cert, now)):
