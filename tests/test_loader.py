@@ -1,3 +1,5 @@
+import pytest
+
 from core.loader import ModuleRegistry, SkillInfo
 
 
@@ -11,14 +13,11 @@ def test_sample_modules_have_all_three_files(registry):
 def test_broken_modules_are_skipped(tmp_path):
     (tmp_path / "good.py").write_text("def run(args, stdin):\n    return stdin.upper()\n")
     (tmp_path / "syntax.py").write_text("def run(:\n")
-    (tmp_path / "norun.py").write_text("x = 1\n")  # no run(), no .skill: a helper, skipped quietly
-    (tmp_path / "_private.py").write_text("raise SystemExit\n")
-    (tmp_path / "norun2.py").write_text("x = 1\n")
-    (tmp_path / "norun2.skill").write_text('summary = "meant to be a command"\n')  # then the missing run() is reported
+    (tmp_path / "_private.py").write_text("raise SystemExit\n")  # _name.py: a helper, never a command
     reg = ModuleRegistry(tmp_path)
     reg.load()
     assert reg.names() == ["good"]
-    assert len(reg.warnings) == 2 and any("norun2" in w and "run" in w for w in reg.warnings)
+    assert len(reg.warnings) == 1 and "syntax.py" in reg.warnings[0]
     assert reg.get("good").run([], "hi") == "HI"
 
 
@@ -47,25 +46,45 @@ def test_summary_fallbacks(tmp_path):
 
 
 def test_modules_import_helpers_from_the_folder(tmp_path):
-    """`import localthing` and `from . import localthing` both work; a file without run() and
-    without a .skill is a helper, not a command, and no warning is shown."""
+    """`_name.py` is a helper: never a command, importable as `import _name` or `from . import _name`."""
     from core.loader import ModuleRegistry
 
-    (tmp_path / "localthing.py").write_text("VALUE = 'local'\n\ndef helper():\n    return VALUE\n")
-    (tmp_path / "uses.py").write_text("import localthing\nfrom . import localthing as rel\n\n"
-                                      "def run(args, stdin):\n    return localthing.helper() + '+' + rel.VALUE + '\\n'\n")
+    (tmp_path / "_localthing.py").write_text("VALUE = 'local'\n\ndef helper():\n    return VALUE\n")
+    (tmp_path / "uses.py").write_text("import _localthing\nfrom . import _localthing as rel\n\n"
+                                      "def run(args, stdin):\n    return _localthing.helper() + '+' + rel.VALUE + '\\n'\n")
     registry = ModuleRegistry(tmp_path)
     registry.load()
     assert registry.names() == ["uses"] and registry.warnings == []
     assert registry.get("uses").run([], "") == "local+local\n"
-    # lazy registries skip helpers too, and a helper edit reaches the module through reload
     lazy = ModuleRegistry(tmp_path, lazy=True)
     lazy.load()
-    assert lazy.names() == ["uses"] and lazy.get("uses").run([], "") == "local+local\n"
-    (tmp_path / "localthing.py").write_text("VALUE = 'edited'\n\ndef helper():\n    return VALUE\n")
-    lazy.reload(["localthing.py"])
+    assert lazy.get("uses").run([], "") == "local+local\n"
+    (tmp_path / "_localthing.py").write_text("VALUE = 'edited'\n\ndef helper():\n    return VALUE\n")
+    lazy.reload(["_localthing.py"])
     assert lazy.names() == ["uses"] and lazy.get("uses").run([], "") == "edited+edited\n"
-    # a helper with a .skill beside it is a command after all, and reports its missing run()
-    (tmp_path / "localthing.skill").write_text('summary = "x"\n')
-    registry.load()
-    assert "localthing" in registry.names() or any("localthing" in w for w in registry.warnings)
+
+
+def test_every_py_is_a_command_skill_makes_a_tool_md_makes_a_man_page(tmp_path):
+    """A .py without run() is a plain script (run as `python FILE ARGS`, stdin piped, never
+    imported); only a module with a .skill is an MCP tool; only one with a .md has a man page."""
+    from core.loader import ModuleRegistry
+
+    (tmp_path / "_util.py").write_text("def shout(s):\n    return s.upper()\n")
+    (tmp_path / "plain.py").write_text('"""Shout the arguments and stdin."""\nimport sys\nimport _util\n'
+                                       'print(_util.shout(" ".join(sys.argv[1:]) + sys.stdin.read()))\n')
+    (tmp_path / "fails.py").write_text("import sys\nsys.exit('no good')\n")
+    (tmp_path / "tool.py").write_text("def run(args, stdin):\n    return 'tool'\n")
+    (tmp_path / "tool.skill").write_text('summary = "a tool"\n')
+    (tmp_path / "tool.md").write_text("# tool\n\nA tool.\n")
+    for lazy in (False, True):
+        registry = ModuleRegistry(tmp_path, lazy=lazy)
+        registry.load()
+        assert registry.names() == ["fails", "plain", "tool"] and registry.warnings == []
+        plain = registry.get("plain")
+        assert plain.run(["hi"], " there") == "HI THERE\n"
+        assert plain.summary == "Shout the arguments and stdin."
+        assert not plain.exposed and plain.doc_md is None  # no .skill: no MCP tool; no .md: no man page
+        assert registry.get("tool").exposed and registry.get("tool").doc_md
+        with pytest.raises(Exception, match="no good"):
+            registry.get("fails").run([], "")
+

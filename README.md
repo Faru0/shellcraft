@@ -455,7 +455,7 @@ stop it, and the prompt shows `● mcp :38765` while it runs), generates a token
 the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when you leave the
 shell, even if the shell is killed outright. See `man mcp`.
 
-- **One tool per module**, with typed parameters from its `.skill` file, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
+- **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
 - **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warning / critical, `timeout_seconds`), so a model can flag a finished task or a risk where you will see it.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
@@ -496,8 +496,10 @@ To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/py
 
 ## Write your own module
 
-A module is three files in `modules/`: the code (`.py`), its manual (`.md`) and its AI description
-(`.skill`). The module only needs a `run(args, stdin)` function that returns text.
+A module is up to three files in `modules/`: the code (`.py`, always a command), its manual (`.md`,
+for `man`) and its AI description (`.skill`, which makes it an MCP tool). The code is either a
+`run(args, stdin)` function that returns text or a plain Python script that prints; files named
+`_name.py` are helpers the others import.
 
 Already have a Python script? `ingest myscript.py` inside the shell (or `shellcraft ingest
 myscript.py` from a terminal) converts it with the fewest possible changes, writes the `.md` and

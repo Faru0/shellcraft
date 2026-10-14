@@ -28,7 +28,9 @@ def local(tmp_path):
     (tmp_path / "secret.skill").write_text('summary = "local only"\nexpose = false\n')
     (tmp_path / "secret.md").write_text("# secret\n\nLocal only.\n")
     (tmp_path / "slow.py").write_text("import time\ndef run(args, stdin):\n    time.sleep(2)\n    return 'done'\n")
+    (tmp_path / "slow.skill").write_text('summary = "slow"\n')  # a .skill makes it an MCP tool
     (tmp_path / "big.py").write_text("def run(args, stdin):\n    return 'x' * 3_000_000\n")
+    (tmp_path / "big.skill").write_text('summary = "big"\n')
     registry = ModuleRegistry(tmp_path)
     registry.load()
     return registry

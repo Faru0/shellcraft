@@ -22,15 +22,48 @@ _DEF_RUN = re.compile(r"^\s*def\s+run\s*\(", re.M)
 PACKAGE = "shellcraft_modules"  # the package every module is imported under
 
 
-def is_helper(py: Path) -> bool:
-    """A .py in the modules folder that is not a command: no `run()` and no `.skill` beside it.
-    Modules may import it (`import localthing`, `from . import localthing`); it is skipped quietly."""
-    if py.with_suffix(".skill").exists():
-        return False
+def is_script(py: Path) -> bool:
+    """A command file without `def run(...)`: a plain Python script, run as `python FILE ARGS`
+    (stdin piped in, stdout captured) instead of being imported."""
     try:
         return not _DEF_RUN.search(py.read_text(encoding="utf-8", errors="replace"))
     except OSError:
         return False
+
+
+def _script_runner(py: Path, directory: Path) -> Callable[[list[str], str], str]:
+    """run(args, stdin) for a plain script: this interpreter, the shell's cwd, the modules folder
+    on PYTHONPATH (so `import _helper` works there too); a nonzero exit is the command's error."""
+    def run(args: list[str], stdin: str) -> str:
+        import os
+        import subprocess
+
+        from core.modkit import ModuleError
+
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (str(directory.resolve()), env.get("PYTHONPATH")) if p)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        done = subprocess.run([sys.executable, str(py), *args], input=stdin.encode("utf-8"), capture_output=True,
+                              cwd=os.getcwd(), env=env)
+        out = done.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+        if done.returncode:
+            err = done.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            detail = err[-1] if err else f"exited with status {done.returncode}"
+            raise ModuleError(f"{py.stem}: {detail}")
+        return out
+    return run
+
+
+def _script_summary(py: Path) -> str | None:
+    """The first line of a script's docstring, without importing it."""
+    import ast
+
+    try:
+        tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    doc = ast.get_docstring(tree)
+    return doc.strip().splitlines()[0] if doc and doc.strip() else None
 
 
 def _import_path(directory: Path) -> None:
@@ -181,9 +214,9 @@ class ModuleSpec:
 
     @property
     def exposed(self) -> bool:
-        """False for a module whose .skill says `expose = false`: it is not an MCP tool, and the
-        pipeline tool can't run it either."""
-        return self.skill is None or self.skill.expose
+        """Only a module with a .skill is an MCP tool (and runnable by the pipeline tool), and
+        not when its .skill says `expose = false`. Without a .skill it is a shell command only."""
+        return self.skill is not None and self.skill.expose
 
     @property
     def summary(self) -> str:
@@ -260,7 +293,7 @@ class ModuleRegistry:
                 self.files.pop(name, None)
                 self.modules.pop(name, None)
                 continue
-            if name.startswith("_") or is_helper(py):
+            if name.startswith("_"):
                 self.files.pop(name, None)
                 self.modules.pop(name, None)
                 continue
@@ -293,7 +326,7 @@ class ModuleRegistry:
             _import_path(self.directory)
             for py in sorted(self.directory.glob("*.py")):
                 name = py.stem
-                if name.startswith("_") or is_helper(py):
+                if name.startswith("_"):
                     continue
                 if not VALID_NAME.match(name) or name in RESERVED_NAMES:
                     warnings.append(f"{py.name}: invalid module name, skipped")
@@ -341,6 +374,13 @@ class ModuleRegistry:
         return spec
 
     def import_file(self, name: str, py: Path) -> ModuleSpec:
+        if is_script(py):  # no run(): never imported (its top level would run), run as a script
+            skill = SkillInfo.parse(text) if (text := _read(py.with_suffix(".skill"))) is not None else None
+            if skill and (errors := params_mod.problems(skill.params)):
+                raise ValueError(f"{name}.skill [[params]]: {'; '.join(errors)}")
+            return ModuleSpec(name=name, path=py, run=_script_runner(py, self.directory),
+                              doc_md=_read(py.with_suffix(".md")), skill=skill,
+                              module_summary=_script_summary(py))
         import_name = f"shellcraft_modules.{name}"
         spec = importlib.util.spec_from_file_location(import_name, py)
         if spec is None or spec.loader is None:

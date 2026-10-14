@@ -50,9 +50,11 @@ and the project uses [semantic versioning](https://semver.org/).
   and AI clients call the new **`send_tui_alert`** MCP tool. Every alert names its sender
   (`sub 2 (bash)`, `mcp · claude-code`…). Senders drop a file into the owner-only spool folder
   `~/.shellcraft/alerts/`, which the shell watches: no port, no token.
-- **Imports between modules:** a module may `import localthing` or `from . import localthing`
-  for another file in the modules folder; a `.py` without `run()` (and no `.skill`) is a helper,
-  not a command, and is skipped quietly. Editing a helper reloads the modules that use it.
+- **What each file in `modules/` does:** every `name.py` is a command shown by `help`; one
+  without `run()` is run as a plain Python script (`python name.py ARGS`, stdin piped, never
+  imported). A `.skill` makes it an MCP tool (modules without one are local to the shell), a
+  `.md` gives it a man page, and `_name.py` is a helper that modules and scripts import
+  (`import _name`, `from . import _name`); editing a helper reloads the modules that use it.
 - **Windows:** the prompt session is bound to `CONIN$` / `CONOUT$` explicitly, and Windows
   Terminal (`WT_SESSION`) now defaults to `SHELLCRAFT_CONSOLE=legacy-keys`, the setup that
   works there; the classic console keeps `direct`.

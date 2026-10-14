@@ -122,18 +122,18 @@ python main.py                                     # try it: echo a b a | wordfr
 
 In a running shell, type `reload` to pick up a new module without restarting.
 
-## Helper files and imports between modules
+## What each file gives you
 
-A module can import another file from the modules folder in either of two ways:
+| File | Effect |
+| --- | --- |
+| `name.py` | Always a command: listed by `help`, Tab-completed, usable in pipelines. |
+| `name.py` with `def run(args, stdin)` | Imported, and `run()` is called (the rules below). |
+| `name.py` without `run()` | A plain Python script: run as `python name.py ARGS` with stdin piped in and stdout as the output, never imported. Its docstring's first line is the `help` summary; a nonzero exit is the error. |
+| `name.skill` | Makes it an **MCP tool** for AI clients. Without it the command is local to the shell. |
+| `name.md` | Gives it a **man page**. Without it `man name` says there is none. |
+| `_name.py` | A **helper**: never a command. Modules and scripts import it with `import _name` (or `from . import _name` inside a module). |
 
-```python
-import localthing                 # modules/localthing.py, as a plain import
-from . import localthing          # the same, as a relative import (modules are the shellcraft_modules package)
-```
-
-A `.py` in the folder with **no `run()` function and no `.skill` beside it** is a helper: it is
-not a command, `help` does not list it, and no warning is shown. Editing a helper reloads the
-modules that use it (hot reload). Files starting with `_` are skipped too, helper or not.
+Editing a helper reloads the modules that use it (hot reload).
 
 ## Rules for the `.py`
 

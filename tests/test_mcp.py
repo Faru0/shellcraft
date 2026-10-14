@@ -107,6 +107,7 @@ def test_enum_values_are_checked(registry):
 
 def test_modules_without_params_keep_the_args_array(registry, tmp_path):
     (tmp_path / "echoargs.py").write_text("def run(args, stdin):\n    return ' '.join(args)\n")
+    (tmp_path / "echoargs.skill").write_text('summary = "echo"\n')  # a .skill, but no [[params]]
     local = ModuleRegistry(tmp_path)
     local.load()
     tools = {t.name: t for t in _call(build_server(local), lambda c: c.list_tools()).tools}
@@ -194,6 +195,7 @@ def test_unknown_resource_is_an_error(registry):
 
 def _module_dir(tmp_path):
     (tmp_path / "hello.py").write_text("def run(args, stdin):\n    return 'hi'\n")
+    (tmp_path / "hello.skill").write_text('summary = "hello"\n')
     local = ModuleRegistry(tmp_path)
     local.load()
     return local
@@ -211,8 +213,9 @@ def test_reload_notifies_legacy_clients(tmp_path):
     async def main():
         async with Client(app.server, mode="legacy", message_handler=handler) as client:
             await client.list_tools()  # the server remembers this session
+            (tmp_path / "bye.skill").write_text('summary = "bye"\n')
             (tmp_path / "bye.py").write_text("def run(args, stdin):\n    return 'bye'\n")
-            assert await app.reload_if_changed(watcher) == ["bye.py"]
+            assert await app.reload_if_changed(watcher) == ["bye.py", "bye.skill"]
             with anyio.fail_after(5):
                 while "notifications/tools/list_changed" not in seen:
                     await anyio.sleep(0.01)
