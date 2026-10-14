@@ -199,6 +199,7 @@ class Shell:
             pass  # no spool: `alert` still works inside this shell
         self._cleanup.callback(ctx.alerts.close)
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
+        self.footer.show_hint = lambda: bool(settings.get(ctx.config, "panel_hint"))
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
@@ -649,7 +650,8 @@ class Shell:
         .panel_lines). The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
         alerts = self.ctx.alerts.current() if self.ctx.alerts is not None else []
         lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
-                            cursor=self._panel_cursor, alerts=alerts)
+                            cursor=self._panel_cursor, alerts=alerts,
+                            hint=settings.get(self.ctx.config, "panel_hint"))
         parts: StyleAndTextTuples = []
         for i, (tab, style, text, hovered) in enumerate(lines):
             if i:

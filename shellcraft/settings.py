@@ -95,6 +95,10 @@ SETTINGS: dict[str, Setting] = {
         Setting("footer", "Subshell footer", True,
                 "Inside a subshell, keep the subshell panel at the bottom of the terminal (the same "
                 "stack as under the prompt: click a line, or Ctrl-] N, to switch)."),
+        Setting("panel_hint", "Subshell panel key hints", False,
+                "Show a header line at the top of the subshell panel with the keys that work there "
+                "(click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). Off by default "
+                "to keep the panel short."),
         Setting("links", "Clickable paths", False,
                 "File names from ls, tree, find, du and grep are terminal hyperlinks: Ctrl-click "
                 "(Cmd-click on macOS) opens them, in terminals that support links. Off by default: "

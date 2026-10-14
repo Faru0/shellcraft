@@ -79,6 +79,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **Shorter subshell panel:** the header line with the keys (`⤷ 1 subshell · click or Ctrl-] N
+  switches · …`) is hidden, so the panel and its alerts take one row less. `settings panel_hint on`
+  brings it back.
 - **`jobs -k` stops a background command for real:** each background command job has a stop flag
   that every pipeline it runs inherits, so endless producers, `tail -f`, `sleep`, loops, modules
   checking `modkit.cancelled()` and quiet OS programs (killed by a watcher) all stop, and its

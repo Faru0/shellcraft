@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
@@ -44,6 +44,7 @@ class Footer:
         self.hover: int | None = None  # the tab under the mouse (0 or a job number)
         self.enabled = False
         self.row_tabs: list[int | None] = []  # the tab of each footer row, after the last draw
+        self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
     # ── geometry ─────────────────────────────────────────────────────────────
@@ -105,15 +106,17 @@ class Footer:
             pass
 
     def height(self) -> int:
-        """Rows the footer takes: the alerts, the header, `main`, and one per subshell (capped)."""
+        """Rows the footer takes: the alerts, the header (with panel_hint), `main`, and one per
+        subshell (capped)."""
         alerts = len(self.alerts.current()) if self.alerts is not None else 0
-        return alerts + 2 + min(len(self.jobs), MAX_ROWS - 2)
+        return alerts + (2 if self.show_hint() else 1) + min(len(self.jobs), MAX_ROWS - 2)
 
     def render(self, cols: int) -> list[str]:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
         the prompt. Records which tab each row is."""
         lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
-                            alerts=self.alerts.current() if self.alerts is not None else [])
+                            alerts=self.alerts.current() if self.alerts is not None else [],
+                            hint=self.show_hint())
         self.row_tabs = [tab for tab, _style, _text, _hovered in lines]
         console = self.ui.console
         out = []
@@ -182,12 +185,13 @@ def alert_lines(alerts: list, width: int) -> list[tuple[int | None, str, str, bo
 
 def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: int = 0,
                 attached: bool = False, cursor: int | None = None,
-                alerts: list | None = None) -> list[tuple[int | None, str, str, bool]]:
+                alerts: list | None = None, hint: bool = False) -> list[tuple[int | None, str, str, bool]]:
     """The lines of the shell stack: (tab, style, text, hovered) each, where tab is 0 for this
     shell, a job number, or None for the header; style is one of header, current, main, running,
     done, failed; and hovered says the line is under the mouse or chosen with ↓ / ↑, which fills
     its circle (` ● `) without changing the line's colors. `current` is the attached job (0 at
-    the prompt): its circle is filled too.
+    the prompt): its circle is filled too. The header line, with the keys, is there only with
+    `hint` (the `panel_hint` setting):
 
         ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
         ● main
@@ -204,7 +208,8 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
     head += f" ({running} running)" if running != len(jobs) else ""
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
                                                        else "↓ to manage · x stops")
-    lines.append((None, "header", head, False))
+    if hint:
+        lines.append((None, "header", head, False))
     main_hover = hover == 0
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
     lines.append((0, "current" if current == 0 else "main", main, main_hover))

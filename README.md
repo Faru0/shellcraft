@@ -276,7 +276,6 @@ jobs -f 2                    # follow a background command's output as it grows,
 Every subshell is a numbered job. At the prompt, a **panel** under it lists them, one per line:
 
 ```
- ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
  ● main
  ○ 1  bash --norc                                          2m 18s · running
  ○ 2  find / -name "*.log"                                    4.0s · done
@@ -297,7 +296,8 @@ program. The **mouse wheel** scrolls through the subshell's own scrollback (any 
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
 terminals need it for their own tabs.) Switching to a command that is still running follows its output as it grows (Ctrl-C goes back to the prompt and leaves it running); a finished one shows everything it printed. A finished
 job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
-stopped, and `settings footer off` removes the footer. `man sub` has the details.
+stopped, and `settings footer off` removes the footer. `settings panel_hint on` adds a header line
+to the panel that lists these keys. `man sub` has the details.
 
 Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY through the
 `pywinpty` package on Windows (installed with the requirements there). Without `pywinpty`,
@@ -483,6 +483,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer` | on | Inside a subshell, keep the subshell panel at the bottom of the terminal (click a line, or Ctrl-] N, to switch). |
+| `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
 
 ### API keys
 

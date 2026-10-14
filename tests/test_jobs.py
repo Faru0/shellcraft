@@ -215,22 +215,28 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert ctx.footer is footer and not footer.enabled and sh.session.bottom_toolbar is None
     footer.size = lambda: (24, 80)
     footer.enabled = True
-    assert footer.height() == 2 and footer.region_rows == 22
+    assert footer.height() == 1 and footer.region_rows == 23  # `main` alone: no header line by default
     job = ctx.jobs.start_command("seq 2", lambda: (0, "1\n2\n"))
     assert _wait(lambda: not job.running)
     # the same stack at the prompt and in the footer
     lines = panel_lines([job], 0, None, 80, cursor=None)
-    assert [t for t, _s, _x, _h in lines] == [None, 0, 1] and lines[1][2] == " ● main" and lines[2][2].startswith(" ○ 1  seq 2")
-    assert "done" in lines[2][2] and lines[2][1] == "done" and not lines[2][3]
+    assert [t for t, _s, _x, _h in lines] == [0, 1] and lines[0][2] == " ● main" and lines[1][2].startswith(" ○ 1  seq 2")
+    assert "done" in lines[1][2] and lines[1][1] == "done" and not lines[1][3]
     hovered = panel_lines([job], 0, 1, 80)  # hover fills the circle, the line keeps its style
-    assert hovered[2][2].startswith(" ● 1 ") and hovered[2][1] == "done" and hovered[2][3]
+    assert hovered[1][2].startswith(" ● 1 ") and hovered[1][1] == "done" and hovered[1][3]
     attached = panel_lines([job], 1, None, 80, attached=True)
-    assert attached[1][2] == " ○ main" and attached[2][2].startswith(" ● 1 ") and attached[2][1] == "current"
-    assert "Ctrl-] alone returns" in attached[0][2]
-    seq = footer.sequence()  # the scroll region above the stack (3 rows), the rows painted at the bottom
-    assert footer.height() == 3 and "\x1b[1;21r" in seq and "\x1b[22;1H" in seq and "\x1b[24;1H" in seq
-    assert "seq 2" in seq and footer.row_tabs == [None, 0, 1]
-    assert footer.hit(5, 24) == 1 and footer.hit(5, 23) == 0 and footer.hit(5, 22) is None and footer.hit(5, 21) is None
+    assert attached[0][2] == " ○ main" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
+    hinted = panel_lines([job], 1, None, 80, attached=True, hint=True)  # settings panel_hint on
+    assert hinted[0][0] is None and "Ctrl-] alone returns" in hinted[0][2] and hinted[1:] == attached
+    seq = footer.sequence()  # the scroll region above the stack (2 rows), the rows painted at the bottom
+    assert footer.height() == 2 and "\x1b[1;22r" in seq and "\x1b[23;1H" in seq and "\x1b[24;1H" in seq
+    assert "seq 2" in seq and footer.row_tabs == [0, 1]
+    assert footer.hit(5, 24) == 1 and footer.hit(5, 23) == 0 and footer.hit(5, 22) is None
+    footer.show_hint = lambda: True  # the header line comes back: one more row
+    assert footer.height() == 3 and "\x1b[1;21r" in footer.sequence() and footer.row_tabs == [None, 0, 1]
+    assert footer.hit(5, 22) is None and footer.hit(5, 23) == 0
+    footer.show_hint = lambda: False
+    footer.sequence()
     assert footer.set_hover(1) and not footer.set_hover(1)
     assert "seq 2" in "".join(footer.render(80))  # still there, now in the hover style
     assert footer.set_hover(None)
@@ -264,8 +270,11 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     footer.enabled = False
     sh._update_toolbar()
     lines = "".join(f[1] for f in sh._toolbar()).split("\n")
-    assert lines[0].startswith(" ⤷ 1 subshell") and lines[1] == " ● main" and lines[2].startswith(f" ○ {job.number}  seq 3")
-    assert "done" in lines[2]
+    assert lines[0] == " ● main" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
+    ctx.config.setdefault("settings", {})["panel_hint"] = True  # the header line with the keys
+    hinted = "".join(f[1] for f in sh._toolbar()).split("\n")
+    assert hinted[0].startswith(" ⤷ 1 subshell") and "↓ to manage" in hinted[0] and hinted[1:] == lines
+    del ctx.config["settings"]["panel_hint"]
     entry = next(f for f in sh._toolbar() if "seq 3" in f[1])
     assert entry[0] == "class:toolbar.job.done" and entry[2](move_event()) is None and sh._panel_hover == job.number
     frags = list(sh._toolbar())
@@ -554,7 +563,10 @@ def test_panel_x_stops_the_chosen_subshell(repl_shell, monkeypatch):
     stop = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["x"])
     stop.handler(None)
     assert ran == [f"jobs -k {job.number}"]
+    assert "x stops" not in "".join(f[1] for f in sh._toolbar())  # the key hints only with panel_hint
+    ctx.config.setdefault("settings", {})["panel_hint"] = True
     assert "x stops" in "".join(f[1] for f in sh._toolbar())
+    del ctx.config["settings"]["panel_hint"]
 
 
 def _job_threads(job):
