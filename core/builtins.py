@@ -869,6 +869,10 @@ imported at all: it is not a command, not an MCP tool and has no man page until 
 again. The choice is saved in `~/.shellcraft/config.json`, so it lasts across sessions and also
 applies to `--mcp` / `--mcp-http` (`mcp restart` passes a change on to a running server).
 
+Below the modules, a **Helpers** table lists the `_name.py` files: they are not commands, the
+modules import them. Each one shows whether it has a `_name.md`, which modules import it, and a
+description: the first line of prose in `_name.md`, else the first line of its docstring.
+
 ## Usage
 
 ```
@@ -942,6 +946,23 @@ def _modules(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         table.add_row(*row, style="sc.muted" if name in disabled else None)
     parts: list[Any] = [table]
     notes: list[str] = []
+    from core.loader import helpers
+
+    found = helpers(registry.directory)
+    if found:
+        aid = Table(title="Helpers (_name.py: imported by modules, not commands)", title_style="sc.prompt",
+                    border_style="sc.border", header_style="sc.accent")
+        aid.add_column("name", style="sc.path")
+        aid.add_column(".md", justify="center")
+        aid.add_column("used by", style="sc.accent")
+        aid.add_column("description")
+        for name, py, description, used_by in found:
+            has_md = py.with_suffix(".md").is_file()
+            aid.add_row(name, ok if has_md else missing, ", ".join(used_by) or Text("—", style="sc.muted"),
+                        description or Text("no description (add a docstring or a .md)", style="sc.muted"))
+            plain.append(f"helper  {name}  {description}".rstrip()
+                         + (f"  (used by {', '.join(used_by)})" if used_by else ""))
+        parts.append(aid)
     if not show_all and disabled:
         notes.append(f"{len(disabled)} disabled: {', '.join(disabled)}  (modules -a shows all, "
                      f"modules enable NAME turns one on)")

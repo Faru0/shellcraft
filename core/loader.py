@@ -66,6 +66,41 @@ def _script_summary(py: Path) -> str | None:
     return doc.strip().splitlines()[0] if doc and doc.strip() else None
 
 
+def _md_summary(md: Path) -> str | None:
+    """The first line of prose in a .md (after the `# title`), for a one-line description."""
+    text = _read(md)
+    if not text:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith(("#", "```", "|", "---", "<")):
+            return line.lstrip("-*> ").strip() or None
+    return None
+
+
+def helpers(directory: Path) -> list[tuple[str, Path, str, list[str]]]:
+    """The helper files of a modules folder: (name, path, description, used_by) for each
+    `_name.py`. The description is the first prose line of `_name.md`, else the first line of
+    the file's docstring; used_by lists the other files that import it."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+    files = sorted(directory.glob("*.py"))
+    sources = {py.stem: (_read(py) or "") for py in files}
+    out = []
+    for py in files:
+        name = py.stem
+        if not name.startswith("_") or name.startswith("__"):
+            continue
+        description = _md_summary(py.with_suffix(".md")) or _script_summary(py) or ""
+        n = re.escape(name)
+        pattern = re.compile(rf"^\s*(?:import\s+{n}\b|from\s+\.?\s*import\s+(?:[\w, ]*\b)?{n}\b"
+                             rf"|from\s+\.?{n}\s+import\b)", re.M)
+        used_by = sorted(other for other, text in sources.items() if other != name and pattern.search(text))
+        out.append((name, py, description, used_by))
+    return out
+
+
 def _import_path(directory: Path) -> None:
     """Let modules import each other: the folder goes on sys.path (plain `import localthing`), and
     `shellcraft_modules` is a package rooted there (`from . import localthing` inside a module)."""

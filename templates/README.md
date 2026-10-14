@@ -133,7 +133,7 @@ In a running shell, type `reload` to pick up a new module without restarting.
 | `name.md` | Gives it a **man page**. Without it `man name` says there is none. |
 | `_name.py` | A **helper**: never a command. Modules and scripts import it with `import _name` (or `from . import _name` inside a module). |
 
-Editing a helper reloads the modules that use it (hot reload).
+Editing a helper reloads the modules that use it (hot reload). `modules` lists the helpers in their own table, with the modules that import them and a description: the first line of prose in `_name.md`, else the first line of the docstring.
 
 ## Rules for the `.py`
 

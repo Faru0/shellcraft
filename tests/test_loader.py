@@ -104,3 +104,26 @@ def test_help_flags_module_files_without_run(tmp_path):
     plain = next(line for line in text.splitlines() if line.startswith("plain"))
     proper = next(line for line in text.splitlines() if line.startswith("proper"))
     assert "Print hi." in plain and SCRIPT_HINT in plain and SCRIPT_HINT not in proper
+
+
+def test_modules_lists_helpers_with_description_and_users(tmp_path):
+    from core.context import ShellContext, to_text
+    from core.loader import ModuleRegistry, helpers
+    from core.pipeline import run_line
+
+    (tmp_path / "_net.py").write_text('"""Shared HTTP helpers."""\n')
+    (tmp_path / "_fmt.py").write_text("X = 1\n")
+    (tmp_path / "_fmt.md").write_text("# _fmt\n\nTable formatting for the query modules.\n")
+    (tmp_path / "_lonely.py").write_text("Y = 2\n")
+    (tmp_path / "query.py").write_text("import _net\nfrom . import _fmt\ndef run(args, stdin):\n    return ''\n")
+    (tmp_path / "other.py").write_text("from _net import get\ndef run(args, stdin):\n    return ''\n")
+    found = {name: (desc, used) for name, _p, desc, used in helpers(tmp_path)}
+    assert found == {"_fmt": ("Table formatting for the query modules.", ["query"]),
+                     "_lonely": ("", []),
+                     "_net": ("Shared HTTP helpers.", ["other", "query"])}
+    registry = ModuleRegistry(tmp_path)
+    registry.load()
+    text = to_text(run_line("modules", ShellContext(registry=registry)).output)
+    assert "helper  _net  Shared HTTP helpers.  (used by other, query)" in text
+    assert "helper  _fmt  Table formatting for the query modules.  (used by query)" in text
+    assert "helper  _lonely" in text and "_net" not in registry.names()
