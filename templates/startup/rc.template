@@ -12,10 +12,16 @@ echo $GREETING
 # 3. Run a module: your public IP
 myip
 
-# 4. Pull in another rc file, if it exists (one per use case, like ~/.bash_aliases in bash)
+# 4. Pull in other rc files, one per use case (like ~/.bash_aliases in bash).
+#    A file that doesn't exist is skipped. Copy templates/startup/rc.work to try it.
+#    The bash way, with an if block and `.` (short for source):
 if [ -f ~/.shellcraft/rc.work ]; then
     . ~/.shellcraft/rc.work
 fi
+#    The short form, on one line:
+[ -f ~/.shellcraft/rc.home ] && source ~/.shellcraft/rc.home
+#    A whole folder, in name order (10-git.rc, 20-servers.rc …):
+for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
 
 # 5. A loop: count down from 3
 for n in 3 2 1; do echo "starting in $n..."; done

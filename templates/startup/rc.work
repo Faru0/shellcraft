@@ -1,0 +1,8 @@
+# Example per-use-case rc file, pulled in by the main rc (see rc.template, step 4).
+#   cp templates/startup/rc.work ~/.shellcraft/rc.work
+# Same rules as the main rc: every line runs as if typed at the prompt.
+
+export WORK_MODE=on
+cd ~
+export WORK_DIR=~/work            # aliases belong in ~/.shellcraft/aliases, not here
+echo "work settings loaded"
