@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "build>=1.2"]
+keyring = ["keyring>=24"]  # API keys in the OS keyring instead of plain text in config.json
 censys = ["censys-platform>=0.16"]  # for the queryCensys module
 
 [project.scripts]

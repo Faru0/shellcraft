@@ -1765,6 +1765,7 @@ settings reset KEY            # back to the default
 settings NAME                 # enter an API key (typing is hidden)
 settings NAME VALUE           # set an API key in one go
 settings reset NAME           # forget a stored API key
+settings migrate-keys         # move keys kept in plain text into the OS keyring
 ```
 
 ## Settings
@@ -1783,7 +1784,12 @@ shell) or `not set`. A stored key is exported to the environment when ShellCraft
 (the shell and `--mcp` alike) and replaces a value from your shell. `settings reset NAME`
 forgets the stored key and brings back your shell's value, if it had one.
 
-Keys are kept in plain text in `config.json`, which is made readable by you only (mode 600).
+**Where keys are kept.** With the optional `keyring` package installed (`pip install keyring`, or
+the `keyring` extra) and a working backend (Windows Credential Manager, macOS Keychain, Secret
+Service on Linux desktops), a key you set goes into the OS keyring and `config.json` keeps only
+the marker `@keyring`; the `keyring` setting turns that off. `settings migrate-keys` moves keys
+already in `config.json` over. Without the keyring, keys are kept in **plain text** in
+`config.json`: mode 600 keeps other users out on Linux and macOS, but does nothing on Windows.
 `settings NAME VALUE` is saved to history as `settings NAME ••••`, but prefer `settings NAME`,
 which asks for the value without echoing it.
 
@@ -1806,6 +1812,20 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if not args:
         return _settings_table(ctx, keys)
 
+    if args == ["migrate-keys"]:
+        try:
+            moved = settings.migrate_keys(ctx.config)
+        except OSError as exc:
+            raise CommandError(f"settings: {exc}") from None
+        if not moved:
+            return Text("no keys in plain text: nothing to move", style="sc.muted")
+        msg = Text.assemble(("✓ ", "sc.success"), f"moved to the keyring: {', '.join(moved)}")
+        try:
+            save_config(ctx.config)
+        except OSError as exc:
+            msg.append(f"  (not saved: {exc})", style="sc.warning")
+        return msg
+
     if args[0] == "reset":
         if len(args) != 2:
             raise CommandError("usage: settings reset KEY")
@@ -1824,8 +1844,12 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         if not value.strip():
             raise CommandError(f"settings: empty value; {entry.name} unchanged "
                                f"(use `settings reset {entry.name}` to clear it)")
-        settings.env_set(ctx.config, entry.name, value.strip())
-        return _store_env(ctx, entry, "set", value.strip())
+        try:
+            settings.env_set(ctx.config, entry.name, value.strip())
+        except OSError as exc:
+            raise CommandError(f"settings: {exc}") from None
+        where = "set in the keyring" if settings.stored_in_keyring(ctx.config, entry.name) else "set"
+        return _store_env(ctx, entry, where, value.strip())
 
     if len(args) != 2:
         key = _setting_key(args[0], keys)
@@ -1857,6 +1881,11 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
         entry = keys[name]
         state, text = settings.env_status(ctx.config, name)
         table.add_row(name, entry.label, Text(text, style=styles[state]), entry.setting.description)
+    plain = settings.plaintext_keys(ctx.config)
+    if plain and settings.use_keyring(ctx.config):
+        table.caption = (f"⚠ {len(plain)} key(s) in plain text in config.json: "
+                         "settings migrate-keys moves them to the keyring")
+        table.caption_style = "sc.warning"
     return table
 
 

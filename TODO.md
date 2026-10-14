@@ -50,8 +50,6 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Robustness and packaging
 
-- [ ] **API keys in plain text** in `config.json`; mode 600 does nothing on Windows. Offer the OS
-  keyring (`keyring`) as an optional backend; until then, say so in the README. — `shellcraft/settings.py`
 - [ ] **Ctrl-C abandons a module's worker thread**, which keeps running. A cooperative cancel flag
   in `modkit`, or at least a note in the module guide to pass timeouts. — `shellcraft/output.py`
 - [ ] **`findtime` on the GitHub copy fails `ingest check --strict`** (unknown options accepted, no

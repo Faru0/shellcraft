@@ -217,6 +217,7 @@ description)]` (`shellcraft/modkit.py`). The pieces:
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
 | `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
+| `test_keyring.py` | API keys in the OS keyring (fake backend): set / get / export / reset, the setting off, an unreachable keyring, `settings migrate-keys`, a refusing backend |
 | `test_core_shim.py` | the `core` compatibility shim: same module objects, old modules load, `python -m core.cli` / `core.alerts` run |
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |

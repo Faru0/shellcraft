@@ -452,7 +452,7 @@ settings reset DNSDUMPSTER_API_KEY    # forget it
 <details>
 <summary>How keys are stored and passed to modules</summary>
 
-- **Storage:** plain text under `"env"` in `~/.shellcraft/config.json`, which is made readable by you only (mode 600).
+- **Storage:** with the optional `keyring` package (`pip install keyring`, or `pip install -e ".[keyring]"`) and a working backend (Windows Credential Manager, macOS Keychain, Secret Service), a key goes into the OS keyring and `config.json` holds only the marker `@keyring`. **Without it, keys are plain text** under `"env"` in `~/.shellcraft/config.json`: mode 600 keeps other users out on Linux and macOS, but **does nothing on Windows**. `settings migrate-keys` moves keys already stored in plain text into the keyring; `settings keyring off` keeps them in `config.json`.
 - **Delivery:** stored keys are exported as environment variables at startup, in every mode including `--mcp`, and right after you set one. A variable already set in your shell (or an MCP client's `env` block) wins at startup. After `settings reset`, your shell's own value applies again.
 - **History:** `settings NAME VALUE` is saved as `settings NAME ••••`, but prefer the prompt form, `settings NAME`. Start any line with a space to keep it out of the history entirely.
 - `queryCensys` also needs the Censys SDK: `pip install censys-platform`, or `pip install -e ".[censys]"`.

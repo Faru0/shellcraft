@@ -15,6 +15,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added (robustness and packaging)
 
+- **API keys in the OS keyring:** with the optional `keyring` package (the `keyring` extra) and a
+  working backend, `settings NAME VALUE` stores the key in Windows Credential Manager / macOS
+  Keychain / Secret Service and `config.json` keeps only `@keyring`; startup reads it back, `reset`
+  deletes it. The `keyring` setting (on) chooses; `settings migrate-keys` moves keys stored in plain
+  text, and the `settings` table warns while any are left. Without keyring nothing changes, and the
+  README now says plainly that `config.json` is plain text and mode 600 does nothing on Windows.
+
 - **Your own modules folder, `~/.shellcraft/modules`,** loaded next to the bundled one (or
   `--modules DIR`). A module there shadows a bundled one of the same name; `modules` has a `from`
   column and `help` marks them `(user module)`; hot reload watches both folders; `_helpers` import
