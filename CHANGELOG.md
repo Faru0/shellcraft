@@ -64,6 +64,11 @@ and Ctrl-C that reaches running modules.
 
 ### Added
 
+- **Following a background command:** `jobs -f N` prints what a command job has written so far and
+  then each new line as it comes, like `tail -f`, until the job ends (its status line) or Ctrl-C
+  (the job keeps running). Selecting a still-running command job (`jobs N`, Ctrl-] N, a click)
+  follows it the same way; a finished one shows its whole output. Background commands record
+  their output as it streams, so `tail -f app.log | grep ERROR &` can be followed.
 - **`cmd &`:** a trailing `&` runs the line in the background, like `sub cmd`: a builtin, module,
   pipeline or loop as a command job (the line as typed, quotes kept), a single OS program as a
   program job that is not attached (Ctrl-] N switches to it). Interactive shell only; an `&`

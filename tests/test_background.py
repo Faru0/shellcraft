@@ -79,3 +79,65 @@ def test_ampersand_elsewhere_and_outside_the_shell(ictx):
     ictx.interactive, ictx.jobs = True, None  # a background job's own context has no job table
     with pytest.raises(PipelineError, match="interactive shell"):
         run_line("seq 3 &", ictx)
+
+
+# ── following a background command ───────────────────────────────────────────
+
+SLOW = ("import time\n"
+        "def run(args, stdin):\n"
+        "    for i in range(int(args[0]) if args else 6):\n"
+        "        yield f'tick{i}'\n"
+        "        time.sleep(0.25)\n")
+
+
+def _with_slow_module(ictx, tmp_path):
+    (tmp_path / "modules").mkdir(exist_ok=True)
+    (tmp_path / "modules" / "slow.py").write_text(SLOW)
+    ictx.registry = ModuleRegistry(tmp_path / "modules")
+    ictx.registry.load()
+
+
+def test_a_background_command_records_its_output_as_it_streams(ictx, tmp_path):
+    _with_slow_module(ictx, tmp_path)
+    run_line("sub slow 8", ictx)
+    job = ictx.jobs.get(1)
+    assert _wait(lambda: "tick2" in job.output, 4)
+    assert job.running and "tick7" not in job.output  # part of it, while it still runs
+    assert _wait(lambda: not job.running, 5) and job.output.count("tick") == 8
+
+
+def test_jobs_follow_prints_until_the_job_ends(ictx, tmp_path):
+    _with_slow_module(ictx, tmp_path)
+    run_line("slow 5 &", ictx)
+    result = run_line("jobs -f 1", ictx)
+    printed = ictx.ui.console.file.getvalue()
+    assert "following" in printed and all(f"tick{i}" in printed for i in range(5))
+    assert "done" in to_text(result.output) and not ictx.jobs.get(1).running
+    finished = to_text(run_line("jobs 1", ictx).output)  # a finished job: a snapshot
+    assert "tick4" in finished and "following" not in finished
+
+
+def test_ctrl_c_stops_following_and_the_job_keeps_running(ictx, tmp_path):
+    import _thread
+    import threading
+
+    _with_slow_module(ictx, tmp_path)
+    run_line("sub slow 40", ictx)
+    threading.Timer(0.8, _thread.interrupt_main).start()
+    result = run_line("jobs 1", ictx)  # running: selecting it follows it
+    assert "still running" in to_text(result.output)
+    job = ictx.jobs.get(1)
+    assert job.running and "tick1" in ictx.ui.console.file.getvalue()
+    ictx.jobs.kill(job)
+
+
+def test_sub_tail_f_into_grep_records_lines_as_written(ictx, tmp_path):
+    log = tmp_path / "app.log"
+    log.write_text("start\n")
+    run_line("tail -f app.log | grep ERROR &", ictx)
+    job = ictx.jobs.get(1)
+    time.sleep(0.6)
+    with open(log, "a") as fh:
+        fh.write("ok\nERROR first\n")
+    assert _wait(lambda: "ERROR first" in job.output, 4) and job.running
+    ictx.jobs.kill(job)

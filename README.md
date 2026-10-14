@@ -261,6 +261,7 @@ sub shellcraft --theme nord  # a nested ShellCraft (its prompt shows ⚡shellcra
 sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
 find / -name "*.log" &       # the same, bash style: a trailing & backgrounds any line (a program isn't attached)
 jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
+jobs -f 2                    # follow a background command's output as it grows, like tail -f (Ctrl-C stops following)
 ```
 
 Every subshell is a numbered job. At the prompt, a **panel** under it lists them, one per line:
@@ -285,7 +286,7 @@ back to the prompt restores it untouched. Inside a subshell the same stacked pan
 the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to the
 program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
-terminals need it for their own tabs.) Switching to a command shows its output so far. A finished
+terminals need it for their own tabs.) Switching to a command that is still running follows its output as it grows (Ctrl-C goes back to the prompt and leaves it running); a finished one shows everything it printed. A finished
 job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
 stopped, and `settings footer off` removes the footer. `man sub` has the details.
 

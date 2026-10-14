@@ -58,8 +58,9 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Shell features
 
-- [ ] **Subshells, leftovers**: a follow mode for a running
-  command job's output. — `shellcraft/jobs.py`
+- [ ] **Stopping a background command for real**: `jobs -k N` marks a command job killed, but its
+  thread (a `tail -f` in it, say) keeps running until the shell exits. Hand each background
+  pipeline its `shellcraft.streams` cancel event so `jobs -k` stops it. — `shellcraft/jobs.py`, `shellcraft/pipeline.py`
 - [ ] **Startup, open questions** (the rc file is done; these are about `~/.shellcraft/startup/*.py`):
   long-running scripts as `sub` jobs (a marker line, or a separate folder?); a dependency order
   beyond name order; per-script timeouts and arguments; whether a script may stop the shell from

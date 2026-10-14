@@ -540,9 +540,13 @@ class JobTable:
 
     # ── ShellCraft commands in a thread ──────────────────────────────────────
 
-    def start_command(self, command: str, run: Callable[[], tuple[int, str]]) -> Job:
-        """Run `run()` (which returns (status, output)) in a worker thread as a job."""
+    def start_command(self, command: str, run: Callable[[], tuple[int, str]],
+                      before_start: Callable[[Job], None] | None = None) -> Job:
+        """Run `run()` (which returns (status, output)) in a worker thread as a job.
+        `before_start(job)` is called first, so `run` can append output to the job as it goes."""
         job = self._add(command, "command")
+        if before_start is not None:
+            before_start(job)
 
         def target() -> None:
             try:

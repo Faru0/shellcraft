@@ -904,12 +904,19 @@ List the subshells started with `sub`, select one, stop one, or clear the finish
 ```
 jobs                 # the table: number, state, elapsed time, command
 jobs N               # select job N: attach to a program (Ctrl-] detaches), or show a command's output
+jobs -f N            # follow a command job's output as it grows, like tail -f (Ctrl-C stops following)
 jobs -k N            # stop job N
 jobs -c              # forget the finished jobs (their logs stay in ~/.shellcraft/jobs/)
 ```
 
 **Ctrl-] N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
 a click on the job's tab in the footer. `man sub` explains the two kinds of job.
+
+Selecting a **command** job that is still running follows it: what it printed so far, then each
+new line as it comes, until it finishes (its status line ends the view) or you press Ctrl-C, which
+returns to the prompt and leaves the job running. A finished command job shows its whole output.
+`jobs -f N` follows explicitly. Background commands record their output as it streams, so
+`sub tail -f app.log | grep ERROR` (or the same line with `&`) can be followed like any other.
 """
 
 
@@ -1013,11 +1020,18 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
     from shellcraft.context import _direct
     from shellcraft.parser import ParseError
     from shellcraft.pipeline import PipelineError, run_line
+    from shellcraft.streams import item_text
+
+    holder: list[Any] = []
+
+    def record(item: Any) -> None:  # output that keeps coming is added to the job as it arrives
+        if holder:
+            holder[0].append(item_text(item).encode("utf-8", errors="replace"))
 
     errors: list[str] = []  # its `>&2` output: part of the job's output, never over the prompt
     background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
                                      emit=None, emit_error=None, jobs=None, emit_stderr=None,
-                                     stderr_sinks=[errors.append])
+                                     stderr_sinks=[errors.append], live=record)
 
     def run() -> tuple[int, str]:
         try:
@@ -1026,7 +1040,7 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
             return getattr(exc, "status", 1) or 1, "".join(errors) + f"✗ {exc}\n"
         return background.last_status, (to_text(result.output) if result is not None else "") + "".join(errors)
 
-    job = table.start_command(line, run)
+    job = table.start_command(line, run, before_start=holder.append)
     return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
                          (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
                           "sc.muted"))
@@ -1081,8 +1095,9 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
         return WithStatus(note, status) if status else note
 
 
-def select_job(ctx: ShellContext, number: int) -> Any:
-    """`jobs N` / Alt-N: attach to a program, or show a command's output so far."""
+def select_job(ctx: ShellContext, number: int, follow: bool | None = None) -> Any:
+    """`jobs N` / Ctrl-] N: attach to a program; for a command, follow its output while it runs
+    (or with `follow`), else show what it printed."""
     table = _jobs_or_refuse(ctx, "jobs")
     job = table.get(number)
     if job is None:
@@ -1091,6 +1106,8 @@ def select_job(ctx: ShellContext, number: int) -> Any:
         if not job.running:
             raise CommandError(f"jobs: [{number}] {job.command} has finished ({job.label})")
         return _attach(ctx, job)
+    if (job.running if follow is None else follow) and ctx.ui is not None:
+        return follow_job(ctx, job)
     text = job.output
     head = Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                          (f"  {job.label}, {job.elapsed:.1f}s", "sc.muted"))
@@ -1098,13 +1115,71 @@ def select_job(ctx: ShellContext, number: int) -> Any:
     return Styled(Group(head, Text.from_ansi(body.rstrip("\n"))), f"{to_text(head)}\n{body}")
 
 
-@builtin("jobs", "List, select or stop the subshells started with sub", "jobs [N | -k N | -c]",
+def follow_job(ctx: ShellContext, job: Any, poll: float = 0.2) -> Any:
+    """Print a command job's output so far, then each new piece as the job writes it, like
+    `tail -f`, until it finishes (its status line closes it) or Ctrl-C (the job keeps running)."""
+    import time as _time
+
+    console = ctx.ui.console
+    console.print(Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                                ("  following (Ctrl-C returns to the prompt; the job keeps running)", "sc.muted")),
+                  markup=False, highlight=False)
+    position = 0
+
+    def print_new() -> None:
+        nonlocal position
+        try:
+            with open(job.log, "rb") as fh:
+                fh.seek(position)
+                data = fh.read()
+                position = fh.tell()
+        except OSError:
+            return
+        if data:
+            console.print(Text.from_ansi(data.decode("utf-8", errors="replace").rstrip("\n")),
+                          markup=False, highlight=False)
+            console.file.flush()
+
+    # Ctrl-] N runs this inside prompt_toolkit's run_in_terminal, whose event loop owns SIGINT
+    # (its handler can't run while this loop blocks it): Python's own handler, while following,
+    # turns Ctrl-C into KeyboardInterrupt here, as at the prompt.
+    import signal
+    import threading
+
+    previous = None
+    if threading.current_thread() is threading.main_thread():
+        try:
+            previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        except (ValueError, OSError):
+            previous = None
+    try:
+        print_new()
+        while job.running:
+            _time.sleep(poll)
+            print_new()
+        print_new()
+    except KeyboardInterrupt:
+        return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                             (f"  still running (jobs -f {job.number} to follow again)", "sc.muted"))
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+    ctx.jobs.pop_notifications()  # its end is reported here, not again at the next prompt
+    style = "sc.success" if job.status == 0 else "sc.error"
+    note = Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+                         (f"  {job.label} ({job.elapsed:.1f}s)", style))
+    return WithStatus(note, job.status or 0) if job.status else note
+
+
+@builtin("jobs", "List, select or stop the subshells started with sub", "jobs [N | -f N | -k N | -c]",
          stateful=True, direct=True, doc=JOBS_DOC)
 def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     table = _jobs_or_refuse(ctx, "jobs")
     if args and args[0] in ("-c", "--clear"):
         n = table.clear_finished()
         return Text(f"✓ {n} finished job{'s' if n != 1 else ''} cleared", style="sc.success")
+    if args and args[0] in ("-f", "--follow"):
+        return select_job(ctx, _job_number(args[1:2]), follow=True)
     if args and args[0] in ("-k", "--kill"):
         job = table.get(_job_number(args[1:2]))
         if job is None:
