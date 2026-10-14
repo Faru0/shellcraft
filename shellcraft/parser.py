@@ -142,7 +142,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         bad = next((o for o in UNSUPPORTED if line.startswith(o, i)), None)
         op = next((o for o in OPERATORS if line.startswith(o, i)), None)
         if bad in ("&&", "||") and tokens and tokens[0].value == "[[" and not tokens[0].op:
-            tokens.append(Token(bad, i))  # inside `[[ … ]]`: the test's own and / or (core/commands/cond.py)
+            tokens.append(Token(bad, i))  # inside `[[ … ]]`: the test's own and / or (shellcraft/commands/cond.py)
             i += 2
             continue
         if bad and (op is None or len(bad) >= len(op)):

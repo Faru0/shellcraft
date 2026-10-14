@@ -3,9 +3,9 @@ functions and blocks, the default destinations, and the parser's handling of oth
 
 import pytest
 
-from core.context import to_text
-from core.parser import ParseError, parse, tokenize
-from core.pipeline import run_line
+from shellcraft.context import to_text
+from shellcraft.parser import ParseError, parse, tokenize
+from shellcraft.pipeline import run_line
 
 
 @pytest.fixture

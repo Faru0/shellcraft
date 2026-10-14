@@ -3,10 +3,10 @@ around a `[[ ]]` test (the splitter must not cut a statement at an `&&` inside t
 
 import pytest
 
-from core import script
-from core.context import to_text
-from core.parser import tokenize
-from core.pipeline import run_line
+from shellcraft import script
+from shellcraft.context import to_text
+from shellcraft.parser import tokenize
+from shellcraft.pipeline import run_line
 
 
 @pytest.fixture

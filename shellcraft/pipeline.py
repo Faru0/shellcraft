@@ -351,7 +351,7 @@ SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local",
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
-        from core import script
+        from shellcraft import script
 
         return script.call_function(ctx.functions[cmd.name], cmd.args, stdin, ctx, cmd)
     builtin = BUILTINS.get(cmd.name)

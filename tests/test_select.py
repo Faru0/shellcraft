@@ -5,12 +5,12 @@ import io
 import pytest
 from rich.console import Console
 
-from core import script
-from core.context import ShellContext, to_text
-from core.loader import ModuleRegistry
-from core.parser import ParseError
-from core.pipeline import run_line
-from core.themes import UI, all_themes
+from shellcraft import script
+from shellcraft.context import ShellContext, to_text
+from shellcraft.loader import ModuleRegistry
+from shellcraft.parser import ParseError
+from shellcraft.pipeline import run_line
+from shellcraft.themes import UI, all_themes
 
 
 @pytest.fixture

@@ -1275,8 +1275,8 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     (as in bash) except those declared `local`, which are put back when it returns. Its status
     is `return N`'s, else the last command's. With `cmd` (the call as parsed), its `2> file` /
     `2>&1` also take what the body sends to the error stream (`>&2`, failing commands)."""
-    from core.context import CommandError, WithStatus
-    from core.pipeline import stderr_file_sink
+    from shellcraft.context import CommandError, WithStatus
+    from shellcraft.pipeline import stderr_file_sink
 
     if not ctx.allow_aliases:
         raise CommandError(f"{fn.name}: shell functions are not available here (MCP)")
@@ -1416,7 +1416,7 @@ class _Runner:
 
     def define(self, stmt: Function) -> None:
         """Run a function definition: keep it for the session (never over MCP)."""
-        from core.pipeline import PipelineError
+        from shellcraft.pipeline import PipelineError
 
         if not self.ctx.allow_stateful or not self.ctx.allow_aliases:
             self.report(PipelineError(1, 1, stmt.name, "shell functions can't be defined here (MCP)"), stmt.text)
@@ -1437,7 +1437,7 @@ class _Runner:
     def run_local(self, stmt: Simple) -> tuple[int, Any]:
         """`local NAME[=VALUE]...` in a function body: the variables get these values for the
         rest of the call and are put back (or removed) when it returns."""
-        from core.pipeline import PipelineError
+        from shellcraft.pipeline import PipelineError
 
         rest = stmt.text.strip()[len("local"):]
         if self.frame is None:
@@ -1553,8 +1553,8 @@ class _Runner:
         `break`, Ctrl-D or Ctrl-C. An empty answer shows the menu again. Interactive only."""
         from rich.text import Text
 
-        from core import ask
-        from core.pipeline import PipelineError
+        from shellcraft import ask
+        from shellcraft.pipeline import PipelineError
 
         values = self.items(For(stmt.var, stmt.items, stmt.body, stmt.pos))
         if not values:
@@ -1652,7 +1652,7 @@ class _Runner:
     def _block_stderr(self, stmt: Piped, inner: _Runner) -> Callable[[str], None] | None:
         """`done 2> err.txt` / `done 2>&1 | …`: where the block's error stream goes (its `>&2`
         output and its failing commands), read from the tail's first, empty segment."""
-        from core.pipeline import stderr_file_sink
+        from shellcraft.pipeline import stderr_file_sink
 
         if "2>" not in stmt.tail:
             return None

@@ -3,10 +3,10 @@ pipes and redirects, precedence over builtins, \\name, declare / type / which / 
 
 import pytest
 
-from core import script, startup
-from core.context import to_text
-from core.parser import ParseError
-from core.pipeline import PipelineError, run_line
+from shellcraft import script, startup
+from shellcraft.context import to_text
+from shellcraft.parser import ParseError
+from shellcraft.pipeline import PipelineError, run_line
 
 
 def out(ctx, line):
