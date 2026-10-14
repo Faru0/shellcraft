@@ -582,9 +582,10 @@ def time_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 @builtin("type", "Say what kind of command a name is", "type [-t] NAME...", category="info", doc="""\
 # type
 
-Tell whether each NAME is an alias, a shell keyword, a builtin, a module or a program on PATH,
-in bash's words (`ls is a shell builtin`). `-t` prints just the kind: `alias`, `keyword`,
-`builtin`, `module` or `file`. `which` shows the same, with file paths.
+Tell whether each NAME is an alias, a shell function, a shell keyword, a builtin, a module or a
+program on PATH, in bash's words (`ls is a shell builtin`); a function is shown with its body.
+`-t` prints just the kind: `alias`, `function`, `keyword`, `builtin`, `module` or `file`. `which`
+shows the same, with file paths.
 """)
 def type_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     import shutil
@@ -601,6 +602,8 @@ def type_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         value = aliases.get_all(ctx.config).get(name) if ctx.allow_aliases else None
         if value is not None:
             lines.append("alias" if opts.terse else f"{name} is aliased to `{value}'")
+        elif ctx.allow_aliases and name in ctx.functions:
+            lines.append("function" if opts.terse else f"{name} is a function\n{ctx.functions[name].text}")
         elif name in KEYWORDS and name not in ("{", "}", "!", "-py", "in"):
             lines.append("keyword" if opts.terse else f"{name} is a shell keyword")
         elif name in BUILTINS:
@@ -632,6 +635,7 @@ export NAME=VALUE          # set it and export it to the environment
 export NAME                # export an existing variable
 export                     # list the exported variables
 unset NAME...              # remove variables (from the environment too)
+unset -f NAME...           # remove shell functions (man function)
 ```
 
 `$HOME`, `$PATH` and other environment variables expand in the interactive shell without an
@@ -670,12 +674,62 @@ def export(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return ""
 
 
-@builtin("unset", "Remove shell variables", "unset NAME...", category="shell", stateful=True, doc=EXPORT_DOC)
+@builtin("unset", "Remove shell variables (or functions: -f)", "unset [-v] NAME... | unset -f NAME...",
+         category="shell", stateful=True, doc=EXPORT_DOC)
 def unset(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    if args[:1] == ["-f"]:
+        for name in args[1:]:
+            ctx.functions.pop(name, None)
+        return ""
+    if args[:1] == ["-v"]:
+        args = args[1:]
     if not args:
-        raise CommandError("unset: usage: unset NAME...")
+        raise CommandError("unset: usage: unset NAME... | unset -f NAME...")
     for name in args:
         ctx.variables.pop(name, None)
         if ctx.exported.pop(name, None) is not None:
             os.environ.pop(name, None)
     return ""
+
+
+@builtin("declare", "Show shell functions: declare -f [NAME...] / -F", "declare -f [NAME...] | declare -F",
+         category="shell", stateful=True, doc="""\
+# declare
+
+Show the shell functions defined in this session (`man function`).
+
+```
+declare -f            # every function, as it was defined
+declare -f NAME...    # just these
+declare -F            # just the names
+```
+
+Only `-f` and `-F` are supported; for variables use `NAME=VALUE`, `export` and `unset`.
+""")
+def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not args or args[0] not in ("-f", "-F"):
+        raise CommandError("declare: only -f and -F are supported (variables: NAME=VALUE, export, unset)")
+    names = args[1:] or sorted(ctx.functions)
+    missing = [n for n in names if n not in ctx.functions]
+    if args[0] == "-F":
+        text = lines_out(f"declare -f {n}" for n in names if n in ctx.functions)
+    else:
+        text = "".join(ctx.functions[n].text.rstrip() + "\n" for n in names if n in ctx.functions)
+    return WithStatus(text, 1) if missing else text
+
+
+@builtin("local", "Declare a variable local to a shell function", "local NAME[=VALUE]...", category="shell",
+         stateful=True, doc="""\
+# local
+
+Inside a shell function, give variables values for the rest of the call only: when the function
+returns, each one gets its old value back (or disappears if it had none). See `man function`.
+
+```
+f() { local count=0 name=$1; … }
+```
+
+Outside a function `local` is an error, as in bash.
+""")
+def local(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    raise CommandError("local: can only be used in a function")

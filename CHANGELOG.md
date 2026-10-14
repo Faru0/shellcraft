@@ -17,6 +17,17 @@ and Ctrl-C that reaches running modules.
   `shellcraft.X` (with a DeprecationWarning), and `python -m core.cli` / `python -m core.alerts`
   still run, so modules and alert shims from 0.2 keep working. It is removed in 0.4.
 
+### Added (shell grammar)
+
+- **Shell functions:** `name() { …; }` and `function name { …; }`, on one line or several (at the
+  prompt and in rc files), with `$1`…`$9`, `$#`, `$@`, `$*`, `local NAME[=VALUE]` (put back when the
+  call returns), `return [N]`, recursion (100 calls deep at most), and use as a command in pipes,
+  redirects and `&&` / `||` (a function's commands read its input). A function takes precedence
+  over a builtin or module of the same name, as in bash, except `exit`, `export`, `unset`, `source`,
+  `.`, `local`, `declare`, `alias` and `unalias`; `\name` skips it. `declare -f` / `declare -F` list
+  them, `unset -f` removes one, `type` and `which` report them; never available over MCP. `$1` and
+  `$#` also work inside `$(( ))`, as do `$x` and `${x}`.
+
 ### Added (robustness and packaging)
 
 - **Ctrl-C reaches running modules:** `modkit.check_cancel()` (raises `Cancelled`, a

@@ -170,6 +170,9 @@ class ShellCompleter(Completer):
             entries[name] = (spec.summary if spec else "") or "module"
         for name, value in self._aliases().items():
             entries[name] = f"alias → {value}"
+        if self.ctx.allow_aliases:
+            for name in self.ctx.functions:
+                entries[name] = "shell function"
         for name in sorted(entries):
             if name.startswith(word):
                 yield Completion(name, start_position=-len(word), display_meta=entries[name])

@@ -159,6 +159,27 @@ In both: `break`/`continue`; a failing command shows its error and the loop goes
 loop variables and `x=1` assignments outlive the loop. `man for` and `man if` have the details.
 Loops also work over MCP, with the same restrictions.
 
+### Functions
+
+```
+greet() { echo "hello $1, you gave $# argument(s)"; }
+greet Ada
+
+backup() {                                   # over several lines, at the prompt or in ~/.shellcraft/rc
+  local stamp=$(date +%Y%m%d)                # local: put back when the function returns
+  cp -r "$1" "$1.$stamp" && echo "saved $1.$stamp" || return 1
+}
+countdown() { local n=$1; while [ $n -gt 0 ]; do echo $n; n=$((n - 1)); done; }
+countdown 3 | sort -n                        # a function is a command: pipes, redirects, && / ||
+declare -f · unset -f backup · type greet    # list, forget, inspect
+```
+
+Inside a function `$1`…`$9` are its arguments, `$#` how many and `$@` all of them; `return N` sets
+its status. Variables are the shell's own unless declared `local`, as in bash. A function wins over
+a builtin or module of the same name (not over `exit`, `export`, `unset`, `source` and a few other
+shell builtins), and `\name` runs the command itself. Functions last for the session (put them in
+`~/.shellcraft/rc` to keep them) and are never available to AI clients over MCP. `man function`.
+
 ### Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

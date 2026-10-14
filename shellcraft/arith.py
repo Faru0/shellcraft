@@ -53,7 +53,10 @@ def _to_python(text: str) -> str:
         return f"(({_to_python(yes)}) if ({_to_python(cond)}) else ({_to_python(no)}))"
     text = text.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
-    return text
+    # `$x` / `${x}` are just x here; a function's `$1` and `$#` become names Python accepts.
+    text = re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", r"\1", text)
+    text = re.sub(r"\$\{?([0-9])\}?", r"_P\1_", text)
+    return text.replace("$#", "_PN_")
 
 
 def _eval(node: ast.AST, variables: Mapping[str, str]) -> int:
@@ -64,7 +67,10 @@ def _eval(node: ast.AST, variables: Mapping[str, str]) -> int:
             return node.value
         raise ArithError(f"only integers are allowed in $(( )), not {node.value!r}")
     if isinstance(node, ast.Name):
-        raw = variables.get(node.id, "0") if hasattr(variables, "get") else "0"
+        name = node.id
+        if positional := re.fullmatch(r"_P([0-9N])_", name):  # `$1` / `$#` (see _to_python)
+            name = "#" if positional.group(1) == "N" else positional.group(1)
+        raw = variables.get(name, "0") if hasattr(variables, "get") else "0"
         try:
             return int(str(raw).strip() or "0", 0)
         except ValueError:

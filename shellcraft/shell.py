@@ -567,7 +567,7 @@ class Shell:
 
     def _is_known_command(self, name: str) -> bool:
         return (name in BUILTINS or name in KEYWORDS or self.ctx.registry.get(name) is not None
-                or name in aliases.get_all(self.ctx.config))
+                or name in aliases.get_all(self.ctx.config) or name in self.ctx.functions)
 
     def _current_lexer(self) -> Any:
         return self._lexer if settings.get(self.ctx.config, "highlight") else None
@@ -661,6 +661,10 @@ class Shell:
             page = self._click(f"man {'for' if name in ('for', 'do', 'done', 'in') else 'if'}")
             return FormattedText([("class:toolbar.key", f" {name} ", page),
                                   ("class:toolbar", " see: man for, man if", page)])
+        if resolved in self.ctx.functions and not words[0].startswith("\\"):
+            page = self._click("man function")
+            return FormattedText([("class:toolbar.key", f" {resolved} ", page),
+                                  ("class:toolbar", f" shell function  — declare -f {resolved}", page)])
         if resolved in BUILTINS:
             b = BUILTINS[resolved]
             page = self._click(f"man {resolved}")

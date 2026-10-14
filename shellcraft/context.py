@@ -48,6 +48,10 @@ class ShellContext:
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.
     variables: dict[str, str] = field(default_factory=dict)
     exported: dict[str, str] = field(default_factory=dict)
+    # Shell functions (`name() { …; }`, core.script.Function) and the arguments of the calls in
+    # progress (`$1`, `$@`, `$#` read the innermost). Never used over MCP.
+    functions: dict[str, Any] = field(default_factory=dict)
+    positional: list[list[str]] = field(default_factory=list)
     # Where a script (`for`, `if`, `a ; b`) sends each statement's output and errors as it runs.
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
     # collected and returned as one text.

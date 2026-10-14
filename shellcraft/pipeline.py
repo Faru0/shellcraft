@@ -58,6 +58,14 @@ class Variables(Mapping[str, str]):
     def __getitem__(self, name: str) -> str:
         if name == "?":
             return str(self.ctx.last_status)
+        if self.ctx.positional and (name.isdigit() or name in ("#", "@", "*")):
+            args = self.ctx.positional[-1]  # inside a shell function: its arguments
+            if name == "#":
+                return str(len(args))
+            if name in ("@", "*"):
+                return " ".join(args)
+            if name != "0":
+                return args[int(name) - 1] if int(name) <= len(args) else ""
         if name in self.extra:
             return self.extra[name]
         if name in self.ctx.variables:
@@ -287,7 +295,16 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
         raise PipelineError(1, 1, cmd.name, f"{type(exc).__name__}: {exc}") from exc
 
 
+# Shell functions take precedence over builtins, modules and programs, as in bash, except for
+# these, which keep the shell in charge of itself (the "special builtins" that matter here).
+SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias"})
+
+
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
+    if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
+        from core import script
+
+        return script.call_function(ctx.functions[cmd.name], cmd.args, stdin, ctx)
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
         if ((builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes)

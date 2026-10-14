@@ -46,6 +46,10 @@ PY_FLAG = "-py"
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
 MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_FUNCTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+_FUNCTION_DEF = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\([ \t]*\)")  # name()
+_EMPTY_PARENS = re.compile(r"[ \t]*\([ \t]*\)")
+MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
 _BRACE_SEQ = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$|^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$")
 
@@ -115,7 +119,18 @@ class If:
 
 @dataclass
 class Jump:
-    kind: str  # "break" or "continue"
+    kind: str  # "break", "continue" or "return"
+    pos: int
+    value: str = ""  # `return N`: the status, as typed (expanded when it runs)
+
+
+@dataclass
+class Function:
+    """`name() { LIST; }` or `function name { LIST; }`: defines a shell function when it runs."""
+
+    name: str
+    body: list[Stmt]
+    text: str  # the definition as typed (for `declare -f` and `type`)
     pos: int
 
 
@@ -150,7 +165,7 @@ class Piped:
     mode: str = "sh"
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped]
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function]
 
 
 @dataclass
@@ -213,6 +228,7 @@ class _Parser:
         self.i = 0
         self.depth = 0  # open -py blocks
         self.loops = 0  # enclosing for loops (for break / continue)
+        self.functions = 0  # enclosing function bodies (for return)
         self.mode = mode  # "top", "sh" or "py": the syntax of the block being parsed
 
     # helpers
@@ -317,6 +333,17 @@ class _Parser:
                 raise self._error(f"'{word}' outside a for loop", start)
             self.i += len(word)
             return Jump(word, start)
+        if word == "return":
+            if not self.functions:
+                raise self._error("'return' outside a function", start)
+            self.i += len(word)
+            self._skip_blanks()
+            value = ""
+            if not self._at_end() and self.s[self.i] not in ";\n" and not self._is_close(self.i):
+                value = self._word()
+            return Jump("return", start, value)
+        if word == "function" or (self.mode != "py" and _FUNCTION_DEF.match(self.s, start)):
+            return self._function(keyword=word == "function")
         if word in ("elif", "else") and self.mode == "py":
             raise self._error(f"'{word}' without a matching if (put it on the same line as the "
                               "if's closing '}')", start)
@@ -362,6 +389,48 @@ class _Parser:
                 break
             self.i += 1
         return self.s[start:self.i].rstrip()
+
+    # functions
+    def _function(self, keyword: bool) -> Function:
+        """`name() { LIST; }`, `function name { LIST; }` or `function name() { LIST; }`. The body
+        is bash syntax; a function body may define functions and use `return` and `local`."""
+        pos = self.i
+        if keyword:
+            self.i += len("function")
+            self._skip_blanks()
+            match = _FUNCTION_NAME.match(self.s, self.i)
+            if not match:
+                if self._at_end():
+                    raise self._incomplete("function: missing a name", " ")
+                raise self._error("function: expected a name (letters, digits, _ and -)")
+            name = match.group()
+            self.i = match.end()
+            parens = _EMPTY_PARENS.match(self.s, self.i)
+            if parens:
+                self.i = parens.end()
+        else:
+            match = _FUNCTION_DEF.match(self.s, self.i)
+            assert match is not None
+            name = match.group(1)
+            self.i = match.end()
+        if name in KEYWORDS or name in ("function", "return", "select", "in"):
+            raise self._error(f"'{name}' is a shell keyword and can't be a function name", pos)
+        self._skip_space()
+        if self._at_end():
+            raise self._incomplete(f"{name}: missing '{{'", " ")
+        if self.s[self.i] != "{" or (self.i + 1 < self.n and self.s[self.i + 1] not in " \t\r\n}"):
+            raise self._error(f"{name}: a function body goes in braces: {name}() {{ echo hi; }}")
+        self.i += 1
+        saved_loops, self.loops = self.loops, 0  # break / continue can't leave the function
+        self.depth += 1
+        self.functions += 1
+        try:
+            body, _ = self._in_mode("sh", lambda: self.parse_list("}"))
+        finally:
+            self.depth -= 1
+            self.functions -= 1
+            self.loops = saved_loops
+        return Function(name, body, self.s[pos:self.i], pos)
 
     # while / until
     def _while(self, until: bool) -> While:
@@ -1126,6 +1195,14 @@ class _Continue(Exception):
     pass
 
 
+class _Return(Exception):
+    """`return [N]` in a function body: N, or None for the status of the last command."""
+
+    def __init__(self, status: int | None):
+        super().__init__(status)
+        self.status = status
+
+
 class _Abort(Exception):
     """Stops the whole script (a bad condition would fail the same way on every iteration)."""
 
@@ -1151,6 +1228,45 @@ def execute(program: Program, ctx: ShellContext) -> Any:
     return PipelineResult(output=output, status=ctx.last_status)
 
 
+def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext) -> Any:
+    """Run a shell function as a command: `$1`… are `args`, its commands read `stdin`, and what
+    it prints is its output (so `fn | grep x` and `fn > file` work). Variables are the shell's
+    (as in bash) except those declared `local`, which are put back when it returns. Its status
+    is `return N`'s, else the last command's."""
+    from core.context import CommandError, WithStatus
+
+    if not ctx.allow_aliases:
+        raise CommandError(f"{fn.name}: shell functions are not available here (MCP)")
+    if len(ctx.positional) >= MAX_FUNCTION_DEPTH:
+        raise CommandError(f"{fn.name}: functions nested more than {MAX_FUNCTION_DEPTH} deep "
+                           "(a recursion that never stops?)")
+    runner = _Runner(ctx)
+    runner.collect_only = True
+    runner.frame = {}
+    runner.stdin = stdin
+    ctx.positional.append(list(args))
+    status: int | None = None
+    try:
+        runner.run_list(fn.body)
+    except _Return as exc:
+        status = exc.status
+    except _Abort as exc:
+        runner.report(exc.error, exc.text)
+        status = getattr(exc.error, "status", 1) or 1
+    finally:
+        ctx.positional.pop()
+        for name, old in runner.frame.items():
+            if old is None:
+                ctx.variables.pop(name, None)
+            else:
+                ctx.variables[name] = old
+    if status is None:
+        status = ctx.last_status
+    ctx.last_status = status
+    output = "".join(runner.collected)
+    return WithStatus(output, status) if status else output
+
+
 class _Runner:
     def __init__(self, ctx: ShellContext, parent: _Runner | None = None):
         self.ctx = ctx
@@ -1159,6 +1275,10 @@ class _Runner:
         # outlive the line, as in bash); a `$( … )` runs with a copy, as a subshell would.
         self.vars: dict[str, str] = dict(parent.vars) if parent else ctx.variables
         self.collected: list[str] = []
+        # In a function call: the values `local` replaced (None: the variable did not exist),
+        # put back when the call ends; and the function's input, which its commands read.
+        self.frame: dict[str, str | None] | None = parent.frame if parent else None
+        self.stdin = parent.stdin if parent else ""
 
     def variables(self) -> Any:
         from shellcraft.pipeline import Variables
@@ -1220,10 +1340,62 @@ class _Runner:
                 self.run_case(stmt)
             elif isinstance(stmt, Piped):
                 self.run_piped(stmt)
+            elif isinstance(stmt, Function):
+                self.define(stmt)
             elif stmt.kind == "break":
                 raise _Break
+            elif stmt.kind == "return":
+                raise _Return(self.return_status(stmt))
             else:
                 raise _Continue
+
+    def define(self, stmt: Function) -> None:
+        """Run a function definition: keep it for the session (never over MCP)."""
+        from core.pipeline import PipelineError
+
+        if not self.ctx.allow_stateful or not self.ctx.allow_aliases:
+            self.report(PipelineError(1, 1, stmt.name, "shell functions can't be defined here (MCP)"), stmt.text)
+            self.ctx.last_status = 1
+            return
+        self.ctx.functions[stmt.name] = stmt
+        self.ctx.last_status = 0
+
+    def return_status(self, stmt: Jump) -> int | None:
+        if not stmt.value:
+            return None
+        words = [t.value for t in shparser.tokenize(stmt.value, self.variables())]
+        try:
+            return int(words[0]) & 0xFF if words else None
+        except ValueError:
+            return 2  # bash: "numeric argument required"
+
+    def run_local(self, stmt: Simple) -> tuple[int, Any]:
+        """`local NAME[=VALUE]...` in a function body: the variables get these values for the
+        rest of the call and are put back (or removed) when it returns."""
+        from core.pipeline import PipelineError
+
+        rest = stmt.text.strip()[len("local"):]
+        if self.frame is None:
+            self.report(PipelineError(1, 1, "local", "local: can only be used in a function"), stmt.text)
+            self.ctx.last_status = 1
+            return 1, None
+        try:
+            tokens = shparser.tokenize(rest, self.variables(), substitute=self.substitute)
+        except ParseError as exc:
+            self.report(exc, stmt.text)
+            self.ctx.last_status = 2
+            return 2, None
+        for token in tokens:
+            name, sep, value = token.value.partition("=")
+            if not _NAME.fullmatch(name):
+                self.report(PipelineError(1, 1, "local", f"local: '{name}': not a valid identifier"), stmt.text)
+                self.ctx.last_status = 1
+                return 1, None
+            if name not in self.frame:
+                self.frame[name] = self.ctx.variables.get(name)
+            self.ctx.variables[name] = value if sep else ""
+        self.ctx.last_status = 0
+        return 0, None
 
     def run_simple(self, stmt: Simple | str, show_errors: bool = True) -> tuple[int, Any]:
         """Run one pipeline; returns (status, output). Bash-mode statements split unquoted
@@ -1234,13 +1406,16 @@ class _Runner:
             stmt = Simple(stmt, 0, "py")
         sh = stmt.mode == "sh"
         expands = stmt.mode in ("sh", "top")
+        if stmt.text.split(None, 1)[:1] == ["local"]:
+            return self.run_local(stmt)
         try:
             if assign(stmt.text, self.ctx, self.variables(), self.substitute if expands else None, target=self.vars):
                 self.ctx.last_status = 0
                 return 0, None
             result = _run_parsed(stmt.text, self.ctx, self.variables(),
                                  split=sh and not stmt.text.lstrip().startswith("[["),
-                                 substitute=self.substitute if expands else None, glob=expands)
+                                 substitute=self.substitute if expands else None, glob=expands,
+                                 stdin=self.stdin)
         except (ParseError, PipelineError) as exc:
             if show_errors:
                 self.report(exc, stmt.text)

@@ -126,7 +126,7 @@ On a narrow terminal (under 80 columns) the table becomes plain `name — summar
 
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
 SCRIPT_HINT = "⚠ needs run() to work properly! see templates/README.md"  # a module file without run()
-KEYWORDS_HELP = ("for", "if", "while", "until", "case")
+KEYWORDS_HELP = ("for", "if", "while", "until", "case", "function")
 
 
 def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
@@ -1411,6 +1411,63 @@ def _keyword(name: str) -> Callable[[ShellContext, list[str], str], Any]:
         raise CommandError(f"{name}: a shell keyword, not a command here (see: man {name})")
     return run
 
+
+FUNCTION_DOC = r"""# function
+
+Shell functions, as in bash: a name for a list of commands that takes arguments.
+
+## Usage
+
+```
+NAME() { COMMANDS; }               # define (also over several lines)
+function NAME { COMMANDS; }        # the same, with the keyword
+NAME ARG...                        # call it, like any command
+declare -f [NAME...]               # show the definitions (declare -F: just the names)
+unset -f NAME...                   # forget functions
+```
+
+Inside the body:
+
+| | |
+| --- | --- |
+| `$1` … `$9` | The arguments (empty when not given). |
+| `$#` | How many arguments. |
+| `$@`, `$*` | All the arguments, separated by spaces. |
+| `local NAME[=VALUE]` | A variable of this call only: its old value comes back when the function returns. |
+| `return [N]` | Leave the function with status N (default: the last command's status). |
+
+The body uses bash syntax: `if`, `for`, `while`, `case`, `&&` / `||`, `$( … )`, `$(( … ))`.
+Variables that are not `local` are the shell's own, as in bash. A function can call others
+and itself, up to 100 calls deep.
+
+A function is a command: `NAME | grep x`, `NAME > file`, `echo text | NAME` (its commands read
+that input) and `NAME && echo ok` all work. Its output is what its commands print.
+
+A function takes precedence over builtins, modules and programs of the same name, as in bash,
+except `exit`, `export`, `unset`, `source`, `local`, `declare`, `alias` and `unalias`, which can't
+be replaced. `\NAME` runs the builtin or module itself, skipping both aliases and functions.
+
+Functions last for the session. Put them in `~/.shellcraft/rc` to have them every time. They are
+never available to AI clients over MCP.
+
+## Examples
+
+```
+greet() { echo "hello $1, you gave $# argument(s)"; }
+greet Ada
+
+backup() {
+  local stamp=$(date +%Y%m%d)
+  cp -r "$1" "$1.$stamp" && echo "saved $1.$stamp"
+}
+
+countdown() { local n=$1; while [ $n -gt 0 ]; do echo $n; n=$((n - 1)); done; }
+countdown 3 | sort -n
+```
+"""
+
+builtin("function", "Define a shell function: NAME() { …; }", "NAME() { COMMANDS; } | function NAME { COMMANDS; }",
+        doc=FUNCTION_DOC)(_keyword("function"))
 
 builtin("for", "Loop over items (bash syntax, or -py)",
         "for NAME in WORD...; do …; done | for -py NAME in ITEM... { … }", doc=FOR_DOC)(_keyword("for"))

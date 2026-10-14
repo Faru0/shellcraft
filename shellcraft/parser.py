@@ -56,6 +56,7 @@ class Command:
     args: list[str]
     stderr: Redirect | None = None  # `2> file`: where a failure's message goes
     merge_stderr: bool = False  # `2>&1`: a failure's message becomes the command's output
+    bypass: bool = False  # typed as `\name`: no alias and no shell function, the command itself
 
 
 @dataclass
@@ -79,6 +80,8 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
     nxt = line[i + 1]
     if nxt == "?":
         name, end = "?", i + 2
+    elif nxt.isdigit() or nxt in "#@*":  # a function's arguments: $1 … $9, $#, $@, $*
+        name, end = nxt, i + 2
     elif nxt == "{":
         close = line.find("}", i + 2)
         if close == -1:

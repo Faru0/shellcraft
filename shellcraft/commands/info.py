@@ -100,6 +100,8 @@ def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
         hits: list[str] = []
         if ctx.allow_aliases and (value := aliases.get_all(ctx.config).get(name)) is not None:
             hits.append(f"{name}: aliased to '{value}'")
+        if ctx.allow_aliases and name in ctx.functions:
+            hits.append(f"{name}: shell function (declare -f {name})")
         if name in ("for", "if"):
             hits.append(f"{name}: ShellCraft shell keyword (man {name})")
         elif name in BUILTINS:

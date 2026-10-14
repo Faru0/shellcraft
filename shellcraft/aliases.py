@@ -221,7 +221,7 @@ def _config_section(config: dict[str, Any]) -> dict[str, Any]:
 
 def expand_command(cmd: Command, aliases: dict[str, str]) -> Command:
     if cmd.name.startswith(BYPASS) and len(cmd.name) > 1:
-        return Command(cmd.name[1:], cmd.args, cmd.stderr, cmd.merge_stderr)  # \ls: the real ls
+        return Command(cmd.name[1:], cmd.args, cmd.stderr, cmd.merge_stderr, bypass=True)  # \ls: the real ls
     used: set[str] = set()
     while cmd.name in aliases and cmd.name not in used:
         used.add(cmd.name)
