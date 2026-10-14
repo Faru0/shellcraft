@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -659,6 +660,62 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
+READ_DOC = """# read
+
+Ask for a value and keep it in a shell variable, like bash's `read`. The Python spelling works too,
+on a line of its own: `name = input("What is your name? ")`.
+
+## Usage
+
+```
+read NAME                       # read a line into $NAME
+read -p "Your name? " NAME      # with a prompt
+read -s -p "Token: " TOKEN      # without echoing what is typed
+name = input("Your name? ")     # the same, Python style (not inside for / if blocks)
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-p PROMPT`, `--prompt PROMPT` | The text shown before the answer. |
+| `-s`, `--silent` | Don't echo the answer (passwords, tokens). |
+
+The variable lasts for the session: later lines use it as `$NAME` (`echo hello $name`), and
+`export NAME` passes it to programs. Useful in `~/.shellcraft/rc` to ask something at startup.
+Only the interactive shell can ask; Ctrl-C cancels (status 130), and over MCP `read` is refused.
+
+## Examples
+
+```
+name = input("What is your name? ")
+echo "hello $name"
+read -p "Which environment? " env; export DEPLOY_ENV=$env
+read -s -p "API token: " token
+```
+"""
+
+
+@builtin("read", "Ask for a value and keep it in a shell variable", "read [-p PROMPT] [-s] NAME",
+         stateful=True, direct=True, doc=READ_DOC)
+def _read(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from core import ask
+    from core.modkit import ArgParser
+
+    parser = ArgParser("read")
+    parser.add_argument("-p", "--prompt", default="")
+    parser.add_argument("-s", "--silent", action="store_true")
+    parser.add_argument("name")
+    opts = parser.parse_args(args)
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", opts.name):
+        raise CommandError(f"read: invalid variable name '{opts.name}'")
+    try:
+        ctx.variables[opts.name] = ask.ask(ctx, opts.prompt, hidden=opts.silent)
+    except ask.AskError as exc:
+        raise CommandError(str(exc).replace("input:", "read:", 1), exc.status) from None
+    return ""
+
+
 SOURCE_DOC = """# source
 
 Run a file of ShellCraft command lines, as if each one were typed at the prompt: builtins,
@@ -749,6 +806,9 @@ alert -l info "welcome back"
 sub find ~/projects -name "*.log" -mtime -1
 for h in web1 web2; do myip $h; done
 ```
+
+A line can ask you something, Python style, and later lines use the answer as a variable:
+`name = input("What is your name? ")`, then `echo hello $name` (`man read`).
 
 Output is shown under the banner; a failing line is reported with its line number and the rest
 still run. `source ~/.shellcraft/rc` runs it again (`man source`). It never runs for `--mcp` /

@@ -86,8 +86,22 @@ class Variables(Mapping[str, str]):
 def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
-    from core import script
+    from core import ask, script
 
+    try:
+        asking = ask.parse_input_line(line)  # `name = input("prompt")`: Python, not shell syntax
+    except ask.AskError as exc:
+        ctx.last_status = STATUS_SYNTAX
+        raise PipelineError(1, 1, "input", str(exc), STATUS_SYNTAX) from None
+    if asking is not None:
+        name, prompt = asking
+        try:
+            ctx.variables[name] = ask.ask(ctx, prompt)
+        except ask.AskError as exc:
+            ctx.last_status = exc.status
+            raise PipelineError(1, 1, "input", str(exc), exc.status) from None
+        ctx.last_status = 0
+        return PipelineResult(output="", status=0)
     try:
         program = script.parse_script(line)
     except ParseError:

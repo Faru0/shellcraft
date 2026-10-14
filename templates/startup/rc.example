@@ -17,5 +17,9 @@ export DEPLOY_ENV=staging
 # sub find ~/projects -name "*.log" -mtime -1
 # sub queryDns example.com
 
+# Ask something, Python style; the answer is $name from here on
+# name = input("What is your name? ")
+# read -s -p "API token: " token
+
 # Say hello
 alert -l info "shell ready"

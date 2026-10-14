@@ -43,6 +43,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Asking for a value:** `name = input("What is your name? ")` on a line of its own (at the prompt,
+  in an rc file, in a sourced file) and `read [-p PROMPT] [-s] NAME` store the answer in a shell
+  variable for later lines (`$name`). Interactive shell only; Ctrl-C cancels with status 130.
 - **`~/.shellcraft/rc` and `source FILE`:** a startup file of ShellCraft command lines, run as if
   typed when the interactive shell starts (never in MCP mode): themes, `export`, `cd`, aliases,
   modules, `sub`, `alert`, multi-line `for` / `if`. A failing line is reported with its line number

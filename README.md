@@ -279,6 +279,14 @@ sub find ~/projects -name "*.log" -mtime -1
 alert -l info "shell ready"
 ```
 
+It can also ask you something, Python style, and use the answer later:
+
+```
+name = input("What is your name? ")
+echo "hello $name"
+read -s -p "API token: " token      # the bash spelling; -s hides what you type
+```
+
 A failing line is reported with its line number (`✗ rc:4: …`) and the rest still run.
 `source FILE` runs any such file by hand (`source ~/.shellcraft/rc` reruns it). It never runs for
 `--mcp` / `--mcp-http`. `templates/startup/rc.example` is a commented example.
