@@ -146,7 +146,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             i += 2
             continue
         if bad and (op is None or len(bad) >= len(op)):
-            what = {"&": "background jobs are not supported; ",
+            what = {"&": "only a trailing & (run the line in the background) is supported; ",
                     ">&": "only >&2, 1>&2 and 2>&1 are; "}.get(bad, "")
             raise ParseError(f"'{bad}' is not supported yet ({what}quote it to pass it as text)", i)
         if op:
@@ -368,3 +368,22 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
     else:
         close_segment(tokens[-1].pos)
     return Pipeline(segments, redirect, stdin_path)
+
+
+def split_background(line: str) -> str | None:
+    """`cmd args &`: the command line without its trailing `&` (outside quotes, after a space),
+    or None when the line does not end that way. `&&`, `&>` and `a=1&b=2` are not it."""
+    quote = ""
+    last = -1
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "&":
+            last = i
+    if quote or last <= 0 or line[last + 1:].strip() or not line[last - 1].isspace():
+        return None
+    rest = line[:last].rstrip()
+    return rest or None

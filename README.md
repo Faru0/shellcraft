@@ -98,8 +98,9 @@ history 20                                    # what you typed
   loop around it (`myfn 2> err.txt`, `done 2>&1 | grep …`), decides where it goes.
 - `*.log`, `?` and `[abc]` expand to matching file names (the word stays as typed when nothing matches); `$(command)` is replaced by the command's output; `$((n * 2))` is arithmetic.
 
-Background jobs (`cmd &`) are not supported; a lone `&` is rejected with a parse error rather than
-passed on as an argument. Quote it to use it as text.
+A trailing `&` runs the line in the background, as a subshell job (see [Subshells](#subshells)):
+`grep -r TODO . &`. An `&` anywhere else is rejected with a parse error rather than passed on as an
+argument; quote it to use it as text.
 
 ### Variables
 
@@ -258,6 +259,7 @@ sub vim notes.md             # any program, with the keyboard and the screen han
 sub htop                     # Ctrl-] detaches: it keeps running, you are back at the prompt
 sub shellcraft --theme nord  # a nested ShellCraft (its prompt shows ⚡shellcraft ⤷1)
 sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
+find / -name "*.log" &       # the same, bash style: a trailing & backgrounds any line (a program isn't attached)
 jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
 ```
 

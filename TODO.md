@@ -58,7 +58,7 @@ mode, then `$env:SHELLCRAFT_CONSOLE = "direct"` and `"legacy-keys"`):
 
 ## P1 — Shell features
 
-- [ ] **Subshells, leftovers**: `cmd &` as a spelling of `sub cmd`; a follow mode for a running
+- [ ] **Subshells, leftovers**: a follow mode for a running
   command job's output. — `shellcraft/jobs.py`
 - [ ] **Startup, open questions** (the rc file is done; these are about `~/.shellcraft/startup/*.py`):
   long-running scripts as `sub` jobs (a marker line, or a separate folder?); a dependency order

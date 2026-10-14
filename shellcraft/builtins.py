@@ -538,7 +538,13 @@ sub                        # your own shell (bash, zsh, pwsh…); exit brings yo
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
 sub shellcraft [ARGS...]   # a nested ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷1)
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
+COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
+
+A trailing `&` (after a space, outside quotes) runs the whole line as a background job: a
+builtin, a module, a pipeline or a loop becomes a command job (quotes and pipes kept as typed); a
+single OS program starts as a program job **without** attaching (switch to it with Ctrl-] N).
+An `&` anywhere else is still an error.
 
 ## How it works
 
@@ -573,6 +579,7 @@ commands are refused, so the main shell stays the one place that orchestrates th
 sub                         # a bash to poke around in; `exit` returns
 sub shellcraft --theme nord # try a theme in a nested shell
 sub find / -name "*.log"    # slow search in the background, keep working
+find / -name "*.log" &      # the same, bash style
 jobs                        # what is running, and what finished
 jobs 1                      # attach to job 1 (Ctrl-] leaves it running, Ctrl-] 2 jumps to job 2)
 ```
@@ -948,6 +955,42 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     except FileNotFoundError:
         raise CommandError(f"sub: {args[0]}: not a command, a module or a program on PATH") from None
     return _attach(ctx, job)
+
+
+def start_background(ctx: ShellContext, line: str) -> Any:
+    """`LINE &`: a background job, like `sub LINE`. A builtin, module, alias or anything more
+    than one simple command (a pipe, `;`, a loop) runs as a command job, from the line as typed
+    (quotes kept); a single OS program starts as a program job and is not attached (switch to
+    it with Ctrl-] N). Only in the interactive shell."""
+    import shlex
+
+    from shellcraft import jobs as jobmod
+
+    if not ctx.interactive or ctx.jobs is None:
+        raise CommandError("background jobs (cmd &) only work in the interactive shell")
+    table = _jobs_or_refuse(ctx, "&")
+    try:
+        words = shlex.split(line, posix=True)
+    except ValueError:
+        words = line.split()
+    simple = not any(op in line for op in ("|", ";", "&&", "||", ">", "<")) and words
+    if not simple or _is_shell_command(ctx, words[0]) or words[0] in ("for", "while", "until", "if", "case"):
+        return _sub_command(ctx, table, line)
+    from shellcraft.alerts import SUB_ENV, with_shim
+    from shellcraft.config import config_dir
+
+    argv, env = (jobmod.nested_shellcraft(words[1:]) if words[0] == "shellcraft"
+                 else (words, dict(os.environ)))
+    env = with_shim(env, config_dir())
+    env[SUB_ENV] = f"{table.next_number}:{line}"
+    try:
+        job = table.start_program(argv, line, env=env, cwd=os.getcwd())
+    except jobmod.JobsUnsupported:
+        raise CommandError("background programs need a pseudo-terminal (pip install pywinpty on Windows)") from None
+    except FileNotFoundError:
+        raise CommandError(f"{words[0]}: not a command, a module or a program on PATH", 127) from None
+    return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
+                         (f"  started in the background (Ctrl-] {job.number} switches to it)", "sc.muted"))
 
 
 def _is_shell_command(ctx: ShellContext, name: str) -> bool:

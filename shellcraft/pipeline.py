@@ -98,7 +98,19 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
     from shellcraft import ask, script
+    from shellcraft.parser import split_background
 
+    background = split_background(line)
+    if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program
+        from shellcraft.builtins import start_background
+
+        try:
+            output = start_background(ctx, background)
+        except CommandError as exc:
+            ctx.last_status = exc.status
+            raise PipelineError(1, 1, "&", str(exc), exc.status) from None
+        ctx.last_status = 0
+        return PipelineResult(output=output, status=0)
     try:
         asking = ask.parse_ask_line(line)  # `name = input("…")`, `n = int(input("…"))`: Python, not shell
     except ask.AskError as exc:

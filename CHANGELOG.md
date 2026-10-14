@@ -64,6 +64,10 @@ and Ctrl-C that reaches running modules.
 
 ### Added
 
+- **`cmd &`:** a trailing `&` runs the line in the background, like `sub cmd`: a builtin, module,
+  pipeline or loop as a command job (the line as typed, quotes kept), a single OS program as a
+  program job that is not attached (Ctrl-] N switches to it). Interactive shell only; an `&`
+  anywhere else is still a parse error, which now says only a trailing one is supported.
 - **Streaming pipelines:** every command of a pipeline runs at the same time, and lines flow to
   the next one as they are made. `yes | head -3` returns at once (the producer is stopped when the
   reader has enough), `tail -f app.log | grep ERROR` prints each match the moment it is written,
