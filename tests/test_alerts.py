@@ -161,13 +161,91 @@ def test_panel_lines_show_alerts_first_with_their_source(bus):
     bus.post("all good", "info", source="main shell")
     bus.post("look here", "critical", source="sub 1 (bash)")
     lines = panel_lines([], 0, None, 80, alerts=bus.current())
-    assert [style for _t, style, _x, _h in lines] == ["alert.critical", "alert.info"]  # no stack without jobs
+    assert [row.style for row in lines] == ["alert.critical", "alert.info"]  # no stack without jobs
     assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("critical · sticky")
     assert lines[1][2].startswith(" ● all good · from main shell") and "info · " in lines[1][2]
     long = AlertBus()
     long.post("x" * 200, "warning")
     text = panel_lines([], 0, None, 60, alerts=long.current())[0][2]
     assert "…" in text and len(text) <= 60
+
+
+class _Job:
+    def __init__(self, number, command="bash", running=True, status=0):
+        self.number, self.command, self.running, self.status = number, command, running, status
+        self.label = "running" if running else ("done" if status == 0 else f"exit {status}")
+
+    def short(self, width=18):
+        return self.command[:width]
+
+
+def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
+    from shellcraft.footer import alert_rows, panel_lines
+
+    bus = AlertBus()
+    info = bus.post("Backup finished", "info", source="sub 1 (bash --norc)")
+    warn = bus.post("Disk /home at 91%", "warning", source="sub 1 (bash --norc)")
+    crit = bus.post("Payment API is down", "critical", source="mcp · claude")
+    assert (info.job, warn.job, crit.job) == (1, 1, None)
+    jobs = [_Job(1, "bash --norc"), _Job(2, "find / -name x", running=False)]
+    rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
+    assert [r.style for r in rows] == ["alert.critical", "current", "running", "done"]  # critical keeps its row
+    main = rows[1]
+    assert main.text.startswith(" ● main") and main.text.rstrip().endswith("✖ 1  ▲ 1  ● 1 ▸") and main.badge > 0
+    assert [(main.text[s:e], style, role) for s, e, style, role in main.spans] == [
+        ("✖ 1", "alert.critical.mark", "badge"), ("▲ 1", "alert.warning.mark", "badge"),
+        ("● 1", "alert.info.mark", "badge"), (" ▸ ", None, "badge")]
+    bash = rows[2]
+    assert bash.text.startswith(" ○ 1  bash --norc  ▲ Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
+    assert "running" not in bash.text and bash.spans[0][2] == "alert.warning.mark"
+    assert rows[3].text.rstrip().endswith("done") and "s ·" not in rows[3].text  # no time on the right
+    # unfolded: every alert gets a row, the badge shows ▾
+    assert bus.toggle() is True
+    rows = panel_lines(jobs, 0, None, 80, alerts=bus.current(), expanded=True)
+    assert [r.style for r in rows][:3] == ["alert.critical", "alert.warning", "alert.info"]
+    assert rows[3].text.rstrip().endswith("▾") and [r.alert for r in rows[:3]] == [crit, warn, info]
+    assert alert_rows(bus.current(), jobs, False) == [crit] and alert_rows(bus.current(), [], False) == [crit, warn, info]
+    # the hovered alert row ends with a ×
+    hovered = panel_lines(jobs, 0, warn, 80, alerts=bus.current(), expanded=True)
+    assert hovered[1].hovered and hovered[1].text.endswith("warning · 60s × ") and hovered[1].close == len(hovered[1].text) - 3
+    assert hovered[1].spans == ((hovered[1].close, len(hovered[1].text), None, "close"),)
+    assert not hovered[0].hovered and hovered[0].close == len(hovered[0].text) - 3 and not hovered[0].spans
+    # only critical alerts: no ▸, nothing to fold
+    bus.remove(warn) and bus.remove(info)
+    rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
+    assert rows[1].text.rstrip().endswith("✖ 1") and not bus.remove(info)
+    bus.close()
+
+
+def test_footer_mouse_hover_close_right_click_and_badge(home):
+    from rich.console import Console
+
+    from shellcraft.footer import Footer, parse_mouse
+    from shellcraft.themes import UI, all_themes
+
+    bus = AlertBus()
+    warn = bus.post("disk", "warning", source="sub 1 (bash)")
+    crit = bus.post("down", "critical", source="pid 7")
+    jobs = [_Job(1, "bash")]
+    footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), jobs, alerts=bus)
+    footer.size = lambda: (24, 80)
+    footer.enabled = True
+    assert footer.height() == 3  # the critical row, main, bash
+    footer.sequence()
+    assert footer.row_tabs == [None, 0, 1] and footer.mouse("move", 5, 20) is None  # above the footer
+    assert parse_mouse("\x1b[<2;5;22m") == ("up", 5, 22, "right") and parse_mouse("\x1b[<35;5;22M") == ("move", 5, 22, "none")
+    assert footer.mouse("move", 5, 22) == ("handled", None) and footer.hover is crit
+    assert footer.rows[0].text.endswith(" × ")  # the × appeared on the hovered row
+    assert footer.mouse("up", 5, 22, "left") == ("handled", None) and crit in bus.current()  # a left click elsewhere: nothing
+    assert footer.mouse("up", 79, 22, "left") == ("handled", None) and crit not in bus.current()  # the ×
+    assert footer.height() == 2 and footer.row_tabs == [0, 1]
+    assert footer.mouse("up", 79, 23, "left") == ("handled", None) and bus.expanded  # the badge on main
+    assert footer.row_tabs == [None, 0, 1] and footer.rows[0].alert is warn
+    assert footer.mouse("up", 10, 22, "right") == ("handled", None) and not bus.current()  # right-click dismisses
+    assert footer.row_tabs == [0, 1]
+    assert footer.mouse("up", 5, 23, "left") == ("switch", 0) and footer.mouse("up", 5, 24) == ("switch", 1)
+    assert footer.mouse("up", 5, 24, "right") == ("handled", None)
+    bus.close()
 
 
 def test_mcp_tool_send_tui_alert(bus, registry):

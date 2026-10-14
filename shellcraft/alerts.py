@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import stat
 import sys
@@ -58,12 +59,19 @@ class Alert:
     def priority(self) -> int:
         return LEVELS.index(self.level)
 
+    @property
+    def job(self) -> int | None:
+        """The subshell number the alert came from (`sub 2 (bash)`), else None."""
+        m = re.match(r"sub (\d+) ", self.source)
+        return int(m.group(1)) if m else None
+
 
 class AlertBus:
     """The alerts of one shell, and the listener other processes send them through."""
 
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
+        self.expanded = False  # the panel shows every alert as a row (else the badge folds them)
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
         self.spool: Path | None = None
         self._lock = threading.Lock()
@@ -101,6 +109,21 @@ class AlertBus:
         if gone:
             self._changed()
         return gone
+
+    def remove(self, alert: Alert) -> bool:
+        """Drop this alert (a click on its ×, or a right-click): whether it was still there."""
+        with self._lock:
+            found = any(a is alert for a in self.alerts)
+            self.alerts = [a for a in self.alerts if a is not alert]
+        if found:
+            self._changed()
+        return found
+
+    def toggle(self) -> bool:
+        """Fold or unfold the alert rows of the panel (a click on the badge); the new state."""
+        self.expanded = not self.expanded
+        self._changed()
+        return self.expanded
 
     def current(self) -> list[Alert]:
         """The alerts still valid, most severe first."""

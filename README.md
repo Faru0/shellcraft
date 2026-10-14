@@ -276,10 +276,14 @@ jobs -f 2                    # follow a background command's output as it grows,
 Every subshell is a numbered job. At the prompt, a **panel** under it lists them, one per line:
 
 ```
- ● main
- ○ 1  bash --norc                                          2m 18s · running
- ○ 2  find / -name "*.log"                                    4.0s · done
+ ✖ Payment API is down · from mcp · claude-code                 critical · sticky
+ ● main                                                           ✖ 1  ▲ 1  ● 1 ▸
+ ○ 1  bash --norc  ▲ Disk /home at 91%
+ ○ 2  find / -name "*.log"                                                   done
 ```
+
+The color of a line is its state (amber running, green done, red failed); a finished one says
+`done`, `exit 2` or `killed` on the right. Alerts are part of the stack: see below.
 
 The line under the mouse lights up and a click switches to it; **↓** on an empty line moves into
 the panel (↑ / ↓ walk it, **Enter** switches, **x** or Delete stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere.
@@ -378,8 +382,16 @@ alert -l critical pager is down       # red, stays until alert -c
 alert --list · alert -c [N]           # see them, dismiss them
 ```
 
-Alerts sit at the top of the panel under the prompt (and of the footer inside a subshell), the
-most severe first, three at most. They can come from anywhere: the main shell, a subshell
+Alerts live in the panel under the prompt (and in the footer inside a subshell), three at most.
+An alert sent from a subshell shows inline on that subshell's line, after its command, in its
+color (`▲ Disk /home at 91%`; `+1` when it has more). The **badge** at the right end of the
+`main` line counts every alert by level (`✖ 1  ▲ 1  ● 1 ▸`): a click on it unfolds one full row
+per alert, most severe first, with the message, where it came from and the time left; another
+click folds them back. A **critical** alert always keeps its full row, so it cannot be missed.
+To dismiss an alert, hover its row and click the **×** at its right end, or **right-click** the
+row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
+Right-click reaches ShellCraft only while the panel shows; a terminal without mouse tracking
+pastes or opens its own menu instead. Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client
 through the **`send_tui_alert`** MCP tool (`message`, `severity`, `timeout_seconds`). Each alert

@@ -507,14 +507,11 @@ class JobTable:
                         pos = m.end()
                         parsed = parse_mouse(m.group().decode())
                         if parsed is not None:
-                            kind, x, y = parsed
-                            tab = footer.hit(x, y) if footer is not None else None
-                            if kind == "move" and footer is not None and footer.set_hover(tab):
-                                footer.draw()
-                            if kind == "up" and tab is not None and tab != job.number:
-                                footer.set_hover(None)
-                                return "switch", tab
-                            if tab is not None:
+                            kind, x, y, button = parsed
+                            acted = footer.mouse(kind, x, y, button) if footer is not None else None
+                            if acted is not None:
+                                if acted[0] == "switch" and acted[1] != job.number:
+                                    return "switch", acted[1]
                                 continue
                             if kind == "scroll" and not job.mouse_on:
                                 job.scroll(-1 if m.group().startswith(b"\x1b[<64") else 1)

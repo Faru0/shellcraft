@@ -563,9 +563,11 @@ An `&` anywhere else is still an error.
   print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
 - The panel looks the same at the prompt and inside a subshell: the line under the mouse is
-  highlighted, the ● marks where you are, the right-hand column shows the elapsed time and the
-  state. `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` drops
-  the panel inside subshells (Ctrl-] N still works).
+  highlighted, the ● marks where you are, the color is the state (amber running, green done, red
+  failed) and a finished line says `done`, `exit 2` or `killed` on the right (`jobs` has the
+  times). An alert sent from a subshell shows inline on its line; the badge on the `main` line
+  counts them all (`man alert`). `jobs -c` clears the finished ones, `jobs -k N` stops one,
+  `settings footer off` drops the panel inside subshells (Ctrl-] N still works).
 
 Each program has its own terminal emulator: switching to it redraws its screen exactly as it
 was, and the mouse wheel scrolls through its scrollback (any key returns to the live page).
@@ -616,8 +618,19 @@ alert -c                             # dismiss every alert (alert -c N: just num
 | `-c [N]`, `--clear [N]` | Dismiss every alert, or alert N of `alert --list`. |
 | `--list` | List the current alerts. |
 
-The panel shows at most three alerts, the most severe first; when more arrive, the oldest of
-the lowest level makes room. Inside a subshell the alerts appear in the footer at the bottom.
+The shell keeps at most three alerts; when more arrive, the oldest of the lowest level makes
+room. In the panel under the prompt (and in the footer inside a subshell):
+
+- An alert sent from a subshell shows **inline** on that subshell's line, after its command, in
+  its color: `▲ Disk /home at 91%` (`+1` when it has more; the most severe shows).
+- The **badge** at the right end of the `main` line counts every alert by level
+  (`✖ 1  ▲ 1  ● 1 ▸`). A click on it unfolds one row per alert, the most severe first, with the
+  message, where it came from and the time left; another click folds them back (`▾` / `▸`).
+- A **critical** alert always keeps its full row, folded or not.
+- To dismiss one: hover its row and click the **×** at its right end, or **right-click** the row.
+  `alert -c [N]` does it from the keyboard. (Right-click reaches the shell only while the panel
+  shows; a terminal without mouse tracking pastes or opens its own menu instead.)
+- With no subshell to fold into, every alert shows as a row.
 
 ## How it reaches the shell
 

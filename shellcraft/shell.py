@@ -204,7 +204,7 @@ class Shell:
         self._default_mouse = load_mouse_bindings()
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
         # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
-        self._panel_hover: int | None = None
+        self._panel_hover: Any = None
         self._panel_cursor: int | None = None
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
@@ -398,13 +398,10 @@ class Shell:
         prompt_toolkit's own mouse handling."""
         parsed = parse_mouse(event.data)
         if parsed is not None:
-            kind, x, y = parsed
-            tab = self.footer.hit(x, y)
-            if kind == "move" and self.footer.set_hover(tab):
-                self.footer.draw()
-            if tab is not None:
-                if kind == "up" and tab:
-                    self.footer.set_hover(None)
+            acted = self.footer.mouse(*parsed)
+            if acted is not None:
+                if acted[0] == "switch" and acted[1]:
+                    tab = acted[1]
                     run_in_terminal(lambda: self._run_clicked(f"jobs {tab}"))
                 return None
         for binding in self._default_mouse.get_bindings_for_keys((event.key_sequence[0].key,)):
@@ -648,24 +645,74 @@ class Shell:
     def _panel(self) -> StyleAndTextTuples:
         """One line per shell, the same stack the footer shows inside a subshell (shellcraft.footer
         .panel_lines). The line under the mouse, or chosen with ↓ / ↑, is highlighted."""
-        alerts = self.ctx.alerts.current() if self.ctx.alerts is not None else []
+        bus = self.ctx.alerts
         lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
-                            cursor=self._panel_cursor, alerts=alerts,
-                            hint=settings.get(self.ctx.config, "panel_hint"))
+                            cursor=self._panel_cursor, alerts=bus.current() if bus is not None else [],
+                            hint=settings.get(self.ctx.config, "panel_hint"),
+                            expanded=bool(bus is not None and bus.expanded))
         parts: StyleAndTextTuples = []
-        for i, (tab, style, text, hovered) in enumerate(lines):
+        for i, row in enumerate(lines):
             if i:
                 parts.append(("", "\n"))
-            if style.startswith("alert."):
-                cls = f"class:toolbar.{style}"
+            if row.style.startswith("alert."):
+                cls = f"class:toolbar.{row.style}"
             else:
-                cls = "class:toolbar.key" if style == "header" else f"class:toolbar.job.{style}"
-            handler = self._panel_entry(tab) if tab else self._panel_hover_handler(None)
-            if hovered:  # the filled circle in the accent color; the line keeps its own colors
+                cls = "class:toolbar.key" if row.style == "header" else f"class:toolbar.job.{row.style}"
+            if row.alert is not None:
+                handler = self._alert_handler(row.alert)
+            else:
+                handler = self._panel_entry(row.tab) if row.tab else self._panel_hover_handler(None)
+            text, at = row.text, 0
+            if row.hovered and row.tab is not None:  # the filled circle in the accent color
                 parts.append(("class:toolbar.job.hover", text[:MARK], handler))
-                text = text[MARK:]
-            parts.append((cls, text, handler))
+                at = MARK
+            for start, end, style, role in row.spans:
+                if start > at:
+                    parts.append((cls, text[at:start], handler))
+                span_handler = (self._badge_handler() if role == "badge"
+                                else self._close_handler(row.alert) if role == "close" else handler)
+                parts.append((f"class:toolbar.{style}" if style else cls, text[start:end], span_handler))
+                at = end
+            parts.append((cls, text[at:], handler))
         return parts
+
+    def _alert_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
+        """An alert row: hover shows its ×, a right-click dismisses it."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(alert)
+            if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.RIGHT:
+                return self._dismiss_alert(alert)
+            return NotImplemented
+        return handler
+
+    def _close_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
+        """The × at the end of a hovered alert row: a click dismisses it."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_UP:
+                return self._dismiss_alert(alert)
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(alert)
+            return NotImplemented
+        return handler
+
+    def _badge_handler(self) -> Callable[[MouseEvent], Any]:
+        """The alert badge on the main row: a click folds or unfolds the alert rows."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
+                if self.ctx.alerts is not None:
+                    self.ctx.alerts.toggle()
+                return None
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(0)
+            return NotImplemented
+        return handler
+
+    def _dismiss_alert(self, alert: Any) -> None:
+        self._panel_hover = None
+        if self.ctx.alerts is not None:
+            self.ctx.alerts.remove(alert)
+        return None
 
     def _panel_entry(self, number: int) -> Callable[[MouseEvent], Any]:
         """A panel line's mouse handler: hover highlights it, a click switches to it."""
@@ -686,11 +733,12 @@ class Shell:
             return NotImplemented
         return handler
 
-    def _set_panel_hover(self, number: int | None) -> Any:
-        """None when it changed (repaint), NotImplemented when nothing changed."""
-        if self._panel_hover == number:
+    def _set_panel_hover(self, key: Any) -> Any:
+        """None when it changed (repaint), NotImplemented when nothing changed. `key` is a tab
+        (0 or a job number) or an Alert."""
+        if key is self._panel_hover or (key == self._panel_hover and type(key) is type(self._panel_hover)):
             return NotImplemented
-        self._panel_hover = number
+        self._panel_hover = key
         return None
 
     def _usage_line(self) -> FormattedText:

@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
@@ -41,9 +41,9 @@ class Footer:
         self.dirty = False  # set from other threads (an alert, a job change): the attach loop redraws
         self.depth = depth  # inside `sub shellcraft`: shown on tab 0
         self.current = 0  # 0 = this shell, else the attached job's number
-        self.hover: int | None = None  # the tab under the mouse (0 or a job number)
+        self.hover: Any = None  # what is under the mouse: a tab (0 or a job number) or an Alert
         self.enabled = False
-        self.row_tabs: list[int | None] = []  # the tab of each footer row, after the last draw
+        self.rows: list[Row] = []  # the footer's rows, after the last draw
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
@@ -106,24 +106,34 @@ class Footer:
             pass
 
     def height(self) -> int:
-        """Rows the footer takes: the alerts, the header (with panel_hint), `main`, and one per
-        subshell (capped)."""
-        alerts = len(self.alerts.current()) if self.alerts is not None else 0
-        return alerts + (2 if self.show_hint() else 1) + min(len(self.jobs), MAX_ROWS - 2)
+        """Rows the footer takes: the alert rows shown, the header (with panel_hint), `main`, and
+        one per subshell (capped)."""
+        jobs = list(self.jobs)
+        alerts = len(alert_rows(self._alerts(), jobs, self._expanded()))
+        if not jobs:
+            return alerts
+        return alerts + (2 if self.show_hint() else 1) + min(len(jobs), MAX_ROWS - 2)
+
+    def _alerts(self) -> list:
+        return self.alerts.current() if self.alerts is not None else []
+
+    def _expanded(self) -> bool:
+        return bool(self.alerts is not None and self.alerts.expanded)
 
     def render(self, cols: int) -> list[str]:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
-        the prompt. Records which tab each row is."""
-        lines = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
-                            alerts=self.alerts.current() if self.alerts is not None else [],
-                            hint=self.show_hint())
-        self.row_tabs = [tab for tab, _style, _text, _hovered in lines]
+        the prompt. Records the rows, for the mouse."""
+        self.rows = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
+                                alerts=self._alerts(), hint=self.show_hint(), expanded=self._expanded())
         console = self.ui.console
         out = []
-        for _tab, style, text, hovered in lines:
-            rich = Text(text, style=f"sc.footer.{style}", no_wrap=True, overflow="crop")
-            if hovered:
+        for row in self.rows:
+            rich = Text(row.text, style=f"sc.footer.{row.style}", no_wrap=True, overflow="crop")
+            if row.hovered and row.tab is not None:
                 rich.stylize("sc.footer.hover", 0, MARK)  # the filled circle, in the accent color
+            for start, end, style, _role in row.spans:
+                if style:
+                    rich.stylize(f"sc.footer.{style}", start, end)
             with console.capture() as capture:
                 console.print(rich, end="", width=cols, no_wrap=True, overflow="crop", crop=True, highlight=False,
                               markup=False, soft_wrap=True)
@@ -132,22 +142,62 @@ class Footer:
 
     # ── the mouse ────────────────────────────────────────────────────────────
 
-    def hit(self, x: int, y: int) -> int | None:
-        """The tab on terminal row y (1-based), or None when the row is not a shell's line."""
+    @property
+    def row_tabs(self) -> list[int | None]:
+        return [row.tab for row in self.rows]
+
+    def row_at(self, y: int) -> Row | None:
+        """The footer row on terminal row y (1-based), or None when y is above the footer."""
         if not self.enabled or not self._rows:
             return None
-        first = self._rows - len(self.row_tabs) + 1
-        index = y - first
-        if 0 <= index < len(self.row_tabs):
-            return self.row_tabs[index]
-        return None
+        index = y - (self._rows - len(self.rows) + 1)
+        return self.rows[index] if 0 <= index < len(self.rows) else None
 
-    def set_hover(self, tab: int | None) -> bool:
+    def hit(self, x: int, y: int) -> int | None:
+        """The tab on terminal row y (1-based), or None when the row is not a shell's line."""
+        row = self.row_at(y)
+        return row.tab if row is not None else None
+
+    def set_hover(self, key: Any) -> bool:
         """Returns whether it changed (then the footer needs a redraw)."""
-        if tab == self.hover:
+        if key is self.hover or (key == self.hover and type(key) is type(self.hover)):
             return False
-        self.hover = tab
+        self.hover = key
         return True
+
+    def mouse(self, kind: str, x: int, y: int, button: str = "left") -> tuple[str, Any] | None:
+        """A mouse event (from parse_mouse) over the footer. None when it is not on the footer;
+        ("switch", tab) for a click on a shell's line; ("handled", None) for the rest: hover, a
+        click on the badge (fold / unfold the alerts), a click on an alert's × or a right-click
+        on an alert (dismiss it)."""
+        row = self.row_at(y)
+        if row is None:
+            return None
+        key = row.alert if row.alert is not None else row.tab
+        if kind == "move":
+            if self.set_hover(key):
+                self.draw()
+            return "handled", None
+        if kind != "up":
+            return "handled", None
+        col = x - 1
+        if row.alert is not None and (button == "right" or 0 <= row.close <= col):
+            if self.alerts is not None:
+                self.set_hover(None)
+                self.alerts.remove(row.alert)
+                self.draw()
+            return "handled", None
+        if button != "left":
+            return "handled", None
+        if row.badge >= 0 and col >= get_cwidth(row.text[: row.badge]):
+            if self.alerts is not None:
+                self.alerts.toggle()
+                self.draw()
+            return "handled", None
+        if row.tab is not None:
+            self.set_hover(None)
+            return "switch", row.tab  # 0: back to the prompt (the attach loop); nothing at the prompt
+        return "handled", None
 
     @staticmethod
     def clamp_margins(data: bytes, rows: int) -> bytes:
@@ -164,43 +214,93 @@ class Footer:
 # ── the stack, shared by the panel under the prompt and the footer in a subshell ─
 
 MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
+CLOSE = " × "  # the end of a hovered alert row: a click there dismisses it
 
 
-def alert_lines(alerts: list, width: int) -> list[tuple[int | None, str, str, bool]]:
-    """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`."""
+class Row(NamedTuple):
+    """One line of the stack. `tab` is 0 for this shell, a job number, or None (an alert, the
+    header); `alert` the Alert an alert row shows; `spans` (start, end, style, role) ranges
+    styled over the row (offsets in characters): the badge's counts, an inline alert, the ×;
+    `badge` where the alert badge starts on the main row and `close` where the × starts on an
+    alert row (-1: none). `hovered` says the row is under the mouse or chosen with ↓ / ↑."""
+
+    tab: int | None
+    style: str
+    text: str
+    hovered: bool
+    alert: Any = None
+    spans: tuple[tuple[int, int, str | None, str | None], ...] = ()
+    badge: int = -1
+    close: int = -1
+
+
+def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
+    """The alerts that get a row of their own: all of them when unfolded (or when there is no
+    stack to fold them into), else only the critical ones; the rest live in the badge."""
+    if expanded or not jobs:
+        return list(alerts)
+    return [a for a in alerts if a.level == "critical"]
+
+
+def alert_lines(alerts: list, width: int, hover: Any = None) -> list[Row]:
+    """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`.
+    The one under the mouse ends with a ×."""
     from shellcraft.alerts import ICONS
 
-    lines: list[tuple[int | None, str, str, bool]] = []
+    lines: list[Row] = []
     for alert in alerts:
+        hovered = hover is alert
         left = f" {ICONS[alert.level]} {alert.message}" + (f" · from {alert.source}" if alert.source else "")
         remaining = alert.remaining
-        right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " · sticky ")
+        right = f"{alert.level}" + (f" · {int(remaining) + 1}s" if remaining is not None else " · sticky")
+        right += CLOSE if hovered else " "
         room = max(10, width - get_cwidth(right) - 1)
         if get_cwidth(left) > room:
             left = left[: room - 1] + "…"
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
-        lines.append((None, f"alert.{alert.level}", left + " " * pad + right, False))
+        text = left + " " * pad + right
+        close = len(text) - len(CLOSE)  # the × zone: the last cells, shown while hovered
+        spans = ((close, len(text), None, "close"),) if hovered else ()
+        lines.append(Row(None, f"alert.{alert.level}", text, hovered, alert=alert, spans=spans, close=close))
     return lines
 
 
-def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: int = 0,
-                attached: bool = False, cursor: int | None = None,
-                alerts: list | None = None, hint: bool = False) -> list[tuple[int | None, str, str, bool]]:
-    """The lines of the shell stack: (tab, style, text, hovered) each, where tab is 0 for this
-    shell, a job number, or None for the header; style is one of header, current, main, running,
-    done, failed; and hovered says the line is under the mouse or chosen with ↓ / ↑, which fills
-    its circle (` ● `) without changing the line's colors. `current` is the attached job (0 at
-    the prompt): its circle is filled too. The header line, with the keys, is there only with
-    `hint` (the `panel_hint` setting):
+def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int, str]]]:
+    """`✖ 1  ▲ 2  ● 1 ▸`: how many alerts of each level, in their colors, and ▸ / ▾ when a click
+    folds or unfolds rows. Returns the text and (start, end, style) for each count."""
+    from shellcraft.alerts import ICONS, LEVELS
 
-        ⤷ 2 subshells (1 running) · click or Ctrl-] N switches · ↓ to manage
-        ● main
-        ○ 1  bash --norc                                          2m 18s · running
+    text, spans = "", []
+    for level in reversed(LEVELS):
+        count = sum(1 for a in alerts if a.level == level)
+        if count:
+            if text:
+                text += "  "
+            spans.append((len(text), len(text) + len(f"{ICONS[level]} {count}"), f"alert.{level}.mark"))
+            text += f"{ICONS[level]} {count}"
+    return text, spans
+
+
+def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, depth: int = 0,
+                attached: bool = False, cursor: int | None = None,
+                alerts: list | None = None, hint: bool = False, expanded: bool = False) -> list[Row]:
+    """The rows of the shell stack (see Row): the alert rows (critical ones always; the others
+    when `expanded`, or when there is no stack), the header with the keys (only with `hint`,
+    the `panel_hint` setting), `main` with the alert badge on its right, and one row per
+    subshell with that subshell's own alert inline after its command. `hover` is the tab or the
+    Alert under the mouse; `current` the attached job (0 at the prompt). A hovered or chosen
+    shell row gets a filled circle (` ● `) without changing its colors.
+
+        ✖ Payment API is down · from mcp · claude                     critical · sticky
+        ● main                                                        ✖ 1  ▲ 1  ● 1 ▸
+        ○ 1  bash --norc  ▲ Disk /home at 91%
+        ○ 2  find / -name "*.log"                                                  done
     """
-    from shellcraft.shell import format_duration
+    from shellcraft.alerts import ICONS
 
     width = max(40, width)
-    lines: list[tuple[int | None, str, str, bool]] = alert_lines(alerts or [], width)
+    alerts = list(alerts or [])
+    lines: list[Row] = alert_lines(alert_rows(alerts, jobs, expanded), width, hover)
     if not jobs:
         return lines  # alerts alone, when there are no subshells to list
     running = sum(1 for j in jobs if j.running)
@@ -209,22 +309,43 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
                                                        else "↓ to manage · x stops")
     if hint:
-        lines.append((None, "header", head, False))
+        lines.append(Row(None, "header", head, False))
     main_hover = hover == 0
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
-    lines.append((0, "current" if current == 0 else "main", main, main_hover))
+    badge_at, spans = -1, ()
+    if alerts:
+        foldable = any(a.level != "critical" for a in alerts)
+        badge, marks = alert_badge(alerts, foldable)
+        badge += (" ▾" if expanded else " ▸") if foldable else ""
+        pad = max(2, width - get_cwidth(main) - get_cwidth(badge) - 1)
+        badge_at = len(main) + pad
+        spans = tuple((badge_at + s, badge_at + e, style, "badge") for s, e, style in marks)
+        spans += ((badge_at + len(badge) - 2, badge_at + len(badge) + 1, None, "badge"),) if foldable else ()
+        main += " " * pad + badge + " "
+    lines.append(Row(0, "current" if current == 0 else "main", main, main_hover, spans=spans, badge=badge_at))
     shown = jobs[: MAX_ROWS - 2]
+    numbers = {job.number for job in jobs}
     for index, job in enumerate(shown):
         chosen = hover == job.number or cursor == index
         mark = "●" if current == job.number or chosen else "○"
-        left = f" {mark} {job.number}  {job.short(width // 2)}"
+        left = f" {mark} {job.number}  {job.short(width // 3)}"
         state = "running" if job.running else "done" if job.status == 0 else "failed"
-        right = f"{format_duration(job.elapsed)} · {job.label} "
+        right = "" if job.running else f"{job.label} "
+        spans = ()
+        own = [a for a in alerts if a.job == job.number and a.job in numbers]
+        if own:
+            first = own[0]  # the most severe (alerts are sorted)
+            inline = f"  {ICONS[first.level]} {first.message}" + (f" +{len(own) - 1}" if len(own) > 1 else "")
+            room = width - get_cwidth(left) - get_cwidth(right) - 1
+            if get_cwidth(inline) > room:
+                inline = inline[: max(4, room - 1)] + "…"
+            spans = ((len(left), len(left) + len(inline), f"alert.{first.level}.mark", None),)
+            left += inline
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
         style = "current" if current == job.number else state
-        lines.append((job.number, style, left + " " * pad + right, chosen))
+        lines.append(Row(job.number, style, left + " " * pad + right, chosen, spans=spans))
     if len(jobs) > len(shown):
-        lines.append((None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)", False))
+        lines.append(Row(None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)", False))
     return lines
 
 
@@ -233,23 +354,28 @@ def panel_lines(jobs: list, current: int, hover: int | None, width: int, depth: 
 SGR_RE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 
 
-def parse_mouse(data: str) -> tuple[str, int, int] | None:
-    """(kind, x, y) with 1-based terminal coordinates from a vt100 SGR mouse sequence or
+BUTTONS = {0: "left", 1: "middle", 2: "right", 3: "none"}
+
+
+def parse_mouse(data: str) -> tuple[str, int, int, str] | None:
+    """(kind, x, y, button) with 1-based terminal coordinates from a vt100 SGR mouse sequence or
     prompt_toolkit's Windows mouse data (`button;type;x;y`, 0-based). kind is "up", "down",
-    "move", "scroll" or "other". None when it is not a mouse sequence this understands."""
+    "move", "scroll" or "other"; button "left", "middle", "right" or "none". None when it is not
+    a mouse sequence this understands."""
     m = SGR_RE.match(data)
     if m:
         code, x, y, final = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)
+        button = BUTTONS[code & 3]
         if code & 64:
-            return "scroll", x, y
+            return "scroll", x, y, button
         if code & 32:
-            return "move", x, y
-        return ("up" if final == "m" else "down"), x, y
+            return "move", x, y, button
+        return ("up" if final == "m" else "down"), x, y, button
     parts = data.split(";")
     if len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
         kinds = {"MOUSE_UP": "up", "MOUSE_DOWN": "down", "MOUSE_MOVE": "move",
                  "SCROLL_UP": "scroll", "SCROLL_DOWN": "scroll"}
-        return kinds.get(parts[1], "other"), int(parts[2]) + 1, int(parts[3]) + 1
+        return kinds.get(parts[1], "other"), int(parts[2]) + 1, int(parts[3]) + 1, parts[0].lower()
     return None
 
 

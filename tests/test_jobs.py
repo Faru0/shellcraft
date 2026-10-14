@@ -215,12 +215,12 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert ctx.footer is footer and not footer.enabled and sh.session.bottom_toolbar is None
     footer.size = lambda: (24, 80)
     footer.enabled = True
-    assert footer.height() == 1 and footer.region_rows == 23  # `main` alone: no header line by default
+    assert footer.height() == 0 and footer.region_rows == 24  # nothing to show yet: no subshell, no alert
     job = ctx.jobs.start_command("seq 2", lambda: (0, "1\n2\n"))
     assert _wait(lambda: not job.running)
     # the same stack at the prompt and in the footer
     lines = panel_lines([job], 0, None, 80, cursor=None)
-    assert [t for t, _s, _x, _h in lines] == [0, 1] and lines[0][2] == " ● main" and lines[1][2].startswith(" ○ 1  seq 2")
+    assert [r.tab for r in lines] == [0, 1] and lines[0][2] == " ● main" and lines[1][2].startswith(" ○ 1  seq 2")
     assert "done" in lines[1][2] and lines[1][1] == "done" and not lines[1][3]
     hovered = panel_lines([job], 0, 1, 80)  # hover fills the circle, the line keeps its style
     assert hovered[1][2].startswith(" ● 1 ") and hovered[1][1] == "done" and hovered[1][3]
@@ -259,7 +259,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert sh._footer_mouse(click) is None and ran == [f"jobs {job.number}"]
     move = SimpleNamespace(data=f"\x1b[<35;5;{row}M", key_sequence=click.key_sequence)
     assert sh._footer_mouse(move) is None and footer.hover == job.number
-    assert parse_mouse("\x1b[<64;5;5M") == ("scroll", 5, 5) and parse_mouse("LEFT;MOUSE_UP;3;4") == ("up", 4, 5)
+    assert parse_mouse("\x1b[<64;5;5M") == ("scroll", 5, 5, "left") and parse_mouse("LEFT;MOUSE_UP;3;4") == ("up", 4, 5, "left")
     assert parse_mouse("junk") is None
     # Ctrl-] N at the prompt
     binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-]", str(job.number)])
