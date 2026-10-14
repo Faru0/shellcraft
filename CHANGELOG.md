@@ -59,6 +59,13 @@ and the project uses [semantic versioning](https://semver.org/).
   Terminal (`WT_SESSION`) now defaults to `SHELLCRAFT_CONSOLE=legacy-keys`, the setup that
   works there; the classic console keeps `direct`.
 
+### Fixed
+
+- The pager's ← / → had nothing to scroll for text output: Rich wrapped long lines at the
+  window width before the pager saw them. Text now reaches the pager unwrapped (`w` wraps it).
+- Inside a subshell on Windows, the arrow, Home / End, PgUp / PgDn, Insert and Delete keys were
+  dropped in a console without VT input; they are now sent to the program as VT sequences.
+
 ### Changed
 
 - The `links` setting (clickable file names in `ls`, `tree`, `find`, `du`, `grep`) is now off by

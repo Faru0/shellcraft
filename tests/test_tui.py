@@ -429,3 +429,20 @@ def test_help_narrow_layout(tmp_path):
     text = ui.console.export_text()
     assert "Shell\n" in text and "  grep — " in text and "┃" not in text  # lines, not a table
     assert to_text(result.output).startswith("alert  ")  # the first Shell builtin, alphabetically
+
+
+def test_paged_text_keeps_long_lines_for_sideways_scrolling(monkeypatch):
+    """Long lines reach the pager whole (← / → scroll them, w wraps), not wrapped by Rich."""
+    from rich.text import Text
+
+    from core import output
+
+    paged = []
+    monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))
+    ui = _ui(width=40, height=10)
+    text = "\n".join(f"L{i:02d} " + "x" * 200 for i in range(30))
+    show(ui, text, title="cat")
+    show(ui, Text(text), title="grep")
+    for rendered in paged:
+        lines = rendered.rstrip("\n").split("\n")
+        assert len(lines) == 30 and "x" * 200 in lines[0]

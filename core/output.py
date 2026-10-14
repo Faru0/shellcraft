@@ -113,6 +113,12 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
         console.print(renderable)
     rendered = capture.get()
     if forced or rendered.count("\n") > console.height - 2:
+        if isinstance(renderable, Text):
+            # Plain or colored text: give the pager the lines unwrapped, so ← / → scroll through
+            # long lines and `w` wraps them (Rich would have wrapped them at the window width).
+            with console.capture() as capture:
+                console.print(renderable, soft_wrap=True)
+            rendered = capture.get()
         page(ui, rendered, title)
     else:
         console.file.write(rendered)  # already rendered once: no second Rich pass

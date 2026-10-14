@@ -760,6 +760,24 @@ class Terminal:
         return terminal
 
 
+# Windows virtual-key codes of the keys that carry no character, as the VT sequences a program
+# on a ConPTY expects. With ENABLE_VIRTUAL_TERMINAL_INPUT the console already sends these as
+# characters; the classic console (or a host without VT input) sends only the key code.
+WIN_VT_KEYS = {
+    0x26: "\x1b[A", 0x28: "\x1b[B", 0x27: "\x1b[C", 0x25: "\x1b[D",  # ↑ ↓ → ←
+    0x24: "\x1b[H", 0x23: "\x1b[F",                                     # Home End
+    0x21: "\x1b[5~", 0x22: "\x1b[6~", 0x2D: "\x1b[2~", 0x2E: "\x1b[3~",  # PgUp PgDn Ins Del
+}
+
+
+def win_key(char: str, virtual_key: int) -> str:
+    """The text a Windows key-down event stands for: its character, else the VT sequence of an
+    arrow / navigation key, else nothing (Shift, Ctrl and the other keys alone)."""
+    if char and char != "\x00":
+        return char
+    return WIN_VT_KEYS.get(virtual_key, "")
+
+
 def _windows_terminal() -> Terminal:
     """Windows: keys from CONIN$ as VT sequences (a reader thread that waits for input before
     reading, so nothing is swallowed after detaching), output to CONOUT$, raw mode through the
@@ -791,8 +809,9 @@ def _windows_terminal() -> Terminal:
             text = []
             for i in range(count.value):
                 rec = records[i]
-                if rec.EventType == 1 and rec.Event.KeyEvent.KeyDown and rec.Event.KeyEvent.uChar.UnicodeChar:
-                    text.append(rec.Event.KeyEvent.uChar.UnicodeChar)
+                if rec.EventType == 1 and rec.Event.KeyEvent.KeyDown:
+                    key = rec.Event.KeyEvent
+                    text.append(win_key(key.uChar.UnicodeChar, key.VirtualKeyCode))
                 elif rec.EventType == 4 and terminal.on_resize is not None:  # WINDOW_BUFFER_SIZE_EVENT
                     try:
                         terminal.on_resize()

@@ -500,3 +500,14 @@ def test_without_pyte_programs_still_work_and_the_user_is_told(tmp_path, monkeyp
     table.kill(job)
     os.close(term_master)
     os.close(term_slave)
+
+
+def test_windows_arrow_keys_reach_the_subshell():
+    """The classic Windows console reports arrows as key codes with no character: they become
+    the VT sequences the program expects; characters (and VT input) pass through as they are."""
+    from core.jobs import win_key
+
+    assert [win_key("\x00", vk) for vk in (0x26, 0x28, 0x27, 0x25)] == ["\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"]
+    assert win_key("", 0x24) == "\x1b[H" and win_key("", 0x2E) == "\x1b[3~"
+    assert win_key("a", 0x41) == "a" and win_key("\x1b", 0x1B) == "\x1b"  # VT input: ESC [ A arrive as chars
+    assert win_key("\x00", 0x10) == ""  # Shift alone: nothing
