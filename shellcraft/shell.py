@@ -205,6 +205,7 @@ class Shell:
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
         # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
         self._panel_hover: Any = None
+        self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
         self._panel_cursor: int | None = None
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
@@ -404,6 +405,8 @@ class Shell:
         prompt_toolkit's own mouse handling."""
         parsed = parse_mouse(event.data)
         if parsed is not None:
+            if parsed[0] == "down":
+                self._pressed = parsed[3]  # for the release, which may not say which button it was
             acted = self.footer.mouse(*parsed)
             if acted is not None:
                 if acted[0] == "switch" and acted[1]:
@@ -519,7 +522,7 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0  # the stack's lines are clickable
+        return self._panel_wanted()  # the panel's lines are clickable: subshells, or alerts alone
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -683,12 +686,20 @@ class Shell:
             parts.append((cls, text[at:], handler))
         return parts
 
+    def _released(self, event: MouseEvent) -> str:
+        """The button a MOUSE_UP releases: the event's own, or (when it says NONE, as every
+        release does on Windows) the one recorded when it went down."""
+        names = {MouseButton.LEFT: "left", MouseButton.RIGHT: "right", MouseButton.MIDDLE: "middle"}
+        return names.get(event.button, self._pressed)
+
     def _alert_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
         """An alert row: hover shows its ×, a right-click copies its content into the clip."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_MOVE:
                 return self._set_panel_hover(alert)
-            if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.RIGHT:
+            if event.event_type == MouseEventType.MOUSE_DOWN:
+                return None  # take the press, so its release comes here too
+            if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "right":
                 if self.ctx.alerts is not None:
                     self.ctx.alerts.copy(alert)
                 return None
@@ -696,10 +707,17 @@ class Shell:
         return handler
 
     def _close_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
-        """The × at the end of a hovered alert row: a click dismisses it."""
+        """The × at the end of a hovered alert row: a left click dismisses it, a right-click
+        copies, as anywhere on the row."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_UP:
+                if self._released(event) == "right":
+                    if self.ctx.alerts is not None:
+                        self.ctx.alerts.copy(alert)
+                    return None
                 return self._dismiss_alert(alert)
+            if event.event_type == MouseEventType.MOUSE_DOWN:
+                return None
             if event.event_type == MouseEventType.MOUSE_MOVE:
                 return self._set_panel_hover(alert)
             return NotImplemented
@@ -708,7 +726,7 @@ class Shell:
     def _badge_handler(self) -> Callable[[MouseEvent], Any]:
         """The alert badge on the main row: a click folds or unfolds the alert rows."""
         def handler(event: MouseEvent) -> Any:
-            if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.LEFT:
+            if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "left":
                 if self.ctx.alerts is not None:
                     self.ctx.alerts.toggle()
                 return None

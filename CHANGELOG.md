@@ -109,6 +109,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Alert clicks:** with alerts showing and no subshell, the prompt left the mouse to the
+  terminal, so the × (and its hover) and the right-click did nothing; the mouse is now on
+  whenever the panel shows. On Windows a release is reported without its button
+  (`RIGHT;MOUSE_DOWN`, then `NONE;MOUSE_UP`), so the right-click copy and the badge click never
+  fired; both now go by the button that was pressed, at the prompt and in a subshell's footer.
 - **`clear` on Windows 11:** `clear` (and `banner -c`) now clear the screen and the scrollback
   the way the startup clear does, by writing the terminal codes directly. Before, they used Rich's
   clear, which Windows Terminal turned into scrolling the old text out of view, or skipped.

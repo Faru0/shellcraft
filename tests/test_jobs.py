@@ -615,3 +615,76 @@ def test_jobs_kill_stops_a_quiet_os_program_in_a_background_pipeline(ictx):
     assert job.kind == "command" and job.running
     run_line("jobs -k 1", ictx)
     assert _wait(lambda: not job.thread.is_alive(), 3)
+
+
+def _mouse(kind, button):
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.mouse_events import MouseEvent
+
+    return MouseEvent(Point(0, 0), kind, button, frozenset())
+
+
+def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
+    """Windows reports a press as RIGHT;MOUSE_DOWN and its release as NONE;MOUSE_UP: the copy,
+    the × and the badge go by the button that went down. The mouse is on for alerts alone."""
+    from types import SimpleNamespace
+
+    from prompt_toolkit.mouse_events import MouseButton, MouseEventType
+
+    from shellcraft.alerts import AlertBus
+
+    sh, ctx = repl_shell
+    ctx.alerts = AlertBus()
+    assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
+    warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
+    assert sh._mouse_wanted()  # alerts alone: the panel shows, so its rows must be clickable
+    keys = [SimpleNamespace(key="<windows-mouse-event>")]
+
+    def press(button, kind):  # what the Windows input sends through the prompt's mouse binding
+        sh._footer_mouse(SimpleNamespace(data=f"{button};{kind};3;4", key_sequence=keys))
+
+    row = sh._alert_handler(warn)
+    press("RIGHT", "MOUSE_DOWN")
+    assert row(_mouse(MouseEventType.MOUSE_DOWN, MouseButton.RIGHT)) is None
+    press("NONE", "MOUSE_UP")
+    assert row(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE)) is None
+    assert ctx.alerts.clip == "/var/log/app.log" and warn in ctx.alerts.current()  # copied, not dismissed
+    ctx.alerts.clip = ""
+    close = sh._close_handler(warn)
+    press("RIGHT", "MOUSE_DOWN")
+    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a right-click on the ×: still a copy
+    assert ctx.alerts.clip == "/var/log/app.log" and warn in ctx.alerts.current()
+    press("LEFT", "MOUSE_DOWN")
+    row(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a left click on the row: nothing
+    assert warn in ctx.alerts.current()
+    badge = sh._badge_handler()
+    assert badge(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE)) is None and ctx.alerts.expanded
+    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a left click on the ×: dismissed
+    assert warn not in ctx.alerts.current()
+    # Linux reports the real button on release: the same results
+    other = ctx.alerts.post("other", "info")
+    sh._alert_handler(other)(_mouse(MouseEventType.MOUSE_UP, MouseButton.RIGHT))
+    assert ctx.alerts.clip == "other"
+    ctx.alerts.close()
+
+
+def test_footer_mouse_with_windows_releases(tmp_path):
+    from shellcraft.alerts import AlertBus
+    from shellcraft.footer import Footer, parse_mouse
+
+    bus = AlertBus()
+    warn = bus.post("disk", "warning", source="sub 1 (bash)", content="df -h")
+    footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), [], alerts=bus)
+    footer.size = lambda: (24, 80)
+    footer.enabled = True
+    footer.sequence()
+    assert footer.row_tabs == [None]  # no subshells: the alert row alone, on the last line
+    assert parse_mouse("RIGHT;MOUSE_DOWN;9;23") == ("down", 10, 24, "right")
+    assert footer.mouse(*parse_mouse("RIGHT;MOUSE_DOWN;9;23")) == ("handled", None)
+    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;9;23")) == ("handled", None)
+    assert bus.clip == "df -h" and warn in bus.current()  # copied on the release that said NONE
+    footer.mouse("move", 10, 24, "none")
+    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;23")) == ("handled", None)
+    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;23")) == ("handled", None)
+    assert not bus.current()  # the × took the left click
+    bus.close()

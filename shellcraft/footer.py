@@ -44,6 +44,7 @@ class Footer:
         self.hover: Any = None  # what is under the mouse: a tab (0 or a job number) or an Alert
         self.enabled = False
         self.rows: list[Row] = []  # the footer's rows, after the last draw
+        self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
@@ -173,6 +174,10 @@ class Footer:
         ("switch", tab) for a click on a shell's line; ("handled", None) for the rest: hover, a
         click on the badge (fold / unfold the alerts), a click on an alert's × (dismiss it) or a
         right-click on an alert (copy its content into the clip register)."""
+        if kind == "down":
+            self._pressed = button
+        elif kind == "up" and button == "none":
+            button = self._pressed  # Windows: RIGHT;MOUSE_DOWN, then NONE;MOUSE_UP
         row = self.row_at(y)
         if row is None:
             return None
