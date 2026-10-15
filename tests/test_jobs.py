@@ -180,6 +180,7 @@ def test_sub_program_attaches_and_reports_its_exit(ictx, monkeypatch):
 def test_nested_shellcraft_argv_and_depth(monkeypatch):
     monkeypatch.delenv("SHELLCRAFT_DEPTH", raising=False)
     argv, env = jobmod.nested_shellcraft(["--no-banner"])
+    assert argv[-2:] == ["--lite", "--no-banner"] and env["PYTHONUTF8"] == "1"
     assert argv[:3] == [sys.executable, "-m", "shellcraft.cli"] and argv[-1] == "--no-banner"
     assert env["SHELLCRAFT_DEPTH"] == "1" and "PYTHONPATH" in env
     monkeypatch.setenv("SHELLCRAFT_DEPTH", "2")
@@ -688,3 +689,33 @@ def test_footer_mouse_with_windows_releases(tmp_path):
     assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;23")) == ("handled", None)
     assert not bus.current()  # the × took the left click
     bus.close()
+
+
+def test_lite_shell_skips_startup_watchers_and_mcp(tmp_path, monkeypatch, started):
+    """`shellcraft --lite` (what `sub shellcraft` runs): no banner, no startup scripts or rc, no
+    alert spool watcher, no module watcher, and `mcp` refused."""
+    from shellcraft import cli, shell
+
+    home = tmp_path / "home"
+    (home / "startup").mkdir(parents=True)
+    (home / "startup" / "10-x.py").write_text("print('hi')\n")
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    assert cli.main(["--lite", "--modules", str(tmp_path)]) == 0
+    assert started[-1].lite and started.startup_runs == 0
+    assert cli.main(["--no-banner", "--modules", str(tmp_path)]) == 0
+    assert not started[-1].lite and started.startup_runs == 1
+    # the real shell, lite
+    monkeypatch.undo()
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(shell, "create_prompt_toolkit_console", lambda cleanup: None)
+    console = Console(record=True, width=120, force_terminal=False, color_system=None)
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=UI(all_themes({})["nord"], console), config={}, lite=True)
+    with shell.Shell(ctx) as sh:
+        assert ctx.alerts is not None and ctx.alerts.spool is None  # the main shell owns the spool
+        (tmp_path / "newmod.py").write_text("def run(args, stdin):\n    return 'x'\n")
+        sh._hot_reload()  # a lite shell never reloads
+        assert ctx.registry.get("newmod") is None
+        with pytest.raises(PipelineError, match="not in a lite shell"):
+            run_line("mcp start", ctx)
+        assert to_text(run_line("echo still a shell", ctx).output) == "still a shell\n"

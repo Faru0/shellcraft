@@ -1002,7 +1002,8 @@ def nested_shellcraft(args: list[str]) -> tuple[list[str], dict[str, str]]:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
     env["SHELLCRAFT_DEPTH"] = str(depth() + 1)
-    return [sys.executable, "-m", "shellcraft.cli", *args], env
+    env.setdefault("PYTHONUTF8", "1")  # its glyphs (● ○ ⤷) reach the pseudo-terminal as UTF-8 on Windows too
+    return [sys.executable, "-m", "shellcraft.cli", "--lite", *args], env
 
 
 def depth() -> int:

@@ -43,6 +43,7 @@ class ShellContext:
     jobs: Any = None  # the subshells started with `sub` (shellcraft.jobs.JobTable); the REPL sets it
     footer: Any = None  # the tab bar on the last row (shellcraft.footer.Footer); the REPL sets it
     alerts: Any = None  # the status alerts and their listener (shellcraft.alerts.AlertBus); the REPL sets it
+    lite: bool = False  # `shellcraft --lite` (what `sub shellcraft` runs): builtins, modules and settings only
     startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per script
     supervisor: Any = None  # the background startup scripts (shellcraft.startup.Supervisor); the REPL sets it
     stop: Any = None  # a background job's stop flag (streams.StopFlag): every pipeline it runs stops with it

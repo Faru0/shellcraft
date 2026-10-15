@@ -2064,6 +2064,9 @@ def _mcp_running(ctx: ShellContext) -> Any:
 def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import mcp_child
 
+    if ctx.lite:
+        raise CommandError("mcp: not in a lite shell (sub shellcraft); run it in the main ShellCraft "
+                           "(Ctrl-] goes back to it)")
     action, rest = (args[0], args[1:]) if args else ("status", [])
     child = _mcp_running(ctx)
 

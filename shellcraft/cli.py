@@ -28,6 +28,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
     p.add_argument("--no-startup", action="store_true", help="don't run the scripts in ~/.shellcraft/startup/")
+    p.add_argument("--lite", action="store_true",
+                   help="a lightweight shell, what `sub shellcraft` runs inside ShellCraft: builtins, modules and "
+                        "settings, without the banner, the startup scripts, the alert watcher, hot reload or "
+                        "the MCP server")
     p.add_argument("--diag", action="store_true",
                    help="print the console diagnostics report at startup (like the diagnostics setting)")
     p.add_argument("--allow-system", action="store_true",
@@ -136,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         theme_warnings.append(f"unknown theme '{theme_name}', using cyberpunk")
         theme_name = "cyberpunk"
     allow_system = args.allow_system or settings.get(config, "system_commands")
-    show_banner = not args.no_banner and settings.get(config, "banner")
+    show_banner = not args.no_banner and not args.lite and settings.get(config, "banner")
     if not show_banner:  # with the banner, the warnings are shown inside it
         for warning in theme_warnings:
             print(f"shellcraft: {warning}", file=sys.stderr)
@@ -149,11 +153,11 @@ def main(argv: list[str] | None = None) -> int:
     # UI's Rich console on CONOUT$, whatever stdin and stdout are redirected to. Rich takes the
     # terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
     ui = UI(themes[theme_name], build_console())
-    ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system)
+    ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite)
     with Shell(ctx) as shell:
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
-        if settings.get(config, "clear_on_start") and ui.console.is_terminal:
+        if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite:
             # Home, clear the screen and the scrollback (ESC[3J): the terminal starts fresh, as
             # `clear` on Linux and Windows Terminal do, instead of leaving the old lines above.
             from shellcraft.output import clear_screen
@@ -163,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             shell.diagnostics()  # first, so it is there even if the banner is what breaks
         if show_banner:
             shell.banner(theme_warnings)
-        if not args.no_startup and settings.get(config, "startup"):
+        if not args.no_startup and not args.lite and settings.get(config, "startup"):
             from shellcraft import startup
 
             if startup.scripts():
