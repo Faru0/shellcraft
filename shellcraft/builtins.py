@@ -554,7 +554,8 @@ An `&` anywhere else is still an error.
   type goes to it, what it prints you see. Press **Ctrl-]** to detach (or **Ctrl-] 0**): the
   program keeps running in the background, and `jobs N`, **Ctrl-] N** or a click on its tab
   attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-] N** inside
-  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program, and
+  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program,
+  **Ctrl-] v** pastes the clip register (a right-clicked alert, `man clip`) into it, and
   **Ctrl-] x** ends the program you are in and returns to the prompt.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
@@ -615,6 +616,7 @@ alert -c                             # dismiss every alert (alert -c N: just num
 | `-l LEVEL`, `--level LEVEL` | `info` (default), `warning` or `critical`. |
 | `-t SECONDS`, `--timeout SECONDS` | How long it stays (default: 15 for info, 60 for warning, critical stays). |
 | `-s`, `--sticky` | Stay until dismissed. |
+| `-C TEXT`, `--content TEXT` | A payload kept with the alert, up to 64 KB (`-C -`: stdin); a right-click copies it. |
 | `-c [N]`, `--clear [N]` | Dismiss every alert, or alert N of `alert --list`. |
 | `--list` | List the current alerts. |
 
@@ -627,10 +629,19 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   (`✖ 1  ▲ 1  ● 1 ▸`). A click on it unfolds one row per alert, the most severe first, with the
   message, where it came from and the time left; another click folds them back (`▾` / `▸`).
 - A **critical** alert always keeps its full row, folded or not.
-- To dismiss one: hover its row and click the **×** at its right end, or **right-click** the row.
-  `alert -c [N]` does it from the keyboard. (Right-click reaches the shell only while the panel
-  shows; a terminal without mouse tracking pastes or opens its own menu instead.)
+- To dismiss one: hover its row and click the **×** at its right end (`alert -c [N]` from the
+  keyboard).
+- A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
+  into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt,
+  **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). The mouse
+  reaches the shell only while the panel shows; a terminal without mouse tracking pastes or
+  opens its own menu on a right-click instead.
 - With no subshell to fold into, every alert shows as a row.
+
+```
+alert -l warning -C /var/log/app.log "errors in the app log"   # right-click, then: tail -f  Alt-v
+make 2>&1 | alert -l critical build failed -C -                 # the build output as the content
+```
 
 ## How it reaches the shell
 
@@ -645,17 +656,20 @@ in the spool while no shell was running is dropped after five minutes.
 
 
 @builtin("alert", "Show an alert in the status panel",
-         "alert [-l LEVEL] [-t SECONDS | -s] MESSAGE... | --list | -c [N]", stateful=True, doc=ALERT_DOC)
+         "alert [-l LEVEL] [-t SECONDS | -s] [-C CONTENT] MESSAGE... | --list | -c [N]", stateful=True,
+         doc=ALERT_DOC)
 def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import alerts as alertmod
 
     try:
-        message, level, timeout, clear, listing = alertmod.parse_args(args)
+        message, level, timeout, clear, listing, content = alertmod.parse_args(args)
     except SystemExit as exc:  # argparse: --help, or a usage error already printed
         if exc.code:
             raise CommandError("alert: bad arguments (man alert)") from None
         return ""
     bus = ctx.alerts
+    if content == "-":  # `cmd | alert done -C -`: the payload is what was piped in
+        content = stdin
     if alertmod.depth_forward():  # a nested ShellCraft: the main shell shows it
         if clear or listing:
             raise CommandError("alert: --list and -c work in the main ShellCraft")
@@ -663,7 +677,7 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError("alert: a message is needed")
         try:
             source = f"{alertmod.source_label()} shellcraft ⤷{alertmod.depth_forward()}"
-            alertmod.send(message, level, timeout, source=source)
+            alertmod.send(message, level, timeout, source=source, content=content)
         except OSError as exc:
             raise CommandError(f"alert: {exc}") from None
         return Text(f"✓ sent to the main shell: {message}", style="sc.success")
@@ -677,7 +691,8 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         for i, alert in enumerate(current, 1):
             left = f"{i}. [{alert.level}] {alert.message}"
             when = "sticky" if alert.remaining is None else f"{int(alert.remaining) + 1}s left"
-            rows.append(f"{left}  ({when}{', from ' + alert.source if alert.source else ''})\n")
+            extra = f", {len(alert.content)} characters of content" if alert.content else ""
+            rows.append(f"{left}  ({when}{', from ' + alert.source if alert.source else ''}{extra})\n")
         return rows
     if clear:
         number = int(message) if message.strip().isdigit() else None
@@ -685,8 +700,57 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return Text(f"✓ {gone} alert{'s' if gone != 1 else ''} dismissed", style="sc.success")
     if not message:
         raise CommandError("alert: a message is needed (man alert)")
-    bus.post(message, level, timeout, source="main shell")
+    bus.post(message, level, timeout, source="main shell", content=content)
     return ""
+
+
+CLIP_DOC = """# clip
+
+The clip register: one piece of text kept by the shell. A **right-click on an alert** in the panel
+fills it with the alert's content (or its message when it has none); `clip` reads it back, and
+**Alt-v** (or Esc then v) pastes it at the prompt, **Ctrl-] v** inside a subshell. It is also the
+`$CLIP` variable. Nothing here touches the system clipboard: it is ShellCraft's own, so it works
+in every terminal, over ssh, and on Windows alike.
+
+## Usage
+
+```
+clip                    # print the clip
+clip TEXT...            # set it
+echo hello | clip       # set it from a pipe
+clip | jq               # use it: pipe it on
+echo $CLIP              # the same text as a variable
+clip -c                 # clear it
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-c`, `--clear` | Empty the clip. |
+
+## See also
+
+`alert -C CONTENT MESSAGE` (an alert with a payload), `man alert`.
+"""
+
+
+@builtin("clip", "The clip register: what a right-click on an alert copied; Alt-v pastes it",
+         "clip [TEXT...] | -c", category="text", doc=CLIP_DOC)
+def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    bus = ctx.alerts
+    if bus is None:
+        raise CommandError("clip: only in the interactive shell")
+    if args and args[0] in ("-c", "--clear"):
+        bus.clip = ""
+        return ""
+    if args:
+        bus.clip = " ".join(args)
+        return ""
+    if stdin:
+        bus.clip = stdin.rstrip("\n")
+        return ""
+    return bus.clip + "\n" if bus.clip else ""
 
 
 READ_DOC = """# read

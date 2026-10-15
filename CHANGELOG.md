@@ -7,6 +7,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Alerts with a payload, and the clip register:** `alert -C CONTENT MESSAGE` (or `-C -` for
+  what was piped in; `content` in the `send_tui_alert` MCP tool, `shellcraft-alert -C`) keeps up
+  to 64 KB with the alert: a path, a command, a URL, JSON. A **right-click** on the alert's row
+  copies it (or the message) into the shell's own clip register, and the row says `copied`.
+  **Alt-v** (or Esc then v) pastes it at the prompt, **Ctrl-] v** into an attached subshell, the
+  new `clip` builtin prints or sets it (`clip | jq`, `echo x | clip`, `clip -c`) and `$CLIP`
+  holds it. Nothing touches the system clipboard, so it works in every terminal and over ssh.
 - **`jq`:** a builtin that looks inside JSON with Python's `json.loads`: `cat f.json | jq`
   pretty-prints, `jq f.json -k` lists the keys, `-f ['name']` / `-f [5]['name']` / `-f .items[0].id`
   picks a value, `-i N` starts inside element N of a list and `-i *` goes through every element
@@ -83,8 +90,8 @@ and the project uses [semantic versioning](https://semver.org/).
   line, after its command, in its color; a badge at the right end of the `main` line counts every
   alert by level (`✖ 1  ▲ 1  ● 1 ▸`) and a click on it unfolds one row per alert (another folds
   them back). A critical alert always keeps its full row. Dismiss an alert with the × that
-  appears at the right end of its row under the mouse, or with a right-click on the row. Alerts
-  without a subshell to fold into (no `sub` running) still show as rows.
+  appears at the right end of its row under the mouse. Alerts without a subshell to fold into
+  (no `sub` running) still show as rows.
 - **Shorter subshell lines:** the elapsed time and the word `running` are gone from the right
   end of a subshell's line (its color is the state; `jobs` has the times); a finished one still
   says `done`, `exit 2` or `killed`.

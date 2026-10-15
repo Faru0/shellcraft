@@ -24,7 +24,7 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **70 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
+| 🧰 **71 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
 | 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
 | ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `>&2`, functions, `select`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
@@ -388,10 +388,17 @@ color (`▲ Disk /home at 91%`; `+1` when it has more). The **badge** at the rig
 `main` line counts every alert by level (`✖ 1  ▲ 1  ● 1 ▸`): a click on it unfolds one full row
 per alert, most severe first, with the message, where it came from and the time left; another
 click folds them back. A **critical** alert always keeps its full row, so it cannot be missed.
-To dismiss an alert, hover its row and click the **×** at its right end, or **right-click** the
-row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
-Right-click reaches ShellCraft only while the panel shows; a terminal without mouse tracking
-pastes or opens its own menu instead. Alerts can come from anywhere: the main shell, a subshell
+To dismiss an alert, hover its row and click the **×** at its right end (`alert -c` from the
+keyboard). With no subshell to fold into, every alert shows as a row.
+
+An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"` or
+`make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
+(or the message) into the shell's own clip register, and **Alt-v** pastes it at the prompt,
+**Ctrl-] v** inside a subshell; `clip` prints it, `clip | jq` pipes it on, `$CLIP` holds it. No
+system clipboard involved, so it works in every terminal and over ssh. (The mouse reaches
+ShellCraft only while the panel shows; a terminal without mouse tracking pastes or opens its
+own menu on a right-click instead. Konsole uses Alt-v for its View menu while its menu bar is
+shown; Esc then v is the same key.) Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client
 through the **`send_tui_alert`** MCP tool (`message`, `severity`, `timeout_seconds`). Each alert
@@ -433,7 +440,7 @@ one has a manual: `man ls`, `man grep`, …
 | Group | Commands |
 | --- | --- |
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` |
-| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` |
+| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
 
@@ -588,7 +595,7 @@ the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when 
 shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
-- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warning / critical, `timeout_seconds`), so a model can flag a finished task or a risk where you will see it.
+- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warning / critical, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.

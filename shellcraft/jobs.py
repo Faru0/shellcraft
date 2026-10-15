@@ -41,6 +41,13 @@ HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
 MOUSE_MODE_RE = re.compile(rb"\x1b\[\?(?:1000|1002|1003|1006|1015)[hl]")
 MOUSE_SEQ_RE = re.compile(rb"\x1b\[<\d+;\d+;\d+[Mm]")
+
+
+def _clip_bytes(footer: Any) -> bytes:
+    """What Ctrl-] v types into the attached program: the clip register (a right-clicked alert),
+    without its final newline so a pasted command is not run before you look at it."""
+    clip = footer.alerts.clip if footer is not None and footer.alerts is not None else ""
+    return clip.rstrip("\n").encode("utf-8") if clip else b""
 # The alternate-screen switches a program may send (vim, htop, less): the real terminal is
 # already on its alternate screen while a subshell is shown, so these are handled by the
 # emulator instead (the main buffer is saved and restored) and never reach the terminal.
@@ -490,7 +497,9 @@ class JobTable:
                         return "switch", int(data[:1])
                     if data[:1] in (b"x", b"X"):  # Ctrl-] x: end this subshell
                         return "kill", job.number
-                    if data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
+                    if data[:1] in (b"v", b"V"):  # Ctrl-] v: paste the clip register (a copied alert)
+                        data = _clip_bytes(footer) + data[1:]
+                    elif data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
                         data = data[1:]
                         job.write(DETACH_KEY)
                     else:
@@ -532,7 +541,10 @@ class JobTable:
                         if data:
                             job.write(data)
                         return ("switch", int(rest[:1])) if rest[:1].isdigit() else ("kill", job.number)
-                    prefix_at = time.monotonic()
+                    if rest[:1] in (b"v", b"V"):  # Ctrl-] v in the same read: paste the clip register
+                        data += _clip_bytes(footer) + rest[1:]
+                    else:
+                        prefix_at = time.monotonic()
                 if data:
                     try:
                         job.write(data)

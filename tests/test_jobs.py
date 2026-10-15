@@ -527,19 +527,34 @@ def test_ctrl_bracket_x_ends_the_attached_subshell(tmp_path, ictx, monkeypatch):
     """Ctrl-] then x in an attached program: attach returns ("kill", N) and `sub` stops it."""
     import tty
 
+    from rich.console import Console
+
+    from shellcraft.alerts import AlertBus
+    from shellcraft.footer import Footer
+    from shellcraft.themes import UI, all_themes
+
     table = JobTable(tmp_path / "jobs")
     job = table.start_program(["cat"], "cat")
     term_master, term_slave = os.openpty()
     tty.setraw(term_slave)
     terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    bus = AlertBus()
+    bus.clip = "pasted text\n"
+    footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), table, alerts=bus)  # not enabled
     result = {}
-    thread = threading.Thread(target=lambda: result.update(how=table.attach(job, terminal=terminal, raw=False)),
-                              daemon=True)
+
+    def run() -> None:
+        result["how"] = table.attach(job, terminal=terminal, footer=footer, raw=False)
+
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
     assert _wait(lambda: job.sink is not None)
+    os.write(term_master, jobmod.DETACH_KEY + b"v")  # Ctrl-] v: the clip goes to the program (cat echoes it)
+    assert _wait(lambda: "pasted text" in job.output) and not job.output.endswith("\n\n")
     os.write(term_master, jobmod.DETACH_KEY + b"x")
     thread.join(3)
     assert result["how"] == ("kill", job.number)
+    bus.close()
     table.kill(job)
     os.close(term_master)
     os.close(term_slave)

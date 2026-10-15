@@ -100,8 +100,9 @@ def test_command_line_client_and_shim(bus, home, capsys):
                              for a in bus.current()))
     assert alertmod.main([]) == 2 and "message is needed" in capsys.readouterr().err
     assert alertmod.main(["-c"]) == 2
-    assert alertmod.parse_args(["-s", "hello", "there"]) == ("hello there", "info", None, False, False)
+    assert alertmod.parse_args(["-s", "hello", "there"]) == ("hello there", "info", None, False, False, "")
     assert alertmod.parse_args(["--list"])[4] is True
+    assert alertmod.parse_args(["-C", "/var/log/app.log", "errors"])[5] == "/var/log/app.log"
     folder = alertmod.shim_dir(home)
     script = folder / ("alert.cmd" if sys.platform == "win32" else "alert")
     assert script.exists() and "shellcraft.alerts" in script.read_text()
@@ -241,11 +242,56 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
     assert footer.height() == 2 and footer.row_tabs == [0, 1]
     assert footer.mouse("up", 79, 23, "left") == ("handled", None) and bus.expanded  # the badge on main
     assert footer.row_tabs == [None, 0, 1] and footer.rows[0].alert is warn
-    assert footer.mouse("up", 10, 22, "right") == ("handled", None) and not bus.current()  # right-click dismisses
+    assert footer.mouse("up", 10, 22, "right") == ("handled", None) and bus.current() == [warn]  # right-click: copy
+    assert bus.clip == "disk" and bus.copied is warn and footer.rows[0].text.rstrip().endswith("warning · 60s")
+    assert footer.mouse("move", 10, 22) == ("handled", None) and "copied · Alt-v pastes ×" in footer.rows[0].text
+    assert footer.mouse("move", 10, 23) == ("handled", None) and bus.copied is None  # the hint goes with the mouse
+    assert footer.mouse("up", 79, 22, "left") == ("handled", None) and not bus.current()  # the × dismisses
     assert footer.row_tabs == [0, 1]
     assert footer.mouse("up", 5, 23, "left") == ("switch", 0) and footer.mouse("up", 5, 24) == ("switch", 1)
     assert footer.mouse("up", 5, 24, "right") == ("handled", None)
     bus.close()
+
+
+def test_content_travels_through_the_spool_and_the_clip(bus, home, ictx, capsys):
+    """-C keeps a payload with the alert; a right-click copies it; Alt-v, Ctrl-] v, clip and
+    $CLIP give it back."""
+    written = alertmod.send("errors in the log", "warning", 30, source="sub 1 (bash)", content="/var/log/app.log")
+    assert json.loads(written.read_text())["content"] == "/var/log/app.log"
+    assert _wait(lambda: bus.current() and bus.current()[0].content == "/var/log/app.log")
+    assert bus.copy(bus.current()[0]) == "/var/log/app.log" and bus.clip == "/var/log/app.log"
+    bus.copy(bus.post("no payload", "info"))
+    assert bus.clip == "no payload"  # the message when there is no content
+    # the command-line client: -C -, from stdin
+    import io as iomod
+
+    monkey_stdin = iomod.StringIO("line 1\nline 2\n")
+    import sys as sysmod
+
+    real = sysmod.stdin
+    sysmod.stdin = monkey_stdin
+    try:
+        assert alertmod.main(["-l", "critical", "build failed", "-C", "-"]) == 0
+    finally:
+        sysmod.stdin = real
+    assert _wait(lambda: any(a.message == "build failed" and a.content == "line 1\nline 2\n" for a in bus.current()))
+    # the builtin: -C, -C - and --list; the clip builtin and $CLIP
+    run_line("alert -l warning -C /tmp/x.json 'see the file'", ictx)
+    assert ictx.alerts.current()[0].content == "/tmp/x.json"
+    run_line("echo payload | alert piped -C -", ictx)
+    assert any(a.content == "payload\n" for a in ictx.alerts.current())
+    assert "11 characters of content" in to_text(run_line("alert --list", ictx).output)  # the --list hint
+    ictx.alerts.copy(ictx.alerts.current()[0])
+    assert to_text(run_line("clip", ictx).output) == "/tmp/x.json\n"
+    assert to_text(run_line("echo $CLIP", ictx).output) == "/tmp/x.json\n"
+    assert to_text(run_line("clip | wc -c", ictx).output).strip() == "12"
+    run_line("clip hello there", ictx)
+    assert ictx.alerts.clip == "hello there"
+    run_line("echo from a pipe | clip", ictx)
+    assert ictx.alerts.clip == "from a pipe" and to_text(run_line("clip -c", ictx).output) == ""
+    assert ictx.alerts.clip == "" and to_text(run_line("clip", ictx).output) == ""
+    assert to_text(run_line("echo [$CLIP]", ictx).output) == "[]\n"  # an empty clip is an empty variable
+    assert not run_line("alert --list", ictx).status
 
 
 def test_mcp_tool_send_tui_alert(bus, registry):
@@ -264,10 +310,13 @@ def test_mcp_tool_send_tui_alert(bus, registry):
     assert ALERT_TOOL in tools and tools[ALERT_TOOL].input_schema["required"] == ["message"]
     assert tools[ALERT_TOOL].input_schema["properties"]["severity"]["enum"] == ["info", "warning", "critical"]
     ok = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "model says hi", "severity": "warning",
-                                                 "timeout_seconds": 20}))
-    assert not ok.is_error and "alert shown (warning)" in ok.content[0].text
+                                                 "timeout_seconds": 20, "content": "cat /tmp/report.md"}))
+    assert not ok.is_error and "alert shown (warning)" in ok.content[0].text and "with content" in ok.content[0].text
     assert _wait(lambda: any(a.message == "model says hi" and a.timeout == 20.0 and a.source.startswith("mcp · ")
-                             for a in bus.current()))
+                             and a.content == "cat /tmp/report.md" for a in bus.current()))
+    assert "content" in tools[ALERT_TOOL].input_schema["properties"]
+    bad_content = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "x", "content": 5}))
+    assert bad_content.is_error and "content" in bad_content.content[0].text
     bad = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "x", "severity": "loud"}))
     assert bad.is_error and "severity" in bad.content[0].text
     empty = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "   "}))

@@ -73,6 +73,8 @@ class Variables(Mapping[str, str]):
             return self.extra[name]
         if name in self.ctx.variables:
             return self.ctx.variables[name]
+        if name == "CLIP" and self.ctx.alerts is not None:
+            return self.ctx.alerts.clip  # the clip register (a right-clicked alert, or `clip TEXT`)
         if self.ctx.allow_sensitive and name in os.environ:
             return os.environ[name]
         raise KeyError(name)
@@ -90,6 +92,8 @@ class Variables(Mapping[str, str]):
 
     def __iter__(self) -> Iterator[str]:
         names = {"?", *self.extra, *self.ctx.variables}
+        if self.ctx.alerts is not None:
+            names.add("CLIP")
         if self.ctx.allow_sensitive:
             names |= set(os.environ)
         return iter(names)

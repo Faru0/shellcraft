@@ -350,6 +350,12 @@ class Shell:
         def _mouse(event: Any) -> Any:
             return self._footer_mouse(event)
 
+        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
+        def _paste_clip(event: Any) -> None:
+            clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
+            if clip:
+                event.current_buffer.insert_text(clip.rstrip("\n"))
+
         # ↓ on an empty line moves into the panel ("↓ to manage"); ↑ / ↓ walk it, Enter switches
         # to the chosen subshell, Esc (or typing) leaves it.
         in_panel = Condition(lambda: self._panel_cursor is not None)
@@ -649,7 +655,8 @@ class Shell:
         lines = panel_lines(self._panel_jobs(), 0, self._panel_hover, self.ui.console.width, depth(),
                             cursor=self._panel_cursor, alerts=bus.current() if bus is not None else [],
                             hint=settings.get(self.ctx.config, "panel_hint"),
-                            expanded=bool(bus is not None and bus.expanded))
+                            expanded=bool(bus is not None and bus.expanded),
+                            copied=bus.copied if bus is not None else None)
         parts: StyleAndTextTuples = []
         for i, row in enumerate(lines):
             if i:
@@ -677,12 +684,14 @@ class Shell:
         return parts
 
     def _alert_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
-        """An alert row: hover shows its ×, a right-click dismisses it."""
+        """An alert row: hover shows its ×, a right-click copies its content into the clip."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_MOVE:
                 return self._set_panel_hover(alert)
             if event.event_type == MouseEventType.MOUSE_UP and event.button == MouseButton.RIGHT:
-                return self._dismiss_alert(alert)
+                if self.ctx.alerts is not None:
+                    self.ctx.alerts.copy(alert)
+                return None
             return NotImplemented
         return handler
 
@@ -739,6 +748,8 @@ class Shell:
         if key is self._panel_hover or (key == self._panel_hover and type(key) is type(self._panel_hover)):
             return NotImplemented
         self._panel_hover = key
+        if self.ctx.alerts is not None and self.ctx.alerts.copied is not key:
+            self.ctx.alerts.copied = None  # the "copied" hint goes when the mouse moves to another row
         return None
 
     def _usage_line(self) -> FormattedText:

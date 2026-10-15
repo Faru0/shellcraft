@@ -48,6 +48,9 @@ ALERT_INPUT_SCHEMA: dict[str, Any] = {
                      "description": "info (green), warning (amber) or critical (red, stays until dismissed)."},
         "timeout_seconds": {"type": "integer", "minimum": 1,
                             "description": "Seconds to show it. Default: 15 for info, 60 for warning; critical stays."},
+        "content": {"type": "string",
+                    "description": "Optional payload the user can copy with a right-click on the alert and paste "
+                                   "with Alt-v: a path, a command to run, a URL, JSON (up to 64 KB)."},
     },
     "required": ["message"],
 }
@@ -350,11 +353,14 @@ def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
             raise CommandError("send_tui_alert: timeout_seconds must be a number") from None
     else:
         timeout = "default"
+    content = arguments.get("content", "")
+    if content is not None and not isinstance(content, str):
+        raise CommandError("send_tui_alert: content must be a string")
     try:
-        alerts.send(message, severity, timeout, source=f"mcp · {client}")
+        alerts.send(message, severity, timeout, source=f"mcp · {client}", content=content or "")
     except OSError as exc:
         raise CommandError(f"send_tui_alert: {exc}") from None
-    return f"alert shown ({severity}): {message}"
+    return f"alert shown ({severity}): {message}" + (" (with content)" if content else "")
 
 
 def _error(message: str) -> types.CallToolResult:

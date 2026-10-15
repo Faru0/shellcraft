@@ -33,6 +33,7 @@ ICONS = {"info": "●", "warning": "▲", "critical": "✖"}
 DEFAULT_TIMEOUT = {"info": 15.0, "warning": 60.0, "critical": None}  # None: stays until dismissed
 MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300
+MAX_CONTENT = 64 * 1024  # characters of `content` kept with an alert (what a right-click copies)
 SPOOL = "alerts"  # the folder under ~/.shellcraft
 SUB_ENV = "SHELLCRAFT_SUB"  # "N:command" in a subshell's environment: the sender's label
 POLL = 0.25  # seconds between looks at the spool
@@ -46,6 +47,7 @@ class Alert:
     created: float = field(default_factory=time.monotonic)
     timeout: float | None = None  # seconds; None never expires
     source: str = ""  # who sent it, for `alert -l`
+    content: str = ""  # an optional payload (a path, a command, JSON…): a right-click copies it
 
     @property
     def expires(self) -> float | None:
@@ -72,6 +74,8 @@ class AlertBus:
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
         self.expanded = False  # the panel shows every alert as a row (else the badge folds them)
+        self.clip = ""  # the clip register: what a right-click on an alert copied (Alt-v pastes it)
+        self.copied: Alert | None = None  # the alert just copied, for the "copied" hint on its row
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
         self.spool: Path | None = None
         self._lock = threading.Lock()
@@ -82,12 +86,13 @@ class AlertBus:
     # ── the list ─────────────────────────────────────────────────────────────
 
     def post(self, message: str, level: str = "info", timeout: float | None | str = "default",
-             source: str = "") -> Alert:
+             source: str = "", content: str = "") -> Alert:
         """Add an alert. `timeout` in seconds, None for sticky, "default" for the level's own."""
         level = level if level in LEVELS else "info"
         message = " ".join(str(message).split())[:MAX_MESSAGE] or "(empty alert)"
         seconds = DEFAULT_TIMEOUT[level] if timeout == "default" else timeout
-        alert = Alert(level, message, timeout=None if seconds is None else max(1.0, float(seconds)), source=source)
+        alert = Alert(level, message, timeout=None if seconds is None else max(1.0, float(seconds)), source=source,
+                      content=str(content or "")[:MAX_CONTENT])
         with self._lock:
             self.alerts.append(alert)
             # Priority stacking: the most severe first, then the newest; the overflow is dropped.
@@ -118,6 +123,14 @@ class AlertBus:
         if found:
             self._changed()
         return found
+
+    def copy(self, alert: Alert) -> str:
+        """A right-click on an alert: its content (or its message) goes into the clip register,
+        for Alt-v at the prompt, Ctrl-] v in a subshell, `clip` and `$CLIP`. Returns the text."""
+        self.clip = alert.content or alert.message
+        self.copied = alert
+        self._changed()
+        return self.clip
 
     def toggle(self) -> bool:
         """Fold or unfold the alert rows of the panel (a click on the badge); the new state."""
@@ -207,8 +220,9 @@ class AlertBus:
                     timeout = float(timeout)
                 except (TypeError, ValueError):
                     timeout = "default"
+            content = data.get("content", "")
             self.post(str(data.get("message", "")), str(data.get("level", "info")), timeout,
-                      source=str(data.get("source", "")))
+                      source=str(data.get("source", "")), content=content if isinstance(content, str) else "")
             posted += 1
         return posted
 
@@ -256,12 +270,15 @@ def source_label() -> str:
 
 
 def send(message: str, level: str = "info", timeout: float | None | str = "default",
-         source: str = "", home: Path | None = None) -> Path:
+         source: str = "", home: Path | None = None, content: str = "") -> Path:
     """Drop one alert into the spool for the running shell; returns the file written. Raises
-    OSError when the folder cannot be written."""
+    OSError when the folder cannot be written. `content` is the optional payload a right-click
+    on the alert copies (a path, a command, JSON…)."""
     folder = spool_dir(home)
-    payload = {"time": time.time(), "level": level, "message": message, "timeout": timeout,
-               "source": source or source_label()}
+    payload: dict[str, Any] = {"time": time.time(), "level": level, "message": message, "timeout": timeout,
+                               "source": source or source_label()}
+    if content:
+        payload["content"] = content[:MAX_CONTENT]
     name = f"{time.time():.6f}-{os.getpid()}-{secrets.token_hex(3)}"
     tmp = folder / f"{name}.tmp"
     tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -270,8 +287,9 @@ def send(message: str, level: str = "info", timeout: float | None | str = "defau
     return final
 
 
-def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, bool]:
-    """(message, level, timeout, clear, list) for `alert [-l LEVEL] [-t SECONDS] [-c] MESSAGE…`."""
+def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, bool, str]:
+    """(message, level, timeout, clear, list, content) for
+    `alert [-l LEVEL] [-t SECONDS] [-C CONTENT] [-c] MESSAGE…`."""
     import argparse
 
     parser = argparse.ArgumentParser(prog="alert", add_help=True,
@@ -282,6 +300,8 @@ def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, boo
     parser.add_argument("-s", "--sticky", action="store_true", help="stay until dismissed")
     parser.add_argument("-c", "--clear", action="store_true", help="dismiss every alert")
     parser.add_argument("--list", action="store_true", help="list the current alerts")
+    parser.add_argument("-C", "--content", default="", metavar="TEXT",
+                        help="a payload a right-click on the alert copies (- reads it from stdin)")
     parser.add_argument("message", nargs="*")
     opts = parser.parse_args(argv)
     timeout: float | None | str = "default"
@@ -289,14 +309,14 @@ def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, boo
         timeout = None
     elif opts.timeout is not None:
         timeout = opts.timeout
-    return " ".join(opts.message), opts.level, timeout, opts.clear, opts.list
+    return " ".join(opts.message), opts.level, timeout, opts.clear, opts.list, opts.content
 
 
 def main(argv: list[str] | None = None) -> int:
     """`python -m shellcraft.alerts` / `shellcraft-alert` / the `alert` shim on a subshell's PATH."""
     argv = sys.argv[1:] if argv is None else argv
     try:
-        message, level, timeout, clear, listing = parse_args(argv)
+        message, level, timeout, clear, listing, content = parse_args(argv)
     except SystemExit as exc:
         return int(exc.code or 0)
     if clear or listing:
@@ -305,8 +325,10 @@ def main(argv: list[str] | None = None) -> int:
     if not message:
         print("alert: a message is needed", file=sys.stderr)
         return 2
+    if content == "-":  # `make 2>&1 | alert -l warning build failed -C -`
+        content = sys.stdin.read()
     try:
-        send(message, level, timeout)
+        send(message, level, timeout, content=content)
     except OSError as exc:
         print(f"alert: cannot write the alert: {exc}", file=sys.stderr)
         return 1

@@ -124,7 +124,8 @@ class Footer:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
         the prompt. Records the rows, for the mouse."""
         self.rows = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
-                                alerts=self._alerts(), hint=self.show_hint(), expanded=self._expanded())
+                                alerts=self._alerts(), hint=self.show_hint(), expanded=self._expanded(),
+                                copied=self.alerts.copied if self.alerts is not None else None)
         console = self.ui.console
         out = []
         for row in self.rows:
@@ -163,13 +164,15 @@ class Footer:
         if key is self.hover or (key == self.hover and type(key) is type(self.hover)):
             return False
         self.hover = key
+        if self.alerts is not None and self.alerts.copied is not key:
+            self.alerts.copied = None  # the "copied" hint goes when the mouse moves to another row
         return True
 
     def mouse(self, kind: str, x: int, y: int, button: str = "left") -> tuple[str, Any] | None:
         """A mouse event (from parse_mouse) over the footer. None when it is not on the footer;
         ("switch", tab) for a click on a shell's line; ("handled", None) for the rest: hover, a
-        click on the badge (fold / unfold the alerts), a click on an alert's × or a right-click
-        on an alert (dismiss it)."""
+        click on the badge (fold / unfold the alerts), a click on an alert's × (dismiss it) or a
+        right-click on an alert (copy its content into the clip register)."""
         row = self.row_at(y)
         if row is None:
             return None
@@ -181,7 +184,12 @@ class Footer:
         if kind != "up":
             return "handled", None
         col = x - 1
-        if row.alert is not None and (button == "right" or 0 <= row.close <= col):
+        if row.alert is not None and button == "right":
+            if self.alerts is not None:
+                self.alerts.copy(row.alert)
+                self.draw()
+            return "handled", None
+        if row.alert is not None and 0 <= row.close <= col:
             if self.alerts is not None:
                 self.set_hover(None)
                 self.alerts.remove(row.alert)
@@ -242,9 +250,9 @@ def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
     return [a for a in alerts if a.level == "critical"]
 
 
-def alert_lines(alerts: list, width: int, hover: Any = None) -> list[Row]:
+def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None) -> list[Row]:
     """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`.
-    The one under the mouse ends with a ×."""
+    The one under the mouse ends with a × (and says `copied` after a right-click on it)."""
     from shellcraft.alerts import ICONS
 
     lines: list[Row] = []
@@ -252,7 +260,10 @@ def alert_lines(alerts: list, width: int, hover: Any = None) -> list[Row]:
         hovered = hover is alert
         left = f" {ICONS[alert.level]} {alert.message}" + (f" · from {alert.source}" if alert.source else "")
         remaining = alert.remaining
-        right = f"{alert.level}" + (f" · {int(remaining) + 1}s" if remaining is not None else " · sticky")
+        if hovered and copied is alert:
+            right = "copied · Alt-v pastes"
+        else:
+            right = f"{alert.level}" + (f" · {int(remaining) + 1}s" if remaining is not None else " · sticky")
         right += CLOSE if hovered else " "
         room = max(10, width - get_cwidth(right) - 1)
         if get_cwidth(left) > room:
@@ -283,7 +294,8 @@ def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int,
 
 def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, depth: int = 0,
                 attached: bool = False, cursor: int | None = None,
-                alerts: list | None = None, hint: bool = False, expanded: bool = False) -> list[Row]:
+                alerts: list | None = None, hint: bool = False, expanded: bool = False,
+                copied: Any = None) -> list[Row]:
     """The rows of the shell stack (see Row): the alert rows (critical ones always; the others
     when `expanded`, or when there is no stack), the header with the keys (only with `hint`,
     the `panel_hint` setting), `main` with the alert badge on its right, and one row per
@@ -300,7 +312,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
 
     width = max(40, width)
     alerts = list(alerts or [])
-    lines: list[Row] = alert_lines(alert_rows(alerts, jobs, expanded), width, hover)
+    lines: list[Row] = alert_lines(alert_rows(alerts, jobs, expanded), width, hover, copied)
     if not jobs:
         return lines  # alerts alone, when there are no subshells to list
     running = sum(1 for j in jobs if j.running)
