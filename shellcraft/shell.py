@@ -930,7 +930,7 @@ class Shell:
 
     def _hot_reload(self) -> None:
         """Reload modules whose files changed since the last command (the `hot_reload` setting)."""
-        if self.ctx.lite:
+        if getattr(self.ctx, "lite", False):
             return  # a lite shell never reloads modules (the main shell does)
         changed = self.watcher.changes()  # always consumed, so turning the setting on starts fresh
         if not changed or not settings.get(self.ctx.config, "hot_reload"):
