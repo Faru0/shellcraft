@@ -527,18 +527,20 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 SUB_DOC = """# sub
 
 Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
-or a ShellCraft command running in the background. Every subshell is a numbered **job**, and a
-panel lists them as a stack (`● main`, then `○ 1  bash …`): under the prompt, and at the bottom of
-the terminal while you are inside a subshell, with the ● on the shell you are in. Hover or ↓ to
-pick, click or Enter to switch; `jobs` lists them too, and **Ctrl-] N** or a click selects job N
-from the prompt or from inside another subshell.
+or a ShellCraft command running in the background. Every subshell is a numbered **job**, and the
+**footer** on the last rows of the terminal lists them as a stack (`● main`, then `○ 1  bash …`,
+newest at the bottom, growing as you open more), at the prompt and inside every subshell, with
+the ● on the shell you are in. Hover or ↓ to pick, click or Enter to switch; `jobs` lists them
+too, and **Ctrl-] N** or a click selects job N from the prompt or from inside another subshell.
+**Ctrl-] c**, or the `▾` after `main`, folds the subshell lines into `main  ⤷ 3 subshells ▸`
+when you need the room, and unfolds them again.
 
 ## Usage
 
 ```
 sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
-sub shellcraft [ARGS...]   # a nested ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷1)
+sub shellcraft [ARGS...]   # a nested, lite ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷1)
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
 COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
@@ -563,12 +565,14 @@ An `&` anywhere else is still an error.
   `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); finished jobs
   print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
-- The panel looks the same at the prompt and inside a subshell: the line under the mouse is
+- The footer looks the same at the prompt and inside a subshell: the line under the mouse is
   highlighted, the ● marks where you are, the color is the state (amber running, green done, red
   failed) and a finished line says `done`, `exit 2` or `killed` on the right (`jobs` has the
-  times). An alert sent from a subshell shows inline on its line; the badge on the `main` line
-  counts them all (`man alert`). `jobs -c` clears the finished ones, `jobs -k N` stops one,
-  `settings footer off` drops the panel inside subshells (Ctrl-] N still works).
+  times). It takes up to half the screen, then says how many more there are. An alert sent from
+  a subshell shows inline on its line; the badge on the `main` line counts them all (`man alert`).
+  `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` goes back to a
+  panel under the prompt only while something runs, and nothing inside subshells (Ctrl-] N
+  still works).
 
 Each program has its own terminal emulator: switching to it redraws its screen exactly as it
 was, and the mouse wheel scrolls through its scrollback (any key returns to the live page).
@@ -576,8 +580,10 @@ Subshells are shown on the terminal's alternate screen, so the prompt comes back
 On Windows programs run on ConPTY through the `pywinpty` package; without it, `sub PROGRAM`
 runs the program in the foreground (you are back when it exits) and it is not listed as a job.
 
-Only the main ShellCraft starts subshells: inside `sub shellcraft` the `sub` and `jobs`
-commands are refused, so the main shell stays the one place that orchestrates them.
+`sub shellcraft` runs a **lite** ShellCraft (`shellcraft --lite`): the builtins, the modules,
+settings, aliases and history, without the banner, the startup scripts, hot reload, the alert
+watcher or the MCP server (`mcp` says so). Only the main ShellCraft runs subshells: `jobs` is
+refused inside a nested shell, and the main footer at the bottom lists everything.
 
 ## Examples
 
@@ -1214,13 +1220,16 @@ def _attach(ctx: ShellContext, job: Any) -> Any:
     pages = Pages(terminal)  # subshells live on the alternate screen: the prompt comes back untouched
     pages.begin()
     if footer is not None:
-        footer.enable()
+        footer.enable()  # drawn on the alternate screen (already enabled when it lives at the prompt too)
     try:
         return _attach_loop(ctx, job, footer, terminal)
     finally:
-        if footer is not None:
+        if footer is not None and not footer.at_prompt:
             footer.disable()
         pages.end()
+        if footer is not None and footer.at_prompt:
+            footer.current = 0
+            footer.draw()  # back on the main screen: the scroll region and the rows, at the prompt
         terminal.close()
 
 

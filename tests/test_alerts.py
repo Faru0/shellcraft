@@ -194,7 +194,7 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
     main = rows[1]
     assert main.text.startswith(" ● main") and main.text.rstrip().endswith("✖ 1  ▲ 1  ● 1 ▸") and main.badge > 0
     assert [(main.text[s:e], style, role) for s, e, style, role in main.spans] == [
-        ("✖ 1", "alert.critical.mark", "badge"), ("▲ 1", "alert.warning.mark", "badge"),
+        (" ▾", None, "fold"), ("✖ 1", "alert.critical.mark", "badge"), ("▲ 1", "alert.warning.mark", "badge"),
         ("● 1", "alert.info.mark", "badge"), (" ▸ ", None, "badge")]
     bash = rows[2]
     assert bash.text.startswith(" ○ 1  bash --norc  ▲ Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()

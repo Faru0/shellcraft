@@ -499,6 +499,10 @@ class JobTable:
                         return "kill", job.number
                     if data[:1] in (b"v", b"V"):  # Ctrl-] v: paste the clip register (a copied alert)
                         data = _clip_bytes(footer) + data[1:]
+                    elif data[:1] in (b"c", b"C"):  # Ctrl-] c: fold / unfold the subshell rows
+                        if footer is not None:
+                            footer.toggle_collapsed()
+                        data = data[1:]
                     elif data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
                         data = data[1:]
                         job.write(DETACH_KEY)
@@ -543,6 +547,10 @@ class JobTable:
                         return ("switch", int(rest[:1])) if rest[:1].isdigit() else ("kill", job.number)
                     if rest[:1] in (b"v", b"V"):  # Ctrl-] v in the same read: paste the clip register
                         data += _clip_bytes(footer) + rest[1:]
+                    elif rest[:1] in (b"c", b"C"):
+                        if footer is not None:
+                            footer.toggle_collapsed()
+                        data += rest[1:]
                     else:
                         prefix_at = time.monotonic()
                 if data:

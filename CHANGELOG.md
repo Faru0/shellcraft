@@ -7,6 +7,17 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **The footer at the prompt too:** the shell stack (`● main`, then one line per subshell,
+  newest at the bottom) now sits on the last rows of the terminal at the main prompt as well as
+  inside every subshell, growing as subshells open (up to half the screen, then "… and N
+  more"), with `main` there even when nothing runs. The prompt and its menus stay above it.
+  **Ctrl-] c**, or a click on the `▾` after `main`, folds the subshell lines into
+  `main  ⤷ 3 subshells ▸` and unfolds them. `settings footer off` goes back to a panel under
+  the prompt only while something runs.
+- **`shellcraft --lite`**, what `sub shellcraft` now runs: the builtins, modules, settings,
+  aliases and history, without the banner, the clear on start, the startup scripts and rc, hot
+  reload, the alert spool watcher (a nested shell used to take alerts meant for the main one)
+  or the MCP server.
 - **Alerts with a payload, and the clip register:** `alert -C CONTENT MESSAGE` (or `-C -` for
   what was piped in; `content` in the `send_tui_alert` MCP tool, `shellcraft-alert -C`) keeps up
   to 64 KB with the alert: a path, a command, a URL, JSON. A **right-click** on the alert's row
@@ -86,6 +97,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The stack is no longer cut at 8 subshells:** it may take up to half the screen. On
+  Windows, clicks on the footer at the prompt are mapped from screen-buffer rows to window
+  rows, so they land on the right line when there is scrollback.
 - **`mcp start` waits up to 45 s** (was 15 s) for the server to start listening: a cold start
   that imports mcp and uvicorn on a slow disk or a busy machine sometimes needed more.
 - **Alerts fold into the panel:** an alert sent from a subshell shows inline on that subshell's

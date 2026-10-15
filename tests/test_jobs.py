@@ -216,17 +216,17 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert ctx.footer is footer and not footer.enabled and sh.session.bottom_toolbar is None
     footer.size = lambda: (24, 80)
     footer.enabled = True
-    assert footer.height() == 0 and footer.region_rows == 24  # nothing to show yet: no subshell, no alert
+    assert footer.height() == 1 and footer.region_rows == 23  # the main row alone: no subshell, no alert
     job = ctx.jobs.start_command("seq 2", lambda: (0, "1\n2\n"))
     assert _wait(lambda: not job.running)
     # the same stack at the prompt and in the footer
     lines = panel_lines([job], 0, None, 80, cursor=None)
-    assert [r.tab for r in lines] == [0, 1] and lines[0][2] == " ● main" and lines[1][2].startswith(" ○ 1  seq 2")
+    assert [r.tab for r in lines] == [0, 1] and lines[0][2] == " ● main ▾" and lines[1][2].startswith(" ○ 1  seq 2")
     assert "done" in lines[1][2] and lines[1][1] == "done" and not lines[1][3]
     hovered = panel_lines([job], 0, 1, 80)  # hover fills the circle, the line keeps its style
     assert hovered[1][2].startswith(" ● 1 ") and hovered[1][1] == "done" and hovered[1][3]
     attached = panel_lines([job], 1, None, 80, attached=True)
-    assert attached[0][2] == " ○ main" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
+    assert attached[0][2] == " ○ main ▾" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
     hinted = panel_lines([job], 1, None, 80, attached=True, hint=True)  # settings panel_hint on
     assert hinted[0][0] is None and "Ctrl-] alone returns" in hinted[0][2] and hinted[1:] == attached
     seq = footer.sequence()  # the scroll region above the stack (2 rows), the rows painted at the bottom
@@ -271,7 +271,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     footer.enabled = False
     sh._update_toolbar()
     lines = "".join(f[1] for f in sh._toolbar()).split("\n")
-    assert lines[0] == " ● main" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
+    assert lines[0] == " ● main ▾" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
     ctx.config.setdefault("settings", {})["panel_hint"] = True  # the header line with the keys
     hinted = "".join(f[1] for f in sh._toolbar()).split("\n")
     assert hinted[0].startswith(" ⤷ 1 subshell") and "↓ to manage" in hinted[0] and hinted[1:] == lines
@@ -679,14 +679,14 @@ def test_footer_mouse_with_windows_releases(tmp_path):
     footer.size = lambda: (24, 80)
     footer.enabled = True
     footer.sequence()
-    assert footer.row_tabs == [None]  # no subshells: the alert row alone, on the last line
-    assert parse_mouse("RIGHT;MOUSE_DOWN;9;23") == ("down", 10, 24, "right")
-    assert footer.mouse(*parse_mouse("RIGHT;MOUSE_DOWN;9;23")) == ("handled", None)
-    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;9;23")) == ("handled", None)
+    assert footer.row_tabs == [None, 0]  # no subshells: the alert row, then main on the last line
+    assert parse_mouse("RIGHT;MOUSE_DOWN;9;22") == ("down", 10, 23, "right")
+    assert footer.mouse(*parse_mouse("RIGHT;MOUSE_DOWN;9;22")) == ("handled", None)
+    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;9;22")) == ("handled", None)
     assert bus.clip == "df -h" and warn in bus.current()  # copied on the release that said NONE
-    footer.mouse("move", 10, 24, "none")
-    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;23")) == ("handled", None)
-    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;23")) == ("handled", None)
+    footer.mouse("move", 10, 23, "none")
+    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;22")) == ("handled", None)
+    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;22")) == ("handled", None)
     assert not bus.current()  # the × took the left click
     bus.close()
 
@@ -719,3 +719,71 @@ def test_lite_shell_skips_startup_watchers_and_mcp(tmp_path, monkeypatch, starte
         with pytest.raises(PipelineError, match="not in a lite shell"):
             run_line("mcp start", ctx)
         assert to_text(run_line("echo still a shell", ctx).output) == "still a shell\n"
+
+
+class _FakeJob:
+    def __init__(self, number, command="bash", running=True, status=0):
+        self.number, self.command, self.running, self.status = number, command, running, status
+        self.label = "running" if running else ("done" if status == 0 else f"exit {status}")
+
+    def short(self, width=18):
+        return self.command[:width]
+
+
+def test_stack_rows_fold_cap_and_always_show_main():
+    from shellcraft.footer import panel_lines
+
+    jobs = [_FakeJob(n, f"job {n}") for n in range(1, 6)]
+    rows = panel_lines([], 0, width=60, stack=True)
+    assert [r.text.rstrip() for r in rows] == [" ● main"]  # the footer: main even with nothing under it
+    assert panel_lines([], 0, width=60) == []  # the panel under the prompt (footer off): nothing
+    rows = panel_lines(jobs, 2, width=60, stack=True, max_rows=3)
+    assert rows[0].text.startswith(" ○ main ▾") and rows[0].spans[0][3] == "fold"
+    assert [r.tab for r in rows] == [0, 1, 2, 3, None] and rows[-1].text.strip() == "… and 2 more (jobs)"
+    assert rows[2].text.startswith(" ● 2  job 2")  # the shell you are in: the filled bubble
+    folded = panel_lines(jobs, 2, width=60, stack=True, collapsed=True)
+    assert [r.tab for r in folded] == [0] and folded[0].text.rstrip() == " ○ main  ⤷ 5 subshells ▸"
+    assert folded[0].text[folded[0].spans[0][0]:folded[0].spans[0][1]] == "  ⤷ 5 subshells ▸"
+    one = panel_lines(jobs[:1], 0, width=60, stack=True, collapsed=True)
+    assert one[0].text.rstrip() == " ● main  ⤷ 1 subshell ▸"
+
+
+def test_footer_height_fold_click_and_shortened_screen(repl_shell, monkeypatch):
+    from prompt_toolkit.data_structures import Size
+
+    from shellcraft.footer import Footer
+
+    sh, ctx = repl_shell
+    jobs = [_FakeJob(n, f"job {n}") for n in range(1, 10)]
+    footer = Footer(sh.ui, jobs, alerts=ctx.alerts)
+    footer.size = lambda: (12, 80)
+    footer.enabled = True
+    assert footer.max_rows() == 6 and footer.height() == 1 + 6 + 1  # main, six rows, "… and 3 more"
+    footer.size = lambda: (40, 80)
+    assert footer.max_rows() == 20 and footer.height() == 10
+    footer.sequence()
+    fold = footer.rows[0]
+    col = fold.text.index("▾") + 1
+    assert footer.mouse("up", col, 40 - footer.height() + 1, "left") == ("handled", None)
+    assert footer.collapsed and footer.height() == 1 and footer.rows[0].text.rstrip().endswith("⤷ 9 subshells ▸")
+    assert footer.mouse("up", 5, 40, "left") == ("switch", 0)  # the main row itself still switches
+    assert footer.toggle_collapsed() is False and footer.height() == 10
+    # the prompt's screen is shorter by the footer while it is drawn at the prompt
+    sh.footer.size = lambda: (24, 80)
+    monkeypatch.setattr(sh.session.app.output, "get_size", lambda: Size(rows=24, columns=80), raising=False)
+    sh._shorten_output_for_footer()
+    assert sh.session.app.output.get_size() == Size(rows=24, columns=80)  # not enabled: untouched
+    sh.footer.enabled = True
+    assert sh.session.app.output.get_size() == Size(rows=23, columns=80)  # the main row
+    sh.footer.enabled = False
+    # at the prompt: the `footer` setting and a terminal turn it on; `settings footer off` turns it off
+    assert not sh.footer.at_prompt
+    sh._footer_at_prompt()
+    assert not sh.footer.at_prompt  # the test console is not a terminal
+    monkeypatch.setattr(type(sh.ui.console), "is_terminal", property(lambda self: True))
+    sh._footer_at_prompt()
+    assert sh.footer.at_prompt and sh.footer.enabled
+    ctx.config["settings"] = {"footer": False}
+    sh._footer_at_prompt()
+    assert not sh.footer.at_prompt and not sh.footer.enabled
+    del ctx.config["settings"]

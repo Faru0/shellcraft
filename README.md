@@ -273,17 +273,23 @@ jobs                         # the table of subshells; jobs 2 selects one, jobs 
 jobs -f 2                    # follow a background command's output as it grows, like tail -f (Ctrl-C stops following)
 ```
 
-Every subshell is a numbered job. At the prompt, a **panel** under it lists them, one per line:
+Every subshell is a numbered job. A **footer** on the last rows of the terminal lists them as a
+stack, at the prompt and inside every subshell alike: `main` first, then one line per subshell,
+newest at the bottom, growing as you open more (up to half the screen, then "… and N more"):
 
 ```
  ✖ Payment API is down · from mcp · claude-code                 critical · sticky
- ● main                                                           ✖ 1  ▲ 1  ● 1 ▸
+ ● main ▾                                                         ✖ 1  ▲ 1  ● 1 ▸
  ○ 1  bash --norc  ▲ Disk /home at 91%
  ○ 2  find / -name "*.log"                                                   done
 ```
 
-The color of a line is its state (amber running, green done, red failed); a finished one says
-`done`, `exit 2` or `killed` on the right. Alerts are part of the stack: see below.
+The ● is the shell you are in. The color of a line is its state (amber running, green done,
+red failed); a finished one says `done`, `exit 2` or `killed` on the right. The `▾` after `main`
+(a click, or **Ctrl-] c**) folds the subshell lines into `main  ⤷ 2 subshells ▸` when you need
+the room; the same again unfolds them. Alerts are part of the stack: see below. With no
+subshell the footer is the `main` line alone; `settings footer off` goes back to a panel under
+the prompt that appears only while something is running.
 
 The line under the mouse lights up and a click switches to it; **↓** on an empty line moves into
 the panel (↑ / ↓ walk it, **Enter** switches, **x** or Delete stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere.
@@ -293,7 +299,7 @@ and the wheel moves through the history; with no subshells the terminal keeps th
 Subshells are shown like the pages of a book. Each program has its own terminal emulator, so
 switching to it redraws its screen exactly as it was, scrollback included, and switching away
 and back never garbles anything. They are shown on the terminal's alternate screen, so coming
-back to the prompt restores it untouched. Inside a subshell the same stacked panel sits at the bottom of the terminal, with the
+back to the prompt restores it untouched. Inside a subshell the same footer sits at the bottom of the terminal, with the
 ● on the shell you are in: click a line or press Ctrl-] N to turn the page; **Ctrl-]** alone, or
 the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to the
 program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
@@ -501,7 +507,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
 | `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
-| `footer` | on | Inside a subshell, keep the subshell panel at the bottom of the terminal (click a line, or Ctrl-] N, to switch). |
+| `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
 
 ### API keys

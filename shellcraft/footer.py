@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from shellcraft.themes import UI
 
 PREFIX = "Ctrl-]"
-MAX_ROWS = 10  # the footer never takes more rows than this (the stack is cut with "… and N more")
+MIN_STACK = 3  # subshell rows the stack may always take; beyond that, up to half the screen
 # A scroll-region command from an attached program (`ESC[r`, `ESC[a;br`): rewritten to stay
 # above the footer, else a full-screen reset would let its output scroll over the footer row.
 MARGINS_RE = re.compile(rb"\x1b\[(\d*)(?:;(\d*))?r")
@@ -45,6 +45,10 @@ class Footer:
         self.enabled = False
         self.rows: list[Row] = []  # the footer's rows, after the last draw
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
+        self.collapsed = False  # the subshell rows folded into `main  ⤷ N subshells ▸` (Ctrl-] c, a click)
+        self.cursor: int | None = None  # the subshell row chosen with ↓ / ↑ at the prompt
+        self.at_prompt = False  # drawn at the prompt too (the `footer` setting), not only in subshells
+        self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
@@ -106,14 +110,32 @@ class Footer:
         except (OSError, ValueError):
             pass
 
+    def max_rows(self) -> int:
+        """Subshell rows the stack may take: up to half the screen, three at least."""
+        return max(MIN_STACK, self.size()[0] // 2)
+
     def height(self) -> int:
         """Rows the footer takes: the alert rows shown, the header (with panel_hint), `main`, and
-        one per subshell (capped)."""
+        one per subshell (up to max_rows, then one row saying how many more), none when
+        collapsed."""
         jobs = list(self.jobs)
-        alerts = len(alert_rows(self._alerts(), jobs, self._expanded()))
-        if not jobs:
-            return alerts
-        return alerts + (2 if self.show_hint() else 1) + min(len(jobs), MAX_ROWS - 2)
+        rows = len(alert_rows(self._alerts(), jobs, self._expanded())) + 1
+        if jobs and self.show_hint():
+            rows += 1
+        if jobs and not self.collapsed:
+            shown = min(len(jobs), self.max_rows())
+            rows += shown + (1 if shown < len(jobs) else 0)
+        return rows
+
+    def toggle_collapsed(self) -> bool:
+        """Fold the subshell rows into the main row, or unfold them; the new state. The attach
+        loop resizes the program to the rows that freed up (dirty), the prompt redraws."""
+        self.collapsed = not self.collapsed
+        self.dirty = True
+        self.draw()
+        if self.on_change is not None:
+            self.on_change()
+        return self.collapsed
 
     def _alerts(self) -> list:
         return self.alerts.current() if self.alerts is not None else []
@@ -124,9 +146,11 @@ class Footer:
     def render(self, cols: int) -> list[str]:
         """The footer's lines (ANSI, exactly `cols` cells each): the same stack as the panel under
         the prompt. Records the rows, for the mouse."""
-        self.rows = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth, attached=True,
+        self.rows = panel_lines(list(self.jobs), self.current, self.hover, cols, self.depth,
+                                attached=self.current != 0, cursor=self.cursor,
                                 alerts=self._alerts(), hint=self.show_hint(), expanded=self._expanded(),
-                                copied=self.alerts.copied if self.alerts is not None else None)
+                                copied=self.alerts.copied if self.alerts is not None else None,
+                                collapsed=self.collapsed, max_rows=self.max_rows(), stack=True)
         console = self.ui.console
         out = []
         for row in self.rows:
@@ -202,6 +226,10 @@ class Footer:
             return "handled", None
         if button != "left":
             return "handled", None
+        for start, end, _style, role in row.spans:
+            if role == "fold" and get_cwidth(row.text[:start]) <= col < get_cwidth(row.text[:end]):
+                self.toggle_collapsed()
+                return "handled", None
         if row.badge >= 0 and col >= get_cwidth(row.text[: row.badge]):
             if self.alerts is not None:
                 self.alerts.toggle()
@@ -300,16 +328,20 @@ def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int,
 def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, depth: int = 0,
                 attached: bool = False, cursor: int | None = None,
                 alerts: list | None = None, hint: bool = False, expanded: bool = False,
-                copied: Any = None) -> list[Row]:
+                copied: Any = None, collapsed: bool = False, max_rows: int = 8,
+                stack: bool = False) -> list[Row]:
     """The rows of the shell stack (see Row): the alert rows (critical ones always; the others
     when `expanded`, or when there is no stack), the header with the keys (only with `hint`,
     the `panel_hint` setting), `main` with the alert badge on its right, and one row per
     subshell with that subshell's own alert inline after its command. `hover` is the tab or the
     Alert under the mouse; `current` the attached job (0 at the prompt). A hovered or chosen
-    shell row gets a filled circle (` ● `) without changing its colors.
+    shell row gets a filled circle (` ● `) without changing its colors. With `stack` the main
+    row is always there (the footer); without it, alerts alone show when there is no subshell
+    (the panel under the prompt with the footer off). `collapsed` folds the subshell rows into
+    the main row (`main  ⤷ 3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
 
         ✖ Payment API is down · from mcp · claude                     critical · sticky
-        ● main                                                        ✖ 1  ▲ 1  ● 1 ▸
+        ● main ▾                                                      ✖ 1  ▲ 1  ● 1 ▸
         ○ 1  bash --norc  ▲ Disk /home at 91%
         ○ 2  find / -name "*.log"                                                  done
     """
@@ -318,29 +350,35 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     width = max(40, width)
     alerts = list(alerts or [])
     lines: list[Row] = alert_lines(alert_rows(alerts, jobs, expanded), width, hover, copied)
-    if not jobs:
+    if not jobs and not stack:
         return lines  # alerts alone, when there are no subshells to list
     running = sum(1 for j in jobs if j.running)
     head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
                                                        else "↓ to manage · x stops")
-    if hint:
+    if hint and jobs:
         lines.append(Row(None, "header", head, False))
     main_hover = hover == 0
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
     badge_at, spans = -1, ()
+    if jobs:  # the fold control: a click (or Ctrl-] c) hides the subshell rows, or brings them back
+        fold = f"  ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"
+        spans = ((len(main), len(main) + len(fold), None, "fold"),)
+        main += fold
     if alerts:
         foldable = any(a.level != "critical" for a in alerts)
         badge, marks = alert_badge(alerts, foldable)
         badge += (" ▾" if expanded else " ▸") if foldable else ""
         pad = max(2, width - get_cwidth(main) - get_cwidth(badge) - 1)
         badge_at = len(main) + pad
-        spans = tuple((badge_at + s, badge_at + e, style, "badge") for s, e, style in marks)
+        spans += tuple((badge_at + s, badge_at + e, style, "badge") for s, e, style in marks)
         spans += ((badge_at + len(badge) - 2, badge_at + len(badge) + 1, None, "badge"),) if foldable else ()
         main += " " * pad + badge + " "
     lines.append(Row(0, "current" if current == 0 else "main", main, main_hover, spans=spans, badge=badge_at))
-    shown = jobs[: MAX_ROWS - 2]
+    if collapsed:
+        return lines
+    shown = jobs[:max_rows]
     numbers = {job.number for job in jobs}
     for index, job in enumerate(shown):
         chosen = hover == job.number or cursor == index

@@ -92,9 +92,11 @@ SETTINGS: dict[str, Setting] = {
                 "error), click the toolbar for the man page, wheel through history and Ctrl-R "
                 "matches. The terminal then needs Shift for text selection and scrollback.",
                 _apply_mouse_always),
-        Setting("footer", "Subshell footer", True,
-                "Inside a subshell, keep the subshell panel at the bottom of the terminal (the same "
-                "stack as under the prompt: click a line, or Ctrl-] N, to switch)."),
+        Setting("footer", "Shell footer", True,
+                "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
+                "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "
+                "folds it. Off: a panel under the prompt only while something is running, and nothing "
+                "inside subshells."),
         Setting("panel_hint", "Subshell panel key hints", False,
                 "Show a header line at the top of the subshell panel with the keys that work there "
                 "(click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). Off by default "

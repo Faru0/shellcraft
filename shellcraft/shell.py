@@ -201,13 +201,13 @@ class Shell:
         self._cleanup.callback(ctx.alerts.close)
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
         self.footer.show_hint = lambda: bool(settings.get(ctx.config, "panel_hint"))
+        self.footer.on_change = self._jobs_changed
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
         # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
         self._panel_hover: Any = None
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
-        self._panel_cursor: int | None = None
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
@@ -253,6 +253,7 @@ class Shell:
             key_bindings=self._key_bindings(),
         )
         self.session.app.after_render += lambda _app: self.footer.draw()
+        self._shorten_output_for_footer()
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
         self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
@@ -336,6 +337,43 @@ class Shell:
         except Exception:  # noqa: BLE001 — no app running: the next prompt shows it
             pass
 
+    def _shorten_output_for_footer(self) -> None:
+        """While the footer is drawn at the prompt, prompt_toolkit (and Rich, which asks it) must
+        think the screen ends where the footer starts: the rows it reports, and on Windows the rows
+        below the cursor, are reduced by the footer's height. The footer is outside the scroll
+        region, so the prompt and its menus never reach it."""
+        from prompt_toolkit.data_structures import Size
+
+        output = self.session.app.output
+        real_size = output.get_size
+        real_below = getattr(output, "get_rows_below_cursor_position", None)
+
+        def get_size() -> Size:
+            size = real_size()
+            if self.footer.enabled:
+                return Size(rows=max(3, size.rows - self.footer.height()), columns=size.columns)
+            return size
+
+        output.get_size = get_size  # type: ignore[method-assign]
+        if real_below is not None:
+            def below() -> int:
+                rows = real_below()
+                return max(1, rows - self.footer.height()) if self.footer.enabled else rows
+
+            output.get_rows_below_cursor_position = below  # type: ignore[method-assign]
+
+    def _footer_at_prompt(self) -> None:
+        """Keep the footer on at the prompt while the `footer` setting is on (and this is a
+        terminal), off otherwise; checked before every prompt, so `settings footer off` acts
+        at once."""
+        wanted = settings.get(self.ctx.config, "footer") and bool(self.ui.console.is_terminal)
+        if wanted and not self.footer.at_prompt:
+            self.footer.at_prompt = True
+            self.footer.enable()
+        elif not wanted and self.footer.at_prompt:
+            self.footer.at_prompt = False
+            self.footer.disable()
+
     def _key_bindings(self) -> KeyBindings:
         """Ctrl-] then a digit selects a tab (attach to a subshell, or show its output), the same
         key as inside an attached program. (Alt-N is left alone: terminals use it for their own
@@ -352,6 +390,10 @@ class Shell:
         def _mouse(event: Any) -> Any:
             return self._footer_mouse(event)
 
+        @kb.add("c-]", "c")  # Ctrl-] c: fold the subshell rows into the main row, or unfold them
+        def _fold(event: Any) -> None:
+            self.footer.toggle_collapsed()
+
         @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
         def _paste_clip(event: Any) -> None:
             clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
@@ -361,7 +403,7 @@ class Shell:
         # ↓ on an empty line moves into the panel ("↓ to manage"); ↑ / ↓ walk it, Enter switches
         # to the chosen subshell, Esc (or typing) leaves it.
         in_panel = Condition(lambda: self._panel_cursor is not None)
-        can_enter = Condition(lambda: self._panel_cursor is None and self._panel_wanted()
+        can_enter = Condition(lambda: self._panel_cursor is None and self._stack_shown()
                               and not self.session.default_buffer.text
                               and self.session.default_buffer.complete_state is None)
 
@@ -406,9 +448,14 @@ class Shell:
         prompt_toolkit's own mouse handling."""
         parsed = parse_mouse(event.data)
         if parsed is not None:
-            if parsed[0] == "down":
-                self._pressed = parsed[3]  # for the release, which may not say which button it was
-            acted = self.footer.mouse(*parsed)
+            kind, x, y, button = parsed
+            if kind == "down":
+                self._pressed = button  # for the release, which may not say which button it was
+            if event.key_sequence[0].key == Keys.WindowsMouseEvent and self.direct_console is not None:
+                info = self.direct_console.buffer_info()  # Windows: rows count from the top of the
+                if info is not None:  # screen buffer, not of the window the footer sits at the bottom of
+                    y -= info.srWindow.Top
+            acted = self.footer.mouse(kind, x, y, button)
             if acted is not None:
                 if acted[0] == "switch" and acted[1]:
                     tab = acted[1]
@@ -523,7 +570,7 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        return self._panel_wanted()  # the panel's lines are clickable: subshells, or alerts alone
+        return self._clickable()  # the stack's lines are clickable: subshells, or alerts
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt
@@ -633,9 +680,8 @@ class Shell:
         self.session.bottom_toolbar = self._toolbar if wanted or self._panel_wanted() else None
 
     def _panel_wanted(self) -> bool:
-        if self.ctx.alerts is not None and self.ctx.alerts.current():
-            return True
-        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
+        """The panel under the prompt: only while the footer is not drawn at the prompt."""
+        return not self.footer.enabled and self._clickable()
 
     def _panel_jobs(self) -> list[Any]:
         return list(self.ctx.jobs) if self.ctx.jobs is not None else []
@@ -761,6 +807,26 @@ class Shell:
             return NotImplemented
         return handler
 
+    @property
+    def _panel_cursor(self) -> int | None:
+        """The subshell row chosen with ↓ / ↑ (None: the input line has the keys); kept on the
+        footer, which draws it."""
+        return self.footer.cursor
+
+    @_panel_cursor.setter
+    def _panel_cursor(self, value: int | None) -> None:
+        self.footer.cursor = value
+
+    def _stack_shown(self) -> bool:
+        """Whether the stack is on screen: the footer at the prompt, or the panel under it."""
+        return self.footer.enabled or self._panel_wanted()
+
+    def _clickable(self) -> bool:
+        """Something in the stack to click: a subshell or an alert (the main row alone is not)."""
+        if self.ctx.alerts is not None and self.ctx.alerts.current():
+            return True
+        return self.ctx.jobs is not None and len(self.ctx.jobs) > 0
+
     def _set_panel_hover(self, key: Any) -> Any:
         """None when it changed (repaint), NotImplemented when nothing changed. `key` is a tab
         (0 or a job number) or an Alert."""
@@ -831,6 +897,7 @@ class Shell:
                 self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
         self.footer.set_hover(None)
         self._panel_hover = self._panel_cursor = None
+        self._footer_at_prompt()
         self._update_toolbar()
         line = self.session.prompt(message)
         if transient:
