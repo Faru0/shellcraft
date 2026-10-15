@@ -22,7 +22,7 @@ import shellcraft
 from shellcraft.config import config_dir
 
 DEFAULT_ADDRESS = "127.0.0.1:38765"
-STARTUP_TIMEOUT = 15.0  # seconds: importing mcp and uvicorn can take a while on a cold start
+STARTUP_TIMEOUT = 45.0  # seconds: importing mcp and uvicorn can take a while on a cold start (was 15)
 LOG_MAX_BYTES = 1_000_000  # the log is cut back to its last LOG_KEEP_BYTES when it grows past this
 LOG_KEEP_BYTES = 200_000
 

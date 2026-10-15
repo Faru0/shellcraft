@@ -86,6 +86,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **`mcp start` waits up to 45 s** (was 15 s) for the server to start listening: a cold start
+  that imports mcp and uvicorn on a slow disk or a busy machine sometimes needed more.
 - **Alerts fold into the panel:** an alert sent from a subshell shows inline on that subshell's
   line, after its command, in its color; a badge at the right end of the `main` line counts every
   alert by level (`✖ 1  ▲ 1  ● 1 ▸`) and a click on it unfolds one row per alert (another folds
