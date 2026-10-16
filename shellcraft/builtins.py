@@ -97,6 +97,37 @@ def _exit(ctx: ShellContext, args: list[str], stdin: str) -> str:
     raise ShellExit(code)
 
 
+DIAG_DOC = """# diag
+
+Print what ShellCraft detected about this terminal, as plain text to copy into a bug report: the
+Rich and prompt_toolkit color depth and size sources, on Windows the CONOUT$ modes, and a
+**footer colors** section: the escape sequence the footer writes for each state (running, done,
+failed, the recording bubble, the alert marks), whether running / done / failed look different in
+this theme, the footer's rows as last drawn, and the live state of every job (running, status,
+and for a Windows pseudo-terminal whether pywinpty says the program is alive).
+
+## Usage
+
+```
+diag          # the whole report
+```
+
+Run it with a subshell running (`sub pwsh`), and again after it has ended, when the footer line
+should have turned green or red and does not. `shellcraft --diag` prints the same report at start.
+"""
+
+
+@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag",
+         category="shell", stateful=True, doc=DIAG_DOC)
+def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if args:
+        raise CommandError("usage: diag")
+    if ctx.console_report is None:
+        raise CommandError("diag: only in the interactive shell")
+    report = ctx.console_report()
+    return Styled(Text(report, no_wrap=True, overflow="ignore"), report + "\n")  # unwrapped: copy as is
+
+
 @builtin("clear", "Clear the screen", "clear", stateful=True)
 def _clear(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if ctx.ui:
@@ -141,7 +172,8 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 # short description; the commands you know from Linux are a grid of names (`help -a` describes
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
-    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings banner"),
+    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings "
+                   "banner diag"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -161,7 +193,7 @@ HELP_SHORT = {  # one line each, for the ShellCraft group
     "reload": "Re-scan the modules folders", "ingest": "Turn a script into a module",
     "startup": "List or rerun the startup scripts", "theme": "List or switch color themes",
     "prompt": "Choose the prompt's segments", "settings": "Settings and API keys",
-    "banner": "Show the welcome banner",
+    "banner": "Show the welcome banner", "diag": "Console, color and footer diagnostics",
 }
 HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
 

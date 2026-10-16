@@ -223,6 +223,7 @@ class Shell:
         self.footer.show_hint = lambda: bool(settings.get(ctx.config, "panel_hint"))
         self.footer.is_recording = lambda: ctx.recording is not None
         self.footer.on_change = self._jobs_changed
+        ctx.console_report = self.report  # the `diag` command
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
@@ -990,13 +991,17 @@ class Shell:
     def banner(self, warnings: Iterable[str] = ()) -> None:
         self.ui.console.print(render_banner(self.ui, self.ctx.registry, warnings))
 
-    def diagnostics(self) -> None:
-        """Print the console diagnostics report (the `diagnostics` setting, or --diag)."""
+    def report(self) -> str:
+        """The console diagnostics report as plain text, with the live footer and jobs in it."""
         from shellcraft.diagnostics import console_report
 
+        return console_report(self.ui, self.direct_console, self.windows_console_error,
+                              jobs=self.ctx.jobs, footer=self.footer)
+
+    def diagnostics(self) -> None:
+        """Print the console diagnostics report (the `diagnostics` setting, or --diag)."""
         # Plain text, not wrapped, so it can be copied into a bug report as is.
-        self.ui.console.print(console_report(self.ui, self.direct_console, self.windows_console_error),
-                              markup=False, highlight=False, soft_wrap=True)
+        self.ui.console.print(self.report(), markup=False, highlight=False, soft_wrap=True)
 
     def _transient(self) -> bool:
         return settings.get(self.ctx.config, "transient_prompt")

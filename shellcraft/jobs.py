@@ -39,7 +39,51 @@ PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
 TAIL_BYTES = 64 * 1024  # kept in memory per job
 HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
+WINPTY_POLL = 0.1  # seconds between asking a ConPTY program whether it is still alive
+WINPTY_DRAIN = 0.5  # seconds a finished ConPTY program's last output gets to arrive
+WINPTY_STATUS_TRIES = 20  # tries (50 ms apart) for an exit status that pywinpty reports late
 MOUSE_MODE_RE = re.compile(rb"\x1b\[\?(1000|1002|1003|1006|1015)([hl])")
+
+
+def _winpty_alive(proc: Any) -> bool:
+    try:
+        return bool(proc.isalive())
+    except Exception:  # noqa: BLE001 — a closed pty is not alive
+        return False
+
+
+def _winpty_status(proc: Any) -> int:
+    """The exit status of a finished pywinpty process. pywinpty answers None for a moment after
+    isalive() turns False, and `None or 0` made every failure look like a success (green `done`
+    instead of red `exit N`), so it is asked again before giving up."""
+    for _ in range(WINPTY_STATUS_TRIES):
+        try:
+            status = proc.exitstatus
+        except Exception:  # noqa: BLE001
+            status = None
+        if isinstance(status, int):
+            return status
+        time.sleep(0.05)
+    return 0
+
+
+def _winpty_release(proc: Any) -> None:
+    """After the job ended: close what pywinpty reads through, so a reader still blocked in
+    recv() returns. (PtyProcess.close() does nothing once isalive() has said False.)"""
+    for name in ("fileobj", "_server"):
+        try:
+            getattr(proc, name).close()
+        except Exception:  # noqa: BLE001 — absent in another pywinpty, or already closed
+            pass
+
+
+def _send(job: Job, data: bytes) -> bool:
+    """Keys to the program; False when it has just ended (the loop notices on its next turn)."""
+    try:
+        job.write(data)
+        return True
+    except OSError:
+        return False
 
 
 def mouse_modes_after(modes: set[int], data: bytes) -> set[int]:
@@ -281,17 +325,22 @@ class Job:
         if self.master_fd is not None:
             os.write(self.master_fd, data)
         elif self.winpty is not None:
-            self.winpty.write(data.decode("utf-8", errors="replace"))
+            try:
+                self.winpty.write(data.decode("utf-8", errors="replace"))
+            except EOFError as exc:  # pywinpty: the program has just ended; callers expect an OSError
+                raise OSError("the pseudo-terminal is closed") from exc
 
-    def _finish(self, status: int) -> None:
+    def _finish(self, status: int) -> bool:
+        """Mark the job as ended; False when it already was (the first signal wins)."""
         with self._lock:
             if self.finished is not None:
-                return
+                return False
             self.finished = time.monotonic()
             self.status = status
             if self._log_file is not None:
                 self._log_file.close()
                 self._log_file = None
+            return True
 
 
 # ── the table ────────────────────────────────────────────────────────────────
@@ -347,7 +396,8 @@ class JobTable:
                 pass
 
     def _done(self, job: Job, status: int) -> None:
-        job._finish(status)
+        if not job._finish(status):
+            return  # already reported: one end, one note, one round of hooks
         self.notifications.append(f"[{job.number}] {job.label}: {job.title}")
         self._changed()
         for hook in list(self.on_done):  # the startup Supervisor restarts what asked for it
@@ -437,41 +487,64 @@ class JobTable:
         return job
 
     def _read_program(self, job: Job) -> None:
+        if job.winpty is not None:
+            self._read_winpty(job)
+            return
         try:
-            if job.winpty is not None:
+            assert job.master_fd is not None
+            while True:
+                try:
+                    data = os.read(job.master_fd, 65536)
+                except OSError:  # EIO: the child closed its side
+                    break
+                if not data:
+                    break
+                job.append(data)
+        finally:
+            assert job.pid is not None and job.master_fd is not None
+            status = _wait(job.pid)
+            try:
+                os.close(job.master_fd)
+            except OSError:
+                pass
+            self._done(job, status)
+
+    def _read_winpty(self, job: Job) -> None:
+        """The Windows side of _read_program. A ConPTY keeps its output pipe open after the program
+        exits (until the pseudo console is closed), and pywinpty's read() is a blocking recv fed
+        from it, so a blocked read cannot be what tells us the job ended: a program that exits
+        without printing anything more (`exit` in pwsh) would stay `running` for good, its footer
+        line never turning green or red. The reads run in a helper thread while this one asks the
+        process itself, every WINPTY_POLL seconds."""
+        proc = job.winpty
+
+        def pump() -> None:
+            try:
                 while True:
                     try:
-                        text = job.winpty.read(4096)
+                        text = proc.read(4096)
                     except EOFError:
-                        break
+                        return
                     if not text:
-                        if not job.winpty.isalive():
-                            break
+                        if not _winpty_alive(proc):
+                            return
                         continue
                     job.append(text.encode("utf-8", errors="surrogatepass"))
-            else:
-                assert job.master_fd is not None
-                while True:
-                    try:
-                        data = os.read(job.master_fd, 65536)
-                    except OSError:  # EIO: the child closed its side
-                        break
-                    if not data:
-                        break
-                    job.append(data)
-        finally:
-            if job.winpty is not None:
-                while job.winpty.isalive():
-                    time.sleep(0.05)
-                status = job.winpty.exitstatus or 0
-            else:
-                assert job.pid is not None and job.master_fd is not None
-                status = _wait(job.pid)
-                try:
-                    os.close(job.master_fd)
-                except OSError:
-                    pass
-            self._done(job, status)
+            except Exception:  # noqa: BLE001 — the pty was closed under the read
+                return
+
+        reader = threading.Thread(target=pump, daemon=True, name=f"shellcraft:job{job.number}:read")
+        reader.start()
+        while reader.is_alive():
+            reader.join(WINPTY_POLL)
+            if reader.is_alive() and not _winpty_alive(proc):
+                reader.join(WINPTY_DRAIN)  # the last thing it printed may still be on its way
+                break
+        else:  # the reader got an EOF: the process follows
+            while _winpty_alive(proc):
+                time.sleep(0.05)
+        self._done(job, _winpty_status(proc))
+        _winpty_release(proc)
 
     def attach(self, job: Job, terminal: Terminal | None = None, footer: Any = None,
                raw: bool = True) -> tuple[str, int]:
@@ -593,7 +666,7 @@ class JobTable:
                         data = data[1:]
                     elif data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
                         data = data[1:]
-                        job.write(DETACH_KEY)
+                        _send(job, DETACH_KEY)
                     else:
                         return "detached", 0
                 # Mouse: the wheel scrolls the page's history, a click on a footer tab switches,
@@ -632,7 +705,7 @@ class JobTable:
                     data = data[:cut]
                     if rest[:1].isdigit() or rest[:1] in (b"x", b"X"):
                         if data:
-                            job.write(data)
+                            _send(job, data)
                         return ("switch", int(rest[:1])) if rest[:1].isdigit() else ("kill", job.number)
                     if rest[:1] in (b"v", b"V"):  # Ctrl-] v in the same read: paste the clip register
                         data += _clip_bytes(footer) + rest[1:]

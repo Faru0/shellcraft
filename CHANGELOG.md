@@ -7,6 +7,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`diag`** prints the console diagnostics (`--diag`'s report) at any time, with a new **footer
+  colors** section: the escape sequence the footer writes for each state (running, done, failed,
+  the recording bubble, the alert marks), whether running / done / failed look different in the
+  theme, the footer's rows as last drawn, and the live state of every job (running, status, and
+  for a Windows pseudo-terminal whether pywinpty says the program is alive). For a footer whose
+  colors do not change: run it with a subshell running and again after it ended, and paste it.
 - **`jobs -r N NAME`** renames a subshell: the footer, the `jobs` table and the `[N] done` note
   show the name instead of the command (`jobs -r N` alone puts the command back).
 - **`record` / `script`:** a transcript of the session, like Linux `script` without the escape
@@ -168,6 +174,20 @@ and the project uses [semantic versioning](https://semver.org/).
   module checking `modkit.cancelled()` stops when `head` has its lines or on Ctrl-C.
 
 ### Fixed
+
+- **Footer lines never changed color on Windows:** a program in a subshell (`sub pwsh`, `sub
+  shellcraft`) stayed `running` for good once it exited. pywinpty's `read()` is a blocking
+  recv that gets no EOF when a ConPTY program exits (the pipe stays open until the pseudo
+  console is closed), so a program that ends without printing anything more, such as `exit` in
+  pwsh, never ended its job: the line stayed plain, never green or red, the `[N] done` note never
+  came, and attaching waited on it. The reads now run in a helper thread while the job asks the
+  process itself whether it is alive (`isalive()`, every 0.1 s), then closes the pipe to release
+  the reader. Also on Windows: an exit status pywinpty reports late (`None`) is waited for
+  instead of becoming 0, so a failing program is red `exit N` and not green `done`; a job end is
+  reported once however it is noticed; typing into a program that has just ended no longer
+  raises an `EOFError` in the attach loop; and a killed job is always red, whatever status the
+  terminate left. Verified on Linux against a fake pywinpty process that behaves as its source
+  says; the ConPTY itself could not be run here (`diag` shows what it reports).
 
 - **Footer clicks inside a subshell stopped now and then:** a program in the subshell that turns
   its own mouse reporting on and off (the lite ShellCraft's completion menu and pager, `less`,

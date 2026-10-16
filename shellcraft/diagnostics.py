@@ -63,9 +63,62 @@ def _section(title: str, lines: list[str]) -> list[str]:
     return [f"[{title}]", *(f"  {line}" for line in lines)]
 
 
-def console_report(ui: Any, direct_console: Any = None, windows_console_error: str | None = None) -> str:
+FOOTER_STATES = ("main", "running", "done", "failed", "current", "hover", "rec",
+                 "alert.info.mark", "alert.warning.mark", "alert.critical.mark")
+
+
+def _sgr(console: Any, name: str) -> str:
+    """What the console writes for text in the style `name`: its escape sequence, or why not."""
+    try:
+        style = console.get_style(name)
+    except Exception:  # noqa: BLE001 — a missing style is the finding
+        return "MISSING (no such style in the theme: the line would have no color)"
+    code = style.render("x", color_system=console.color_system).replace("\x1b", "ESC").replace("x", "·")
+    return f"{code!r}" if "ESC" in code else f"{code!r} (no escape sequence: the style adds no color)"
+
+
+def _footer_lines(ui: Any, jobs: Any, footer: Any) -> list[str]:
+    """What the footer would write for each state, and the live state of the footer and the jobs:
+    the way to tell a wrong job state (a job that never ends) from wrong colors."""
+    console = ui.console
+    lines = [
+        f"theme {_try(lambda: ui.theme.name)}; console color_system={_try(lambda: console.color_system)} "
+        f"no_color={_try(lambda: console.no_color)} is_terminal={_try(lambda: console.is_terminal)} "
+        f"legacy_windows={_try(lambda: console.legacy_windows)}",
+        "escape sequence written for each footer style (ESC = the escape byte, · = the text):",
+    ]
+    lines += [f"  sc.footer.{name:<19} {_sgr(console, 'sc.footer.' + name)}" for name in FOOTER_STATES]
+    looks = {_sgr(console, f"sc.footer.{name}") for name in ("running", "done", "failed")}
+    verdict = "yes" if len(looks) == 3 else "NO (same colors for all three)"
+    lines.append(f"running / done / failed look different: {verdict}")
+    if footer is not None:
+        rows = _try(lambda: ", ".join(f"{row.tab if row.tab is not None else '-'}:{row.style}" for row in footer.rows))
+        lines += [
+            f"footer enabled={_try(lambda: footer.enabled)} at_prompt={_try(lambda: footer.at_prompt)} "
+            f"collapsed={_try(lambda: footer.collapsed)} height={_try(footer.height)} "
+            f"recording={_try(footer.is_recording)}",
+            f"rows as last drawn (tab:style) = {rows or '(none yet)'}",
+        ]
+    if jobs is not None:
+        listed = list(jobs)
+        lines.append(f"{len(listed)} job{'s' if len(listed) != 1 else ''}"
+                     f"{':' if listed else ' (start one with sub to see its state here)'}")
+        for job in listed:
+            proc = getattr(job, "winpty", None)
+            how = f"winpty alive={_try(proc.isalive)} exitstatus={_try(lambda: proc.exitstatus)}" if proc is not None \
+                else f"pid={job.pid}"
+            lines.append(f"  [{job.number}] {job.kind} running={job.running} status={job.status} "
+                         f"label={job.label!r} killed={job.killed} reported={getattr(job, 'reported', None)} {how}")
+    if sys.platform == "win32":
+        lines.append(f"pywinpty {_try(lambda: metadata.version('pywinpty'))}")
+    return lines
+
+
+def console_report(ui: Any, direct_console: Any = None, windows_console_error: str | None = None,
+                   jobs: Any = None, footer: Any = None) -> str:
     """The report as plain text; `direct_console` is the shell's shellcraft.console.DirectConsole, if any,
-    and `windows_console_error` why it couldn't be opened."""
+    and `windows_console_error` why it couldn't be opened. With the shell's `jobs` and `footer` it also
+    says what the footer would write for each state and the live state of both."""
     from prompt_toolkit.application.current import get_app_session
     from prompt_toolkit.output.color_depth import ColorDepth
     from rich.console import Console
@@ -118,6 +171,8 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
         f"{_try(lambda: get_app_session().output.get_default_color_depth())} "
         f"(from env: {_try(ColorDepth.from_env)})",
     ])
+
+    out += _section("footer colors", _footer_lines(ui, jobs, footer))
 
     if direct_console is not None:
         out += _section("windows console (CONOUT$ / CONIN$)", _windows_lines(direct_console))
