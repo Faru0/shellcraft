@@ -114,14 +114,28 @@ diag          # the whole report
 
 Run it with a subshell running (`sub pwsh`), and again after it has ended, when the footer line
 should have turned green or red and does not. `shellcraft --diag` prints the same report at start.
+
+## The key test
+
+`diag keys` shows what each key press reaches the shell as, until Enter, then prints the list.
+Alt-v pastes when it shows as `escape v` (or `escape c-v`, which is Ctrl+Alt+v: AltGr+v on
+Windows). On Windows each line also shows the console's raw flags (`left-alt`, `right-alt`,
+`left-ctrl`, `shift`). Try the left Alt, the right Alt and AltGr with v, and paste the result.
 """
 
 
-@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag",
+@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag [keys]",
          category="shell", stateful=True, doc=DIAG_DOC)
 def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if args == ["keys"]:  # the key test: what each key press reaches the shell as
+        if ctx.ui is None or not ctx.interactive:
+            raise CommandError("diag keys: only in the interactive shell")
+        from shellcraft.output import key_test
+
+        lines = key_test(ctx.ui)
+        return "".join(line + "\n" for line in lines)  # printed after, to copy into a report
     if args:
-        raise CommandError("usage: diag")
+        raise CommandError("usage: diag [keys]")
     if ctx.console_report is None:
         raise CommandError("diag: only in the interactive shell")
     report = ctx.console_report()

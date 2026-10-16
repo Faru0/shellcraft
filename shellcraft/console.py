@@ -264,6 +264,33 @@ def _vt_input_supported(conin: Any) -> bool:
         set_mode(conin, before)
 
 
+# The modifier bits of a Windows KEY_EVENT_RECORD's ControlKeyState.
+RIGHT_ALT_PRESSED, LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, SHIFT_PRESSED = 0x0001, 0x0002, 0x0008, 0x0010
+LAST_KEYS: list[tuple[int, int, str]] = []  # the last raw key events (state, virtual key, char), for `diag keys`
+
+
+def right_alt_key(state: int, virtual_key: int, char: str) -> str | None:
+    """The key to send as Alt+key for a key pressed with the RIGHT Alt (or AltGr), or None.
+
+    prompt_toolkit's classic Windows reader turns only the left Alt into the Escape prefix that
+    means Alt, so right-Alt+v reached the shell as a plain `v`, and AltGr+v (Windows reports AltGr
+    as right Alt + left Ctrl) as Ctrl-V. Here a letter or digit pressed with the right Alt is Alt +
+    that key, unless AltGr typed a real character of the keyboard layout (`@`, `€`, a backslash): then
+    that character is kept, so typing with AltGr still works."""
+    if not state & RIGHT_ALT_PRESSED or state & LEFT_ALT_PRESSED:
+        return None
+    if 0x41 <= virtual_key <= 0x5A:  # A-Z
+        key = chr(virtual_key)
+        key = key if state & SHIFT_PRESSED else key.lower()
+    elif 0x30 <= virtual_key <= 0x39 and not state & SHIFT_PRESSED:  # 0-9
+        key = chr(virtual_key)
+    else:
+        return None
+    if char in ("", "\x00") or ord(char[0]) < 32 or char.lower() == key.lower():
+        return key  # nothing typed, a control character (AltGr's Ctrl), or the plain letter
+    return None  # AltGr produced a character of the layout: keep it
+
+
 def _console_input(conin_fd: int, vt_keys: bool) -> tuple[Any, Any]:
     """prompt_toolkit's Win32Input, bound to our CONIN$ handle; returns (input, handle).
 
@@ -281,11 +308,26 @@ def _console_input(conin_fd: int, vt_keys: bool) -> tuple[Any, Any]:
     conin = wintypes.HANDLE(msvcrt.get_osfhandle(conin_fd))  # type: ignore[attr-defined]  # Windows only
     use_vt = vt_keys and _vt_input_supported(conin)
 
+    from prompt_toolkit.key_binding.key_processor import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    class AltKeysReader(win32.ConsoleInputReader):
+        """The classic reader, with the right Alt and AltGr counting as Alt (right_alt_key)."""
+
+        def _event_to_key_presses(self, ev: Any) -> list[Any]:
+            state, vk, char = ev.ControlKeyState, ev.VirtualKeyCode, ev.uChar.UnicodeChar
+            LAST_KEYS.append((state, vk, char))
+            del LAST_KEYS[:-8]
+            key = right_alt_key(state, vk, char)
+            if key is not None:
+                return [KeyPress(Keys.Escape, ""), KeyPress(key, key)]
+            return super()._event_to_key_presses(ev)
+
     class ConsoleInput(win32.Win32Input):
         def __init__(self) -> None:
             win32._Win32InputBase.__init__(self)  # not Win32Input's: it looks at the std handle
             self._use_virtual_terminal_input = use_vt
-            reader = win32.Vt100ConsoleInputReader() if use_vt else win32.ConsoleInputReader()
+            reader = win32.Vt100ConsoleInputReader() if use_vt else AltKeysReader()
             reader.close()  # it opens its own CONIN$ when sys.stdin isn't a tty
             check_handle(reader)
             reader._fdcon = None

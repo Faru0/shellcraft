@@ -470,7 +470,11 @@ class Shell:
             if current:
                 bus.copy(current[0])
 
-        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip; again right away: an older copy
+        # Alt-v (Esc then v) pastes the clip; again right away, an older copy. Esc then Ctrl-V too:
+        # that is Ctrl+Alt+v, which AltGr+v is on Windows (AltGr is right Alt + Ctrl) and what
+        # Linux terminals and the Windows VT key reader send for it.
+        @kb.add("escape", "v")
+        @kb.add("escape", "c-v")
         def _paste_clip(event: Any) -> None:
             self._paste_clip(event.current_buffer)
 

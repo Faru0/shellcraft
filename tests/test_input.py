@@ -279,3 +279,42 @@ def test_alt_v_again_pastes_the_older_copies_in_turn(repl_shell):
     _feed(sh, (" ", " "))
     _feed(sh, *alt_v)
     assert buffer.text == "cat newest newest"  # typed in between: a fresh paste of the newest
+
+
+def test_right_alt_and_altgr_count_as_alt_on_windows():
+    from shellcraft.console import LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, RIGHT_ALT_PRESSED, SHIFT_PRESSED, right_alt_key
+
+    V = 0x56
+    assert right_alt_key(RIGHT_ALT_PRESSED, V, "v") == "v"  # right Alt + v: Alt-v
+    assert right_alt_key(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED, V, "\x16") == "v"  # AltGr + v: Ctrl+Alt+v
+    assert right_alt_key(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED, V, "\x00") == "v"  # AltGr + v typing nothing
+    assert right_alt_key(RIGHT_ALT_PRESSED | SHIFT_PRESSED, V, "V") == "V"
+    assert right_alt_key(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED, 0x51, "@") is None  # AltGr+q types @ (German)
+    assert right_alt_key(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED, 0x45, "€") is None  # AltGr+e types €
+    assert right_alt_key(LEFT_ALT_PRESSED, V, "v") is None  # the left Alt: prompt_toolkit handles it
+    assert right_alt_key(0, V, "v") is None  # no Alt
+    assert right_alt_key(RIGHT_ALT_PRESSED, 0x0D, "\r") is None  # not a letter or a digit
+    assert right_alt_key(RIGHT_ALT_PRESSED, 0x32, "2") == "2"
+    assert right_alt_key(RIGHT_ALT_PRESSED | SHIFT_PRESSED, 0x32, "@") is None
+
+
+def test_esc_ctrl_v_pastes_too(repl_shell):
+    sh, ctx = repl_shell
+    ctx.alerts.clip = "/var/log/app.log"
+    _feed(sh, (Keys.Escape, ""), (Keys.ControlV, "\x16"))  # Ctrl+Alt+v, as AltGr+v arrives
+    assert sh.session.default_buffer.text == "/var/log/app.log"
+
+
+def test_diag_keys_shows_what_each_key_arrives_as():
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from shellcraft.output import key_test, windows_flags
+
+    assert windows_flags(0x0001 | 0x0008) == "right-alt+left-ctrl" and windows_flags(0) == "none"
+    with create_pipe_input() as pipe:
+        pipe.send_text("\x1bv" + "a" + "\x1b\x16" + "\r")
+        with create_app_session(input=pipe, output=DummyOutput()):
+            lines = key_test(UI(all_themes({})["nord"], Console(file=io.StringIO())))
+    assert lines == ["escape v", "a", "escape c-v"]

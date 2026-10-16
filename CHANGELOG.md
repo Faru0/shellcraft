@@ -23,11 +23,24 @@ and the project uses [semantic versioning](https://semver.org/).
 - **`diag`** also shows each job's recording flag and the `record` signals received from
   subshells, for a recording bubble that does not turn red.
 
+- **`diag keys`:** a key test that shows what each key press reaches the shell as (`escape v`
+  is Alt-v), and on Windows the console's raw flags (left-alt, right-alt, left-ctrl, shift).
+
 ### Changed
 
 - **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
   lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
+
+### Fixed
+
+- **Alt-v with the right Alt or AltGr on Windows:** prompt_toolkit's classic Windows key reader
+  (the one ShellCraft uses in Windows Terminal) turns only the left Alt into the Escape prefix
+  that means Alt, so right-Alt+v typed a plain `v`, and AltGr+v (right Alt + Ctrl to Windows)
+  became Ctrl-V. ShellCraft's reader now counts the right Alt and AltGr with a letter or a digit
+  as Alt, unless AltGr types a real character of the keyboard layout (`@`, `€`), which still
+  types. Esc then Ctrl-V (Ctrl+Alt+v, how AltGr+v arrives through the VT key reader and Linux
+  terminals) pastes too.
 
 ### Removed
 

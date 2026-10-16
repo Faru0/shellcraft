@@ -151,8 +151,8 @@ def _fake_win32():
 
 @pytest.mark.parametrize("vt_keys, supported, reader, vt", [
     (True, True, "Vt100ConsoleInputReader", True),     # Windows 10+: prompt_toolkit's default
-    (True, False, "ConsoleInputReader", False),         # VT input refused by the console
-    (False, True, "ConsoleInputReader", False),         # SHELLCRAFT_CONSOLE=legacy-keys
+    (True, False, "AltKeysReader", False),         # VT input refused by the console
+    (False, True, "AltKeysReader", False),         # SHELLCRAFT_CONSOLE=legacy-keys
 ])
 def test_console_input_reads_and_switches_modes_on_conin(monkeypatch, vt_keys, supported, reader, vt):
     import prompt_toolkit.input

@@ -421,8 +421,8 @@ is the newest, `$CLIP1` the one before, up to `$CLIP9` (`clip -l` lists them). *
 `$CLIP` at the prompt, in the main shell and in a `sub shellcraft`; pressed again right away it
 swaps in `$CLIP1`, then `$CLIP2`… (**Ctrl-] v** types the newest into another program in a
 subshell). `clip -i N` starts the next prompt with copy N, `clip N` prints it, `clip | jq` pipes
-the newest on. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. On Windows
-consoles Alt-v needs the left Alt key. Konsole uses Alt-v for its View menu while its menu
+the newest on. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. The left
+Alt, the right Alt and AltGr all work, on Windows too; `diag keys` shows what a key arrives as. Konsole uses Alt-v for its View menu while its menu
 bar is shown; Esc then v is the same key.) Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client

@@ -618,3 +618,71 @@ def _highlight(line: str, pattern: str, on: str = _HL_ON, off: str = _HL_OFF) ->
     if inside:
         out.append(off + ("".join(active) if full_reset else ""))
     return "".join(out)
+
+
+def describe_keys(presses: list[Any]) -> str:
+    """One key press, as `diag keys` shows it: `escape v` is Alt-v, `escape c-v` Ctrl+Alt+v."""
+    names = []
+    for press in presses:
+        key = press.key if isinstance(press.key, str) else str(press.key)
+        key = key.removeprefix("Keys.").lower() if key.startswith("Keys.") else key
+        names.append(key if key.strip() else repr(key))
+    return " ".join(names)
+
+
+def windows_flags(state: int) -> str:
+    """The modifier bits of a Windows key event, named."""
+    from shellcraft.console import LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, RIGHT_ALT_PRESSED, SHIFT_PRESSED
+
+    names = [name for bit, name in ((LEFT_ALT_PRESSED, "left-alt"), (RIGHT_ALT_PRESSED, "right-alt"),
+                                    (LEFT_CTRL_PRESSED, "left-ctrl"), (0x0004, "right-ctrl"),
+                                    (SHIFT_PRESSED, "shift")) if state & bit]
+    return "+".join(names) or "none"
+
+
+def key_test(ui: UI) -> list[str]:
+    """`diag keys`: show what each key press reaches the shell as, until Enter. Alt-v must show
+    as `escape v` (or `escape c-v`) for Alt-v to paste. On Windows, the raw modifier flags of the
+    console's key events are shown too (left-alt, right-alt, left-ctrl…). Returns the lines."""
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.layout import Layout, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    from shellcraft import console as console_mod
+
+    seen: list[str] = []
+    kb = KeyBindings()
+
+    def record(presses: list[Any]) -> None:
+        line = describe_keys(presses)
+        if console_mod.LAST_KEYS:
+            state, vk, char = console_mod.LAST_KEYS[-1]
+            line += f"    (windows: vk=0x{vk:02X} char={char!r} {windows_flags(state)})"
+        seen.append(line)
+        del seen[:-14]
+
+    @kb.add("escape", Keys.Any)
+    def _alt(event: Any) -> None:
+        record(list(event.key_sequence))
+
+    @kb.add(Keys.Any)
+    def _any(event: Any) -> None:
+        record(list(event.key_sequence))
+
+    @kb.add("enter")
+    def _done(event: Any) -> None:
+        event.app.exit()
+
+    def text() -> Any:
+        head = [("class:pager.status", " key test · press keys (Alt-v, right Alt-v, AltGr-v) · Enter ends "),
+                ("", "\n\n")]
+        body = [("", "  " + line + "\n") for line in seen] or [("", "  (nothing yet)\n")]
+        hint = [("", "\n"), ("class:pager.help", "  Alt-v pastes when it shows as: escape v   (or escape c-v)\n")]
+        return head + body + hint
+
+    app: Application = Application(layout=Layout(Window(FormattedTextControl(text))), key_bindings=kb,
+                                   full_screen=False, style=ui.pt_style)
+    app.run(in_thread=_loop_running())
+    return seen
