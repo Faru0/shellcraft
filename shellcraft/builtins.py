@@ -541,6 +541,7 @@ when you need the room, and unfolds them again.
 sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
 sub shellcraft [ARGS...]   # a lite ShellCraft in a subshell (its prompt says so: ⚡shellcraft [1])
+sub sc                     # the same, short; `sc &` starts one in the background
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
 COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
@@ -584,9 +585,9 @@ runs the program in the foreground (you are back when it exits) and it is not li
 `sub shellcraft` runs a **lite** ShellCraft (`shellcraft --lite`): the builtins, the modules,
 settings, aliases and history, without the banner, the startup scripts, hot reload, the alert
 watcher or the MCP server (`mcp` says so). Every subshell belongs to the main ShellCraft; there
-is no subshell inside a subshell. `sub` typed inside one hands the request to the main shell,
-which opens it in the background: it appears in the footer under `main`, you stay where you
-are, and Ctrl-] N switches to it when you want. `jobs` is for the main shell.
+is no subshell inside a subshell. `sub …` or `cmd &` typed inside one hands the request to the
+main shell, which runs it in the background: it appears in the footer under `main`, you stay
+where you are, and Ctrl-] N switches to it when you want. `jobs` is for the main shell.
 
 ## Examples
 
@@ -1201,7 +1202,7 @@ def _start_sub(ctx: ShellContext, table: Any, args: list[str], cwd: str) -> tupl
     env: dict[str, str] | None = None
     if not args:
         argv = jobmod.login_shell()
-    elif args[0] == "shellcraft":
+    elif args[0] in ("shellcraft", "sc"):  # a lite ShellCraft (`sc` is short for it)
         argv, env = jobmod.nested_shellcraft(args[1:])
     elif _is_shell_command(ctx, args[0]):
         return "note", _sub_command(ctx, table, command)
@@ -1233,7 +1234,15 @@ def open_requested(ctx: ShellContext) -> list[str]:
         data = ctx.jobs.requests.pop(0)
         args = [str(a) for a in data.get("args", [])]
         cwd = data.get("cwd") if isinstance(data.get("cwd"), str) and os.path.isdir(data.get("cwd")) else os.getcwd()
-        asked = f"sub {' '.join(args)}".rstrip() + f" (asked by {data.get('source') or 'a subshell'})"
+        who = f"asked by {data.get('source') or 'a subshell'}"
+        line = data.get("line")
+        if isinstance(line, str) and line.strip():  # `cmd &` typed inside a subshell
+            try:
+                notes.append(f"{to_text(start_background(ctx, line)).strip()} ({who})")
+            except CommandError as exc:
+                notes.append(f"{line} & ({who}): {exc}")
+            continue
+        asked = f"sub {' '.join(args)}".rstrip() + f" ({who})"
         try:
             kind, started = _start_sub(ctx, ctx.jobs, args, cwd)
         except CommandError as exc:
@@ -1258,6 +1267,15 @@ def start_background(ctx: ShellContext, line: str) -> Any:
 
     if not ctx.interactive or ctx.jobs is None:
         raise CommandError("background jobs (cmd &) only work in the interactive shell")
+    if jobmod.depth():  # inside a subshell: the main shell runs it, in the background, under main
+        from shellcraft import alerts as alertmod
+
+        try:
+            alertmod.request_sub([], os.getcwd(), line=line)
+        except OSError as exc:
+            raise CommandError(f"&: cannot reach the main shell: {exc}") from None
+        return Text.assemble(("asked the main shell to run ", "sc.muted"), (line, "sc.accent"),
+                             (" & in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
     table = _jobs_or_refuse(ctx, "&")
     try:
         words = shlex.split(line, posix=True)
@@ -1269,7 +1287,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
     from shellcraft.alerts import SUB_ENV, with_shim
     from shellcraft.config import config_dir
 
-    argv, env = (jobmod.nested_shellcraft(words[1:]) if words[0] == "shellcraft"
+    argv, env = (jobmod.nested_shellcraft(words[1:]) if words[0] in ("shellcraft", "sc")
                  else (words, dict(os.environ)))
     env = with_shim(env, config_dir())
     env[SUB_ENV] = f"{table.next_number}:{line}"

@@ -302,11 +302,14 @@ def send(message: str, level: str = "info", timeout: float | None | str = "defau
     return _spool(payload, home)
 
 
-def request_sub(args: list[str], cwd: str, home: Path | None = None) -> Path:
-    """Inside `sub shellcraft`: ask the main shell to open `sub ARGS` (it lists the subshell under
-    main and switches to it). The request travels through the spool like an alert."""
-    return _spool({"time": time.time(), "kind": "sub", "args": [str(a) for a in args], "cwd": cwd,
-                   "source": source_label()}, home)
+def request_sub(args: list[str], cwd: str, home: Path | None = None, line: str | None = None) -> Path:
+    """Inside `sub shellcraft`: ask the main shell to open `sub ARGS` (or to run `LINE &`) in the
+    background, under main. The request travels through the spool like an alert."""
+    payload: dict[str, Any] = {"time": time.time(), "kind": "sub", "args": [str(a) for a in args], "cwd": cwd,
+                               "source": source_label()}
+    if line:
+        payload["line"] = line
+    return _spool(payload, home)
 
 
 def signal_recording(on: bool, home: Path | None = None) -> Path:

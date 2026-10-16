@@ -821,3 +821,41 @@ def test_finished_jobs_report_their_output_and_clear_themselves(repl_shell):
     del ctx.config["settings"]
     sh._report_finished()
     assert len(ctx.jobs) == 0 and "false" not in sh.ui.console.export_text().split("[1] done: seq 3")[-1].replace("exit 1: false", "")
+
+
+def test_sc_is_shellcraft_and_ampersand_inside_a_subshell_goes_to_main(ictx, monkeypatch, tmp_path):
+    from shellcraft import alerts as alertmod
+    from shellcraft import builtins as bmod
+    from shellcraft.jobs import JobTable
+
+    started: list = []
+
+    def fake_start(self, argv, command, env=None, cwd=None, size=None):
+        started.append((argv, command))
+        return self.start_command(command, lambda: (0, ""))
+
+    monkeypatch.setattr(JobTable, "start_program", fake_start)
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
+    ictx.jobs = JobTable(tmp_path / "jobs")
+    assert "background" in to_text(run_line("sc &", ictx).output)
+    assert started[-1][0][-3:] == ["shellcraft.cli", "--lite"] or "--lite" in started[-1][0]
+    assert started[-1][1] == "sc"
+    monkeypatch.setattr(bmod, "_attach", lambda ctx, job: "attached")
+    assert run_line("sub sc --theme nord", ictx).output == "attached" and "--lite" in started[-1][0]
+    # inside a subshell: `cmd &` is handed to main, like `sub`
+    monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
+    monkeypatch.setenv(alertmod.SUB_ENV, "2:shellcraft")
+    out = to_text(run_line("sleep 9 &", ictx).output)
+    assert "asked the main shell to run sleep 9 &" in out
+    request = sorted((tmp_path / "home" / "alerts").glob("*.json"))[-1]
+    import json
+
+    assert json.loads(request.read_text())["line"] == "sleep 9"
+    monkeypatch.delenv("SHELLCRAFT_DEPTH")
+    # main runs it in the background: a command job here (sleep is a builtin), never attached
+    ictx.jobs.requests.append({"line": "sleep 9", "cwd": str(tmp_path), "source": "sub 2 (shellcraft)"})
+    notes = bmod.open_requested(ictx)
+    assert len(notes) == 1 and "sleep 9" in notes[0] and "asked by sub 2 (shellcraft)" in notes[0]
+    assert any(j.command == "sleep 9" for j in ictx.jobs)
+    for job in list(ictx.jobs):
+        ictx.jobs.kill(job)

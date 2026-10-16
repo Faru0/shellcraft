@@ -312,9 +312,10 @@ to the panel that lists these keys. `man sub` has the details.
 
 `sub shellcraft` opens a **lite** ShellCraft: builtins, modules, settings, aliases and history,
 without the banner, the startup scripts, hot reload, the alert watcher or the MCP server. Every
-subshell belongs to the main shell; there is no subshell inside a subshell. `sub pwsh` typed
-inside one hands the request to the main shell, which opens it in the background: it appears in
-the footer under `main`, you stay where you are, and Ctrl-] N switches to it.
+subshell belongs to the main shell; there is no subshell inside a subshell. `sub pwsh` or
+`make &` typed inside one hands the request to the main shell, which runs it in the background:
+it appears in the footer under `main`, you stay where you are, and Ctrl-] N switches to it.
+`sub sc` is short for `sub shellcraft`, and `sc &` starts a lite ShellCraft in the background.
 
 Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY through the
 `pywinpty` package on Windows (installed with the requirements there). Without `pywinpty`,
