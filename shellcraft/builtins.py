@@ -532,7 +532,7 @@ or a ShellCraft command running in the background. Every subshell is a numbered 
 newest at the bottom, growing as you open more), at the prompt and inside every subshell, with
 the ● on the shell you are in. Hover or ↓ to pick, click or Enter to switch; `jobs` lists them
 too, and **Ctrl-] N** or a click selects job N from the prompt or from inside another subshell.
-**Ctrl-] c**, or the `▾` after `main`, folds the subshell lines into `main  ⤷ 3 subshells ▸`
+**Ctrl-] c**, or the `▾` after `main`, folds the subshell lines into `main  3 subshells ▸`
 when you need the room, and unfolds them again.
 
 ## Usage

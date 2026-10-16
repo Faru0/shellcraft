@@ -45,7 +45,7 @@ class Footer:
         self.enabled = False
         self.rows: list[Row] = []  # the footer's rows, after the last draw
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
-        self.collapsed = False  # the subshell rows folded into `main  ⤷ N subshells ▸` (Ctrl-] c, a click)
+        self.collapsed = False  # the subshell rows folded into `main  N subshells ▸` (Ctrl-] c, a click)
         self.cursor: int | None = None  # the subshell row chosen with ↓ / ↑ at the prompt
         self.at_prompt = False  # drawn at the prompt too (the `footer` setting), not only in subshells
         self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
@@ -344,7 +344,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     shell row gets a filled circle (` ● `) without changing its colors. With `stack` the main
     row is always there (the footer); without it, alerts alone show when there is no subshell
     (the panel under the prompt with the footer off). `collapsed` folds the subshell rows into
-    the main row (`main  ⤷ 3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
+    the main row (`main  3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
 
         ✖ Payment API is down · from mcp · claude                     critical · sticky
         ● main ▾                                                      ✖ 1  ▲ 1  ● 1 ▸
@@ -359,7 +359,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     if not jobs and not stack:
         return lines  # alerts alone, when there are no subshells to list
     running = sum(1 for j in jobs if j.running)
-    head = f" ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
+    head = f" {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
                                                        else "↓ to manage · x stops")
@@ -369,7 +369,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
     badge_at, spans = -1, ()
     if jobs:  # the fold control: a click (or Ctrl-] c) hides the subshell rows, or brings them back
-        fold = f"  ⤷ {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"
+        fold = f"  {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"
         spans = ((len(main), len(main) + len(fold), None, "fold"),)
         main += fold
     if alerts:

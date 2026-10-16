@@ -16,7 +16,7 @@ and the project uses [semantic versioning](https://semver.org/).
   inside every subshell, growing as subshells open (up to half the screen, then "… and N
   more"), with `main` there even when nothing runs. The prompt and its menus stay above it.
   **Ctrl-] c**, or a click on the `▾` after `main`, folds the subshell lines into
-  `main  ⤷ 3 subshells ▸` and unfolds them. `settings footer off` goes back to a panel under
+  `main  3 subshells ▸` and unfolds them. `settings footer off` goes back to a panel under
   the prompt only while something runs.
 - **`shellcraft --lite`**, what `sub shellcraft` now runs: the builtins, modules, settings,
   aliases and history, without the banner, the clear on start, the startup scripts and rc, hot

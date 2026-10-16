@@ -286,7 +286,7 @@ newest at the bottom, growing as you open more (up to half the screen, then "…
 
 The ● is the shell you are in. The color of a line is its state (amber running, green done,
 red failed); a finished one says `done`, `exit 2` or `killed` on the right. The `▾` after `main`
-(a click, or **Ctrl-] c**) folds the subshell lines into `main  ⤷ 2 subshells ▸` when you need
+(a click, or **Ctrl-] c**) folds the subshell lines into `main  2 subshells ▸` when you need
 the room; the same again unfolds them. Alerts are part of the stack: see below. With no
 subshell the footer is the `main` line alone; `settings footer off` goes back to a panel under
 the prompt that appears only while something is running.

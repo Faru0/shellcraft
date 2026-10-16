@@ -277,7 +277,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert lines[0] == " ● main ▾" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
     ctx.config.setdefault("settings", {})["panel_hint"] = True  # the header line with the keys
     hinted = "".join(f[1] for f in sh._toolbar()).split("\n")
-    assert hinted[0].startswith(" ⤷ 1 subshell") and "↓ to manage" in hinted[0] and hinted[1:] == lines
+    assert hinted[0].startswith(" 1 subshell") and "↓ to manage" in hinted[0] and hinted[1:] == lines
     del ctx.config["settings"]["panel_hint"]
     entry = next(f for f in sh._toolbar() if "seq 3" in f[1])
     assert entry[0] == "class:toolbar.job.done" and entry[2](move_event()) is None and sh._panel_hover == job.number
@@ -751,10 +751,10 @@ def test_stack_rows_fold_cap_and_always_show_main():
     assert [r.tab for r in rows] == [0, 1, 2, 3, None] and rows[-1].text.strip() == "… and 2 more (jobs)"
     assert rows[2].text.startswith(" ● 2  job 2")  # the shell you are in: the filled bubble
     folded = panel_lines(jobs, 2, width=60, stack=True, collapsed=True)
-    assert [r.tab for r in folded] == [0] and folded[0].text.rstrip() == " ○ main  ⤷ 5 subshells ▸"
-    assert folded[0].text[folded[0].spans[0][0]:folded[0].spans[0][1]] == "  ⤷ 5 subshells ▸"
+    assert [r.tab for r in folded] == [0] and folded[0].text.rstrip() == " ○ main  5 subshells ▸"
+    assert folded[0].text[folded[0].spans[0][0]:folded[0].spans[0][1]] == "  5 subshells ▸"
     one = panel_lines(jobs[:1], 0, width=60, stack=True, collapsed=True)
-    assert one[0].text.rstrip() == " ● main  ⤷ 1 subshell ▸"
+    assert one[0].text.rstrip() == " ● main  1 subshell ▸"
 
 
 def test_footer_height_fold_click_and_shortened_screen(repl_shell, monkeypatch):
@@ -774,7 +774,7 @@ def test_footer_height_fold_click_and_shortened_screen(repl_shell, monkeypatch):
     fold = footer.rows[0]
     col = fold.text.index("▾") + 1
     assert footer.mouse("up", col, 40 - footer.height() + 1, "left") == ("handled", None)
-    assert footer.collapsed and footer.height() == 1 and footer.rows[0].text.rstrip().endswith("⤷ 9 subshells ▸")
+    assert footer.collapsed and footer.height() == 1 and footer.rows[0].text.rstrip().endswith("main  9 subshells ▸")
     assert footer.mouse("up", 5, 40, "left") == ("switch", 0)  # the main row itself still switches
     assert footer.toggle_collapsed() is False and footer.height() == 10
     footer.sequence()  # 10 rows painted (31-40); folding to 1 row clears rows 31-39
