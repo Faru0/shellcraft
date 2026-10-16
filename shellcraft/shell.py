@@ -48,7 +48,7 @@ from shellcraft.watch import ModuleWatcher
 # Prompt segments, in the order `prompt` lists them. The left prompt and the right prompt
 # (`prompt -r`) are each a list of these names, saved under "prompt" in config.json.
 SEGMENTS: dict[str, str] = {
-    "name": "the ⚡shellcraft label (with ⤷N inside `sub shellcraft`)",
+    "name": "the ⚡shellcraft label (with [N] inside `sub shellcraft`)",
     "user": "user@host",
     "path": "the working directory (~ for home)",
     "git": "⎇ branch, when the directory is in a git repository",
@@ -57,7 +57,7 @@ SEGMENTS: dict[str, str] = {
     "duration": "⏱ 4.2s when the last command took more than 2 seconds",
     "clock": "the time (HH:MM)",
     "python": "the Python version",
-    "jobs": "⤷ N while subshells started with `sub` are running",
+    "jobs": "N sub while subshells started with `sub` are running",
 }
 DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
@@ -328,7 +328,7 @@ class Shell:
         stopped = jobs.cleanup()
         if stopped:
             names = ", ".join(f"[{j.number}] {j.command}" for j in stopped)
-            self.ui.console.print(Text(f"⤷ stopped: {names}", style="sc.muted"), markup=False, highlight=False)
+            self.ui.console.print(Text(f"stopped: {names}", style="sc.muted"), markup=False, highlight=False)
 
     def _sub_requested(self, data: dict[str, Any]) -> None:
         """`sub …` typed inside a subshell (from the watcher thread): queued; the attach loop or
@@ -342,7 +342,7 @@ class Shell:
         from shellcraft.builtins import open_requested
 
         for note in open_requested(self.ctx):
-            self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
+            self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
 
     def _open_requests_attached(self) -> None:
         """Inside a subshell (the attach loop): the same, with the notes kept for the next prompt."""
@@ -511,11 +511,11 @@ class Shell:
         """The fragments of one prompt segment, or [] when it has nothing to show right now. With
         `mouse_always` on, some carry a click handler (a third element) that runs a command."""
         if name == "name":
-            label = f" ⚡shellcraft ⤷{depth()} " if depth() else " ⚡shellcraft "
+            label = f" ⚡shellcraft [{depth()}] " if depth() else " ⚡shellcraft "
             return [("class:name", label, self._click("help"))]
         if name == "jobs":
             running = len(self.ctx.jobs.running) if self.ctx.jobs is not None else 0
-            return [("class:mcp", f"⤷ {running}", self._click("jobs"))] if running else []
+            return [("class:mcp", f"{running} sub", self._click("jobs"))] if running else []
         if name == "user":
             return [("class:user", self.user_host)]
         if name == "path":
@@ -778,7 +778,7 @@ class Shell:
         return names.get(event.button, self._pressed)
 
     def _alert_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
-        """An alert row: hover shows its ×, a right-click copies its content into the clip."""
+        """An alert row: a right-click copies its content into the clip (its icon dismisses)."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_MOVE:
                 return self._set_panel_hover(alert)
@@ -792,7 +792,7 @@ class Shell:
         return handler
 
     def _close_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
-        """The × at the end of a hovered alert row: a left click dismisses it, a right-click
+        """The icon at the start of an alert row: a left click dismisses it, a right-click
         copies, as anywhere on the row."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_UP:
@@ -932,7 +932,7 @@ class Shell:
         self.session.app.erase_when_done = transient
         if self.ctx.jobs is not None:
             for note in self.ctx.jobs.pop_notifications():
-                self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
+                self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
         self.footer.set_hover(None)
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()

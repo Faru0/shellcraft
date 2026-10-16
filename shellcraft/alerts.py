@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 LEVELS = ("info", "warning", "critical")
-ICONS = {"info": "●", "warning": "▲", "critical": "✖"}
+ICONS = {"info": "✖", "warning": "✖", "critical": "✖"}  # the same mark, in the level's color; a click on it dismisses
 DEFAULT_TIMEOUT = {"info": 15.0, "warning": 60.0, "critical": None}  # None: stays until dismissed
 MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300

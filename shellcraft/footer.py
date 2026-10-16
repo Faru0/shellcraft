@@ -202,7 +202,7 @@ class Footer:
     def mouse(self, kind: str, x: int, y: int, button: str = "left") -> tuple[str, Any] | None:
         """A mouse event (from parse_mouse) over the footer. None when it is not on the footer;
         ("switch", tab) for a click on a shell's line; ("handled", None) for the rest: hover, a
-        click on the badge (fold / unfold the alerts), a click on an alert's × (dismiss it) or a
+        click on the badge (fold / unfold the alerts), a click on an alert's icon (dismiss it) or a
         right-click on an alert (copy its content into the clip register)."""
         if kind == "down":
             self._pressed = button
@@ -224,7 +224,8 @@ class Footer:
                 self.alerts.copy(row.alert)
                 self.draw()
             return "handled", None
-        if row.alert is not None and 0 <= row.close <= col:
+        if row.alert is not None and row.close >= 0 and \
+                get_cwidth(row.text[: row.close]) <= col < get_cwidth(row.text[: row.close + 1]):
             if self.alerts is not None:
                 self.set_hover(None)
                 self.alerts.remove(row.alert)
@@ -261,14 +262,14 @@ class Footer:
 # ── the stack, shared by the panel under the prompt and the footer in a subshell ─
 
 MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
-CLOSE = " × "  # the end of a hovered alert row: a click there dismisses it
 
 
 class Row(NamedTuple):
     """One line of the stack. `tab` is 0 for this shell, a job number, or None (an alert, the
     header); `alert` the Alert an alert row shows; `spans` (start, end, style, role) ranges
-    styled over the row (offsets in characters): the badge's counts, an inline alert, the ×;
-    `badge` where the alert badge starts on the main row and `close` where the × starts on an
+    styled over the row (offsets in characters): the badge's counts, an inline alert, the icon;
+    `badge` where the alert badge starts on the main row and `close` where the icon (the close
+    button) is on an
     alert row (-1: none). `hovered` says the row is under the mouse or chosen with ↓ / ↑."""
 
     tab: int | None
@@ -291,7 +292,7 @@ def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
 
 def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None) -> list[Row]:
     """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`.
-    The one under the mouse ends with a × (and says `copied` after a right-click on it)."""
+    The icon at the start is the close button; the row says `copied` after a right-click on it."""
     from shellcraft.alerts import ICONS
 
     lines: list[Row] = []
@@ -300,17 +301,16 @@ def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None)
         left = f" {ICONS[alert.level]} {alert.message}" + (f" · from {alert.source}" if alert.source else "")
         remaining = alert.remaining
         if hovered and copied is alert:
-            right = "copied · Alt-v pastes"
+            right = "copied · Alt-v pastes "
         else:
-            right = f"{alert.level}" + (f" · {int(remaining) + 1}s" if remaining is not None else " · sticky")
-        right += CLOSE if hovered else " "
+            right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " · sticky ")
         room = max(10, width - get_cwidth(right) - 1)
         if get_cwidth(left) > room:
             left = left[: room - 1] + "…"
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
         text = left + " " * pad + right
-        close = len(text) - len(CLOSE)  # the × zone: the last cells, shown while hovered
-        spans = ((close, len(text), None, "close"),) if hovered else ()
+        close = 1  # the icon: the close button
+        spans = ((close, close + 1, None, "close"),)
         lines.append(Row(None, f"alert.{alert.level}", text, hovered, alert=alert, spans=spans, close=close))
     return lines
 
@@ -366,7 +366,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     if hint and jobs:
         lines.append(Row(None, "header", head, False))
     main_hover = hover == 0
-    main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" ⤷{depth}" if depth else "")
+    main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" [{depth}]" if depth else "")
     badge_at, spans = -1, ()
     if jobs:  # the fold control: a click (or Ctrl-] c) hides the subshell rows, or brings them back
         fold = f"  {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"

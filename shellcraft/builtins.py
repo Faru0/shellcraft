@@ -540,7 +540,7 @@ when you need the room, and unfolds them again.
 ```
 sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
-sub shellcraft [ARGS...]   # a lite ShellCraft in a subshell (its prompt says so: ⚡shellcraft ⤷1)
+sub shellcraft [ARGS...]   # a lite ShellCraft in a subshell (its prompt says so: ⚡shellcraft [1])
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
 COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
@@ -637,8 +637,8 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   (`✖ 1  ▲ 1  ● 1 ▸`). A click on it unfolds one row per alert, the most severe first, with the
   message, where it came from and the time left; another click folds them back (`▾` / `▸`).
 - A **critical** alert always keeps its full row, folded or not.
-- To dismiss one: hover its row and click the **×** at its right end (`alert -c [N]` from the
-  keyboard).
+- To dismiss one: click its **✖** at the start of the row (`alert -c [N]` from the keyboard).
+  Every level has the same mark, in its color: green info, amber warning, red critical.
 - A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt,
   **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). The mouse
@@ -684,7 +684,7 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         if not message:
             raise CommandError("alert: a message is needed")
         try:
-            source = f"{alertmod.source_label()} shellcraft ⤷{alertmod.depth_forward()}"
+            source = f"{alertmod.source_label()} shellcraft [{alertmod.depth_forward()}]"
             alertmod.send(message, level, timeout, source=source, content=content)
         except OSError as exc:
             raise CommandError(f"alert: {exc}") from None
@@ -1082,7 +1082,7 @@ def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
     if not ctx.interactive or ctx.jobs is None:
         raise CommandError(f"{name}: only in the interactive shell")
     if depth():
-        raise CommandError(f"{name}: only the main ShellCraft starts subshells (this one is ⤷{depth()}: "
+        raise CommandError(f"{name}: only the main ShellCraft starts subshells (this one is [{depth()}]: "
                            "press Ctrl-] to go back to it)")
     return ctx.jobs
 
@@ -1099,7 +1099,7 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             alertmod.request_sub(args, os.getcwd())
         except OSError as exc:
             raise CommandError(f"sub: cannot reach the main shell: {exc}") from None
-        return Text.assemble(("⤷ ", "sc.accent"), ("asked the main shell to open ", "sc.muted"),
+        return Text.assemble(("asked the main shell to open ", "sc.muted"),
                              ("sub " + " ".join(args) if args else "sub", "sc.accent"),
                              (" in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
     table = _jobs_or_refuse(ctx, "sub")
@@ -1195,7 +1195,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
         raise CommandError("background programs need a pseudo-terminal (pip install pywinpty on Windows)") from None
     except FileNotFoundError:
         raise CommandError(f"{words[0]}: not a command, a module or a program on PATH", 127) from None
-    return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
+    return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
                          (f"  started in the background (Ctrl-] {job.number} switches to it)", "sc.muted"))
 
 
@@ -1247,7 +1247,7 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
         job.stop = stop
 
     job = table.start_command(line, run, before_start=started)
-    return Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
+    return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
                          (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
                           "sc.muted"))
 
@@ -1296,15 +1296,15 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
         if how == "kill":  # Ctrl-] x: end the subshell we are in, back to the prompt
             ctx.jobs.kill(job)
             ctx.jobs.pop_notifications()
-            return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] killed: ", "sc.muted"),
+            return Text.assemble(("\n", ""), (f"[{job.number}] killed: ", "sc.muted"),
                                  (job.command, "sc.accent"))
         if how == "detached":
-            return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] detached: ", "sc.muted"),
+            return Text.assemble(("\n", ""), (f"[{job.number}] detached: ", "sc.muted"),
                                  (job.command, "sc.accent"),
                                  (f" keeps running (jobs {job.number} or Ctrl-] {job.number} to return)", "sc.muted"))
         ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
         status = job.status or 0
-        note = Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+        note = Text.assemble(("\n", ""), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                              (f" {job.label}", "sc.success" if status == 0 else "sc.error"))
         return WithStatus(note, status) if status else note
 
@@ -1323,7 +1323,7 @@ def select_job(ctx: ShellContext, number: int, follow: bool | None = None) -> An
     if (job.running if follow is None else follow) and ctx.ui is not None:
         return follow_job(ctx, job)
     text = job.output
-    head = Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+    head = Text.assemble((f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                          (f"  {job.label}, {job.elapsed:.1f}s", "sc.muted"))
     body = text if text else "(no output yet)\n" if job.running else "(no output)\n"
     return Styled(Group(head, Text.from_ansi(body.rstrip("\n"))), f"{to_text(head)}\n{body}")
@@ -1335,7 +1335,7 @@ def follow_job(ctx: ShellContext, job: Any, poll: float = 0.2) -> Any:
     import time as _time
 
     console = ctx.ui.console
-    console.print(Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+    console.print(Text.assemble((f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                                 ("  following (Ctrl-C returns to the prompt; the job keeps running)", "sc.muted")),
                   markup=False, highlight=False)
     position = 0
@@ -1373,14 +1373,14 @@ def follow_job(ctx: ShellContext, job: Any, poll: float = 0.2) -> Any:
             print_new()
         print_new()
     except KeyboardInterrupt:
-        return Text.assemble(("\n⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+        return Text.assemble(("\n", ""), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                              (f"  still running (jobs -f {job.number} to follow again)", "sc.muted"))
     finally:
         if previous is not None:
             signal.signal(signal.SIGINT, previous)
     ctx.jobs.pop_notifications()  # its end is reported here, not again at the next prompt
     style = "sc.success" if job.status == 0 else "sc.error"
-    note = Text.assemble(("⤷ ", "sc.accent"), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
+    note = Text.assemble((f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
                          (f"  {job.label} ({job.elapsed:.1f}s)", style))
     return WithStatus(note, job.status or 0) if job.status else note
 

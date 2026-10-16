@@ -295,7 +295,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert sh._panel_cursor is None and ran[-1] == f"jobs {job.number}"
     # the prompt's jobs segment counts running jobs only
     ctx.config["prompt"] = {"left": ["jobs"]}
-    assert not [f for f in sh._prompt() if "⤷" in f[1]]
+    assert not [f for f in sh._prompt() if " sub" in f[1]]
 
 
 def test_footer_keeps_a_programs_margins_above_it_and_spots_split_escapes():
@@ -636,7 +636,7 @@ def _mouse(kind, button):
 
 def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     """Windows reports a press as RIGHT;MOUSE_DOWN and its release as NONE;MOUSE_UP: the copy,
-    the × and the badge go by the button that went down. The mouse is on for alerts alone."""
+    the icon and the badge go by the button that went down. The mouse is on for alerts alone."""
     from types import SimpleNamespace
 
     from prompt_toolkit.mouse_events import MouseButton, MouseEventType
@@ -662,14 +662,14 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts.clip = ""
     close = sh._close_handler(warn)
     press("RIGHT", "MOUSE_DOWN")
-    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a right-click on the ×: still a copy
+    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a right-click on the icon: still a copy
     assert ctx.alerts.clip == "/var/log/app.log" and warn in ctx.alerts.current()
     press("LEFT", "MOUSE_DOWN")
     row(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a left click on the row: nothing
     assert warn in ctx.alerts.current()
     badge = sh._badge_handler()
     assert badge(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE)) is None and ctx.alerts.expanded
-    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a left click on the ×: dismissed
+    close(_mouse(MouseEventType.MOUSE_UP, MouseButton.NONE))  # a left click on the icon: dismissed
     assert warn not in ctx.alerts.current()
     # Linux reports the real button on release: the same results
     other = ctx.alerts.post("other", "info")
@@ -694,9 +694,9 @@ def test_footer_mouse_with_windows_releases(tmp_path):
     assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;9;22")) == ("handled", None)
     assert bus.clip == "df -h" and warn in bus.current()  # copied on the release that said NONE
     footer.mouse("move", 10, 23, "none")
-    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;22")) == ("handled", None)
-    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;22")) == ("handled", None)
-    assert not bus.current()  # the × took the left click
+    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;1;22")) == ("handled", None)
+    assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;1;22")) == ("handled", None)
+    assert not bus.current()  # the icon took the left click
     bus.close()
 
 

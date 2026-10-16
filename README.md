@@ -31,7 +31,7 @@
 | ⌨️ **Smart input** | Syntax highlighting as you type, a toolbar with the usage of the command you are typing, ghost-text suggestions from history, Ctrl-R, and Tab completion for commands, switches (with descriptions), switch values, positional values and paths (quoted when they need it). |
 | 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `help NAME` for the short version. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, two light variants, or your own; `theme preview` tries one. |
-| ⤷ **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. A footer on the last row shows every shell as a tab: click one, or press Ctrl-] N, to switch; Ctrl-] alone comes back. |
+| 🪟 **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. A footer on the last row shows every shell as a tab: click one, or press Ctrl-] N, to switch; Ctrl-] alone comes back. |
 | 🤖 **Built-in MCP server** | Claude Desktop, Claude Code and other AI clients can use your modules as typed tools, safely sandboxed from writes. |
 | 🔑 **Settings & API keys** | On/off settings and masked API keys for modules, saved in one config file. |
 
@@ -266,7 +266,7 @@ search on from there. Turn the viewer off with `settings pager off`.
 sub                          # your own shell (bash, zsh, pwsh…); exit brings you back to ShellCraft
 sub vim notes.md             # any program, with the keyboard and the screen handed to it
 sub htop                     # Ctrl-] detaches: it keeps running, you are back at the prompt
-sub shellcraft --theme nord  # a nested ShellCraft (its prompt shows ⚡shellcraft ⤷1)
+sub shellcraft --theme nord  # a lite ShellCraft in a subshell (its prompt shows ⚡shellcraft [1])
 sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
 find / -name "*.log" &       # the same, bash style: a trailing & backgrounds any line (a program isn't attached)
 jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
@@ -305,7 +305,7 @@ the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ct
 program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
 terminals need it for their own tabs.) Switching to a command that is still running follows its output as it grows (Ctrl-C goes back to the prompt and leaves it running); a finished one shows everything it printed. A finished
-job prints `⤷ [N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
+job prints `[N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
 stopped, and `settings footer off` removes the footer. `settings panel_hint on` adds a header line
 to the panel that lists these keys. `man sub` has the details.
 
@@ -400,8 +400,7 @@ color (`▲ Disk /home at 91%`; `+1` when it has more). The **badge** at the rig
 `main` line counts every alert by level (`✖ 1  ▲ 1  ● 1 ▸`): a click on it unfolds one full row
 per alert, most severe first, with the message, where it came from and the time left; another
 click folds them back. A **critical** alert always keeps its full row, so it cannot be missed.
-To dismiss an alert, hover its row and click the **×** at its right end (`alert -c` from the
-keyboard). With no subshell to fold into, every alert shows as a row.
+To dismiss an alert, click its **✖** at the start of the row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
 
 An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"` or
 `make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
