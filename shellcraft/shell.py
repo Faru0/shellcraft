@@ -610,7 +610,9 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        return self._clickable()  # the stack's lines are clickable: subshells, or alerts
+        # The footer's lines are clickable at the prompt only when asked (footer_mouse): with the
+        # mouse reported to the shell, the terminal's wheel no longer scrolls its own output.
+        return settings.get(self.ctx.config, "footer_mouse") and self._clickable()
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
         """A prompt or toolbar fragment's mouse handler: on a click, run `line` above the prompt

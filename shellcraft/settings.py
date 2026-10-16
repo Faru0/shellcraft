@@ -93,6 +93,13 @@ SETTINGS: dict[str, Setting] = {
                 "error), click the toolbar for the man page, wheel through history and Ctrl-R "
                 "matches. The terminal then needs Shift for text selection and scrollback.",
                 _apply_mouse_always),
+        Setting("footer_mouse", "Clickable footer at the prompt", False,
+                "Report the mouse to the shell while a subshell or an alert is listed, so the footer's "
+                "lines, an alert's ✖ and the badge can be clicked at the prompt. The terminal's wheel then "
+                "moves through the history instead of scrolling the output (Shift+wheel still scrolls) and "
+                "selecting text needs Shift. Off: the wheel and selection work as usual at the prompt, and "
+                "the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c). Inside a subshell the "
+                "footer is always clickable."),
         Setting("footer", "Shell footer", True,
                 "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
                 "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "

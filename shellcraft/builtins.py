@@ -204,22 +204,18 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             lines.append(f" — {summary}\n")
         return Styled(Group(lines, footer, tips), plain)
 
-    show_usage = width >= 120
     table = Table(title="ShellCraft commands" + (f": {search}" if search else ""), title_style="sc.prompt",
                   border_style="sc.border", header_style="sc.accent", expand=False)
     table.add_column("command", style="sc.path", no_wrap=True)
-    table.add_column("description")
-    if show_usage:
-        table.add_column("usage", style="sc.muted", max_width=max(30, width // 3))
+    table.add_column("description")  # the usage is one `help NAME` or `man NAME` away
     section = None
-    for i, (sec, name, summary, usage) in enumerate(rows):
+    for sec, name, summary, _usage in rows:
         if sec != section:
             if section is not None:
                 table.add_section()
             section = sec
-            table.add_row(Text(sec, style="sc.accent bold"), *([""] * (2 if show_usage else 1)))
-        cells = [name, summary] + ([usage] if show_usage else [])
-        table.add_row(*cells)
+            table.add_row(Text(sec, style="sc.accent bold"), "")
+        table.add_row(name, summary)
     return Styled(Paged(Group(table, footer, tips), page=False), plain)  # printed in full, to scroll back to
 
 
@@ -644,9 +640,9 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   Every level has the same mark, in its color: green info, amber warning, red critical.
 - A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt,
-  **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). The mouse
-  reaches the shell only while the panel shows; a terminal without mouse tracking pastes or
-  opens its own menu on a right-click instead.
+  **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). Clicks on
+  the footer at the prompt need `settings footer_mouse on` (inside a subshell they always work);
+  a terminal without mouse tracking pastes or opens its own menu on a right-click instead.
 - With no subshell to fold into, every alert shows as a row.
 
 ```

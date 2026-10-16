@@ -116,6 +116,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The wheel scrolls the output again:** at the prompt the mouse is no longer reported to the
+  shell just because a subshell or an alert is listed (that took the terminal's wheel and text
+  selection away). The footer's lines, an alert's ✖ and the badge are clickable at the prompt
+  with the new `footer_mouse` setting (off by default); inside a subshell they always are, and
+  the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c) work everywhere.
+- **`help`:** the usage column is gone; the table is the command and its description (`help
+  NAME` and `man NAME` have the usage).
 - **The pager only when asked:** output taller than the window no longer opens the viewer by
   itself; it prints, so you can scroll back. `man` still opens it, and the new **`less`** (and
   `more`) page anything on demand: `ls -l | less`, `cat big.log | less`, `less FILE`. The

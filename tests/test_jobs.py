@@ -244,7 +244,9 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert footer.set_hover(1) and not footer.set_hover(1)
     assert "seq 2" in "".join(footer.render(80))  # still there, now in the hover style
     assert footer.set_hover(None)
-    # the panel's lines are clickable while it shows: the mouse is on at the prompt then
+    # the footer's lines are clickable at the prompt only with footer_mouse on (the wheel is the price)
+    assert sh.session.app.mouse_support() is False
+    ctx.config.setdefault("settings", {})["footer_mouse"] = True
     assert sh.session.app.mouse_support() is True
     ctx.jobs.clear_finished()
     assert sh.session.app.mouse_support() is False
@@ -647,7 +649,9 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts = AlertBus()
     assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
     warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
-    assert sh._mouse_wanted()  # alerts alone: the panel shows, so its rows must be clickable
+    assert not sh._mouse_wanted()  # by default the terminal keeps the mouse (the wheel scrolls the output)
+    ctx.config.setdefault("settings", {})["footer_mouse"] = True
+    assert sh._mouse_wanted()  # alerts alone: the footer shows, so its rows must be clickable
     keys = [SimpleNamespace(key="<windows-mouse-event>")]
 
     def press(button, kind):  # what the Windows input sends through the prompt's mouse binding
