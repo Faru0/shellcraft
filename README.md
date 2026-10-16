@@ -305,7 +305,8 @@ the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ct
 program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
 terminals need it for their own tabs.) Switching to a command that is still running follows its output as it grows (Ctrl-C goes back to the prompt and leaves it running); a finished one shows everything it printed. A finished
-job prints `[N] done: …` at the next prompt, jobs still running when you leave ShellCraft are
+job prints `[N] done: …` (and a command's output) at the next prompt and leaves the stack by
+itself (`settings jobs_autoclear off` keeps it until `jobs -c`), jobs still running when you leave ShellCraft are
 stopped, and `settings footer off` removes the footer. `settings panel_hint on` adds a header line
 to the panel that lists these keys. `man sub` has the details.
 
@@ -513,6 +514,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
+| `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
 
 ### API keys

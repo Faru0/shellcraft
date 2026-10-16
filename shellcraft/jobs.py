@@ -89,6 +89,7 @@ class Job:
         self.thread: threading.Thread | None = None
         self.process: Any = None  # a hidden program (start_hidden): subprocess.Popen
         self.stop: Any = None  # a background command's stop flag (streams.StopFlag), set by kill()
+        self.reported = False  # its end has been shown (a note at the prompt, `jobs N`, the attach loop)
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -307,13 +308,28 @@ class JobTable:
                 pass
 
     def pop_notifications(self) -> list[str]:
+        """The notes to print (`[1] done: grep -r …`); the finished jobs count as reported."""
         notes, self.notifications = self.notifications, []
+        for job in self:
+            if not job.running:
+                job.reported = True
         return notes
+
+    def unreported(self) -> list[Job]:
+        """Finished jobs nobody has shown yet: the prompt prints their output, then clears them."""
+        return [j for j in self if not j.running and not j.reported]
+
+    def remove(self, job: Job) -> None:
+        """Forget a finished job (its log stays in the jobs folder)."""
+        if self.jobs.pop(job.number, None) is not None:
+            self._changed()
 
     def clear_finished(self) -> int:
         gone = [n for n, j in self.jobs.items() if not j.running]
         for n in gone:
             del self.jobs[n]
+        if gone:
+            self._changed()
         return len(gone)
 
     # ── programs on a pseudo-terminal ────────────────────────────────────────

@@ -101,6 +101,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **Finished jobs clear themselves:** `sub ls` or `make &` used to stay in the stack as `done`
+  until `jobs -c`. A job that ended is now reported at the next prompt (`[N] done: …`, plus a
+  command job's output) and then leaves the stack, like a finished `ls &` in bash. `settings
+  jobs_autoclear off` keeps the old behavior.
 - **The stack is no longer cut at 8 subshells:** it may take up to half the screen. On
   Windows, clicks on the footer at the prompt are mapped from screen-buffer rows to window
   rows, so they land on the right line when there is scrollback.

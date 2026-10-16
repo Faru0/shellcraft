@@ -97,6 +97,10 @@ SETTINGS: dict[str, Setting] = {
                 "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "
                 "folds it. Off: a panel under the prompt only while something is running, and nothing "
                 "inside subshells."),
+        Setting("jobs_autoclear", "Finished jobs clear themselves", True,
+                "A finished subshell or background command leaves the stack at the next prompt, after "
+                "its `[N] done` note and, for a command, its output. Off: it stays listed as done until "
+                "`jobs -c`, and `jobs N` shows its output."),
         Setting("panel_hint", "Subshell panel key hints", False,
                 "Show a header line at the top of the subshell panel with the keys that work there "
                 "(click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). Off by default "

@@ -562,8 +562,9 @@ An `&` anywhere else is still an error.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
-  `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); finished jobs
-  print `[N] done: …` at the next prompt. Background commands cannot change the shell's state
+  `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); a finished
+  job prints `[N] done: …` and its output at the next prompt, then leaves the stack (`settings
+  jobs_autoclear off` keeps it until `jobs -c`). Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
 - The footer looks the same at the prompt and inside a subshell: the line under the mouse is
   highlighted, the ● marks where you are, the color is the state (amber running, green done, red
@@ -1063,7 +1064,7 @@ jobs                 # the table: number, state, elapsed time, command
 jobs N               # select job N: attach to a program (Ctrl-] detaches), or show a command's output
 jobs -f N            # follow a command job's output as it grows, like tail -f (Ctrl-C stops following)
 jobs -k N            # stop job N
-jobs -c              # forget the finished jobs (their logs stay in ~/.shellcraft/jobs/)
+jobs -c              # forget the finished jobs now (their logs stay in ~/.shellcraft/jobs/)
 ```
 
 **Ctrl-] N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
@@ -1072,6 +1073,10 @@ a click on the job's tab in the footer. `man sub` explains the two kinds of job.
 Selecting a **command** job that is still running follows it: what it printed so far, then each
 new line as it comes, until it finishes (its status line ends the view) or you press Ctrl-C, which
 returns to the prompt and leaves the job running. A finished command job shows its whole output.
+
+A job that ended is reported at the next prompt (`[N] done: …`, and a command job's output), and
+then leaves the stack by itself, as a finished `ls &` leaves bash's job list; `settings
+jobs_autoclear off` keeps finished jobs listed until `jobs -c`.
 `jobs -f N` follows explicitly. Background commands record their output as it streams, so
 `sub tail -f app.log | grep ERROR` (or the same line with `&`) can be followed like any other.
 """

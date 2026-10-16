@@ -802,3 +802,22 @@ def test_footer_height_fold_click_and_shortened_screen(repl_shell, monkeypatch):
     sh._footer_at_prompt()
     assert not sh.footer.at_prompt and not sh.footer.enabled
     del ctx.config["settings"]
+
+
+def test_finished_jobs_report_their_output_and_clear_themselves(repl_shell):
+    sh, ctx = repl_shell
+    job = ctx.jobs.start_command("seq 3", lambda: (0, "1\n2\n3\n"))
+    assert _wait(lambda: not job.running) and len(ctx.jobs) == 1 and not job.reported
+    sh._report_finished()
+    out = sh.ui.console.export_text()
+    assert "[1] done: seq 3" in out and "1\n2\n3" in out and len(ctx.jobs) == 0  # shown once, then gone
+    failing = ctx.jobs.start_command("false", lambda: (1, ""))
+    assert _wait(lambda: not failing.running)
+    ctx.jobs.pop_notifications()  # reported elsewhere (jobs N, the attach loop): no output again
+    assert failing.reported
+    ctx.config["settings"] = {"jobs_autoclear": False}
+    sh._report_finished()
+    assert len(ctx.jobs) == 1  # off: it stays until jobs -c
+    del ctx.config["settings"]
+    sh._report_finished()
+    assert len(ctx.jobs) == 0 and "false" not in sh.ui.console.export_text().split("[1] done: seq 3")[-1].replace("exit 1: false", "")

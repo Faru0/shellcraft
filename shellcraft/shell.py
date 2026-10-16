@@ -695,6 +695,26 @@ class Shell:
     def _current_lexer(self) -> Any:
         return self._lexer if settings.get(self.ctx.config, "highlight") else None
 
+    def _report_finished(self) -> None:
+        """Before a prompt: the notes about jobs that ended (`[1] done: ls`), the output of a
+        command job nobody has looked at yet, and then (the `jobs_autoclear` setting) the
+        finished jobs leave the stack, as a finished `ls &` leaves bash's job list."""
+        jobs = self.ctx.jobs
+        if jobs is None:
+            return
+        fresh = jobs.unreported()
+        for note in jobs.pop_notifications():
+            self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
+        for job in fresh:
+            if job.kind == "command" and job.output.strip():
+                try:
+                    show(self.ui, job.output, pager=settings.get(self.ctx.config, "pager"), title=job.command)
+                except KeyboardInterrupt:
+                    pass
+        if settings.get(self.ctx.config, "jobs_autoclear"):
+            for job in [j for j in jobs if not j.running]:
+                jobs.remove(job)
+
     def _reset_input(self) -> None:
         """Before a prompt: the input buffer still holds the last command (prompt_toolkit resets
         it only when the prompt starts), which kept the usage toolbar on and drew it as a blank
@@ -930,9 +950,7 @@ class Shell:
         and replaced by a compact `❯ command` line."""
         transient = self._transient()
         self.session.app.erase_when_done = transient
-        if self.ctx.jobs is not None:
-            for note in self.ctx.jobs.pop_notifications():
-                self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
+        self._report_finished()
         self.footer.set_hover(None)
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()
