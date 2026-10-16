@@ -334,3 +334,14 @@ def test_help_groups_grids_and_all(ctx):
     assert "Print lines matching a pattern" in every
     with pytest.raises(PipelineError, match="usage: help"):
         run_line("help -x", ctx)
+
+
+def test_function_helpers_are_off_help_but_on_the_function_page(ctx):
+    listed = [line.split()[0] for line in to_text(run_line("help", ctx).output).splitlines() if line.strip()]
+    assert not {"local", "shift", "declare"} & set(listed) and "unset" in listed
+    page = to_text(run_line("man -p function", ctx).output)
+    assert "## local" in page and "## shift" in page and "## declare" in page
+    assert page.index("## local") < page.index("## shift") < page.index("## declare")
+    assert "declare -f NAME..." in page and "each a" in page and "man function" not in page
+    assert "local" in to_text(run_line("man -p local", ctx).output)  # its own page still works
+    assert run_line("f() { local x=1; echo $x; } ; f", ctx).status == 0  # and the command

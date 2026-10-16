@@ -129,6 +129,8 @@ and the project uses [semantic versioning](https://semver.org/).
   last, in their own color, with the first clause of their summary (◆ marks your own).
   `help -a` describes every command; `help -k WORD` searches; `help NAME` and `man NAME` have
   the usage. In a pipe it is still one `name  summary` line per command.
+  `local`, `shift` and `declare`, which only make sense inside a function, are not listed;
+  `man function` has their pages now (each still has its own `man` page and completes).
 - **The pager only when asked:** output taller than the window no longer opens the viewer by
   itself; it prints, so you can scroll back. `man` still opens it, and the new **`less`** (and
   `more`) page anything on demand: `ls -l | less`, `cat big.log | less`, `less FILE`. The

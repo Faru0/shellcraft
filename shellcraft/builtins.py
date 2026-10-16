@@ -145,10 +145,13 @@ HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
-    ("Scripting", "test true false read local shift unset declare export sleep time xargs"),
+    ("Scripting", "test true false read unset export sleep time xargs"),
     ("System", "date env hostname uname whoami"),
 )
 CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "System"}
+# Commands that only make sense inside a shell function: not listed by `help` (they still
+# complete, run and have their own man page), and their pages are part of `man function`.
+FUNCTION_HELPERS = ("local", "shift", "declare")
 DESCRIBED = ("ShellCraft", "Modules")  # the groups listed with descriptions by a bare `help`
 HELP_SHORT = {  # one line each, for the ShellCraft group
     "sub": "Open a subshell or a background job", "jobs": "List, switch, rename or stop subshells",
@@ -165,7 +168,7 @@ HELP_WIDTH = 100  # the help screen never grows wider than this, however wide th
 
 def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
     """(group, name, summary, usage) for every command shown by `help`, in display order."""
-    shown = {n for n, b in BUILTINS.items() if not b.hidden and n not in KEYWORDS_HELP}
+    shown = {n for n, b in BUILTINS.items() if not b.hidden and n not in KEYWORDS_HELP and n not in FUNCTION_HELPERS}
     groups: dict[str, list[str]] = {title: [n for n in names.split() if n in shown] for title, names in HELP_GROUPS}
     placed = {n for names in groups.values() for n in names}
     for name in sorted(shown - placed):
@@ -399,6 +402,14 @@ def manual_text(registry: Any, name: str) -> str:
     if name in BUILTINS:
         b = BUILTINS[name]
         doc = b.doc or f"# {name}\n\n{b.summary}.\n\n## Usage\n\n```\n{b.usage}\n```\n"
+        if name == "function":  # the commands used inside a function, on the same page
+            for helper in FUNCTION_HELPERS:
+                page = BUILTINS[helper].doc if helper in BUILTINS else ""
+                if page:
+                    body = page.split("\n", 1)[1] if page.startswith("# ") else page
+                    body = body.replace("\n## ", "\n### ").replace(" See `man function`.", "")
+                    body = body.replace(" (`man function`)", "")
+                    doc = doc.rstrip("\n") + f"\n\n## {helper}\n" + body
         return doc + "\n*ShellCraft built-in command.*\n"
     raise CommandError(f"man: no manual entry for {name}")
 
