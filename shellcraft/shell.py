@@ -194,12 +194,20 @@ class Shell:
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
         ctx.alerts.on_request = self._sub_requested
-        try:
-            ctx.alerts.share_clip(config_dir())  # one clip register for main and its lite subshells
-        except OSError:
-            pass
-        if not ctx.lite:  # the main shell's exit empties it: nothing copied outlives the session
-            self._cleanup.callback(lambda: setattr(ctx.alerts, "clip", ""))
+        from shellcraft import mainlink
+
+        if ctx.lite:  # one clip register: the main shell's, asked for over its private channel
+            ctx.alerts.remote_clip = mainlink.available()
+        else:
+            try:
+                from shellcraft.jobs import MAIN_LINK_ENV
+
+                link = mainlink.MainLink(ctx.alerts)
+                MAIN_LINK_ENV.update(link.env)  # handed to every `sub shellcraft`, and only to them
+                self._cleanup.callback(link.close)
+                self._cleanup.callback(MAIN_LINK_ENV.clear)
+            except OSError:
+                pass  # no channel: a lite subshell keeps a clip register of its own
         ctx.alerts.on_recording = self._sub_recording
         ctx.jobs.on_request = self._open_requests_attached
         if not ctx.lite:  # a lite (nested) shell leaves the spool to the main shell: `alert` forwards to it

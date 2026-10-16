@@ -171,9 +171,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 - **The clip register inside `sub shellcraft`:** a right-click on an alert is handled by the main
   shell (it draws the footer), so the copy went to the main shell's register and `clip`,
-  `$CLIP` and Alt-v in a lite subshell found nothing. The register is now one owner-only file,
-  `~/.shellcraft/clip`, shared by the main shell and its lite subshells and removed when the
-  main shell exits.
+  `$CLIP` and Alt-v in a lite subshell found nothing. A lite subshell now asks the main shell
+  for its register over a private channel (a local socket, a named pipe on Windows) locked with
+  a random key that only `sub shellcraft` is given; the register stays in the main shell's
+  memory, never on disk.
 - **Right-click on an alert at the prompt:** since the wheel fix the prompt never asked for the
   mouse, so the terminal kept right-clicks and the ✖ and the badge did nothing. The mouse is
   the shell's again while an alert shows (the wheel scrolls the output whenever none does).

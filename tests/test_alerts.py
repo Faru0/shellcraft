@@ -357,21 +357,40 @@ def test_a_nested_shell_asks_main_for_a_subshell(bus, home, ictx, monkeypatch, t
     ictx.jobs.kill(ictx.jobs.get(2))
 
 
-def test_the_clip_register_is_shared_between_the_shells(tmp_path):
-    """A copy in the main shell's footer is pasted inside a lite subshell, and back."""
-    main, lite = AlertBus(), AlertBus()
-    main.share_clip(tmp_path)
-    lite.share_clip(tmp_path)
-    main.copy(main.post("errors", "critical", content="/var/log/app.log"))
-    assert lite.clip == "/var/log/app.log"
-    if sys.platform != "win32":
-        assert ((tmp_path / alertmod.CLIP_FILE).stat().st_mode & 0o777) == 0o600
-    lite.clip = "from the subshell"
-    assert main.clip == "from the subshell"
-    main.clip = ""
-    assert lite.clip == "" and not (tmp_path / alertmod.CLIP_FILE).exists()
-    alone = AlertBus()  # no file: in memory, as before
-    alone.clip = "x"
-    assert alone.clip == "x"
-    for bus_ in (main, lite, alone):
-        bus_.close()
+def test_a_lite_subshell_uses_the_main_shells_clip_over_the_link(monkeypatch):
+    """The main shell answers over its private channel; a lite shell's register is main's."""
+    from multiprocessing.connection import Client
+
+    from shellcraft import jobs as jobmod
+    from shellcraft import mainlink
+
+    main = AlertBus()
+    link = mainlink.MainLink(main)
+    try:
+        for name, value in link.env.items():
+            monkeypatch.setenv(name, value)
+        lite = AlertBus()
+        lite.remote_clip = mainlink.available()
+        main.copy(main.post("errors", "critical", content="/var/log/app.log"))
+        assert lite.clip == "/var/log/app.log"  # copied in main, read in the subshell
+        lite.clip = "from the subshell"
+        assert main.clip == "from the subshell"  # set in the subshell, seen by main
+        assert mainlink.ask(("nonsense",), "default") == "default"
+        family = "AF_PIPE" if sys.platform == "win32" else "AF_UNIX"
+        from multiprocessing import AuthenticationError
+
+        with pytest.raises(AuthenticationError):
+            Client(link.address, family=family, authkey=b"wrong key")  # no key, no answer
+        # only `sub shellcraft` is given the key
+        jobmod.MAIN_LINK_ENV.update(link.env)
+        try:
+            env = jobmod.nested_shellcraft([])[1]
+            assert env[mainlink.ADDRESS_ENV] == str(link.address) and env[mainlink.KEY_ENV] == link.key.hex()
+        finally:
+            jobmod.MAIN_LINK_ENV.clear()
+    finally:
+        link.close()
+    assert lite.clip == "from the subshell"  # main gone: the subshell's own copy
+    monkeypatch.delenv(mainlink.ADDRESS_ENV)
+    assert not mainlink.available() and mainlink.ask(("clip-get",), "none") == "none"
+    main.close()

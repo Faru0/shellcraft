@@ -35,7 +35,6 @@ MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300
 MAX_CONTENT = 64 * 1024  # characters of `content` kept with an alert (what a right-click copies)
 SPOOL = "alerts"  # the folder under ~/.shellcraft
-CLIP_FILE = "clip"  # under ~/.shellcraft: the clip register the shells share (deleted when main exits)
 SUB_ENV = "SHELLCRAFT_SUB"  # "N:command" in a subshell's environment: the sender's label
 POLL = 0.25  # seconds between looks at the spool
 STALE = 300.0  # a spooled file older than this (no shell was running) is dropped
@@ -80,8 +79,8 @@ class AlertBus:
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
         self.expanded = False  # the panel shows every alert as a row (else the badge folds them)
-        self._clip = ""  # the clip register, in memory (until share_clip points it at a file)
-        self.clip_file: Path | None = None  # shared by the main shell and its lite subshells
+        self._clip = ""  # the clip register, in this shell's memory
+        self.remote_clip = False  # a lite subshell: the register is the main shell's (shellcraft.mainlink)
         self.copied: Alert | None = None  # the alert just copied, for the "copied" hint on its row
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
         self.on_request: Callable[[dict[str, Any]], None] | None = None  # `sub` typed inside a subshell
@@ -135,35 +134,24 @@ class AlertBus:
 
     @property
     def clip(self) -> str:
-        """The clip register: what a right-click on an alert copied (Alt-v pastes it). With a
-        clip_file, the main shell and every `sub shellcraft` share it."""
-        if self.clip_file is None:
-            return self._clip
-        try:
-            return self.clip_file.read_text(encoding="utf-8")
-        except OSError:
-            return ""
+        """The clip register: what a right-click on an alert copied (Alt-v pastes it). In a lite
+        subshell it is the main shell's, asked for over the main link; this shell's own copy
+        when main can't be reached."""
+        if self.remote_clip:
+            from shellcraft import mainlink
+
+            text = mainlink.ask(("clip-get",))
+            if isinstance(text, str):
+                return text
+        return self._clip
 
     @clip.setter
     def clip(self, text: str) -> None:
         self._clip = text
-        if self.clip_file is None:
-            return
-        try:
-            if not text:
-                self.clip_file.unlink(missing_ok=True)
-                return
-            fd = os.open(self.clip_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # owner only
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-        except OSError:
-            pass
+        if self.remote_clip:
+            from shellcraft import mainlink
 
-    def share_clip(self, home: Path) -> None:
-        """Keep the clip register in home/clip, so a right-click in the main shell's footer can be
-        pasted inside a lite subshell (`clip`, `$CLIP`, Alt-v) and the other way round."""
-        home.mkdir(parents=True, exist_ok=True)
-        self.clip_file = home / CLIP_FILE
+            mainlink.ask(("clip-set", text))
 
     def copy(self, alert: Alert) -> str:
         """A right-click on an alert: its content (or its message) goes into the clip register,

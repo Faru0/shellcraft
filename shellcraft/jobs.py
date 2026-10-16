@@ -1035,6 +1035,9 @@ def login_shell() -> list[str]:
     return [shell]
 
 
+MAIN_LINK_ENV: dict[str, str] = {}  # the main shell's channel (shellcraft.mainlink), for `sub shellcraft` only
+
+
 def nested_shellcraft(args: list[str]) -> tuple[list[str], dict[str, str]]:
     """argv and environment for `sub shellcraft`: this interpreter running this checkout (or the
     installed copy), one level deeper (SHELLCRAFT_DEPTH, shown in the prompt)."""
@@ -1044,6 +1047,7 @@ def nested_shellcraft(args: list[str]) -> tuple[list[str], dict[str, str]]:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
     env["SHELLCRAFT_DEPTH"] = str(depth() + 1)
+    env.update(MAIN_LINK_ENV)  # the key to the main shell's channel: only lite subshells get it
     env.setdefault("PYTHONUTF8", "1")  # its glyphs (● ○ ✖) reach the pseudo-terminal as UTF-8 on Windows too
     return [sys.executable, "-m", "shellcraft.cli", "--lite", *args], env
 
