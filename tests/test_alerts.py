@@ -192,12 +192,12 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
     assert [r.style for r in rows] == ["alert.critical", "current", "running", "done"]  # critical keeps its row
     main = rows[1]
-    assert main.text.startswith(" ● main") and main.text.rstrip().endswith("✖ 1  ✖ 1  ✖ 1 ▸") and main.badge > 0
+    assert main.text.startswith(" ● main") and main.text.rstrip().endswith("● 1  ● 1  ● 1 ▸") and main.badge > 0
     assert [(main.text[s:e], style, role) for s, e, style, role in main.spans] == [
-        (" ▾", None, "fold"), ("✖ 1", "alert.critical.mark", "badge"), ("✖ 1", "alert.warning.mark", "badge"),
-        ("✖ 1", "alert.info.mark", "badge"), (" ▸ ", None, "badge")]
+        (" ▾", None, "fold"), ("● 1", "alert.critical.mark", "badge"), ("● 1", "alert.warning.mark", "badge"),
+        ("● 1", "alert.info.mark", "badge"), (" ▸ ", None, "badge")]
     bash = rows[2]
-    assert bash.text.startswith(" ○ 1  bash --norc  ✖ Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
+    assert bash.text.startswith(" ○ 1  bash --norc  ● Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
     assert "running" not in bash.text and bash.spans[0][2] == "alert.warning.mark"
     assert rows[3].text.rstrip().endswith("done") and "s ·" not in rows[3].text  # no time on the right
     # unfolded: every alert gets a row, the badge shows ▾
@@ -214,7 +214,7 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
     # only critical alerts: no ▸, nothing to fold
     bus.remove(warn) and bus.remove(info)
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
-    assert rows[1].text.rstrip().endswith("✖ 1") and not bus.remove(info)
+    assert rows[1].text.rstrip().endswith("● 1") and not bus.remove(info)
     bus.close()
 
 

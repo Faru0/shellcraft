@@ -262,6 +262,7 @@ class Footer:
 # ── the stack, shared by the panel under the prompt and the footer in a subshell ─
 
 MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
+MARK_DOT = "●"  # the alert counts in the badge and an inline alert: a filled bubble in the level's color
 
 
 class Row(NamedTuple):
@@ -316,9 +317,9 @@ def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None)
 
 
 def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int, str]]]:
-    """`✖ 1  ▲ 2  ● 1 ▸`: how many alerts of each level, in their colors, and ▸ / ▾ when a click
+    """`● 1  ● 2  ● 1 ▸`: how many alerts of each level, in their colors, and ▸ / ▾ when a click
     folds or unfolds rows. Returns the text and (start, end, style) for each count."""
-    from shellcraft.alerts import ICONS, LEVELS
+    from shellcraft.alerts import LEVELS
 
     text, spans = "", []
     for level in reversed(LEVELS):
@@ -326,8 +327,8 @@ def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int,
         if count:
             if text:
                 text += "  "
-            spans.append((len(text), len(text) + len(f"{ICONS[level]} {count}"), f"alert.{level}.mark"))
-            text += f"{ICONS[level]} {count}"
+            spans.append((len(text), len(text) + len(f"{MARK_DOT} {count}"), f"alert.{level}.mark"))
+            text += f"{MARK_DOT} {count}"
     return text, spans
 
 
@@ -347,12 +348,10 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     the main row (`main  3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
 
         ✖ Payment API is down · from mcp · claude                     critical · sticky
-        ● main ▾                                                      ✖ 1  ▲ 1  ● 1 ▸
+        ● main ▾                                                      ● 1  ● 1  ● 1 ▸
         ○ 1  bash --norc  ▲ Disk /home at 91%
         ○ 2  find / -name "*.log"                                                  done
     """
-    from shellcraft.alerts import ICONS
-
     width = max(40, width)
     alerts = list(alerts or [])
     lines: list[Row] = alert_lines(alert_rows(alerts, jobs, expanded), width, hover, copied)
@@ -396,7 +395,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         own = [a for a in alerts if a.job == job.number and a.job in numbers]
         if own:
             first = own[0]  # the most severe (alerts are sorted)
-            inline = f"  {ICONS[first.level]} {first.message}" + (f" +{len(own) - 1}" if len(own) > 1 else "")
+            inline = f"  {MARK_DOT} {first.message}" + (f" +{len(own) - 1}" if len(own) > 1 else "")
             room = width - get_cwidth(left) - get_cwidth(right) - 1
             if get_cwidth(inline) > room:
                 inline = inline[: max(4, room - 1)] + "…"

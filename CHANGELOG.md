@@ -108,7 +108,7 @@ and the project uses [semantic versioning](https://semver.org/).
   that imports mcp and uvicorn on a slow disk or a busy machine sometimes needed more.
 - **Alerts fold into the panel:** an alert sent from a subshell shows inline on that subshell's
   line, after its command, in its color; a badge at the right end of the `main` line counts every
-  alert by level (`✖ 1  ▲ 1  ● 1 ▸`) and a click on it unfolds one row per alert (another folds
+  alert by level (`● 1  ● 1  ● 1 ▸`, a filled bubble in each level's color) and a click on it unfolds one row per alert (another folds
   them back). A critical alert always keeps its full row. Every level has the same ✖ mark, in
   its color, and a click on it dismisses the alert. Alerts without a subshell to fold into (no
   `sub` running) still show as rows. The `⤷` glyph is gone from the footer, the prompt (`[1]`

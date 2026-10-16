@@ -632,10 +632,11 @@ The shell keeps at most three alerts; when more arrive, the oldest of the lowest
 room. In the panel under the prompt (and in the footer inside a subshell):
 
 - An alert sent from a subshell shows **inline** on that subshell's line, after its command, in
-  its color: `▲ Disk /home at 91%` (`+1` when it has more; the most severe shows).
+  its color: `● Disk /home at 91%` (`+1` when it has more; the most severe shows).
 - The **badge** at the right end of the `main` line counts every alert by level
-  (`✖ 1  ▲ 1  ● 1 ▸`). A click on it unfolds one row per alert, the most severe first, with the
-  message, where it came from and the time left; another click folds them back (`▾` / `▸`).
+  (`● 1  ● 1  ● 1 ▸`, a filled bubble in each level's color). A click on it unfolds one row per
+  alert, the most severe first, with the message, where it came from and the time left; another
+  click folds them back (`▾` / `▸`).
 - A **critical** alert always keeps its full row, folded or not.
 - To dismiss one: click its **✖** at the start of the row (`alert -c [N]` from the keyboard).
   Every level has the same mark, in its color: green info, amber warning, red critical.
