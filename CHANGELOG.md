@@ -7,6 +7,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Core warnings in the banner:** like a module's missing import, the banner (and the start
+  without one) now says what the shell itself is missing: pywinpty on Windows (no subshells on
+  a pseudo-terminal, so no footer), pyte, the `mcp` package, keyring, each with the pip command.
 - **`sub` inside a subshell:** instead of being refused, it hands the request to the main shell
   (through the alert spool), which opens the subshell in the background under `main`: it
   appears in the footer, you stay where you are, Ctrl-] N switches to it. Every subshell

@@ -141,8 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         theme_name = "cyberpunk"
     allow_system = args.allow_system or settings.get(config, "system_commands")
     show_banner = not args.no_banner and not args.lite and settings.get(config, "banner")
-    if not show_banner:  # with the banner, the warnings are shown inside it
-        for warning in theme_warnings:
+    if not show_banner and not args.lite:  # with the banner, the warnings are shown inside it
+        from shellcraft.banner import core_warnings
+
+        for warning in [*core_warnings(), *theme_warnings]:
             print(f"shellcraft: {warning}", file=sys.stderr)
 
     from shellcraft.console import build_console

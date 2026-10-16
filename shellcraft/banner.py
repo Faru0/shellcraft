@@ -16,6 +16,37 @@ from shellcraft import __version__
 from shellcraft.loader import ModuleRegistry
 from shellcraft.themes import UI
 
+
+def core_warnings() -> list[str]:
+    """What the shell itself is missing, shown in the banner like a module's missing import:
+    optional packages whose absence takes a feature away (pywinpty on Windows: no subshells on
+    a pseudo-terminal, so no footer; pyte: no screen redraw when switching subshells; mcp: no
+    MCP server; keyring: keys in plain text)."""
+    import importlib.util
+
+    def missing(name: str) -> bool:
+        try:
+            return importlib.util.find_spec(name) is None
+        except (ImportError, ValueError):
+            return True
+
+    python = sys.executable
+    found: list[str] = []
+    if sys.platform == "win32" and missing("winpty"):
+        found.append("pywinpty is not installed: `sub PROGRAM` runs in the foreground, with no footer and no job "
+                     f"list — {python} -m pip install pywinpty")
+    if missing("pyte"):
+        found.append("pyte is not installed: switching between subshells replays their last output instead of "
+                     f"redrawing their screen — {python} -m pip install pyte")
+    if missing("mcp"):
+        found.append(f"the 'mcp' package is not installed: `mcp start` and --mcp won't work — "
+                     f"{python} -m pip install mcp")
+    if missing("keyring"):
+        found.append("keyring is not installed: API keys are kept in plain text in config.json — "
+                     f"{python} -m pip install keyring")
+    return found
+
+
 # "ANSI Shadow" block letters, assembled per glyph so columns always line up.
 _GLYPHS = {
     "S": ["███████╗", "██╔════╝", "███████╗", "╚════██║", "███████║", "╚══════╝"],
@@ -50,8 +81,9 @@ def _gradient(lines: list[str], start: str, end: str) -> Text:
 
 
 def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = ()) -> Panel:
-    """The welcome panel. `warnings` (theme problems, a bad config section) are shown after the
-    module warnings, so nothing printed before the screen was cleared is lost."""
+    """The welcome panel. The module warnings (a missing import, a bad name), then the core's
+    (core_warnings: an optional package missing), then `warnings` (theme problems, a bad config
+    section) are shown in it, so nothing printed before the screen was cleared is lost."""
     theme = ui.theme
     art_lines = _art("SHELLCRAFT")
     if ui.console.width >= len(art_lines[0]) + 6:
@@ -72,7 +104,7 @@ def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = ()
         (" completes, ", "sc.muted"), ("→", "sc.accent"), (" accepts ghost text", "sc.muted"),
     )
     parts = [Align.center(title), Text(""), Align.center(tagline), Align.center(stats), Align.center(hint)]
-    for warning in [*registry.warnings, *warnings]:
+    for warning in [*registry.warnings, *core_warnings(), *warnings]:
         parts.append(Align.center(Text(f"⚠ {warning}", style="sc.warning")))
     return Panel(Group(*parts), border_style="sc.border", padding=(1, 2),
                  subtitle=Text(" welcome, operator ", style="sc.prompt"), subtitle_align="right")

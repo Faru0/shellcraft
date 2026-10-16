@@ -450,3 +450,28 @@ def test_paged_text_keeps_long_lines_for_sideways_scrolling(monkeypatch):
     for rendered in paged:
         lines = rendered.rstrip("\n").split("\n")
         assert len(lines) == 30 and "x" * 200 in lines[0]
+
+
+def test_banner_warns_about_missing_core_packages(tmp_path, monkeypatch):
+    """The banner lists what the shell itself is missing, as it does a module's missing import."""
+    import importlib.util
+    import sys
+
+    from shellcraft.banner import core_warnings, render_banner
+
+    gone = {"winpty", "pyte", "mcp", "keyring"}
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name in gone else object())
+    monkeypatch.setattr(sys, "platform", "win32")
+    found = core_warnings()
+    assert [w.split(" ")[0] for w in found] == ["pywinpty", "pyte", "the", "keyring"]
+    assert "no footer" in found[0] and "pip install pywinpty" in found[0] and "mcp start" in found[2]
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert not any(w.startswith("pywinpty") for w in core_warnings())  # pywinpty is Windows only
+    gone.clear()
+    assert core_warnings() == []
+    gone.add("pyte")
+    console = Console(record=True, width=120, force_terminal=False, color_system=None)
+    ui = UI(all_themes({})["nord"], console)
+    console.print(render_banner(ui, ModuleRegistry(tmp_path), ["theme 'x': invalid color"]))
+    text = console.export_text()
+    assert "⚠ pyte is not installed" in text and "⚠ theme 'x'" in text
