@@ -845,7 +845,10 @@ clip -c                 # clear it
 ```
 
 **Alt-c** at the prompt copies the top alert too. A right-click works wherever the mouse reaches
-the shell: at the prompt while an alert shows, and always inside a subshell.
+the shell: at the prompt while an alert shows, and always inside a subshell. The register is
+shared by the main shell and every `sub shellcraft` (it lives in `~/.shellcraft/clip`, readable
+by you only, and is removed when the main shell exits), so what you copy in one you can paste in
+another.
 
 ## Options
 

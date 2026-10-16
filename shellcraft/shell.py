@@ -194,6 +194,12 @@ class Shell:
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
         ctx.alerts.on_request = self._sub_requested
+        try:
+            ctx.alerts.share_clip(config_dir())  # one clip register for main and its lite subshells
+        except OSError:
+            pass
+        if not ctx.lite:  # the main shell's exit empties it: nothing copied outlives the session
+            self._cleanup.callback(lambda: setattr(ctx.alerts, "clip", ""))
         ctx.alerts.on_recording = self._sub_recording
         ctx.jobs.on_request = self._open_requests_attached
         if not ctx.lite:  # a lite (nested) shell leaves the spool to the main shell: `alert` forwards to it

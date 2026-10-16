@@ -355,3 +355,23 @@ def test_a_nested_shell_asks_main_for_a_subshell(bus, home, ictx, monkeypatch, t
     monkeypatch.setattr(bmod, "_attach", lambda ctx, job: pytest.fail("a requested subshell must not be attached"))
     assert bmod.open_requested(ictx) == [] and not ictx.jobs.requests
     ictx.jobs.kill(ictx.jobs.get(2))
+
+
+def test_the_clip_register_is_shared_between_the_shells(tmp_path):
+    """A copy in the main shell's footer is pasted inside a lite subshell, and back."""
+    main, lite = AlertBus(), AlertBus()
+    main.share_clip(tmp_path)
+    lite.share_clip(tmp_path)
+    main.copy(main.post("errors", "critical", content="/var/log/app.log"))
+    assert lite.clip == "/var/log/app.log"
+    if sys.platform != "win32":
+        assert ((tmp_path / alertmod.CLIP_FILE).stat().st_mode & 0o777) == 0o600
+    lite.clip = "from the subshell"
+    assert main.clip == "from the subshell"
+    main.clip = ""
+    assert lite.clip == "" and not (tmp_path / alertmod.CLIP_FILE).exists()
+    alone = AlertBus()  # no file: in memory, as before
+    alone.clip = "x"
+    assert alone.clip == "x"
+    for bus_ in (main, lite, alone):
+        bus_.close()
