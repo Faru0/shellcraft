@@ -142,3 +142,34 @@ def test_table_plain_in_pipes_and_rich_on_screen(files):
     files.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
     shown = run_line("jq list.json -w name -t", files).output
     assert isinstance(shown, Styled) and to_text(shown).startswith("name\tage\ttags\nada")
+
+
+def test_jq_tells_the_shape_and_takes_a_bare_path(files):
+    from shellcraft.commands.jq import hints, shape
+
+    assert shape(DOC) == "object with 3 keys: name, items, ok" and hints(DOC) == "jq -k · jq -f name"
+    assert shape(PEOPLE) == "list of 3 objects (keys: name, age, tags)"
+    assert hints(PEOPLE) == "jq [0] · jq -t · jq -i '*' -f name · jq -n"
+    assert shape([1, 2, 3]) == "list of 3 numbers" and hints([1, 2, 3]) == "jq [0] · jq [2] · jq -n"
+    assert shape(["a", 1]) == "list of 2 mixed values (number, string)" and shape([]) == "empty list"
+    assert shape([[1], [2]]) == "list of 2 lists" and shape("x") == "string" and shape({}) == "object with 0 keys"
+    assert out("jq list.json -s", files) == "list of 3 objects (keys: name, age, tags)\n"
+    assert out("cat obj.json | jq --shape", files) == "object with 3 keys: name, items, ok\n"
+    # a path on its own, like Python's indexing; a file and a path together
+    assert out("cat list.json | jq [1]", files) == '{\n  "name": "bob",\n  "age": 2\n}\n'
+    assert out("jq list.json [0][name]", files) == "ada\n" and out("jq obj.json .items[1].id", files) == "8\n"
+    assert out("jq [0][name] list.json", files) == "ada\n"
+    with pytest.raises(PipelineError, match="give the path once"):
+        run_line("jq list.json [0] -f name", files)
+    with pytest.raises(PipelineError, match="one path at a time"):
+        run_line("jq list.json [0] [name]", files)
+    # the header on screen only: a pipe gets bare JSON
+    files.interactive = True
+    files.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
+    shown = run_line("jq list.json", files).output
+    assert isinstance(shown, Styled) and to_text(shown).startswith("[\n")  # the plain side: no header
+    files.ui.console.print(shown.renderable)
+    screen = files.ui.console.file.getvalue()
+    assert "# list of 3 objects (keys: name, age, tags) · jq [0] · jq -t" in screen
+    assert "# " not in to_text(run_line("jq list.json [1]", files).output)  # a path: no header
+    assert out("jq list.json | cat", files).startswith("[\n")

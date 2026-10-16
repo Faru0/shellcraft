@@ -36,7 +36,11 @@ and the project uses [semantic versioning](https://semver.org/).
   pretty-prints, `jq f.json -k` lists the keys, `-f ['name']` / `-f [5]['name']` / `-f .items[0].id`
   picks a value, `-i N` starts inside element N of a list and `-i *` goes through every element
   (`jq -i * -f ['name']`, `jq -i * -k`). `-r FILE` reads a file, `-c` prints compact JSON, `-n`
-  counts. JSON Lines and Python-style dictionaries are accepted. Words on a `jq` line are not
+  counts. `jq` looks at what it got first: on screen a bare `jq` starts with a line saying the
+  shape and what fits it (`# list of 3 objects (keys: name, age) · jq [0] · jq -t · jq -i '*'
+  -f name`), `-s` prints just that line, and a path on its own (`jq [3]`, `jq .items[0]`) works
+  like `-f`, so a list is indexed the way Python does it. JSON Lines and Python-style
+  dictionaries are accepted. Words on a `jq` line are not
   globbed, so `*` and `[name]` arrive as typed. It is not the jq language, and it shadows a jq
   program on the PATH (run that one by its full path, such as `/usr/bin/jq`).
 - **`jq -w`, `-t`, `-p`:** `-w COND` keeps the list elements that match (`-w 'age>30'`,

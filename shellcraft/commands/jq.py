@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -169,6 +170,49 @@ def _as_text(value: Any, compact: bool) -> str:
     return json.dumps(value)
 
 
+def shape(value: Any) -> str:
+    """What the data is, in a line: `object with 3 keys: name, items, ok`, `list of 5 objects
+    (keys: name, age)`, `list of 12 numbers`, `string`…"""
+    if isinstance(value, dict):
+        keys = ", ".join(map(str, list(value)[:8])) + (" …" if len(value) > 8 else "")
+        return f"object with {len(value)} key{'s' if len(value) != 1 else ''}" + (f": {keys}" if value else "")
+    if isinstance(value, list):
+        if not value:
+            return "empty list"
+        kinds = {_kind(v) for v in value}
+        n = len(value)
+        if kinds == {"object"}:
+            keys: list[str] = []
+            for item in value:
+                keys += [str(k) for k in item if str(k) not in keys]
+            shown = ", ".join(keys[:8]) + (" …" if len(keys) > 8 else "")
+            return f"list of {n} object{'s' if n != 1 else ''} (keys: {shown})"
+        if kinds == {"list"}:
+            return f"list of {n} list{'s' if n != 1 else ''}"
+        if len(kinds) == 1:
+            kind = kinds.pop()
+            return f"list of {n} {kind}{'s' if n != 1 else ''}"
+        return f"list of {n} mixed values ({', '.join(sorted(kinds))})"
+    return _kind(value)
+
+
+def hints(value: Any) -> str:
+    """How to dig in, for the header on screen: the commands that fit the shape."""
+    if isinstance(value, dict):
+        first = next(iter(value), None)
+        return f"jq -k · jq -f {first}" if first is not None and str(first).isidentifier() else "jq -k"
+    if isinstance(value, list) and value:
+        if all(isinstance(v, dict) for v in value):
+            key = next((str(k) for k in value[0] if str(k).isidentifier()), None)
+            return "jq [0] · jq -t" + (f" · jq -i '*' -f {key}" if key else "") + " · jq -n"
+        return f"jq [0] · jq [{len(value) - 1}] · jq -n"
+    return ""
+
+
+def _looks_like_path(word: str) -> bool:
+    return word.startswith(("[", ".")) and not os.path.exists(word)
+
+
 def _keys(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [str(k) for k in value]
@@ -271,7 +315,9 @@ This is ShellCraft's own jq, not the jq language: the filter is a Python subscri
 ## Synopsis
 
 ```
-jq [FILE]                       pretty-print
+jq [FILE]                       pretty-print, with a line saying what the data is and how to dig in
+jq [FILE] -s                    just that line: `list of 5 objects (keys: name, age)`
+jq [FILE] [3]                   element 3 of a list (a path on its own works like -f)
 jq [FILE] -f FILTER             pick a value: -f ['name'], -f [5]['name'], -f .items[0].id
 jq [FILE] -i N -f FILTER        the same, inside element N of a list
 jq [FILE] -i '*' -f FILTER      the same, for every element of a list
@@ -288,6 +334,7 @@ jq [FILE] -p                    every value with its path
 | `-i N`, `--index N` | Start inside element N of a list (`-i 0`, `-i -1` for the last). `-i '*'` (or `-i all`) means every element, and `-i 2:5` a range. |
 | `-k`, `--keys` | The keys of the result, one per line (the indexes of a list). With `-i '*'`: each element's keys, under its index. |
 | `-r FILE`, `--read FILE` | Read FILE (the same as giving FILE on its own). |
+| `-s`, `--shape` | Say what the data is, in one line: `object with 3 keys: name, items, ok`, `list of 5 objects (keys: name, age)`, `list of 12 numbers`, `string`. |
 | `-c`, `--compact` | Objects and lists on one line each, without indentation. |
 | `-n`, `--count` | How many results the filter gives (the length of a single list or object). |
 | `-w COND`, `--where COND` | Keep only the list elements that match COND (give it more than once: all must match). COND is `PATH OP VALUE` with OP one of `=` `!=` `>` `<` `>=` `<=` `~` (contains, any case), or just `PATH` (the key is there). Quote it when it has `>` or `<`: `-w 'age>30'`. On a list it implies `-i '*'`. |
@@ -295,6 +342,12 @@ jq [FILE] -p                    every value with its path
 | `-p`, `--paths` | Every value with the path that reaches it, one per line (`.items[0].id = 7`): a map of the document, and each path works as a `-f` filter. |
 
 ## Output
+
+`jq` looks at what it got first. On screen, a bare `jq` starts with a muted line that says the
+shape and the commands that fit it: `# list of 3 objects (keys: name, age) · jq [0] · jq -t ·
+jq -i '*' -f name · jq -n`, or `# object with 2 keys: name, items · jq -k · jq -f name`. In a
+pipe there is no such line, only the JSON. A path given on its own (`jq [3]`, `jq .items[0]`)
+works like `-f`, so a list is indexed the way Python does it.
 
 A string or number is printed as it is, so it pipes cleanly (`jq -f ['name'] | grep -i ada`);
 objects and lists are printed as JSON, colored on screen. With `-i '*'` or `[*]` there is one result
@@ -304,7 +357,9 @@ per line. A missing key or index is an error (status 1) that lists the keys ther
 ## Examples
 
 ```
-cat users.json | jq                       # pretty-print
+cat users.json | jq                       # pretty-print, after a line saying what it is
+cat users.json | jq -s                    # just that: list of 3 objects (keys: name, age)
+cat users.json | jq [3]                   # element 3 of a list, like Python's users[3]
 cat users.json | jq -k                    # the top-level keys
 jq users.json -f ['name']                 # the "name" of an object
 jq -r users.json --filter ['name']        # the same, with -r
@@ -329,8 +384,9 @@ doesn't, so the examples work as typed.
 """)
 def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser = ArgParser("jq")
-    parser.add_argument("file", nargs="?")
+    parser.add_argument("words", nargs="*", metavar="FILE|FILTER")
     parser.add_argument("-r", "--read", metavar="FILE")
+    parser.add_argument("-s", "--shape", action="store_true")
     parser.add_argument("-f", "--filter", default="")
     parser.add_argument("-i", "--index")
     parser.add_argument("-k", "--keys", action="store_true")
@@ -340,10 +396,23 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser.add_argument("-t", "--table", action="store_true")
     parser.add_argument("-p", "--paths", action="store_true")
     opts = parser.parse_args(args)
-    if opts.file and opts.read:
+    # The positionals: a FILE, a path (`jq [3]`, `jq .items[0].id`, like -f), or both.
+    files = [w for w in opts.words if not _looks_like_path(w)]
+    paths = [w for w in opts.words if _looks_like_path(w)]
+    if len(files) > 1:
+        raise ModuleError(f"jq: one FILE at a time ({', '.join(files)})")
+    if paths and opts.filter:
+        raise ModuleError("jq: give the path once: as -f, or on its own")
+    if len(paths) > 1:
+        raise ModuleError(f"jq: one path at a time ({' '.join(paths)}): join them, as in {''.join(paths)}")
+    if paths:
+        opts.filter = paths[0]
+    if files and opts.read:
         raise ModuleError("jq: give FILE or -r FILE, not both")
-    source = opts.read or opts.file
+    source = opts.read or (files[0] if files else None)
     data = load(read_file("jq", source) if source else stdin, source or "stdin")
+    if opts.shape:
+        return shape(data) + "\n"
 
     steps: list[Any] = []
     if opts.index is not None:
@@ -399,10 +468,14 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     plain = "".join(_as_text(v, opts.compact) + "\n" for v in results)
     if ctx.ui is None or not ctx.interactive:
         return plain
-    # On screen: JSON colored by Rich, plain text for pipes and files (Styled).
+    # On screen: JSON colored by Rich, plain text for pipes and files (Styled). A bare `jq`
+    # (no path) says first what the data is and how to dig in; a pipe never sees that line.
     from rich.console import Group
 
     parts: list[Any] = []
+    if not steps and isinstance(data, (dict, list)):
+        header = f"# {shape(data)}" + (f" · {hints(data)}" if hints(data) else "")
+        parts.append(Text(header, style="sc.muted"))
     for value in results:
         if isinstance(value, (dict, list)) and not opts.compact:
             parts.append(RichJSON(json.dumps(value, ensure_ascii=False), indent=2))
