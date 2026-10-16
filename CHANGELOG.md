@@ -63,6 +63,21 @@ and the project uses [semantic versioning](https://semver.org/).
   `-w name~ad` for contains, `-w active=true`, `-w email` for "has the key"; more than one must all
   match; status 1 when none do). `-t` shows a list of objects as a table, tab-separated in a pipe.
   `-p` prints every value with its path (`.items[0].id = 7`), and each path works as a `-f` filter.
+- **`jq` for deeply nested data** (dict -> list -> dict -> list, any number of levels):
+  `-s` (and the header on screen) describes data nested four levels or more as an outline of its
+  deepest branch (`object{company} -> company: object{name,departments} -> departments: list of
+  2 objects{name,teams} -> …`) and a chain (`dict -> dict -> list[2] -> dict …   (11 levels)`);
+  the header then suggests the switches that fit. `-R KEY` / `-f ..KEY` finds a key at any depth,
+  `..` is every value, `[*].items[*].tags[*]` goes through many levels in one filter, `-W COND`
+  finds the objects (or, with no path, the scalar values) that match at any depth (`-W
+  'status=error'`, `-W '~timeout'`), `-F` flattens to `a.b[0].c = value` lines (with `-t`, one flat
+  row per record, a column per nested key), `-d N` stops at N levels (`{…3 keys}`, and `-k -d N`
+  is the key outline `items[*].tags[*].label`), `-P` prints the path of each result. A filter
+  that does not fit the shape says what is there and what to type (`'name' is inside each
+  element; try .company.departments[*].name`, `'level' is deeper: try -R level`, did you mean).
+  Everything walks the data without recursion, so thousands of levels and hundreds of thousands
+  of values are fine. A number in a condition (`-w 'age>30'`, `-W '>3'`) now compares with
+  numbers only (text that reads as a number counts), instead of by text order.
 - **Background startup scripts:** `# shellcraft: background` at the top of a script in
   `~/.shellcraft/startup/` starts it as a subshell when the prompt appears, so it never slows the
   start; `# shellcraft: restart` restarts it after a crash (2 s, 4 s … 60 s; gives up with a red

@@ -470,6 +470,10 @@ one has a manual: `man ls`, `man grep`, …
 - **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program.
 - **`rm` safety:** there is no trash can, so `rm` refuses a filesystem root, your home folder, and the current folder or its parents.
 - **`diff -u old new`** gives the Git-style format; **`du -sh`** totals a folder; **`history | grep ssh`** finds an old command.
+- **`jq` and deeply nested data:** `cat org.json | jq -s` outlines dict -> list -> dict -> list… to any depth,
+  `jq -R email -P` finds every `email` at any depth and where it lives, `jq -W 'status=error'` every object that
+  matches, `jq -f '..members[*].name'` / `[*].teams[*].name` go through the levels, `jq -F | grep` flattens to
+  `a.b[0].c = value`, `-d 2` stops at two levels, and a wrong key says where it really is (`man jq`).
 - **`grep -rn TODO .`**, **`grep -C 2 error app.log`**, **`ls -lt`**, **`find . -size +1M -mtime -7`**, **`sort -h`**, **`tail -f app.log`**, **`seq 10 | xargs -n 2 echo`**: the switches a bash user reaches for are there. A mistyped switch shows the usage line and a "did you mean".
 
 ## Bundled modules
