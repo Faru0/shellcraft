@@ -296,12 +296,13 @@ subshell the footer is the `main` line alone; `settings footer off` goes back to
 the prompt that appears only while something is running.
 
 **↓** on an empty line moves into the footer (↑ / ↓ walk it, **Enter** switches, **x** or Delete
-stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere. Inside a subshell the
-footer's lines are clickable, the wheel scrolls the subshell's own scrollback, and a drag
-highlights text that a right-click copies to the clipboard, all without Shift. At the prompt the
-terminal keeps the mouse, so its wheel scrolls and its selection works as usual without Shift; the
-footer's lines, an alert's ✖ and the badge are clickable there with `settings footer_mouse on`,
-at the price of needing Shift for the terminal's own wheel and selection again.
+stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere. The footer's lines, an
+alert's ✖ and the badge are clickable at the prompt and inside a subshell. While the shell has
+the mouse that way, select text with **Shift** and a drag, and the **wheel** works without Shift:
+inside a subshell it scrolls the subshell's own scrollback, and at the prompt it opens the
+**scroll view**, the session's recent output in the viewer, at its end (wheel down past the end,
+or `q`, closes it). With nothing in the footer to click, the terminal keeps the mouse and its own
+wheel. `settings footer_mouse off` always leaves the mouse to the terminal at the prompt.
 
 Subshells are shown like the pages of a book. Each program has its own terminal emulator, so
 switching to it redraws its screen exactly as it was, scrollback included, and switching away
@@ -415,14 +416,11 @@ To dismiss an alert, click its **✖** at the start of the row (`alert -c` from 
 
 An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"` or
 `make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
-(or the message) into the shell's own clip register and onto the host's clipboard (the terminal's
-OSC 52 sequence, plus the Win32 clipboard on Windows; no external program). Paste it with
-**Ctrl-] v** (at the prompt and inside a subshell), **Alt-v** at the prompt, or `clip -i` and
-Enter, which starts the next prompt with the text; `clip` prints it, `clip | jq` pipes it on,
-`$CLIP` holds it. (Inside a subshell the mouse always works; at the prompt the ✖, the right-click
-and the badge need `settings footer_mouse on`, because the terminal then needs Shift for its own
-wheel and selection. **Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. On
-Windows consoles Alt-v needs the left Alt key. Konsole uses Alt-v for its View menu while its menu
+(or the message) into the shell's own clip register. **Alt-v** pastes it at the prompt, in the
+main shell and in a `sub shellcraft` (**Ctrl-] v** types it into another program in a subshell),
+and `clip -i` starts the next prompt with it; `clip` prints it, `clip | jq` pipes it on, `$CLIP`
+holds it. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. On Windows
+consoles Alt-v needs the left Alt key. Konsole uses Alt-v for its View menu while its menu
 bar is shown; Esc then v is the same key.) Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client
@@ -530,7 +528,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
 | `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
-| `footer_mouse` | off | Report the mouse to the shell at the prompt while a subshell or an alert is listed, so the footer's lines, an alert's ✖ and the badge can be clicked there. Costs the terminal's own wheel and text selection (they need Shift again). Inside a subshell the footer is always clickable, and there the wheel and a drag selection work without Shift. |
+| `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel opens the scroll view. Off: the terminal keeps the mouse at the prompt. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |

@@ -44,11 +44,17 @@ def clear_screen(ui: UI) -> None:
     """Clear the terminal as `clear` does in bash and `cls` on Windows: the screen and the
     scrollback (ESC[3J). Written straight to the terminal: Rich's own clear sends only ESC[2J,
     which Windows Terminal turns into scrolling the old text away rather than removing it."""
+    from shellcraft.scrollback import scrollback_of, terminal_file
+
     try:
-        ui.console.file.write(CLEAR_SCREEN)
-        ui.console.file.flush()
+        file = terminal_file(ui.console.file)
+        file.write(CLEAR_SCREEN)
+        file.flush()
     except (OSError, ValueError):
         pass
+    scrollback = scrollback_of(ui.console.file)
+    if scrollback is not None:
+        scrollback.clear()  # like the terminal's own history
 
 
 def strip_links(text: str) -> str:
@@ -179,8 +185,11 @@ PAGER_HINTS = [("↑↓", "scroll", None), ("/", "search", "search"), ("n/N", "n
                ("w", "wrap", "wrap"), ("?", "keys", "help"), ("q", "quit", "quit")]
 
 
-def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
-    """Interactive scrollable viewport for ANSI text (cross-platform, no external pager)."""
+def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = None,
+         close_past_end: bool = False) -> dict[str, Any]:
+    """Interactive scrollable viewport for ANSI text (cross-platform, no external pager).
+    `at_end`: open N lines above the end instead of at the top (the scroll view); with
+    `close_past_end`, scrolling down past the end closes it."""
     lines = strip_links(rendered).rstrip("\n").split("\n")
     plain = [_ANSI_RE.sub("", ln) for ln in lines]
     widths = [get_cwidth(ln) for ln in plain]
@@ -219,6 +228,9 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
         return max(0, max(widths, default=0) - size()[1])
 
     def scroll(delta: int) -> None:
+        if close_past_end and delta > 0 and state["top"] >= max_top() and not state["searching"]:
+            app.exit()  # the scroll view: down past the end goes back to the prompt
+            return
         state["top"] = min(max_top(), max(0, state["top"] + delta))
         state["message"] = ""  # a mark or a "not found" note lasts until the next scroll
 
@@ -491,7 +503,11 @@ def page(ui: UI, rendered: str, title: str | None = None) -> dict[str, Any]:
                                    mouse_support=ui.mouse)  # the `mouse` setting; off keeps selection
     # Opened from a click while the prompt's event loop runs (run_in_terminal): the viewer then
     # needs its own loop, in a thread; asyncio refuses a nested loop.
-    app.run(in_thread=_loop_running())
+    def start_at_end() -> None:
+        if at_end is not None:
+            state["top"] = max(0, max_top() - at_end)
+
+    app.run(in_thread=_loop_running(), pre_run=start_at_end)
     return state  # for tests: where the viewer was when it closed
 
 

@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import IO, Any, Callable
 
@@ -95,63 +96,14 @@ def mouse_modes_after(modes: set[int], data: bytes) -> set[int]:
 
 
 def footer_mouse_bytes(modes: set[int]) -> bytes:
-    """The terminal's mouse modes while the footer is shown: clicks and drags in SGR coordinates
-    (the footer and the text selection need them), plus any-motion tracking if the program
-    asked for it."""
-    out = b"\x1b[?1003l\x1b[?1002l\x1b[?1015l\x1b[?1000h\x1b[?1002h"  # 1002: a drag reports its motion
+    """The terminal's mouse modes while the footer is shown: always clicks in SGR coordinates
+    (the footer needs them), plus the motion tracking the program asked for."""
+    out = b"\x1b[?1003l\x1b[?1002l\x1b[?1015l\x1b[?1000h"
+    if 1002 in modes:
+        out += b"\x1b[?1002h"
     if 1003 in modes:
         out += b"\x1b[?1003h"
     return out + b"\x1b[?1006h"
-
-
-class Selection:
-    """Text highlighted with the mouse on the attached page: (row, column), 0-based, from where
-    the button went down to where it is (or was released)."""
-
-    def __init__(self, row: int, col: int):
-        self.anchor = (row, col)
-        self.end = (row, col)
-        self.dragging = True
-
-    @property
-    def moved(self) -> bool:
-        return self.anchor != self.end
-
-    def span(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        first, last = sorted((self.anchor, self.end))
-        return first, last
-
-
-def _selected_cells(screen: Any, sel: Selection, trim: bool) -> list[tuple[int, int, str]]:
-    """(row, first column, text) for each row the selection touches. A row that is not the last
-    ends at its last character (the highlight does not run across blank space); `trim` also drops
-    the blanks at the end of the last row."""
-    (r0, c0), (r1, c1) = sel.span()
-    r0, r1 = max(0, r0), min(screen.lines - 1, r1)
-    rows = []
-    for r in range(r0, r1 + 1):
-        line = screen.buffer[r]
-        lo = c0 if r == r0 else 0
-        hi = c1 if r == r1 else screen.columns - 1
-        filled = [x for x in range(screen.columns) if (line[x].data or " ") != " "]
-        if r != r1:
-            hi = min(hi, max(filled[-1] if filled else lo, lo))
-        text = "".join((line[x].data or " ") for x in range(lo, hi + 1) if line[x].data != "")
-        rows.append((r, lo, text.rstrip() if trim else text))
-    return rows
-
-
-def selection_text(screen: Any, sel: Selection) -> str:
-    """The highlighted text, one line per row, the blanks at the ends of the rows removed."""
-    return "\n".join(text for _r, _c, text in _selected_cells(screen, sel, True)).strip("\n")
-
-
-def selection_overlay(screen: Any, sel: Selection) -> bytes:
-    """The highlight, drawn over a freshly rendered page: reverse video on the selected cells,
-    the cursor put back where the program had it."""
-    out = [f"\x1b[{r + 1};{c + 1}H\x1b[0;7m{text}" for r, c, text in _selected_cells(screen, sel, False) if text]
-    out.append(f"\x1b[0m\x1b[{screen.cursor.y + 1};{screen.cursor.x + 1}H")
-    return "".join(out).encode("utf-8", errors="replace")
 
 
 def sgr_for_program(seq: bytes, modes: set[int]) -> bytes:
@@ -370,20 +322,6 @@ class Job:
                 self.screen.next_page()
                 self.scrolled -= 1
 
-    def selected_text(self, sel: Selection) -> str:
-        """The text under a selection, as the page shows it now (scrollback included)."""
-        with self._lock:
-            return selection_text(self.screen, sel) if self.screen is not None else ""
-
-    def selection_bytes(self, sel: Selection) -> bytes:
-        with self._lock:
-            return selection_overlay(self.screen, sel) if self.screen is not None else b""
-
-    def page_size(self) -> tuple[int, int]:
-        """(rows, columns) of the page the emulator keeps, 0 × 0 without one."""
-        with self._lock:
-            return (self.screen.lines, self.screen.columns) if self.screen is not None else (0, 0)
-
     def write(self, data: bytes) -> None:
         """Keys for the program."""
         if self.master_fd is not None:
@@ -416,6 +354,7 @@ class JobTable:
         self.log_dir = Path(log_dir)
         self.jobs: dict[int, Job] = {}
         self.notifications: list[str] = []  # "[1] done: grep -r …", printed at the next prompt
+        self.recording_signals: deque[str] = deque(maxlen=6)  # `record` on / off from subshells (diag)
         self.requests: list[dict[str, Any]] = []  # `sub` typed inside a subshell (shellcraft.alerts.request_sub)
         self.on_request: Callable[[], None] | None = None  # the shell: open the requested subshells in the background
         self.on_change: Callable[[], None] | None = None  # the shell redraws its panel
@@ -636,68 +575,14 @@ class JobTable:
             rows, cols = term.size()
             return (max(1, rows - footer.height()) if footer is not None else rows), cols
 
-        selection: list[Selection | None] = [None]  # text highlighted with the mouse
-        selection_stale = [False]  # the program printed over it: the loop redraws the page
-        last_button = ["left"]  # a release that does not say which button it was (Windows consoles)
         mouse_carry = b""  # a mouse report cut at the end of a read, held for the next one
         carry_at = 0.0
 
-        def show_page(overlay: bytes = b"") -> None:
+        def show_page() -> None:
             rows, cols = size()
-            term.write(job.page(rows, cols) + overlay)
+            term.write(job.page(rows, cols))
             if footer is not None:
                 footer.draw()
-
-        def clear_selection() -> None:
-            if selection[0] is not None:
-                selection[0] = None
-                show_page()
-
-        def copy_to_host(text: str) -> None:
-            from shellcraft import hostclip
-
-            hostclip.copy(text, lambda s: term.write(s.encode("utf-8")))
-            if footer is not None and footer.alerts is not None and text:
-                footer.alerts.post(f"copied {len(text)} characters to the clipboard", "info", timeout=3,
-                                   source="selection")
-
-        def select(kind: str, x: int, y: int, button: str) -> bool:
-            """Highlight with a left-button drag, copy with a right click: the terminal's own
-            selection needs Shift while the mouse is reported. True when the event was used."""
-            if job.screen is None or job.mouse_on:
-                return False
-            lines, columns = job.page_size()
-            row, col = min(max(y - 1, 0), lines - 1), min(max(x - 1, 0), columns - 1)
-            if kind == "down":
-                last_button[0] = button
-            elif button == "none":
-                button = last_button[0]
-            sel = selection[0]
-            if button == "left":
-                if kind == "down":
-                    clear_selection()
-                    selection[0] = Selection(row, col)
-                elif kind == "move" and sel is not None and sel.dragging and (row, col) != sel.end:
-                    sel.end = (row, col)
-                    show_page(job.selection_bytes(sel))
-                elif kind == "up" and sel is not None and sel.dragging:
-                    sel.dragging = False
-                    if not sel.moved:
-                        selection[0] = None  # a plain click selects nothing
-                return True
-            if button == "right":
-                if kind == "up" and sel is not None and sel.moved:
-                    text = job.selected_text(sel)
-                    selection[0] = None
-                    show_page()
-                    copy_to_host(text)
-                return True
-            return False
-
-        def resized() -> None:
-            selection[0] = None
-            job.resize(*size())
-            show_page()
 
         carry = b""  # an escape sequence cut at the end of a chunk, held for the next one
 
@@ -708,9 +593,6 @@ class JobTable:
             nonlocal pending_redraw, carry
             if job.scrolled:
                 return b""  # the user is reading the scrollback: the page is redrawn on return
-            if selection[0] is not None:  # the program prints over the highlight: drop it
-                selection[0] = None
-                selection_stale[0] = True
             if footer is None:
                 return data
             from shellcraft.footer import incomplete_escape
@@ -739,7 +621,7 @@ class JobTable:
             show_page()
             job.on_output = filter_output
             job.sink = term.write
-            term.on_resize = resized
+            term.on_resize = lambda: (job.resize(*size()), show_page())
             if footer is not None:
                 term.write(footer_mouse_bytes(job.mouse_modes))
                 our_mouse = True
@@ -755,9 +637,6 @@ class JobTable:
                         term.mouse(True)
                         our_mouse = True
                 data = term.read(0.1)
-                if selection_stale[0]:
-                    selection_stale[0] = False
-                    show_page()
                 if mouse_carry:
                     if data:
                         data, mouse_carry = mouse_carry + data, b""
@@ -819,8 +698,7 @@ class JobTable:
                         parsed = parse_mouse(m.group().decode())
                         if parsed is not None:
                             kind, x, y, button = parsed
-                            held = selection[0] is not None and selection[0].dragging  # a drag in progress
-                            acted = footer.mouse(kind, x, y, button) if footer is not None and not held else None
+                            acted = footer.mouse(kind, x, y, button) if footer is not None else None
                             if acted is not None:
                                 if acted[0] == "switch" and acted[1] != job.number:
                                     return "switch", acted[1]
@@ -832,19 +710,14 @@ class JobTable:
                                     # the wheel is the arrow keys, as the terminals' alternate scroll
                                     job.write((b"\x1b[A" if up else b"\x1b[B") * 3)
                                 else:
-                                    selection[0] = None
                                     job.scroll(-1 if up else 1)
                                     show_page()
-                                continue
-                            if select(kind, x, y, button):
                                 continue
                         if job.mouse_on:
                             forward += sgr_for_program(m.group(), job.mouse_modes) if footer is not None \
                                 else m.group()
                     forward += data[pos:]
                     data = bytes(forward)
-                if data:
-                    clear_selection()  # a key: the highlight goes
                 if job.scrolled and data:  # any key: back to the live page
                     job.scroll_bottom()
                     show_page()

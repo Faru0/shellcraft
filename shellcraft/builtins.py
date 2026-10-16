@@ -783,12 +783,11 @@ room. In the panel under the prompt (and in the footer inside a subshell):
 - To dismiss one: click its **✖** at the start of the row (`alert -c [N]` from the keyboard).
   Every level has the same mark, in its color: green info, amber warning, red critical.
 - A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
-  into the shell's clip register and onto the host's clipboard; the row says `copied`. Paste it
-  with **Ctrl-] v** (at the prompt and in a subshell), **Alt-v** at the prompt, or `clip -i` and
-  Enter; `clip` prints it and `$CLIP` holds it (`man clip`). From the keyboard: **Alt-c** copies
-  the top alert, `clip -a N` alert N. The mouse reaches the shell inside a subshell, and at the
-  prompt only with `settings footer_mouse on` (the terminal then needs Shift for its own wheel
-  and selection); without it, use the keys.
+  into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt
+  (**Ctrl-] v** into another program inside a subshell); `clip` prints it and `$CLIP` holds it
+  (`man clip`). From the keyboard: **Alt-c** copies the top alert, `clip -a
+  N` alert N. While the footer lists a subshell or an alert the shell has the mouse: select text
+  with Shift and a drag, and the wheel opens the scroll view of the session's output.
 - With no subshell to fold into, every alert shows as a row.
 
 ```
@@ -857,31 +856,14 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
-def _host_copy(ctx: ShellContext, text: str) -> bool:
-    """Put text on the host's clipboard (hostclip: OSC 52, plus the Win32 clipboard on Windows)."""
-    from shellcraft import hostclip
-
-    file = getattr(ctx.ui.console.file, "raw", ctx.ui.console.file) if ctx.ui is not None else None
-
-    def write(data: str) -> None:
-        assert file is not None
-        file.write(data)
-        file.flush()
-
-    return hostclip.copy(text, write if file is not None else None)
-
-
 CLIP_DOC = """# clip
 
 The clip register: one piece of text kept by the shell. A **right-click on an alert** fills it
-with the alert's content (or its message when it has none) and puts the same text on the
-**host's clipboard** too; `clip` reads it back, and there are three ways to paste it:
-
-- **Ctrl-]** then **v**, at the prompt and inside a subshell: it does not depend on how a
-  terminal sends the Alt key.
-- **Alt-v** (Esc then v) at the prompt. On Windows consoles only the left Alt key sends it.
-- **`clip -i`**, then Enter: the next prompt starts with the text already on the line. No key
-  chord at all.
+with the alert's content (or its message when it has none); `clip` reads it back, and **Alt-v**
+(or Esc then v) pastes it at the prompt, in the main shell and in a `sub shellcraft` alike. In
+another program inside a subshell (bash, pwsh, vim), where Alt-v is the program's key,
+**Ctrl-] v** types it in. `clip -i` does it without a key chord: the next prompt starts with
+the text on the line.
 
 It is also the `$CLIP` variable (`echo $CLIP`, `grep "$CLIP" file`).
 
@@ -895,7 +877,6 @@ clip | jq               # use it: pipe it on
 echo $CLIP              # the same text as a variable
 clip -i                 # the next prompt starts with it (paste without a key chord)
 clip -a [N]             # copy alert N (default: the top one), as a right-click on it does
-clip -H [TEXT...]       # put TEXT (or what is piped in, or the register) on the host clipboard too
 clip -c                 # clear it
 ```
 
@@ -904,21 +885,16 @@ every `sub shellcraft`: it lives in the main shell's memory, and a lite subshell
 a private channel (a local socket, a named pipe on Windows) locked with a key only it was
 given. Nothing is written to disk.
 
-## The host clipboard
-
-The register is ShellCraft's own. Copying to the **host's** clipboard (so Ctrl-V, or the
-terminal's paste, works in other programs) is done with the terminal's OSC 52 sequence, which
-Windows Terminal, kitty, WezTerm, foot, iTerm2, Alacritty and tmux honor and which works over
-ssh; on Windows the Win32 clipboard is set as well. No external program is used. A terminal that
-ignores OSC 52 just does not receive it.
+The register is ShellCraft's own, not the system clipboard. To copy text from the screen into
+other programs, select it with **Shift** and a drag (the terminal's own selection while the shell
+has the mouse) and use the terminal's copy.
 
 ## Options
 
 | Option | Meaning |
 | --- | --- |
 | `-i`, `--insert` | The next prompt starts with the register's text, ready to edit or run. |
-| `-a [N]`, `--alert [N]` | Copy alert N (`alert --list` numbers them; default 1, the top), host clipboard too. |
-| `-H [TEXT...]`, `--host [TEXT...]` | Copy TEXT (or piped input, or the register) to the host clipboard. |
+| `-a [N]`, `--alert [N]` | Copy alert N (`alert --list` numbers them; default 1, the top one). |
 | `-c`, `--clear` | Empty the register. |
 
 ## See also
@@ -928,7 +904,7 @@ ignores OSC 52 just does not receive it.
 
 
 @builtin("clip", "The clip register: what a right-click on an alert copied; Alt-v pastes it",
-         "clip [TEXT...] | -i | -a [N] | -H [TEXT...] | -c", category="text", doc=CLIP_DOC)
+         "clip [TEXT...] | -i | -a [N] | -c", category="text", doc=CLIP_DOC)
 def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
     bus = ctx.alerts
     if bus is None:
@@ -936,28 +912,19 @@ def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if args and args[0] in ("-c", "--clear"):
         bus.clip = ""
         return ""
+    if args and args[0] in ("-i", "--insert"):  # the next prompt starts with the register
+        if not bus.clip:
+            raise CommandError("clip: the register is empty (right-click an alert, or clip TEXT)")
+        ctx.prefill = bus.clip.rstrip("\n")
+        return Text("✓ the next prompt starts with the clip", style="sc.success")
     if args and args[0] in ("-a", "--alert"):  # copy an alert, as a right-click on it does
         current = bus.current()
         number = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
         if not 1 <= number <= len(current):
             raise CommandError("clip: no such alert (alert --list numbers them)" if current else "clip: no alerts")
         text = bus.copy(current[number - 1])
-        _host_copy(ctx, text)
         return Text.assemble(("✓ copied: ", "sc.success"), (_brief(text, 60), "sc.accent"),
-                             ("  (Alt-v or clip -i pastes)", "sc.muted"))
-    if args and args[0] in ("-i", "--insert"):  # the next prompt starts with the register
-        if not bus.clip:
-            raise CommandError("clip: the register is empty (right-click an alert, or clip TEXT)")
-        ctx.prefill = bus.clip.rstrip("\n")
-        return Text("✓ the next prompt starts with the clip", style="sc.success")
-    if args and args[0] in ("-H", "--host"):  # to the host's clipboard as well
-        text = " ".join(args[1:]) if len(args) > 1 else (stdin.rstrip("\n") or bus.clip)
-        if len(args) > 1 or stdin:
-            bus.clip = text
-        if not text:
-            raise CommandError("clip: nothing to copy")
-        _host_copy(ctx, text)
-        return Text(f"✓ {len(text)} characters on the host clipboard", style="sc.success")
+                             ("  (Alt-v pastes)", "sc.muted"))
     if args:
         bus.clip = " ".join(args)
         return ""

@@ -244,10 +244,11 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert footer.set_hover(1) and not footer.set_hover(1)
     assert "seq 2" in "".join(footer.render(80))  # still there, now in the hover style
     assert footer.set_hover(None)
-    # the footer's lines are clickable at the prompt only with footer_mouse on (the wheel is the price)
-    assert sh.session.app.mouse_support() is False
-    ctx.config.setdefault("settings", {})["footer_mouse"] = True
+    # the footer's lines are clickable at the prompt while it lists a subshell (footer_mouse, on)
     assert sh.session.app.mouse_support() is True
+    ctx.config.setdefault("settings", {})["footer_mouse"] = False
+    assert sh.session.app.mouse_support() is False
+    del ctx.config["settings"]["footer_mouse"]
     ctx.jobs.clear_finished()
     assert sh.session.app.mouse_support() is False
     sh.ui.mouse_always = True
@@ -649,10 +650,7 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts = AlertBus()
     assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
     warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
-    assert not sh._mouse_wanted()  # an alert shows, yet the terminal keeps the mouse (no Shift needed)
-    ctx.config.setdefault("settings", {})["footer_mouse"] = True
-    assert sh._mouse_wanted()  # asked for: the ✖, the right-click and the badge work at the prompt
-    del ctx.config["settings"]["footer_mouse"]
+    assert sh._mouse_wanted()  # an alert shows: its ✖, the right-click and the badge work at the prompt
     # the keyboard ways: Alt-c copies the top alert, clip -a N alert N
     binding = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["Keys.Escape", "c"])
     binding.handler(None)
@@ -929,7 +927,7 @@ def test_mouse_mode_helpers():
     modes = jobmod.mouse_modes_after(set(), b"x\x1b[?1000h\x1b[?1006hy")
     assert modes == {1000, 1006}
     assert jobmod.mouse_modes_after(modes, b"\x1b[?1000l\x1b[?1006l") == set()
-    assert jobmod.footer_mouse_bytes(set()).endswith(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h")  # drags reported
+    assert jobmod.footer_mouse_bytes(set()).endswith(b"\x1b[?1000h\x1b[?1006h")  # clicks, in SGR form
     assert b"\x1b[?1003h" in jobmod.footer_mouse_bytes({1000, 1003, 1006})
     click = b"\x1b[<0;5;7M"
     assert jobmod.sgr_for_program(click, {1000, 1006}) == click  # it asked for SGR: as is

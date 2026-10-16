@@ -111,8 +111,9 @@ class Footer:
         return self.sequence().encode("utf-8") if self.enabled else b""
 
     def _write(self, text: str) -> None:
-        file = self.ui.console.file
-        file = getattr(file, "raw", file)  # while `record` runs: the terminal, not the transcript
+        from shellcraft.scrollback import terminal_file
+
+        file = terminal_file(self.ui.console.file)  # the terminal: not the transcript, not the scroll view
         try:
             file.write(text)
             file.flush()
@@ -234,9 +235,7 @@ class Footer:
         col = x - 1
         if row.alert is not None and button == "right":
             if self.alerts is not None:
-                from shellcraft import hostclip
-
-                hostclip.copy(self.alerts.copy(row.alert), self._write)  # the register and the host's clipboard
+                self.alerts.copy(row.alert)
                 self.draw()
             return "handled", None
         if row.alert is not None and row.close >= 0 and \
@@ -447,6 +446,15 @@ SGR_RE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 
 
 BUTTONS = {0: "left", 1: "middle", 2: "right", 3: "none"}
+
+
+def wheel_up(data: str) -> bool:
+    """Whether a wheel event (SGR, or prompt_toolkit's Windows mouse data) is a turn up."""
+    m = SGR_RE.match(data)
+    if m:
+        return int(m.group(1)) & 1 == 0  # 64 up, 65 down
+    parts = data.split(";")
+    return len(parts) == 4 and parts[1] == "SCROLL_UP"
 
 
 def parse_mouse(data: str) -> tuple[str, int, int, str] | None:

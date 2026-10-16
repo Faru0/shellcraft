@@ -136,7 +136,7 @@ def test_shell_runs_on_the_windows_console_and_restores_it(monkeypatch, tmp_path
         # The prompt reads and writes the console devices, not stdin / stdout.
         assert sh.session.app.input is console.input
         assert sh.session.app.output is console.output
-        assert ui.console.file is console.stream
+        assert ui.console.file.raw is console.stream  # through the scroll view's capture
         assert ui.console.is_terminal and not ui.console.legacy_windows
         assert ui.console.color_system == "truecolor"
         assert ui.console.size == (120, 30)  # measured like the prompt: from the console window

@@ -93,14 +93,13 @@ SETTINGS: dict[str, Setting] = {
                 "error), click the toolbar for the man page, wheel through history and Ctrl-R "
                 "matches. The terminal then needs Shift for text selection and scrollback.",
                 _apply_mouse_always),
-        Setting("footer_mouse", "Clickable footer at the prompt", False,
-                "Report the mouse to the shell while a subshell or an alert is listed, so the footer's "
-                "lines, an alert's ✖ and the badge can be clicked at the prompt. The terminal's wheel then "
-                "moves through the history instead of scrolling the output and selecting text needs Shift "
-                "(the terminal's rule while a program has the mouse). Off: the wheel and selection work as "
-                "usual at the prompt, and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c, "
-                "Alt-c). Inside a subshell the footer is always clickable, and the wheel scrolls the "
-                "subshell's page while a drag selects text and a right-click copies it, without Shift."),
+        Setting("footer_mouse", "Clickable footer at the prompt", True,
+                "While the footer lists a subshell or an alert, the shell has the mouse at the prompt: "
+                "the footer's lines, an alert's ✖ and the badge can be clicked, text is selected with "
+                "Shift and a drag, and the wheel opens the scroll view of the session's output (wheel "
+                "down past the end, or q, closes it). Off: the terminal keeps the mouse at the prompt "
+                "(its own wheel and selection) and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, "
+                "alert -c, Alt-c). With nothing to click the terminal always keeps the mouse."),
         Setting("footer", "Shell footer", True,
                 "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
                 "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "

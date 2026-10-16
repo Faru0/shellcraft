@@ -37,7 +37,7 @@ from shellcraft.completer import ShellCompleter
 from shellcraft.config import config_dir, history_path
 from shellcraft.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from shellcraft.context import ShellContext, ShellExit, set_width_source
-from shellcraft.footer import MARK, Footer, panel_lines, parse_mouse
+from shellcraft.footer import MARK, Footer, panel_lines, parse_mouse, wheel_up
 from shellcraft.highlight import KEYWORDS, ShellLexer
 from shellcraft.jobs import JobTable, depth
 from shellcraft.output import make_spinner_runner, show, show_error
@@ -180,6 +180,14 @@ class Shell:
     def _setup(self) -> None:
         ctx = self.ctx
         self._cleanup.callback(self._stop_mcp_http)  # registered last, so it runs first on close
+        # The scroll view: what the console prints is kept, so the wheel can scroll back through
+        # it while the shell has the mouse (shellcraft.scrollback).
+        from shellcraft.scrollback import CaptureFile, Scrollback
+
+        self.scrollback = Scrollback()
+        terminal = self.ui.console.file
+        self.ui.console.file = CaptureFile(terminal, self.scrollback)
+        self._cleanup.callback(setattr, self.ui.console, "file", terminal)
         ctx.jobs = JobTable(config_dir() / "jobs")
         ctx.jobs.on_change = self._jobs_changed
         self._cleanup.callback(self._stop_jobs)
@@ -355,8 +363,13 @@ class Shell:
         footer shows it (its bubble in red)."""
         from shellcraft.alerts import job_of
 
-        number = job_of(str(data.get("source", "")))
+        source = str(data.get("source", ""))
+        number = job_of(source)
         job = self.ctx.jobs.get(number) if self.ctx.jobs is not None and number is not None else None
+        if self.ctx.jobs is not None:  # for `diag`: what arrived, and which line it lit
+            self.ctx.jobs.recording_signals.append(
+                f"{'on' if data.get('on') else 'off'} from {source or '(no source)'} -> "
+                + (f"job {number}" if job is not None else "no matching job"))
         if job is not None:
             job.recording = bool(data.get("on"))
             self._jobs_changed()
@@ -454,12 +467,9 @@ class Shell:
             bus = self.ctx.alerts
             current = bus.current() if bus is not None else []
             if current:
-                self._host_copy(bus.copy(current[0]))
+                bus.copy(current[0])
 
-        # Paste the clip register at the cursor: Alt-v (Esc then v), and Ctrl-] v, which does not
-        # depend on how a terminal sends Alt (the left Alt key only, on Windows consoles).
-        @kb.add("escape", "v")
-        @kb.add("c-]", "v")
+        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
         def _paste_clip(event: Any) -> None:
             clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
             if clip:
@@ -514,6 +524,12 @@ class Shell:
         parsed = parse_mouse(event.data)
         if parsed is not None:
             kind, x, y, button = parsed
+            if kind == "scroll" and self.session.default_buffer.complete_state is None:
+                # The shell has the mouse, so the terminal can't scroll its history: the wheel
+                # opens the scroll view of the session's output instead (up), or does nothing.
+                if wheel_up(event.data):
+                    run_in_terminal(self._open_scrollback)
+                return None
             if kind == "down":
                 self._pressed = button  # for the release, which may not say which button it was
             if event.key_sequence[0].key == Keys.WindowsMouseEvent and self.direct_console is not None:
@@ -529,6 +545,16 @@ class Shell:
         for binding in self._default_mouse.get_bindings_for_keys((event.key_sequence[0].key,)):
             return binding.handler(event)
         return NotImplemented
+
+    def _open_scrollback(self) -> None:
+        """The scroll view: the session's recent output in the viewer, at its end; the wheel
+        scrolls, wheel down past the end (or q) closes it."""
+        from shellcraft.output import page
+
+        text = self.scrollback.text()
+        if text.strip():
+            page(self.ui, text, title="scroll view · wheel down past the end, or q, closes it",
+                 at_end=3, close_past_end=True)
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:
@@ -635,9 +661,9 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        # While the shell has the mouse the terminal needs Shift for its own wheel scrolling and
-        # text selection, so at the prompt it is the terminal's unless something asks: an open
-        # menu, mouse_always, or footer_mouse (the footer's lines, an alert's ✖ and the badge).
+        # While the footer lists a subshell or an alert, its lines, an alert's ✖ and the badge
+        # are clickable (footer_mouse, on by default): the shell has the mouse, so text is
+        # selected with Shift and the wheel opens the scroll view. Otherwise the terminal keeps it.
         return settings.get(self.ctx.config, "footer_mouse") and self._clickable()
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
@@ -853,24 +879,10 @@ class Shell:
                 return None  # take the press, so its release comes here too
             if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "right":
                 if self.ctx.alerts is not None:
-                    self._host_copy(self.ctx.alerts.copy(alert))
+                    self.ctx.alerts.copy(alert)
                 return None
             return NotImplemented
         return handler
-
-    def _host_copy(self, text: str) -> None:
-        """Put text on the host's clipboard too (OSC 52, and the Win32 clipboard on Windows), so
-        a copied alert pastes into any program with the terminal's own paste."""
-        from shellcraft import hostclip
-
-        file = self.ui.console.file
-        file = getattr(file, "raw", file)
-
-        def write(data: str) -> None:
-            file.write(data)
-            file.flush()
-
-        hostclip.copy(text, write)
 
     def _close_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
         """The icon at the start of an alert row: a left click dismisses it, a right-click
@@ -879,7 +891,7 @@ class Shell:
             if event.event_type == MouseEventType.MOUSE_UP:
                 if self._released(event) == "right":
                     if self.ctx.alerts is not None:
-                        self._host_copy(self.ctx.alerts.copy(alert))
+                        self.ctx.alerts.copy(alert)
                     return None
                 return self._dismiss_alert(alert)
             if event.event_type == MouseEventType.MOUSE_DOWN:
@@ -1059,6 +1071,7 @@ class Shell:
             if expanded:
                 self.ui.console.print(Text(line, style="sc.muted"), markup=False, highlight=False)
             self._remember(line)
+            self.scrollback.command(line)
             if self.ctx.recording is not None:
                 self.ctx.recording.command(line)
 

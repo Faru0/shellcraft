@@ -108,7 +108,10 @@ def _footer_lines(ui: Any, jobs: Any, footer: Any) -> list[str]:
             how = f"winpty alive={_try(proc.isalive)} exitstatus={_try(lambda: proc.exitstatus)}" if proc is not None \
                 else f"pid={job.pid}"
             lines.append(f"  [{job.number}] {job.kind} running={job.running} status={job.status} "
-                         f"label={job.label!r} killed={job.killed} reported={getattr(job, 'reported', None)} {how}")
+                         f"label={job.label!r} killed={job.killed} reported={getattr(job, 'reported', None)} "
+                         f"recording={getattr(job, 'recording', None)} {how}")
+        signals = list(getattr(jobs, "recording_signals", []))
+        lines.append("record signals from subshells: " + ("; ".join(signals) if signals else "(none received)"))
     if sys.platform == "win32":
         lines.append(f"pywinpty {_try(lambda: metadata.version('pywinpty'))}")
     return lines
