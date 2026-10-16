@@ -3,8 +3,9 @@
 What you type and what the shell prints go into a plain-text file as they happen, each command
 with the time. The transcript is written through a tee on the shell's console file, so command
 output, errors and notes are captured; the prompt itself (drawn by prompt_toolkit) and what
-happens inside an attached subshell are not, and the footer's redraws are skipped. The prompt
-shows a blinking 🔴 REC while it runs.
+happens inside an attached subshell are not, and the footer's redraws are skipped. The footer
+shows which shell is recording: 🔴 in place of ● on its line, ⭕ in place of ○; a subshell
+running `record` tells the main shell through the alert spool.
 """
 
 from __future__ import annotations
@@ -117,6 +118,7 @@ def start(ctx: Any, path: Path | None = None) -> Recorder:
     if ctx.ui is not None:
         ctx.ui.console.file = Tee(ctx.ui.console.file, recorder)
     ctx.recording = recorder
+    _tell_main(True)
     return recorder
 
 
@@ -129,4 +131,19 @@ def stop(ctx: Any) -> Recorder | None:
         ctx.ui.console.file = ctx.ui.console.file.raw
     recorder.close()
     ctx.recording = None
+    _tell_main(False)
     return recorder
+
+
+def _tell_main(on: bool) -> None:
+    """Inside a subshell: the main shell's footer shows which lines are recording."""
+    from shellcraft.jobs import depth
+
+    if not depth():
+        return
+    from shellcraft.alerts import signal_recording
+
+    try:
+        signal_recording(on)
+    except OSError:
+        pass

@@ -767,7 +767,9 @@ RECORD_DOC = """# record
 
 Write a transcript of the session to a file, like Linux `script` without the escape codes:
 every command you type, with the time, and what the shell prints in return. `script` is the
-same command. While it runs the prompt shows a blinking **🔴 REC**.
+same command. While it runs, the footer shows it on the shell's own line: **🔴** in place of
+the ● bubble (the shell you are in), **⭕** in place of ○ (another one); a `sub shellcraft`
+that runs `record` lights its own line, so you can see which shells are recording.
 
 ## Usage
 

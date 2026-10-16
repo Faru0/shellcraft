@@ -49,6 +49,7 @@ class Footer:
         self.cursor: int | None = None  # the subshell row chosen with ↓ / ↑ at the prompt
         self.at_prompt = False  # drawn at the prompt too (the `footer` setting), not only in subshells
         self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
+        self.is_recording: Callable[[], bool] = lambda: False  # the main shell's own `record` (set by the shell)
         self._painted = 0  # rows the last draw painted: a shorter footer clears the ones it gave up
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
@@ -158,12 +159,13 @@ class Footer:
                                 attached=self.current != 0, cursor=self.cursor,
                                 alerts=self._alerts(), hint=self.show_hint(), expanded=self._expanded(),
                                 copied=self.alerts.copied if self.alerts is not None else None,
-                                collapsed=self.collapsed, max_rows=self.max_rows(), stack=True)
+                                collapsed=self.collapsed, max_rows=self.max_rows(), stack=True,
+                                recording=self.is_recording())
         console = self.ui.console
         out = []
         for row in self.rows:
             rich = Text(row.text, style=f"sc.footer.{row.style}", no_wrap=True, overflow="crop")
-            if row.hovered and row.tab is not None:
+            if row.hovered and row.tab is not None and row.mark == MARK:
                 rich.stylize("sc.footer.hover", 0, MARK)  # the filled circle, in the accent color
             for start, end, style, _role in row.spans:
                 if style:
@@ -280,9 +282,18 @@ class Row(NamedTuple):
     text: str
     hovered: bool
     alert: Any = None
+    mark: int = 3  # characters of the marker that starts a shell's line (" ● ", or "🔴 " while recording)
     spans: tuple[tuple[int, int, str | None, str | None], ...] = ()
     badge: int = -1
     close: int = -1
+
+
+def _marker(filled: bool, recording: bool) -> str:
+    """What starts a shell's line, 3 cells wide: ` ● ` / ` ○ ` (filled: the shell you are in, or
+    the one under the mouse), or `🔴 ` / `⭕ ` while that shell records."""
+    if recording:
+        return ("🔴" if filled else "⭕") + " "
+    return f" {'●' if filled else '○'} "
 
 
 def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
@@ -338,7 +349,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
                 attached: bool = False, cursor: int | None = None,
                 alerts: list | None = None, hint: bool = False, expanded: bool = False,
                 copied: Any = None, collapsed: bool = False, max_rows: int = 8,
-                stack: bool = False) -> list[Row]:
+                stack: bool = False, recording: bool = False) -> list[Row]:
     """The rows of the shell stack (see Row): the alert rows (critical ones always; the others
     when `expanded`, or when there is no stack), the header with the keys (only with `hint`,
     the `panel_hint` setting), `main` with the alert badge on its right, and one row per
@@ -348,6 +359,8 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     row is always there (the footer); without it, alerts alone show when there is no subshell
     (the panel under the prompt with the footer off). `collapsed` folds the subshell rows into
     the main row (`main  3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
+    A shell that runs `record` (`recording` for main, `job.recording` for a subshell) gets a
+    red bubble instead: 🔴 where ● would be, ⭕ where ○ would be.
 
         ✖ Payment API is down · from mcp · claude                              critical
         ● main ▾                                                      ● 1  ● 1  ● 1 ▸
@@ -367,7 +380,8 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     if hint and jobs:
         lines.append(Row(None, "header", head, False))
     main_hover = hover == 0
-    main = f" {'●' if current == 0 or main_hover else '○'} main" + (f" [{depth}]" if depth else "")
+    main = _marker(current == 0 or main_hover, recording) + "main" + (f" [{depth}]" if depth else "")
+    main_mark = 2 if recording else MARK
     badge_at, spans = -1, ()
     if jobs:  # the fold control: a click (or Ctrl-] c) hides the subshell rows, or brings them back
         fold = f"  {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"
@@ -382,15 +396,16 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         spans += tuple((badge_at + s, badge_at + e, style, "badge") for s, e, style in marks)
         spans += ((badge_at + len(badge) - 2, badge_at + len(badge) + 1, None, "badge"),) if foldable else ()
         main += " " * pad + badge + " "
-    lines.append(Row(0, "current" if current == 0 else "main", main, main_hover, spans=spans, badge=badge_at))
+    lines.append(Row(0, "current" if current == 0 else "main", main, main_hover, spans=spans, badge=badge_at,
+                     mark=main_mark))
     if collapsed:
         return lines
     shown = jobs[:max_rows]
     numbers = {job.number for job in jobs}
     for index, job in enumerate(shown):
         chosen = hover == job.number or cursor == index
-        mark = "●" if current == job.number or chosen else "○"
-        left = f" {mark} {job.number}  {job.short(width // 3)}"
+        rec = bool(getattr(job, "recording", False))
+        left = _marker(current == job.number or chosen, rec) + f"{job.number}  {job.short(width // 3)}"
         state = "running" if job.running else "done" if job.status == 0 else "failed"
         right = "" if job.running else f"{job.label} "
         spans = ()
@@ -405,7 +420,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
             left += inline
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
         style = "current" if current == job.number else state
-        lines.append(Row(job.number, style, left + " " * pad + right, chosen, spans=spans))
+        lines.append(Row(job.number, style, left + " " * pad + right, chosen, spans=spans, mark=2 if rec else MARK))
     if len(jobs) > len(shown):
         lines.append(Row(None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)", False))
     return lines

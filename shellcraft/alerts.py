@@ -64,8 +64,13 @@ class Alert:
     @property
     def job(self) -> int | None:
         """The subshell number the alert came from (`sub 2 (bash)`), else None."""
-        m = re.match(r"sub (\d+) ", self.source)
-        return int(m.group(1)) if m else None
+        return job_of(self.source)
+
+
+def job_of(source: str) -> int | None:
+    """The subshell number in a sender's label (`sub 2 (bash)`), else None."""
+    m = re.match(r"sub (\d+) ", source)
+    return int(m.group(1)) if m else None
 
 
 class AlertBus:
@@ -77,7 +82,8 @@ class AlertBus:
         self.clip = ""  # the clip register: what a right-click on an alert copied (Alt-v pastes it)
         self.copied: Alert | None = None  # the alert just copied, for the "copied" hint on its row
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
-        self.on_request: Callable[[dict[str, Any]], None] | None = None  # `sub` asked for by a nested shell
+        self.on_request: Callable[[dict[str, Any]], None] | None = None  # `sub` typed inside a subshell
+        self.on_recording: Callable[[dict[str, Any]], None] | None = None  # a subshell's `record` on / off
         self.spool: Path | None = None
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
@@ -215,6 +221,13 @@ class AlertBus:
                 continue
             if time.time() - float(data.get("time", 0) or 0) > STALE:
                 continue  # left behind while no shell was running
+            if data.get("kind") == "recording":  # a subshell started or stopped `record`
+                if self.on_recording is not None:
+                    try:
+                        self.on_recording(data)
+                    except Exception:  # noqa: BLE001
+                        pass
+                continue
             if data.get("kind") == "sub":  # a nested shell asks the main one to open a subshell
                 if self.on_request is not None and isinstance(data.get("args"), list):
                     try:
@@ -294,6 +307,12 @@ def request_sub(args: list[str], cwd: str, home: Path | None = None) -> Path:
     main and switches to it). The request travels through the spool like an alert."""
     return _spool({"time": time.time(), "kind": "sub", "args": [str(a) for a in args], "cwd": cwd,
                    "source": source_label()}, home)
+
+
+def signal_recording(on: bool, home: Path | None = None) -> Path:
+    """Inside `sub shellcraft`: tell the main shell that `record` started or stopped here, so
+    its line in the footer shows 🔴 / ⭕."""
+    return _spool({"time": time.time(), "kind": "recording", "on": bool(on), "source": source_label()}, home)
 
 
 def _spool(payload: dict[str, Any], home: Path | None) -> Path:

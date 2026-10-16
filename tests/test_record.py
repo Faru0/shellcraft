@@ -80,13 +80,40 @@ def test_record_builtin_tees_the_console_and_lights_the_prompt(tmp_path, monkeyp
     assert chosen.read_text().startswith("old\n# ShellCraft session")
 
 
-def test_prompt_shows_rec_while_recording_and_exit_closes_it(repl_shell, tmp_path):
+def test_footer_bubbles_turn_red_for_the_shells_that_record(repl_shell, tmp_path, monkeypatch):
+    from shellcraft import alerts as alertmod
+    from shellcraft.footer import panel_lines
+    from shellcraft.jobs import JobTable
+
     sh, ctx = repl_shell
-    assert not [f for f in sh._prompt() if "REC" in f[1]]
-    recording.start(ctx, tmp_path / "s.txt")
-    light = [f for f in sh._prompt() if "REC" in f[1]]
-    assert light and light[0][0] == "class:rec" and "🔴" in light[0][1]
-    ctx.config["prompt"] = {"left": ["path"]}  # a customized prompt still gets the light
-    assert [f for f in sh._prompt() if "REC" in f[1]]
-    sh.close()  # leaving the shell ends the transcript
+    assert not [f for f in sh._prompt() if "REC" in f[1]]  # nothing in the prompt
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_command("sleep", lambda: (0, ""))
+    rows = panel_lines([job], 0, width=60, stack=True)
+    assert rows[0].text.startswith(" ● main") and rows[1].text.startswith(" ○ 1  sleep") and rows[0].mark == 3
+    recording.start(ctx, tmp_path / "s.txt")  # the main shell records: its own bubble
+    rows = panel_lines([job], 0, width=60, stack=True, recording=ctx.recording is not None)
+    assert rows[0].text.startswith("🔴 main") and rows[0].mark == 2 and rows[1].text.startswith(" ○ 1 ")
+    rows = panel_lines([job], 1, width=60, stack=True, recording=True)  # attached to job 1: main not current
+    assert rows[0].text.startswith("⭕ main") and rows[1].text.startswith(" ● 1 ")
+    assert sh.footer.is_recording()
+    # a subshell that records tells the main shell through the spool
+    ctx.jobs = table
+    sh._sub_recording({"kind": "recording", "on": True, "source": "sub 1 (shellcraft)"})
+    assert job.recording
+    rows = panel_lines([job], 1, width=60, stack=True)
+    assert rows[1].text.startswith("🔴 1  sleep") and rows[1].mark == 2
+    rows = panel_lines([job], 0, width=60, stack=True)
+    assert rows[1].text.startswith("⭕ 1  sleep")
+    sh._sub_recording({"kind": "recording", "on": False, "source": "sub 1 (shellcraft)"})
+    assert not job.recording
+    # the sender's side: inside a subshell, start / stop write the signal
+    monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
+    monkeypatch.setenv(alertmod.SUB_ENV, "1:shellcraft")
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
+    recording.stop(ctx)
+    signals = sorted((tmp_path / "home" / "alerts").glob("*.json"))
+    assert signals and '"kind": "recording"' in signals[-1].read_text() and '"on": false' in signals[-1].read_text()
+    assert '"source": "sub 1 (shellcraft)"' in signals[-1].read_text()
+    sh.close()  # leaving the shell ends a transcript still open
     assert ctx.recording is None and (tmp_path / "s.txt").read_text().rstrip().endswith("0 commands")

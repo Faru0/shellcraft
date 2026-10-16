@@ -58,7 +58,6 @@ SEGMENTS: dict[str, str] = {
     "clock": "the time (HH:MM)",
     "python": "the Python version",
     "jobs": "N sub while subshells started with `sub` are running",
-    "rec": "🔴 REC, blinking, while `record` writes a transcript of the session",
 }
 DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
@@ -195,6 +194,7 @@ class Shell:
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
         ctx.alerts.on_request = self._sub_requested
+        ctx.alerts.on_recording = self._sub_recording
         ctx.jobs.on_request = self._open_requests_attached
         if not ctx.lite:  # a lite (nested) shell leaves the spool to the main shell: `alert` forwards to it
             try:
@@ -207,6 +207,7 @@ class Shell:
         self._cleanup.callback(recording.stop, ctx)  # a transcript still open at exit is closed
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
         self.footer.show_hint = lambda: bool(settings.get(ctx.config, "panel_hint"))
+        self.footer.is_recording = lambda: ctx.recording is not None
         self.footer.on_change = self._jobs_changed
         self._cleanup.callback(self.footer.disable)
         self._default_mouse = load_mouse_bindings()
@@ -333,6 +334,17 @@ class Shell:
         if stopped:
             names = ", ".join(f"[{j.number}] {j.command}" for j in stopped)
             self.ui.console.print(Text(f"stopped: {names}", style="sc.muted"), markup=False, highlight=False)
+
+    def _sub_recording(self, data: dict[str, Any]) -> None:
+        """A subshell started or stopped `record` (from the watcher thread): its line in the
+        footer shows it (🔴 / ⭕ in place of ● / ○)."""
+        from shellcraft.alerts import job_of
+
+        number = job_of(str(data.get("source", "")))
+        job = self.ctx.jobs.get(number) if self.ctx.jobs is not None and number is not None else None
+        if job is not None:
+            job.recording = bool(data.get("on"))
+            self._jobs_changed()
 
     def _sub_requested(self, data: dict[str, Any]) -> None:
         """`sub …` typed inside a subshell (from the watcher thread): queued; the attach loop or
@@ -520,8 +532,6 @@ class Shell:
         if name == "jobs":
             running = len(self.ctx.jobs.running) if self.ctx.jobs is not None else 0
             return [("class:mcp", f"{running} sub", self._click("jobs"))] if running else []
-        if name == "rec":
-            return [("class:rec", "🔴 REC", self._click("record status"))] if self.ctx.recording else []
         if name == "user":
             return [("class:user", self.user_host)]
         if name == "path":
@@ -550,10 +560,7 @@ class Shell:
         from `prompt`, joined with `─`; the short ones (status, duration) with a space."""
         parts: StyleAndTextTuples = [("class:frame", "╭─")]
         previous: str | None = None  # the last segment shown
-        names = prompt_segments(self.ctx.config, "left")
-        if "rec" not in names and "rec" not in prompt_segments(self.ctx.config, "right"):
-            names = ["rec", *names]  # the recording light shows even when the prompt was customized
-        for name in names:
+        for name in prompt_segments(self.ctx.config, "left"):
             fragments = self._segment(name)
             if not fragments:
                 continue
@@ -773,7 +780,8 @@ class Shell:
                             cursor=self._panel_cursor, alerts=bus.current() if bus is not None else [],
                             hint=settings.get(self.ctx.config, "panel_hint"),
                             expanded=bool(bus is not None and bus.expanded),
-                            copied=bus.copied if bus is not None else None)
+                            copied=bus.copied if bus is not None else None,
+                            recording=self.ctx.recording is not None)
         parts: StyleAndTextTuples = []
         for i, row in enumerate(lines):
             if i:
@@ -787,7 +795,7 @@ class Shell:
             else:
                 handler = self._panel_entry(row.tab) if row.tab else self._panel_hover_handler(None)
             text, at = row.text, 0
-            if row.hovered and row.tab is not None:  # the filled circle in the accent color
+            if row.hovered and row.tab is not None and row.mark == MARK:  # the filled circle, accent color
                 parts.append(("class:toolbar.job.hover", text[:MARK], handler))
                 at = MARK
             for start, end, style, role in row.spans:

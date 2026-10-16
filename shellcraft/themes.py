@@ -107,7 +107,6 @@ class ThemeDef:
                 "failed": f"bold {self.error}",
                 "mcp": self.success,  # the `mcp start` server, running
                 "mcp.down": f"bold {self.error}",  # ... or exited on its own
-                "rec": f"bold blink {self.error}",  # 🔴 REC while `record` writes a transcript
                 "auto-suggestion": f"italic {self.muted}",
                 # The input line (shellcraft/highlight.py)
                 "cmd.known": self.success,

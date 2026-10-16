@@ -90,6 +90,7 @@ class Job:
         self.process: Any = None  # a hidden program (start_hidden): subprocess.Popen
         self.stop: Any = None  # a background command's stop flag (streams.StopFlag), set by kill()
         self.reported = False  # its end has been shown (a note at the prompt, `jobs N`, the attach loop)
+        self.recording = False  # a `sub shellcraft` that runs `record`: 🔴 / ⭕ on its line in the footer
 
     # ── state ────────────────────────────────────────────────────────────────
 
