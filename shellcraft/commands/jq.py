@@ -473,7 +473,7 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from rich.console import Group
 
     parts: list[Any] = []
-    if not steps and isinstance(data, (dict, list)):
+    if not steps and not path and not opts.where and isinstance(data, (dict, list)):
         header = f"# {shape(data)}" + (f" · {hints(data)}" if hints(data) else "")
         parts.append(Text(header, style="sc.muted"))
     for value in results:

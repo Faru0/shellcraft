@@ -171,5 +171,8 @@ def test_jq_tells_the_shape_and_takes_a_bare_path(files):
     files.ui.console.print(shown.renderable)
     screen = files.ui.console.file.getvalue()
     assert "# list of 3 objects (keys: name, age, tags) · jq [0] · jq -t" in screen
-    assert "# " not in to_text(run_line("jq list.json [1]", files).output)  # a path: no header
+    files.ui.console.file.truncate(0)
+    files.ui.console.file.seek(0)
+    files.ui.console.print(run_line("jq list.json [1]", files).output.renderable)  # a path: no header
+    assert "# " not in files.ui.console.file.getvalue() and "bob" in files.ui.console.file.getvalue()
     assert out("jq list.json | cat", files).startswith("[\n")
