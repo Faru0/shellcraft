@@ -414,9 +414,10 @@ An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"
 `make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
 (or the message) into the shell's own clip register, and **Alt-v** pastes it at the prompt,
 **Ctrl-] v** inside a subshell; `clip` prints it, `clip | jq` pipes it on, `$CLIP` holds it. No
-system clipboard involved, so it works in every terminal and over ssh. (Clicks on the footer at
-the prompt need `settings footer_mouse on`; inside a subshell they always work. A terminal without
-mouse tracking pastes or opens its own menu on a right-click instead. Konsole uses Alt-v for its
+system clipboard involved, so it works in every terminal and over ssh. (At the prompt the mouse is the
+shell's while an alert shows, so the ✖, the right-click and the badge work; the terminal keeps it
+otherwise, so the wheel scrolls the output. Inside a subshell it always works. **Alt-c** copies
+the top alert from the keyboard, `clip -a N` alert N. Konsole uses Alt-v for its
 View menu while its menu bar is shown; Esc then v is the same key.) Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
 a nested ShellCraft, a script outside ShellCraft (`shellcraft-alert MESSAGE`), or an AI client

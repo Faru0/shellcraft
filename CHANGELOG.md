@@ -169,6 +169,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Right-click on an alert at the prompt:** since the wheel fix the prompt never asked for the
+  mouse, so the terminal kept right-clicks and the ✖ and the badge did nothing. The mouse is
+  the shell's again while an alert shows (the wheel scrolls the output whenever none does).
+  New keyboard ways: **Alt-c** copies the top alert, `clip -a N` copies alert N.
 - **A blank toolbar row:** the usage toolbar stayed on into the next prompt (the input buffer
   still held the last command when the toolbar was decided) and drew as an empty colored row;
   with the footer at the prompt it sat right above it. The buffer is cleared first now. A

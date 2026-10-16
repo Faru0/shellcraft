@@ -434,6 +434,13 @@ class Shell:
         def _fold(event: Any) -> None:
             self.footer.toggle_collapsed()
 
+        @kb.add("escape", "c")  # Alt-c (or Esc then c): copy the top alert, as a right-click on it does
+        def _copy_alert(event: Any) -> None:
+            bus = self.ctx.alerts
+            current = bus.current() if bus is not None else []
+            if current:
+                bus.copy(current[0])
+
         @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
         def _paste_clip(event: Any) -> None:
             clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
@@ -610,8 +617,11 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        # The footer's lines are clickable at the prompt only when asked (footer_mouse): with the
-        # mouse reported to the shell, the terminal's wheel no longer scrolls its own output.
+        # While an alert shows, its ✖, its right-click copy and the badge need the mouse. Otherwise
+        # the terminal keeps it (the wheel scrolls the output) unless footer_mouse asks for the
+        # subshell lines to be clickable too.
+        if self.ctx.alerts is not None and self.ctx.alerts.current():
+            return True
         return settings.get(self.ctx.config, "footer_mouse") and self._clickable()
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:

@@ -752,9 +752,10 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   Every level has the same mark, in its color: green info, amber warning, red critical.
 - A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt,
-  **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). Clicks on
-  the footer at the prompt need `settings footer_mouse on` (inside a subshell they always work);
-  a terminal without mouse tracking pastes or opens its own menu on a right-click instead.
+  **Ctrl-] v** inside a subshell, `clip` prints it and `$CLIP` holds it (`man clip`). From the
+  keyboard: **Alt-c** copies the top alert, `clip -a N` alert N. At the prompt the mouse is the
+  shell's while an alert shows (the wheel then moves through the history), the terminal's
+  otherwise.
 - With no subshell to fold into, every alert shows as a row.
 
 ```
@@ -839,13 +840,18 @@ clip TEXT...            # set it
 echo hello | clip       # set it from a pipe
 clip | jq               # use it: pipe it on
 echo $CLIP              # the same text as a variable
+clip -a [N]             # copy alert N (default: the top one), as a right-click on it does
 clip -c                 # clear it
 ```
+
+**Alt-c** at the prompt copies the top alert too. A right-click works wherever the mouse reaches
+the shell: at the prompt while an alert shows, and always inside a subshell.
 
 ## Options
 
 | Option | Meaning |
 | --- | --- |
+| `-a [N]`, `--alert [N]` | Copy alert N (`alert --list` numbers them; default 1, the top one). |
 | `-c`, `--clear` | Empty the clip. |
 
 ## See also
@@ -855,7 +861,7 @@ clip -c                 # clear it
 
 
 @builtin("clip", "The clip register: what a right-click on an alert copied; Alt-v pastes it",
-         "clip [TEXT...] | -c", category="text", doc=CLIP_DOC)
+         "clip [TEXT...] | -a [N] | -c", category="text", doc=CLIP_DOC)
 def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
     bus = ctx.alerts
     if bus is None:
@@ -863,6 +869,14 @@ def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if args and args[0] in ("-c", "--clear"):
         bus.clip = ""
         return ""
+    if args and args[0] in ("-a", "--alert"):  # copy an alert, as a right-click on it does
+        current = bus.current()
+        number = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+        if not 1 <= number <= len(current):
+            raise CommandError("clip: no such alert (alert --list numbers them)" if current else "clip: no alerts")
+        text = bus.copy(current[number - 1])
+        return Text.assemble(("✓ copied: ", "sc.success"), (_brief(text, 60), "sc.accent"),
+                             ("  (Alt-v pastes)", "sc.muted"))
     if args:
         bus.clip = " ".join(args)
         return ""

@@ -649,9 +649,17 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts = AlertBus()
     assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
     warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
-    assert not sh._mouse_wanted()  # by default the terminal keeps the mouse (the wheel scrolls the output)
-    ctx.config.setdefault("settings", {})["footer_mouse"] = True
-    assert sh._mouse_wanted()  # alerts alone: the footer shows, so its rows must be clickable
+    assert sh._mouse_wanted()  # an alert shows: its ✖, right-click and badge need the mouse
+    # the keyboard ways: Alt-c copies the top alert, clip -a N alert N
+    binding = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["Keys.Escape", "c"])
+    binding.handler(None)
+    assert ctx.alerts.clip == "/var/log/app.log" and ctx.alerts.copied is warn
+    ctx.alerts.clip = ""
+    ctx.interactive = True
+    assert "copied: /var/log/app.log" in to_text(run_line("clip -a 1", ctx).output) and ctx.alerts.clip
+    with pytest.raises(PipelineError, match="no such alert"):
+        run_line("clip -a 5", ctx)
+    ctx.alerts.clip = ""
     keys = [SimpleNamespace(key="<windows-mouse-event>")]
 
     def press(button, kind):  # what the Windows input sends through the prompt's mouse binding
