@@ -309,3 +309,28 @@ def test_shell_loop_survives_an_unexpected_exception(monkeypatch, tmp_path):
         assert sh.loop() == 0  # reached Ctrl-D instead of dying
     assert "RuntimeError: Could not determine home directory" in console.export_text()
     assert ctx.last_status == 1
+
+
+def test_help_groups_grids_and_all(ctx):
+    import io
+
+    from rich.console import Console
+
+    from shellcraft.themes import UI, all_themes
+
+    ctx.ui = UI(all_themes({})["nord"], Console(file=io.StringIO(), width=160, record=True))
+    ctx.ui.console.print(run_line("help", ctx).output.renderable.value)
+    screen = ctx.ui.console.export_text()
+    lines = screen.splitlines()
+    assert max(len(line.rstrip()) for line in lines) <= 100  # capped, however wide the terminal
+    for group in ("ShellCraft", "Shell", "Files", "Text", "Scripting", "System", "Modules"):
+        assert any(line.startswith(f" {group} ") and "──" in line for line in lines), group
+    assert "Record the session to a file" in screen  # ShellCraft's own: described
+    assert "Print lines matching a pattern" not in screen  # grep: a name in the Text grid
+    assert "help -a" in screen and "keywords" in screen
+    ctx.ui.console.file = io.StringIO()
+    ctx.ui.console.print(run_line("help -a", ctx).output.renderable.value)
+    every = ctx.ui.console.export_text()
+    assert "Print lines matching a pattern" in every
+    with pytest.raises(PipelineError, match="usage: help"):
+        run_line("help -x", ctx)

@@ -156,7 +156,7 @@ def test_mouse_always_clicks_segments_toolbar_and_wheels_history(repl, monkeypat
     assert name[2](down) is NotImplemented  # only the release counts
     name[2](up)
     out = sh.ui.console.export_text()
-    assert "❯ help" in out and "ShellCraft commands" in out
+    assert "❯ help" in out and "⚡ShellCraft" in out and "commands ·" in out
 
     ctx.last_status = 127
     sh.last_error = (RuntimeError("boom"), "nosuch")
@@ -437,10 +437,12 @@ def test_help_narrow_layout(tmp_path):
     ui = _ui(width=60, record=True)
     ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui)
     result = run_line("help", ctx)
-    ui.console.print(result.output.renderable)
+    ui.console.print(result.output.renderable.value)
     text = ui.console.export_text()
-    assert "Shell\n" in text and "  grep — " in text and "┃" not in text  # lines, not a table
-    assert to_text(result.output).startswith("alert  ")  # the first Shell builtin, alphabetically
+    assert " ShellCraft " in text and "grep" in text and "┃" not in text  # rules and grids, not a table
+    assert "Open a subshell or a background job" in text  # ShellCraft's own, described
+    assert max(len(line) for line in text.splitlines()) <= 60  # never wider than the terminal
+    assert to_text(result.output).startswith("sub  ")  # the plain side, ShellCraft group first
 
 
 def test_paged_text_keeps_long_lines_for_sideways_scrolling(monkeypatch):

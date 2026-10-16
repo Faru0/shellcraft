@@ -108,13 +108,16 @@ def _clear(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 HELP_DOC = """# help
 
-List every command, grouped (Shell, Text, Files, Info, Modules), with a status line about the
-modules. It is printed in full, never paged, so you can scroll back to it.
+List every command, grouped by purpose: ShellCraft's own features first (with a description),
+then Shell, Files, Text, Scripting and System as a grid of names, and the modules last (with a
+description; ◆ marks one from your own folder). It is at most 100 columns wide and printed in
+full, never paged, so you can scroll back to it.
 
 ## Usage
 
 ```
-help               # the table of commands
+help               # the commands, grouped
+help -a            # every command with its description
 help NAME          # one command: its summary and usage (man NAME has the whole page)
 help -k WORD       # the commands whose name or summary mentions WORD
 ```
@@ -123,9 +126,10 @@ help -k WORD       # the commands whose name or summary mentions WORD
 
 | Option | Meaning |
 | --- | --- |
-| `-k WORD`, `--search WORD` | Search the summaries (`help -k dns`). |
+| `-a`, `--all` | Every command with its description, not only ShellCraft's own and the modules. |
+| `-k WORD`, `--search WORD` | Search the summaries (`help -k dns`), described like `-a`. |
 
-On a narrow terminal (under 80 columns) the table becomes plain `name — summary` lines.
+In a pipe (`help | grep dns`) each command is one `name  summary` line.
 """
 
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
@@ -133,14 +137,42 @@ SCRIPT_HINT = "⚠ needs run() to work properly! see templates/README.md"  # a m
 KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 
 
+# `help`: the groups, in order. ShellCraft's own features (and the modules) are listed with a
+# short description; the commands you know from Linux are a grid of names (`help -a` describes
+# every one). A builtin missing here goes to the group of its category.
+HELP_GROUPS: tuple[tuple[str, str], ...] = (
+    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings banner"),
+    ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
+    ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
+    ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
+    ("Scripting", "test true false read local shift unset declare export sleep time xargs"),
+    ("System", "date env hostname uname whoami"),
+)
+CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "System"}
+DESCRIBED = ("ShellCraft", "Modules")  # the groups listed with descriptions by a bare `help`
+HELP_SHORT = {  # one line each, for the ShellCraft group
+    "sub": "Open a subshell or a background job", "jobs": "List, switch, rename or stop subshells",
+    "alert": "Show an alert in the footer", "clip": "The clip register (Alt-v pastes)",
+    "record": "Record the session to a file", "script": "The same as record",
+    "mcp": "Start or stop the MCP server", "modules": "List, enable or disable modules",
+    "reload": "Re-scan the modules folders", "ingest": "Turn a script into a module",
+    "startup": "List or rerun the startup scripts", "theme": "List or switch color themes",
+    "prompt": "Choose the prompt's segments", "settings": "Settings and API keys",
+    "banner": "Show the welcome banner",
+}
+HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
+
+
 def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
-    """(section, name, summary, usage) for every command shown by `help`, in display order."""
+    """(group, name, summary, usage) for every command shown by `help`, in display order."""
+    shown = {n for n, b in BUILTINS.items() if not b.hidden and n not in KEYWORDS_HELP}
+    groups: dict[str, list[str]] = {title: [n for n in names.split() if n in shown] for title, names in HELP_GROUPS}
+    placed = {n for names in groups.values() for n in names}
+    for name in sorted(shown - placed):
+        groups[CATEGORY_GROUP.get(BUILTINS[name].category, "Shell")].append(name)
     rows: list[tuple[str, str, str, str]] = []
-    for category, label in SECTIONS.items():
-        for name in sorted(n for n, b in BUILTINS.items() if b.category == category and not b.hidden
-                           and n not in KEYWORDS_HELP):
-            b = BUILTINS[name]
-            rows.append((label, name, b.summary, b.usage))
+    for title, names in groups.items():
+        rows += [(title, n, BUILTINS[n].summary, BUILTINS[n].usage) for n in names]
     from shellcraft.loader import is_script
 
     for name in ctx.registry.names():
@@ -155,15 +187,29 @@ def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
     return rows
 
 
-@builtin("help", "List built-ins and loaded modules", "help [NAME | -k WORD]", doc=HELP_DOC)
+def _brief(text: str, limit: int) -> str:
+    """The first clause of a summary, within `limit` characters (cut at a word, with …)."""
+    text = " ".join(text.split()).rstrip(".")
+    for mark in (". ", ": ", " — ", " (", ", and ", ", or ", " and return"):
+        head = text.split(mark)[0]
+        if len(head) >= 20:
+            text = head.rstrip(",;")
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+@builtin("help", "List built-ins and loaded modules", "help [NAME | -a | -k WORD]", doc=HELP_DOC)
 def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    search = None
+    search, every = None, False
     if args and args[0] in ("-k", "--search"):
         if len(args) != 2:
             raise CommandError("usage: help -k WORD")
         search = args[1].lower()
+    elif args and args[0] in ("-a", "--all") and len(args) == 1:
+        every = True
     elif len(args) > 1 or (args and args[0].startswith("-")):
-        raise CommandError("usage: help [NAME | -k WORD]")
+        raise CommandError("usage: help [NAME | -a | -k WORD]")
     elif args:
         return _help_one(ctx, args[0])
 
@@ -172,51 +218,106 @@ def _help(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         rows = [r for r in rows if search in r[1].lower() or search in r[2].lower()]
         if not rows:
             raise CommandError(f"help: nothing matches '{search}' (man -k is not available; try help)")
-    width = ctx.ui.console.width if ctx.ui else 100
+        every = True
     plain = "".join(f"{name}  {summary}\n" for _, name, summary, _ in rows)
+    if ctx.ui is None:
+        return plain
+    return Styled(Paged(_help_screen(ctx, rows, every, search), page=False), plain)  # printed in full
 
-    footer = Text()
+
+def _help_screen(ctx: ShellContext, rows: list[tuple[str, str, str, str]], every: bool,
+                 search: str | None) -> Any:
+    """The help screen: a heading line, a rule per group, then either name + description (the
+    ShellCraft features, the modules, and everything with -a / -k) or a grid of names."""
+    from rich.columns import Columns
+    from rich.constrain import Constrain
+    from rich.padding import Padding
+    from rich.rule import Rule
+
+    assert ctx.ui is not None
+    width = min(ctx.ui.console.width, HELP_WIDTH)
     registry = ctx.registry
-    disabled = registry.disabled_names()
-    footer.append(f"{len(registry)} module{'s' if len(registry) != 1 else ''} loaded", style="sc.muted")
-    if disabled:
-        footer.append(f", {len(disabled)} disabled (modules -a)", style="sc.muted")
-    footer.append("   keywords ", style="sc.muted")
-    footer.append(", ".join(KEYWORDS_HELP), style="sc.accent")
-    footer.append(" (man for)", style="sc.muted")
+    builtins_shown = sum(1 for r in rows if r[0] != "Modules")
+    if search is not None:
+        head = Text.assemble((" ⚡ShellCraft ", "sc.prompt"),
+                             (f" {len(rows)} match{'es' if len(rows) != 1 else ''} for ", "sc.muted"),
+                             (search, "sc.accent"))
+    else:
+        head = Text.assemble((" ⚡ShellCraft ", "sc.prompt"),
+                             (f" {builtins_shown} commands · {len(registry)} module{'s' if len(registry) != 1 else ''}",
+                              "sc.muted"))
+        if registry.disabled_names():
+            head.append(f" · {len(registry.disabled_names())} disabled (modules -a)", style="sc.muted")
+    parts: list[Any] = [head, Text("")]
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for group, name, summary, _usage in rows:
+        groups.setdefault(group, []).append((name, summary))
+    # One cell width for every grid, so the names line up from one group to the next.
+    cell = max([len(n) for g, items in groups.items() if g not in DESCRIBED for n, _ in items] or [8]) + 3
+    for group, items in groups.items():
+        color = "sc.success" if group == "Modules" else "sc.path"
+        title = Text(f" {group} ", style="sc.success" if group == "Modules" else "sc.accent")
+        title.stylize("bold")
+        parts.append(Rule(title, align="left", style="sc.border"))
+        if every or group in DESCRIBED:
+            parts.append(_help_described(ctx, group, items, width, color, every))
+        else:
+            parts.append(Padding(Columns([Text(n, style=color) for n, _ in items], width=cell, padding=(0, 0)),
+                                 (0, 0, 0, 1)))
+        parts.append(Text(""))
+    keywords = Text.assemble((" keywords  ", "sc.muted"), (" ".join(KEYWORDS_HELP), "sc.accent"))
+    tips = Text()
+    for i, (key, what) in enumerate((("help NAME", "one command"), ("help -a", "all described"),
+                                     ("man NAME", "the manual"), ("help -k WORD", "search"))):
+        tips.append(" · " if i else " ", style="sc.muted")
+        tips.append(key, style="sc.accent")
+        if width >= 90:
+            tips.append(f" {what}", style="sc.muted")
+    parts += [keywords, tips]
     for warning in registry.warnings:
-        footer.append(f"\n⚠ {warning}", style="sc.warning")
-    tips = Text.assemble(
-        ("Pipes ", "sc.muted"), ("a | b", "sc.accent"), ("   redirect ", "sc.muted"), ("> file", "sc.accent"),
-        (" / ", "sc.muted"), (">> file", "sc.accent"), ("   docs ", "sc.muted"), ("man <command>", "sc.accent"),
-        ("   one command ", "sc.muted"), ("help NAME", "sc.accent"),
-        ("   complete ", "sc.muted"), ("Tab", "sc.accent"),
-    )
+        parts.append(Text(f" ⚠ {warning}", style="sc.warning"))
+    return Constrain(Group(*parts), width)
 
-    if width < 80:  # narrow: no table, one line per command
-        lines = Text()
-        section = None
-        for sec, name, summary, _ in rows:
-            if sec != section:
-                section = sec
-                lines.append(f"{sec}\n", style="sc.accent bold")
-            lines.append(f"  {name}", style="sc.path")
-            lines.append(f" — {summary}\n")
-        return Styled(Group(lines, footer, tips), plain)
 
-    table = Table(title="ShellCraft commands" + (f": {search}" if search else ""), title_style="sc.prompt",
-                  border_style="sc.border", header_style="sc.accent", expand=False)
-    table.add_column("command", style="sc.path", no_wrap=True)
-    table.add_column("description")  # the usage is one `help NAME` or `man NAME` away
-    section = None
-    for sec, name, summary, _usage in rows:
-        if sec != section:
-            if section is not None:
-                table.add_section()
-            section = sec
-            table.add_row(Text(sec, style="sc.accent bold"), "")
-        table.add_row(name, summary)
-    return Styled(Paged(Group(table, footer, tips), page=False), plain)  # printed in full, to scroll back to
+def _help_described(ctx: ShellContext, group: str, items: list[tuple[str, str]], width: int, color: str,
+                    every: bool) -> Any:
+    """Name and description, two columns of pairs when they fit (the ShellCraft group), one
+    otherwise; module and -a descriptions are the first clause of the summary."""
+    user = {n for n, _ in items if group == "Modules" and ctx.registry.origin(n) == "user"}
+
+    def describe(name: str, summary: str, limit: int) -> str:
+        if group == "ShellCraft" and not every and name in HELP_SHORT:
+            return HELP_SHORT[name]
+        return _brief(summary.replace(SCRIPT_HINT, "").replace("(user module)", ""), limit)
+
+    name_width = max(len(n) + (2 if n in user else 0) for n, _ in items) + 1
+    two = group == "ShellCraft" and not every and width >= 90
+    grid = Table.grid(padding=(0, 2))
+    columns = 2 if two else 1
+    limit = (width // 2 - name_width - 2) if two else (width - name_width - 4)
+    for _ in range(columns):
+        grid.add_column(no_wrap=True, min_width=name_width)
+        grid.add_column(style="sc.muted", no_wrap=True, overflow="ellipsis", max_width=max(10, limit))
+
+    def cells(name: str, summary: str) -> list[Any]:
+        label = Text(" " + name, style=color)
+        if name in user:
+            label.append(" ◆", style="sc.accent")
+        text = Text(describe(name, summary, limit), style="sc.muted")
+        if group == "Modules" and SCRIPT_HINT in summary:
+            text = Text("⚠ needs run()", style="sc.warning")
+        return [label, text]
+
+    if two:
+        half = (len(items) + 1) // 2
+        for i in range(half):
+            row = cells(*items[i])
+            row += cells(*items[i + half]) if i + half < len(items) else ["", ""]
+            grid.add_row(*row)
+    else:
+        for item in items:
+            grid.add_row(*cells(*item))
+    return grid
 
 
 def _help_one(ctx: ShellContext, name: str) -> Any:

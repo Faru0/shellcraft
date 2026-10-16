@@ -123,8 +123,12 @@ and the project uses [semantic versioning](https://semver.org/).
   selection away). The footer's lines, an alert's ✖ and the badge are clickable at the prompt
   with the new `footer_mouse` setting (off by default); inside a subshell they always are, and
   the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c) work everywhere.
-- **`help`:** the usage column is gone; the table is the command and its description (`help
-  NAME` and `man NAME` have the usage).
+- **A new `help` screen:** grouped by purpose, at most 100 columns wide, no table. ShellCraft's
+  own features (`sub`, `jobs`, `alert`, `clip`, `record`, `mcp`…) come first with a short
+  description; Shell, Files, Text, Scripting and System are grids of names; the modules come
+  last, in their own color, with the first clause of their summary (◆ marks your own).
+  `help -a` describes every command; `help -k WORD` searches; `help NAME` and `man NAME` have
+  the usage. In a pipe it is still one `name  summary` line per command.
 - **The pager only when asked:** output taller than the window no longer opens the viewer by
   itself; it prints, so you can scroll back. `man` still opens it, and the new **`less`** (and
   `more`) page anything on demand: `ls -l | less`, `cat big.log | less`, `less FILE`. The
