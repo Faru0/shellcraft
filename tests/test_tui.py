@@ -311,18 +311,22 @@ def test_highlight_in_theme_colors_restores_the_lines_own_color():
 
 # ── show() ───────────────────────────────────────────────────────────────────
 
-def test_show_pages_only_above_the_terminal_height(monkeypatch):
+def test_show_pages_only_when_asked(monkeypatch):
+    """Tall output prints; only a Paged value with page=True (man, `cmd | less`) opens the viewer,
+    and never with the pager setting off."""
     from shellcraft import output
+    from shellcraft.context import Paged
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(title))
     ui = _ui(height=10)
-    show(ui, "\n".join(map(str, range(8))), title="fits")  # 8 rows: room for the prompt below
-    show(ui, "\n".join(map(str, range(9))), title="edge")
-    show(ui, "\n".join(map(str, range(50))), title="tall")
-    show(ui, "\n".join(map(str, range(50))), pager=False)
-    assert paged == ["edge", "tall"]
-    assert "7\n" in ui.console.file.getvalue()
+    show(ui, "\n".join(map(str, range(8))), title="fits")
+    show(ui, "\n".join(map(str, range(50))), title="tall")  # taller than the window: printed anyway
+    show(ui, Paged("\n".join(map(str, range(3))), page=True), title="less")  # short, but asked for
+    show(ui, Paged("\n".join(map(str, range(50))), page=True), title="man")
+    show(ui, Paged("\n".join(map(str, range(50))), page=True), pager=False, title="off")
+    assert paged == ["less", "man"]
+    assert "49\n" in ui.console.file.getvalue()  # the tall one, printed
 
 
 def test_show_renders_styled_wrapping_paged(monkeypatch):
@@ -350,9 +354,13 @@ def test_show_sends_huge_plain_text_straight_to_the_pager(monkeypatch):
 
     paged = []
     monkeypatch.setattr(output, "page", lambda ui, rendered, title=None: paged.append(rendered))
+    from shellcraft.context import Paged
+
     monkeypatch.setattr(output, "PAGER_DIRECT_LINES", 100)
-    show(_ui(), "\n".join(["row"] * 200))
+    show(_ui(), Paged("\n".join(["row"] * 200), page=True))
     assert len(paged) == 1 and paged[0].count("\n") == 199
+    show(_ui(), "\n".join(["row"] * 200))  # not asked for: printed, however big
+    assert len(paged) == 1
 
 
 # ── themes ───────────────────────────────────────────────────────────────────

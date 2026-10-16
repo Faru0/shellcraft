@@ -116,6 +116,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The pager only when asked:** output taller than the window no longer opens the viewer by
+  itself; it prints, so you can scroll back. `man` still opens it, and the new **`less`** (and
+  `more`) page anything on demand: `ls -l | less`, `cat big.log | less`, `less FILE`. The
+  `pager` setting now means: open man pages and `less` in the viewer (off: print them).
 - **Footer lines:** a running subshell's line is plain (it was amber); the main line's color
   runs to the right edge like every other; a finished line has an × after `done` / `exit N`
   that removes it with a click.

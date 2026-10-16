@@ -51,8 +51,9 @@ SETTINGS: dict[str, Setting] = {
                 "Fall back to programs on PATH (ls, git, cmd.exe built-ins…) when no "
                 "ShellCraft builtin or module matches. Off keeps behavior identical on "
                 "Windows and Linux.", _apply_system_commands),
-        Setting("pager", "Auto-pager", True,
-                "Open man pages, and output taller than the terminal, in the scrollable viewer."),
+        Setting("pager", "Pager", True,
+                "Open man pages, and whatever is piped into `less`, in the scrollable viewer. Off: print "
+                "them instead."),
         Setting("spinner", "Live spinners", True,
                 "Show an animated spinner while a slow command runs."),
         Setting("banner", "Startup banner", True,

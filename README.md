@@ -24,12 +24,12 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **73 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
+| 🧰 **75 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
 | 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
 | ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `>&2`, functions, `select`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
 | ⌨️ **Smart input** | Syntax highlighting as you type, a toolbar with the usage of the command you are typing, ghost-text suggestions from history, Ctrl-R, and Tab completion for commands, switches (with descriptions), switch values, positional values and paths (quoted when they need it). |
-| 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `help NAME` for the short version. |
+| 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `cmd \| less` pages anything else; `help NAME` for the short version. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, two light variants, or your own; `theme preview` tries one. |
 | 🪟 **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. A footer on the last row shows every shell as a tab: click one, or press Ctrl-] N, to switch; Ctrl-] alone comes back. |
 | 🤖 **Built-in MCP server** | Claude Desktop, Claude Code and other AI clients can use your modules as typed tools, safely sandboxed from writes. |
@@ -252,7 +252,10 @@ first time the new version starts.
 
 ### Long output
 
-`man <command>` always opens in a scrollable viewer (`man -p <command>` prints it instead), and so does any other output taller than the window (`help` is the exception: it is printed in full, so you can scroll back to it): `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
+`man <command>` opens in a scrollable viewer (`man -p <command>` prints it instead), and so does
+anything you pipe into **`less`** (`ls -l | less`, `cat big.log | less`, `less FILE`; `more` is the
+same). Nothing else pages by itself: long output just prints, so you can scroll back through it.
+In the viewer: `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
 page, `d`/`u` half a page, `g`/`G` jump to the top or end, `←`/`→` scroll sideways through long
 lines and `w` wraps them instead, `/` searches (matches are highlighted), `n`/`N` step through
 matches, the mouse wheel scrolls, `?` lists the keys, and `q` closes it. The status bar names the
@@ -453,7 +456,7 @@ one has a manual: `man ls`, `man grep`, …
 | Group | Commands |
 | --- | --- |
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` |
-| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` |
+| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
 

@@ -200,3 +200,19 @@ def test_xml_becomes_json_style_data(files, tmp_path):
     assert xml_to_data("<a xmlns='urn:x'><b>1</b></a>") == {"a": {"b": "1"}}  # namespaces dropped from tags
     with pytest.raises(Exception, match="not valid XML"):
         xml_to_data("<a><b></a>")
+
+
+def test_less_and_more_page_on_request_and_pass_through_in_pipes(files, tmp_path):
+    from shellcraft.context import Paged
+
+    (tmp_path / "big.txt").write_text("\n".join(f"line {i}" for i in range(100)) + "\n")
+    assert out("cat big.txt | less | wc -l", files).strip() == "100"  # a pipe: the text passes through
+    assert out("less big.txt | head -1", files) == "line 0\n"
+    files.interactive = True
+    files.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
+    shown = run_line("cat big.txt | less", files).output
+    assert isinstance(shown, Paged) and shown.page is True and shown.value.startswith("line 0\n")
+    assert isinstance(run_line("more big.txt", files).output, Paged)
+    assert run_line("echo -n | less", files).output == ""
+    with pytest.raises(PipelineError, match="usage: less"):
+        run_line("less a b", files)

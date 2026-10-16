@@ -563,7 +563,7 @@ An `&` anywhere else is still an error.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
-  `jobs N`, **Ctrl-] N** or its tab shows the output so far (in the pager when it is long); a finished
+  `jobs N`, **Ctrl-] N** or its tab shows the output so far (`jobs N | less` pages it); a finished
   job prints `[N] done: …` and its output at the next prompt, then leaves the stack (`settings
   jobs_autoclear off` keeps it until `jobs -c`). Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
@@ -840,6 +840,46 @@ def _record(ctx: ShellContext, args: list[str], stdin: str) -> Any:
          "script [start [FILE] | stop | status]", stateful=True, doc=RECORD_DOC)
 def _script(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return _record(ctx, args, stdin)
+
+
+LESS_DOC = """# less
+
+Read output in the scrollable viewer: `cmd | less`, or `less FILE`. `more` is the same command.
+Nothing else opens the viewer by itself except `man`; long output just prints, and `less` is
+how you page it when you want to.
+
+## Usage
+
+```
+ls -l | less                    # page a listing
+cat big.log | less              # or: less big.log
+grep -n TODO *.py | less
+```
+
+In the viewer: `↑` `↓` `j` `k` scroll, `PgUp` `PgDn` `space` page, `d` `u` half a page, `g` `G`
+top and end, `←` `→` sideways, `w` wraps long lines, `/` searches and `n` `N` step through the
+matches, the wheel scrolls, `?` lists the keys, `q` closes it. With `settings pager off` the
+text is printed instead; in a pipe or a file it passes through unchanged (`cat x | less | wc -l`).
+"""
+
+
+@builtin("less", "Read output in the scrollable viewer: cmd | less, or less FILE", "less [FILE]",
+         category="text", doc=LESS_DOC)
+def _less(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft.commands._io import read_file
+
+    if len(args) > 1:
+        raise CommandError("usage: less [FILE]  (or: cmd | less)")
+    text = read_file("less", args[0]) if args else stdin
+    if not text:
+        return ""
+    return Paged(text, page=True) if ctx.ui is not None and ctx.interactive else text
+
+
+@builtin("more", "The same as less: read output in the scrollable viewer", "more [FILE]",
+         category="text", doc=LESS_DOC)
+def _more(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    return _less(ctx, args, stdin)
 
 
 READ_DOC = """# read

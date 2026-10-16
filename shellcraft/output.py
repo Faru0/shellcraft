@@ -109,9 +109,9 @@ def spinner_label(label: str, elapsed: float) -> str:
 
 
 def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> None:
-    """Print a command's final output, paging it if it is taller than the terminal, or as a
-    Paged value asks (the `pager` setting off still means never). `title` (the command line)
-    is shown in the pager's status bar."""
+    """Print a command's final output; a Paged value with page=True (a man page, `cmd | less`)
+    opens the viewer instead, unless the `pager` setting is off. Tall output is never paged by
+    itself: `less` is for that. `title` (the command line) is shown in the viewer's status bar."""
     forced: bool | None = None
     while isinstance(value, (Paged, Styled)):  # either may wrap the other (help: Styled(Paged))
         if isinstance(value, Paged):
@@ -124,17 +124,17 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
         return
     console = ui.console
     if isinstance(value, str) and value.count("\n") > PAGER_DIRECT_LINES and console.is_terminal \
-            and pager and forced is not False:
+            and pager and forced:
         page(ui, value.rstrip("\n"), title)  # too big to run through Rich first
         return
     renderable = Text.from_ansi(value.rstrip("\n")) if isinstance(value, str) else value
-    if not console.is_terminal or not pager or forced is False:
+    if not console.is_terminal or not pager or not forced:
         console.print(renderable)
         return
     with console.capture() as capture:
         console.print(renderable)
     rendered = capture.get()
-    if forced or rendered.count("\n") > console.height - 2:
+    if forced:
         if isinstance(renderable, Text):
             # Plain or colored text: give the pager the lines unwrapped, so ← / → scroll through
             # long lines and `w` wraps them (Rich would have wrapped them at the window width).

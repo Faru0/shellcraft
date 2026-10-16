@@ -345,12 +345,15 @@ def test_help_prints_and_man_pages(monkeypatch, tmp_path, line, pager_setting, p
     assert bool(ui.console.file.getvalue()) is not paged
 
 
-def test_auto_pager_still_pages_tall_output(monkeypatch):
+def test_tall_output_prints_and_only_a_paged_value_pages(monkeypatch):
+    from shellcraft.context import Paged
     from shellcraft.output import show
 
     ui, pages = _screen(monkeypatch, height=10)
-    show(ui, "\n".join(map(str, range(50))))
+    show(ui, "\n".join(map(str, range(50))))  # tall, but not asked for: printed
     show(ui, "short")
+    assert len(pages) == 0
+    show(ui, Paged("\n".join(map(str, range(50))), page=True))  # man, or `cmd | less`
     assert len(pages) == 1
 
 
