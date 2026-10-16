@@ -278,7 +278,7 @@ stack, at the prompt and inside every subshell alike: `main` first, then one lin
 newest at the bottom, growing as you open more (up to half the screen, then "… and N more"):
 
 ```
- ✖ Payment API is down · from mcp · claude-code                 critical · sticky
+ ✖ Payment API is down · from mcp · claude-code                          critical
  ● main ▾                                                         ● 1  ● 1  ● 1 ▸
  ○ 1  bash --norc  ● Disk /home at 91%
  ○ 2  find / -name "*.log"                                                   done

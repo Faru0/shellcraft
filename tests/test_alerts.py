@@ -163,7 +163,7 @@ def test_panel_lines_show_alerts_first_with_their_source(bus):
     bus.post("look here", "critical", source="sub 1 (bash)")
     lines = panel_lines([], 0, None, 80, alerts=bus.current())
     assert [row.style for row in lines] == ["alert.critical", "alert.info"]  # no stack without jobs
-    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("critical · sticky")
+    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("critical")
     assert lines[1][2].startswith(" ✖ all good · from main shell") and "info · " in lines[1][2]
     long = AlertBus()
     long.post("x" * 200, "warning")

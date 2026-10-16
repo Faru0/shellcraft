@@ -304,7 +304,7 @@ def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None)
         if hovered and copied is alert:
             right = "copied · Alt-v pastes "
         else:
-            right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " · sticky ")
+            right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " ")
         room = max(10, width - get_cwidth(right) - 1)
         if get_cwidth(left) > room:
             left = left[: room - 1] + "…"
@@ -347,7 +347,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     (the panel under the prompt with the footer off). `collapsed` folds the subshell rows into
     the main row (`main  3 subshells ▸`); `max_rows` caps them, with a row saying how many more.
 
-        ✖ Payment API is down · from mcp · claude                     critical · sticky
+        ✖ Payment API is down · from mcp · claude                              critical
         ● main ▾                                                      ● 1  ● 1  ● 1 ▸
         ○ 1  bash --norc  ▲ Disk /home at 91%
         ○ 2  find / -name "*.log"                                                  done
