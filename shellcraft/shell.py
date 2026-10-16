@@ -337,7 +337,7 @@ class Shell:
 
     def _sub_recording(self, data: dict[str, Any]) -> None:
         """A subshell started or stopped `record` (from the watcher thread): its line in the
-        footer shows it (🔴 / ⭕ in place of ● / ○)."""
+        footer shows it (its bubble in red)."""
         from shellcraft.alerts import job_of
 
         number = job_of(str(data.get("source", "")))
@@ -795,7 +795,8 @@ class Shell:
             else:
                 handler = self._panel_entry(row.tab) if row.tab else self._panel_hover_handler(None)
             text, at = row.text, 0
-            if row.hovered and row.tab is not None and row.mark == MARK:  # the filled circle, accent color
+            recording = any(role == "rec" for _s, _e, _style, role in row.spans)
+            if row.hovered and row.tab is not None and not recording:  # the filled circle, accent color
                 parts.append(("class:toolbar.job.hover", text[:MARK], handler))
                 at = MARK
             for start, end, style, role in row.spans:

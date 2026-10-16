@@ -4,8 +4,8 @@ What you type and what the shell prints go into a plain-text file as they happen
 with the time. The transcript is written through a tee on the shell's console file, so command
 output, errors and notes are captured; the prompt itself (drawn by prompt_toolkit) and what
 happens inside an attached subshell are not, and the footer's redraws are skipped. The footer
-shows which shell is recording: 🔴 in place of ● on its line, ⭕ in place of ○; a subshell
-running `record` tells the main shell through the alert spool.
+shows which shell is recording: its bubble (● or ○) turns red; a subshell running `record`
+tells the main shell through the alert spool.
 """
 
 from __future__ import annotations

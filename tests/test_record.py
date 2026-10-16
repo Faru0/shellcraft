@@ -90,21 +90,22 @@ def test_footer_bubbles_turn_red_for_the_shells_that_record(repl_shell, tmp_path
     table = JobTable(tmp_path / "jobs")
     job = table.start_command("sleep", lambda: (0, ""))
     rows = panel_lines([job], 0, width=60, stack=True)
-    assert rows[0].text.startswith(" ● main") and rows[1].text.startswith(" ○ 1  sleep") and rows[0].mark == 3
-    recording.start(ctx, tmp_path / "s.txt")  # the main shell records: its own bubble
+    red = (0, 3, "rec", "rec")
+    assert rows[0].text.startswith(" ● main") and rows[1].text.startswith(" ○ 1  sleep") and red not in rows[0].spans
+    recording.start(ctx, tmp_path / "s.txt")  # the main shell records: its own bubble, in red
     rows = panel_lines([job], 0, width=60, stack=True, recording=ctx.recording is not None)
-    assert rows[0].text.startswith("🔴 main") and rows[0].mark == 2 and rows[1].text.startswith(" ○ 1 ")
+    assert rows[0].text.startswith(" ● main") and red in rows[0].spans and red not in rows[1].spans
     rows = panel_lines([job], 1, width=60, stack=True, recording=True)  # attached to job 1: main not current
-    assert rows[0].text.startswith("⭕ main") and rows[1].text.startswith(" ● 1 ")
+    assert rows[0].text.startswith(" ○ main") and red in rows[0].spans and rows[1].text.startswith(" ● 1 ")
     assert sh.footer.is_recording()
     # a subshell that records tells the main shell through the spool
     ctx.jobs = table
     sh._sub_recording({"kind": "recording", "on": True, "source": "sub 1 (shellcraft)"})
     assert job.recording
     rows = panel_lines([job], 1, width=60, stack=True)
-    assert rows[1].text.startswith("🔴 1  sleep") and rows[1].mark == 2
+    assert rows[1].text.startswith(" ● 1  sleep") and red in rows[1].spans
     rows = panel_lines([job], 0, width=60, stack=True)
-    assert rows[1].text.startswith("⭕ 1  sleep")
+    assert rows[1].text.startswith(" ○ 1  sleep") and red in rows[1].spans and red not in rows[0].spans
     sh._sub_recording({"kind": "recording", "on": False, "source": "sub 1 (shellcraft)"})
     assert not job.recording
     # the sender's side: inside a subshell, start / stop write the signal

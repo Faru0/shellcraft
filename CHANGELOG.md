@@ -11,9 +11,8 @@ and the project uses [semantic versioning](https://semver.org/).
   codes: every command with its time and what the shell printed, into
   `~/.shellcraft/records/session-DATE.txt` or a file you name (`record notes.txt`); `record
   status`, `record stop` (leaving the shell stops it too). The footer shows which shell records:
-  🔴 in place of its ● bubble, ⭕ in place of ○, on main's line or on the line of a `sub
-  shellcraft` that runs `record`. The footer and what happens inside an attached subshell are
-  not recorded.
+  its bubble (● or ○) turns red, on main's line or on the line of a `sub shellcraft` that runs
+  `record`. The footer and what happens inside an attached subshell are not recorded.
 - **Core warnings in the banner:** like a module's missing import, the banner (and the start
   without one) now says what the shell itself is missing: pywinpty on Windows (no subshells on
   a pseudo-terminal, so no footer), pyte, the `mcp` package, keyring, each with the pip command.

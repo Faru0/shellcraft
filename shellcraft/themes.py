@@ -76,6 +76,7 @@ class ThemeDef:
                 "sc.footer.alert.info": f"bold {self._on_accent()} on {self.success}",
                 "sc.footer.alert.warning": f"bold #000000 on {self.warning}",
                 "sc.footer.alert.critical": f"bold #ffffff on {self.error}",
+                "sc.footer.rec": f"bold {self.error} on {self._surface()}",  # the bubble of a shell that records
                 "sc.footer.alert.info.mark": f"bold {self.success} on {self._surface()}",
                 "sc.footer.alert.warning.mark": f"bold {self.warning} on {self._surface()}",
                 "sc.footer.alert.critical.mark": f"bold {self.error} on {self._surface()}",
@@ -137,6 +138,7 @@ class ThemeDef:
                 "toolbar.alert.info": f"bg:{self.success} {self._on_accent()} bold noreverse",
                 "toolbar.alert.warning": f"bg:{self.warning} #000000 bold noreverse",
                 "toolbar.alert.critical": f"bg:{self.error} #ffffff bold noreverse",
+                "toolbar.rec": f"bg:{surface} {self.error} bold noreverse",
                 "toolbar.alert.info.mark": f"bg:{surface} {self.success} bold noreverse",
                 "toolbar.alert.warning.mark": f"bg:{surface} {self.warning} bold noreverse",
                 "toolbar.alert.critical.mark": f"bg:{surface} {self.error} bold noreverse",
