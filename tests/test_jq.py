@@ -176,3 +176,27 @@ def test_jq_tells_the_shape_and_takes_a_bare_path(files):
     files.ui.console.print(run_line("jq list.json [1]", files).output.renderable)  # a path: no header
     assert "# " not in files.ui.console.file.getvalue() and "bob" in files.ui.console.file.getvalue()
     assert out("jq list.json | cat", files).startswith("[\n")
+
+
+def test_xml_becomes_json_style_data(files, tmp_path):
+    from shellcraft.commands.jq import xml_to_data
+
+    xml = """<?xml version="1.0"?>
+<rss version="2.0"><channel><title>News</title>
+  <item id="1"><title>First</title><tags><tag>a</tag><tag>b</tag></tags></item>
+  <item id="2"><title>Second</title><empty/></item>
+  <note lang="en">hi <b>there</b></note>
+</channel></rss>"""
+    data = xml_to_data(xml)
+    channel = data["rss"]["channel"]
+    assert data["rss"]["@version"] == "2.0" and channel["title"] == "News"
+    assert [i["@id"] for i in channel["item"]] == ["1", "2"] and channel["item"][0]["tags"]["tag"] == ["a", "b"]
+    assert channel["item"][1]["empty"] is None and channel["note"] == {"@lang": "en", "#text": "hi", "b": "there"}
+    (tmp_path / "feed.xml").write_text(xml)
+    assert out("jq feed.xml -x -f .rss.channel.item[*].title", files) == "First\nSecond\n"
+    assert out("cat feed.xml | jq -f rss.channel.title", files) == "News\n"  # a tag at the start: XML by itself
+    assert out("jq feed.xml -x -s", files) == "object with 1 key: rss\n"
+    assert '"@version":"2.0"' in out("jq feed.xml --xml -c", files)
+    assert xml_to_data("<a xmlns='urn:x'><b>1</b></a>") == {"a": {"b": "1"}}  # namespaces dropped from tags
+    with pytest.raises(Exception, match="not valid XML"):
+        xml_to_data("<a><b></a>")

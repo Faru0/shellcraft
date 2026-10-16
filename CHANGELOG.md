@@ -39,8 +39,9 @@ and the project uses [semantic versioning](https://semver.org/).
   counts. `jq` looks at what it got first: on screen a bare `jq` starts with a line saying the
   shape and what fits it (`# list of 3 objects (keys: name, age) · jq [0] · jq -t · jq -i '*'
   -f name`), `-s` prints just that line, and a path on its own (`jq [3]`, `jq .items[0]`) works
-  like `-f`, so a list is indexed the way Python does it. JSON Lines and Python-style
-  dictionaries are accepted. Words on a `jq` line are not
+  like `-f`, so a list is indexed the way Python does it. JSON Lines, Python-style
+  dictionaries and XML (`-x`, or by itself when the input starts with a tag: converted to
+  JSON-style data first, attributes as `@name`, repeated tags as lists) are accepted. Words on a `jq` line are not
   globbed, so `*` and `[name]` arrive as typed. It is not the jq language, and it shadows a jq
   program on the PATH (run that one by its full path, such as `/usr/bin/jq`).
 - **`jq -w`, `-t`, `-p`:** `-w COND` keeps the list elements that match (`-w 'age>30'`,

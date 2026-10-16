@@ -29,12 +29,15 @@ WILDCARD = object()  # `[*]` / `-i *`: every element (or every value of an objec
 
 # ── loading ──────────────────────────────────────────────────────────────────
 
-def load(text: str, source: str = "stdin") -> Any:
+def load(text: str, source: str = "stdin", xml: bool = False) -> Any:
     """JSON, else JSON Lines (one value per line, as a list), else a Python literal (single quotes,
-    True / None), which is what `print(dict)` writes."""
+    True / None), which is what `print(dict)` writes; XML with `xml` (-x), or by itself when the
+    text starts with a tag."""
     text = text.strip()
     if not text:
         raise ModuleError(f"jq: {source}: no input (pipe JSON in, or give a FILE)")
+    if xml or text.startswith(("<?xml", "<!DOCTYPE")) or (text.startswith("<") and text.endswith(">")):
+        return xml_to_data(text, source)
     try:
         return json.loads(text)
     except ValueError as first:
@@ -52,6 +55,43 @@ def load(text: str, source: str = "stdin") -> Any:
         if isinstance(value, (dict, list, tuple, str, int, float, bool)) or value is None:
             return list(value) if isinstance(value, tuple) else value
         raise ModuleError(f"jq: {source}: not valid JSON") from None
+
+
+def xml_to_data(text: str, source: str = "stdin") -> Any:
+    """XML as JSON-style data, the way xmltodict does it: `{root: {...}}`; an element with
+    children or attributes is an object (attributes as `@name`, its own text as `#text`), an
+    element with text alone is that text, an empty one is null, and children that share a tag
+    become a list."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ModuleError(f"jq: {source}: not valid XML ({exc})") from None
+    return {_tag(root): _element(root)}
+
+
+def _tag(element: Any) -> str:
+    tag = element.tag
+    return tag.rsplit("}", 1)[1] if isinstance(tag, str) and tag.startswith("{") else str(tag)
+
+
+def _element(element: Any) -> Any:
+    out: dict[str, Any] = {f"@{k}": v for k, v in element.attrib.items()}
+    for child in element:
+        key, value = _tag(child), _element(child)
+        if key in out:
+            if not isinstance(out[key], list):
+                out[key] = [out[key]]
+            out[key].append(value)
+        else:
+            out[key] = value
+    text = (element.text or "").strip()
+    if not out:
+        return text or None
+    if text:
+        out["#text"] = text
+    return out
 
 
 # ── the filter ───────────────────────────────────────────────────────────────
@@ -303,12 +343,13 @@ def _cell(value: Any) -> str:
 
 
 @builtin("jq", "Pretty-print JSON, list its keys, or pick values out of it",
-         "jq [FILE] [-r FILE] [-i N|*] [-w COND]... [-f FILTER] [-k|-p|-t|-n] [-c]", category="text", doc="""\
+         "jq [FILE] [-r FILE] [-x] [-i N|*] [-w COND]... [-f FILTER] [-k|-p|-t|-n|-s] [-c]", category="text", doc="""\
 # jq
 
 Look inside JSON: pretty-print it, list its keys, or pick values out with a path written the way
 you would in Python after `json.loads`. It reads a FILE, or what is piped in. JSON Lines (one
-object per line) and Python-style dictionaries (single quotes, `True`, `None`) work too.
+object per line), Python-style dictionaries (single quotes, `True`, `None`) and **XML** (`-x`, or
+by itself when the input starts with a tag) work too: XML becomes JSON-style data first.
 
 This is ShellCraft's own jq, not the jq language: the filter is a Python subscript.
 
@@ -334,6 +375,7 @@ jq [FILE] -p                    every value with its path
 | `-i N`, `--index N` | Start inside element N of a list (`-i 0`, `-i -1` for the last). `-i '*'` (or `-i all`) means every element, and `-i 2:5` a range. |
 | `-k`, `--keys` | The keys of the result, one per line (the indexes of a list). With `-i '*'`: each element's keys, under its index. |
 | `-r FILE`, `--read FILE` | Read FILE (the same as giving FILE on its own). |
+| `-x`, `--xml` | The input is XML: convert it to JSON-style data first, then do everything else. `{root: {…}}`; attributes as `@name`, an element's own text as `#text` when it also has children or attributes, text alone as the value, an empty element as null, children sharing a tag as a list. Values stay strings. |
 | `-s`, `--shape` | Say what the data is, in one line: `object with 3 keys: name, items, ok`, `list of 5 objects (keys: name, age)`, `list of 12 numbers`, `string`. |
 | `-c`, `--compact` | Objects and lists on one line each, without indentation. |
 | `-n`, `--count` | How many results the filter gives (the length of a single list or object). |
@@ -372,6 +414,9 @@ cat list.json | jq -w 'age>30' -f name    # names of those over 30
 cat list.json | jq -w name~ad -w active=true -t   # matching elements as a table
 cat list.json | jq -t                     # the whole list as a table
 cat config.json | jq -p | grep -i port    # find where a value lives
+cat feed.xml | jq -x                      # XML as JSON
+cat feed.xml | jq -x -f .rss.channel.item[*].title   # one title per line
+curl -s https://x/api.xml | jq -x -k      # the root's keys
 fetch https://api.example.com/users | jq -i * -f .address.city | sort | uniq -c
 ```
 
@@ -387,6 +432,7 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser.add_argument("words", nargs="*", metavar="FILE|FILTER")
     parser.add_argument("-r", "--read", metavar="FILE")
     parser.add_argument("-s", "--shape", action="store_true")
+    parser.add_argument("-x", "--xml", action="store_true")
     parser.add_argument("-f", "--filter", default="")
     parser.add_argument("-i", "--index")
     parser.add_argument("-k", "--keys", action="store_true")
@@ -410,7 +456,7 @@ def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if files and opts.read:
         raise ModuleError("jq: give FILE or -r FILE, not both")
     source = opts.read or (files[0] if files else None)
-    data = load(read_file("jq", source) if source else stdin, source or "stdin")
+    data = load(read_file("jq", source) if source else stdin, source or "stdin", xml=opts.xml)
     if opts.shape:
         return shape(data) + "\n"
 
