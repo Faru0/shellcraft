@@ -35,6 +35,7 @@ MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300
 MAX_CONTENT = 64 * 1024  # characters of `content` kept with an alert (what a right-click copies)
 SPOOL = "alerts"  # the folder under ~/.shellcraft
+CLIP_SLOTS = 10  # copies kept: $CLIP (the newest), $CLIP1 … $CLIP9
 SUB_ENV = "SHELLCRAFT_SUB"  # "N:command" in a subshell's environment: the sender's label
 POLL = 0.25  # seconds between looks at the spool
 STALE = 300.0  # a spooled file older than this (no shell was running) is dropped
@@ -79,7 +80,7 @@ class AlertBus:
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
         self.expanded = False  # the panel shows every alert as a row (else the badge folds them)
-        self._clip = ""  # the clip register, in this shell's memory
+        self._clips: list[str] = []  # the clip history, newest first ($CLIP, $CLIP1 … $CLIP9), in memory
         self.remote_clip = False  # a lite subshell: the register is the main shell's (shellcraft.mainlink)
         self.copied: Alert | None = None  # the alert just copied, for the "copied" hint on its row
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
@@ -134,24 +135,46 @@ class AlertBus:
 
     @property
     def clip(self) -> str:
-        """The clip register: what a right-click on an alert copied (Alt-v pastes it). In a lite
-        subshell it is the main shell's, asked for over the main link; this shell's own copy
-        when main can't be reached."""
-        if self.remote_clip:
-            from shellcraft import mainlink
-
-            text = mainlink.ask(("clip-get",))
-            if isinstance(text, str):
-                return text
-        return self._clip
+        """The clip register: the newest copy ($CLIP; Alt-v pastes it). Setting it pushes a new
+        copy onto the history (CLIP_SLOTS deep, newest first); setting "" clears the history. In
+        a lite subshell it is the main shell's, over the main link; this shell's own when main
+        can't be reached."""
+        return self.clip_at(0)
 
     @clip.setter
     def clip(self, text: str) -> None:
-        self._clip = text
+        self._push(text)
         if self.remote_clip:
             from shellcraft import mainlink
 
             mainlink.ask(("clip-set", text))
+
+    def _push(self, text: str) -> None:
+        if not text:
+            self._clips = []
+            return
+        self._clips = [text] + [c for c in self._clips if c != text]  # no repeats: it moves to the front
+        del self._clips[CLIP_SLOTS:]
+
+    def clips(self) -> list[str]:
+        """The clip history, newest first ($CLIP, $CLIP1, …)."""
+        if self.remote_clip:
+            from shellcraft import mainlink
+
+            listed = mainlink.ask(("clip-list",))
+            if isinstance(listed, list) and all(isinstance(c, str) for c in listed):
+                return listed
+        return list(self._clips)
+
+    def clip_at(self, slot: int) -> str:
+        """Copy number `slot` ($CLIP is 0, $CLIP1 is 1 …), "" when there is none."""
+        if self.remote_clip:
+            from shellcraft import mainlink
+
+            text = mainlink.ask(("clip-get", slot))
+            if isinstance(text, str):
+                return text
+        return self._clips[slot] if 0 <= slot < len(self._clips) else ""
 
     def copy(self, alert: Alert) -> str:
         """A right-click on an alert: its content (or its message) goes into the clip register,

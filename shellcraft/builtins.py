@@ -858,9 +858,12 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 CLIP_DOC = """# clip
 
-The clip register: one piece of text kept by the shell. A **right-click on an alert** fills it
-with the alert's content (or its message when it has none); `clip` reads it back, and **Alt-v**
-(or Esc then v) pastes it at the prompt, in the main shell and in a `sub shellcraft` alike. In
+The clip register: the last ten texts you copied, newest first. A **right-click on an alert**
+copies its content (or its message when it has none): it becomes **`$CLIP`**, the one copied
+before it **`$CLIP1`**, then `$CLIP2` … `$CLIP9` (the oldest drops off; copying the same text again
+moves it to the front). **Alt-v** (or Esc then v) pastes `$CLIP` at the prompt, in the main shell
+and in a `sub shellcraft` alike; **press Alt-v again right away** and the paste becomes `$CLIP1`,
+again `$CLIP2`, and so on round (typing anything in between starts over at the newest). In
 another program inside a subshell (bash, pwsh, vim), where Alt-v is the program's key,
 **Ctrl-] v** types it in. `clip -i` does it without a key chord: the next prompt starts with
 the text on the line.
@@ -870,14 +873,17 @@ It is also the `$CLIP` variable (`echo $CLIP`, `grep "$CLIP" file`).
 ## Usage
 
 ```
-clip                    # print the clip
+clip                    # print the newest copy ($CLIP)
+clip 2                  # print copy 2 ($CLIP2)
+clip -l                 # list the copies, newest first
 clip TEXT...            # set it
 echo hello | clip       # set it from a pipe
 clip | jq               # use it: pipe it on
 echo $CLIP              # the same text as a variable
-clip -i                 # the next prompt starts with it (paste without a key chord)
+clip -i [N]             # the next prompt starts with copy N (default: the newest)
 clip -a [N]             # copy alert N (default: the top one), as a right-click on it does
-clip -c                 # clear it
+clip -c                 # clear every copy
+echo $CLIP $CLIP1       # as variables
 ```
 
 **Alt-c** at the prompt copies the top alert too. There is one register for the main shell and
@@ -893,7 +899,8 @@ has the mouse) and use the terminal's copy.
 
 | Option | Meaning |
 | --- | --- |
-| `-i`, `--insert` | The next prompt starts with the register's text, ready to edit or run. |
+| `-i [N]`, `--insert [N]` | The next prompt starts with copy N (default: the newest), ready to edit or run. |
+| `-l`, `--list` | The copies, newest first, as `$CLIP`, `$CLIP1` …. |
 | `-a [N]`, `--alert [N]` | Copy alert N (`alert --list` numbers them; default 1, the top one). |
 | `-c`, `--clear` | Empty the register. |
 
@@ -904,19 +911,37 @@ has the mouse) and use the terminal's copy.
 
 
 @builtin("clip", "The clip register: what a right-click on an alert copied; Alt-v pastes it",
-         "clip [TEXT...] | -i | -a [N] | -c", category="text", doc=CLIP_DOC)
-def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
+         "clip [TEXT... | N] | -l | -i [N] | -a [N] | -c", category="text", doc=CLIP_DOC)
+def _clip(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     bus = ctx.alerts
     if bus is None:
         raise CommandError("clip: only in the interactive shell")
     if args and args[0] in ("-c", "--clear"):
         bus.clip = ""
         return ""
-    if args and args[0] in ("-i", "--insert"):  # the next prompt starts with the register
-        if not bus.clip:
-            raise CommandError("clip: the register is empty (right-click an alert, or clip TEXT)")
-        ctx.prefill = bus.clip.rstrip("\n")
-        return Text("✓ the next prompt starts with the clip", style="sc.success")
+    if args and args[0] in ("-i", "--insert"):  # the next prompt starts with a copy
+        slot = int(args[1]) if len(args) > 1 and args[1].isdigit() else 0
+        text = bus.clip_at(slot)
+        if not text:
+            raise CommandError("clip: the register is empty (right-click an alert, or clip TEXT)" if not slot
+                               else f"clip: no copy {slot} (clip -l lists them)")
+        ctx.prefill = text.rstrip("\n")
+        return Text("✓ the next prompt starts with the clip" + (f" {slot}" if slot else ""), style="sc.success")
+    if args and args[0] in ("-l", "--list"):  # the history, newest first
+        listed = bus.clips()
+        if not listed:
+            return Text("no copies (right-click an alert, or clip TEXT)", style="sc.muted")
+        rows = Text()
+        for slot, text in enumerate(listed):
+            name = "$CLIP" + (str(slot) if slot else "")
+            line = " ".join(text.split())
+            rows.append(f"{name:<7}", style="sc.accent")
+            rows.append(f"{line[:60] + ('…' if len(line) > 60 else '')}")
+            rows.append(f"  ({len(text)} characters)\n", style="sc.muted")
+        return Styled(rows, "".join(f"{s}\t{' '.join(t.split())}\n" for s, t in enumerate(listed)))
+    if len(args) == 1 and args[0].isdigit() and len(args[0]) == 1:  # `clip 2`: copy number 2
+        text = bus.clip_at(int(args[0]))
+        return text + "\n" if text else ""
     if args and args[0] in ("-a", "--alert"):  # copy an alert, as a right-click on it does
         current = bus.current()
         number = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1

@@ -5,6 +5,37 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Clip history:** the clip register keeps the last ten copies, newest first: a right-click on
+  a second alert no longer loses the first. `$CLIP` is the newest, `$CLIP1` the one before, up to
+  `$CLIP9`; **Alt-v** pastes the newest and, pressed again right away, swaps in the next older one
+  (like Emacs's yank-pop). `clip -l` lists them, `clip N` prints one, `clip -i N` starts the next
+  prompt with it, `clip -c` clears them all. Shared with `sub shellcraft` over the main link, in
+  memory only.
+- **The scroll view:** while the shell has the mouse at the prompt (the footer lists a subshell or
+  an alert, so its lines, an alert's ✖ and the badge can be clicked), the terminal cannot scroll
+  its own history with the wheel. The wheel now opens the scroll view instead: the session's
+  recent output (the last 5,000 lines, colors kept, with the commands that produced them) in the
+  viewer, at its end. The wheel scrolls it; wheel down past the end, or q, closes it. It lives in
+  memory only, and `clear` empties it. With nothing to click, the terminal keeps the mouse and its
+  own wheel.
+- **`diag`** also shows each job's recording flag and the `record` signals received from
+  subshells, for a recording bubble that does not turn red.
+
+### Changed
+
+- **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
+  lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
+  is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
+
+### Removed
+
+- The copy additions of 2.0.0: the drag highlight and right-click copy of text inside a subshell,
+  copying to the host's clipboard (OSC 52 and the Win32 clipboard, `clip -H`), and Ctrl-] v at the
+  prompt. Select text with Shift and use the terminal's copy; Alt-v pastes the clip (Ctrl-] v
+  still types it into another program inside a subshell), and `clip -i` stays.
+
 ## [2.0.0] — 2026-10-16
 
 ### Added
@@ -15,15 +46,14 @@ and the project uses [semantic versioning](https://semver.org/).
   theme, the footer's rows as last drawn, and the live state of every job (running, status, and
   for a Windows pseudo-terminal whether pywinpty says the program is alive). For a footer whose
   colors do not change: run it with a subshell running and again after it ended, and paste it.
-- **The scroll view:** while the shell has the mouse at the prompt (the footer lists a subshell or
-  an alert, so its lines, an alert's ✖ and the badge can be clicked), the terminal cannot scroll
-  its own history with the wheel. The wheel now opens the scroll view instead: the session's
-  recent output (the last 5,000 lines, colors kept, with the commands that produced them) in the
-  viewer, at its end. The wheel scrolls it; wheel down past the end, or q, closes it. It lives in
-  memory only, and `clear` empties it. With nothing to click, the terminal keeps the mouse and its
-  own wheel. Text is selected with Shift and a drag while the shell has the mouse.
-- **`clip -i`** starts the next prompt with the clip register's text on the line, a way to paste
-  without a key chord (Alt-v stays the paste key).
+- **Copying to the host's clipboard:** a right-click on an alert, `clip -a N`, Alt-c and a text
+  selection in a subshell now also put the text on the host's clipboard, with the terminal's
+  OSC 52 sequence (Windows Terminal, kitty, WezTerm, foot, iTerm2, Alacritty and tmux honor it;
+  it works over ssh) and, on Windows, the Win32 clipboard; no external program. `clip -H [TEXT]`
+  copies text, piped input or the register there on demand.
+- **More ways to paste the clip:** **Ctrl-] v** at the prompt (it does not depend on how a
+  terminal sends Alt; Alt-v on a Windows console needs the left Alt key) and `clip -i`, which
+  starts the next prompt with the text on the line, no key chord at all.
 - **`jobs -r N NAME`** renames a subshell: the footer, the `jobs` table and the `[N] done` note
   show the name instead of the command (`jobs -r N` alone puts the command back).
 - **`record` / `script`:** a transcript of the session, like Linux `script` without the escape
@@ -150,13 +180,21 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
-- **The wheel scrolls without Shift:** at the prompt, while the footer lists a subshell or an
-  alert, the wheel opens the scroll view of the output (above) instead of stepping through the
-  history; with nothing to click, the terminal keeps the mouse and its own wheel. Inside an
-  attached subshell the wheel scrolls the subshell's own page, Shift held or not, and sends arrow
-  keys to a full-screen program such as `less` or `man`. The footer stays clickable everywhere
-  (`settings footer_mouse off` leaves the mouse to the terminal at the prompt). A mouse report cut
-  in two reads is held for the rest instead of being typed into the program.
+- **No Shift for the wheel and for selecting text:** while a program has the mouse, a terminal
+  keeps its own wheel scrolling and text selection for Shift. ShellCraft no longer takes the mouse
+  at the prompt when an alert shows (that put the wheel and selection behind Shift again, and
+  made the wheel step through the history). At the prompt the terminal keeps it, so its wheel and
+  its selection work as usual; `settings footer_mouse on` gives the footer's lines, an alert's ✖
+  and the badge their clicks back at that price. Inside an attached subshell, where the footer
+  needs the mouse, ShellCraft now supplies both itself: the wheel scrolls the subshell's page
+  (and sends arrow keys to a full-screen program such as `less` or `man`), a left-button drag
+  highlights text and a right-click copies it to the clipboard. A mouse report cut in two reads
+  is held for the rest instead of being typed into the program.
+- **The wheel scrolls the output again:** at the prompt the mouse is no longer reported to the
+  shell just because a subshell or an alert is listed (that took the terminal's wheel and text
+  selection away). The footer's lines, an alert's ✖ and the badge are clickable at the prompt
+  with the new `footer_mouse` setting (off by default); inside a subshell they always are, and
+  the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c) work everywhere.
 - **A new `help` screen:** grouped by purpose, at most 100 columns wide, no table. ShellCraft's
   own features (`sub`, `jobs`, `alert`, `clip`, `record`, `mcp`…) come first with a short
   description; Shell, Files, Text, Scripting and System are grids of names; the modules come

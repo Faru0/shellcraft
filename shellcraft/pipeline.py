@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -73,8 +74,8 @@ class Variables(Mapping[str, str]):
             return self.extra[name]
         if name in self.ctx.variables:
             return self.ctx.variables[name]
-        if name == "CLIP" and self.ctx.alerts is not None:
-            return self.ctx.alerts.clip  # the clip register (a right-clicked alert, or `clip TEXT`)
+        if self.ctx.alerts is not None and re.fullmatch(r"CLIP\d?", name):
+            return self.ctx.alerts.clip_at(int(name[4:] or 0))  # $CLIP the newest copy, $CLIP1 the one before…
         if self.ctx.allow_sensitive and name in os.environ:
             return os.environ[name]
         raise KeyError(name)
@@ -94,6 +95,7 @@ class Variables(Mapping[str, str]):
         names = {"?", *self.extra, *self.ctx.variables}
         if self.ctx.alerts is not None:
             names.add("CLIP")
+            names |= {f"CLIP{n}" for n in range(1, len(self.ctx.alerts.clips()))}
         if self.ctx.allow_sensitive:
             names |= set(os.environ)
         return iter(names)

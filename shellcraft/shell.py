@@ -238,6 +238,7 @@ class Shell:
         # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
         self._panel_hover: Any = None
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
+        self._yank: tuple[int, int, str] | None = None  # the last Alt-v: (copy number, where, the text)
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
         set_width_source(self.ui)  # `help | grep x` wraps at the terminal's width, not a fixed 100
@@ -469,11 +470,9 @@ class Shell:
             if current:
                 bus.copy(current[0])
 
-        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
+        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip; again right away: an older copy
         def _paste_clip(event: Any) -> None:
-            clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
-            if clip:
-                event.current_buffer.insert_text(clip.rstrip("\n"))
+            self._paste_clip(event.current_buffer)
 
         # ↓ on an empty line moves into the panel ("↓ to manage"); ↑ / ↓ walk it, Enter switches
         # to the chosen subshell, Esc (or typing) leaves it.
@@ -555,6 +554,28 @@ class Shell:
         if text.strip():
             page(self.ui, text, title="scroll view · wheel down past the end, or q, closes it",
                  at_end=3, close_past_end=True)
+
+    def _paste_clip(self, buffer: Any) -> None:
+        """Alt-v: paste the newest copy ($CLIP). Pressed again with nothing typed in between, it
+        swaps what it pasted for the next older copy ($CLIP1, $CLIP2 …), then back to the newest,
+        like Emacs's yank-pop."""
+        copies = [c.rstrip("\n") for c in (self.ctx.alerts.clips() if self.ctx.alerts is not None else [])]
+        copies = [c for c in copies if c]
+        if not copies:
+            return
+        last = self._yank
+        if last is not None:
+            slot, start, text = last
+            if buffer.cursor_position == start + len(text) and buffer.text[start:start + len(text)] == text:
+                buffer.text = buffer.text[:start] + buffer.text[start + len(text):]  # take back the last paste
+                buffer.cursor_position = start
+                slot = (slot + 1) % len(copies)
+                buffer.insert_text(copies[slot])
+                self._yank = (slot, start, copies[slot])
+                return
+        start = buffer.cursor_position
+        buffer.insert_text(copies[0])
+        self._yank = (0, start, copies[0])
 
     def _stop_mcp_http(self) -> None:
         if self.ctx.mcp_http is not None:

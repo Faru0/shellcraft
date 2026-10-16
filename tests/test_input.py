@@ -259,3 +259,23 @@ def test_alt_v_and_clip_i_paste_the_clip(repl_shell):
     sh.session.prompt = lambda message, default="": seen.append(default) or "line"
     assert sh._ask(sh._prompt) == "line" and seen == ["echo pasted"] and ctx.prefill == ""
     assert sh._ask(sh._prompt) == "line" and seen[-1] == ""  # only once
+
+
+def test_alt_v_again_pastes_the_older_copies_in_turn(repl_shell):
+    sh, ctx = repl_shell
+    for text in ("oldest", "middle", "newest"):
+        ctx.alerts.clip = text
+    buffer = sh.session.default_buffer
+    _feed(sh, *[(ch, ch) for ch in "cat "])
+    alt_v = [(Keys.Escape, ""), ("v", "v")]
+    _feed(sh, *alt_v)
+    assert buffer.text == "cat newest"
+    _feed(sh, *alt_v)
+    assert buffer.text == "cat middle"  # again right away: the next older copy, in its place
+    _feed(sh, *alt_v)
+    assert buffer.text == "cat oldest"
+    _feed(sh, *alt_v)
+    assert buffer.text == "cat newest"  # round again
+    _feed(sh, (" ", " "))
+    _feed(sh, *alt_v)
+    assert buffer.text == "cat newest newest"  # typed in between: a fresh paste of the newest

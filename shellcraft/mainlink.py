@@ -3,8 +3,8 @@
 The main shell listens on a local socket (Linux, macOS) or a named pipe (Windows), locked with
 a random key that only the `sub shellcraft` it starts receive, in their environment. A lite
 shell asks it for the clip register, or hands it a new one; the register stays in the main
-shell's memory, never on disk. Requests are tiny tuples: ("clip-get",) → the text,
-("clip-set", TEXT) → True.
+shell's memory, never on disk. Requests are tiny tuples: ("clip-get", N) → copy N (the newest
+without N), ("clip-list",) → every copy, newest first, ("clip-set", TEXT) → True (a new copy).
 """
 
 from __future__ import annotations
@@ -59,7 +59,10 @@ class MainLink:
         if not isinstance(request, tuple) or not request:
             return None
         if request[0] == "clip-get":
-            return self.bus.clip
+            slot = request[1] if len(request) > 1 and isinstance(request[1], int) else 0
+            return self.bus.clip_at(slot)
+        if request[0] == "clip-list":
+            return self.bus.clips()
         if request[0] == "clip-set" and len(request) == 2 and isinstance(request[1], str):
             self.bus.clip = request[1]
             return True

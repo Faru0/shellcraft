@@ -394,3 +394,45 @@ def test_a_lite_subshell_uses_the_main_shells_clip_over_the_link(monkeypatch):
     monkeypatch.delenv(mainlink.ADDRESS_ENV)
     assert not mainlink.available() and mainlink.ask(("clip-get",), "none") == "none"
     main.close()
+
+
+def test_the_clip_history_keeps_ten_copies_newest_first(ictx, monkeypatch):
+    from shellcraft import mainlink
+
+    bus = ictx.alerts
+    for name in ("first", "second", "third"):
+        bus.copy(bus.post(name, "critical", content=f"/var/log/{name}.log"))
+    assert bus.clips() == ["/var/log/third.log", "/var/log/second.log", "/var/log/first.log"]
+    assert to_text(run_line("echo $CLIP $CLIP1 $CLIP2 [$CLIP9]", ictx).output) == \
+        "/var/log/third.log /var/log/second.log /var/log/first.log []\n"
+    assert to_text(run_line("echo $CLIP0", ictx).output) == "/var/log/third.log\n"
+    assert to_text(run_line("clip 2", ictx).output) == "/var/log/first.log\n"
+    listed = to_text(run_line("clip -l", ictx).output)
+    assert listed.splitlines()[0].startswith("0\t/var/log/third.log") and "2\t/var/log/first.log" in listed
+    assert "starts with the clip 1" in to_text(run_line("clip -i 1", ictx).output)
+    assert ictx.prefill == "/var/log/second.log"
+    with pytest.raises(PipelineError, match="no copy 7"):
+        run_line("clip -i 7", ictx)
+    bus.clip = "/var/log/first.log"  # copied again: to the front, not twice
+    assert bus.clips() == ["/var/log/first.log", "/var/log/third.log", "/var/log/second.log"]
+    for n in range(12):
+        bus.clip = f"text {n}"
+    assert len(bus.clips()) == 10 and bus.clip == "text 11" and bus.clip_at(9) == "text 2"
+    run_line("clip -c", ictx)
+    assert bus.clips() == [] and to_text(run_line("clip -l", ictx).output).startswith("no copies")
+    # a lite subshell reads and pushes the main shell's history
+    main = AlertBus()
+    link = mainlink.MainLink(main)
+    try:
+        for name, value in link.env.items():
+            monkeypatch.setenv(name, value)
+        lite = AlertBus()
+        lite.remote_clip = True
+        main.clip = "older"
+        main.clip = "newer"
+        assert lite.clip_at(1) == "older" and lite.clips() == ["newer", "older"]
+        lite.clip = "from the subshell"
+        assert main.clips() == ["from the subshell", "newer", "older"]
+    finally:
+        link.close()
+        main.close()

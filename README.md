@@ -416,10 +416,12 @@ To dismiss an alert, click its **✖** at the start of the row (`alert -c` from 
 
 An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"` or
 `make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
-(or the message) into the shell's own clip register. **Alt-v** pastes it at the prompt, in the
-main shell and in a `sub shellcraft` (**Ctrl-] v** types it into another program in a subshell),
-and `clip -i` starts the next prompt with it; `clip` prints it, `clip | jq` pipes it on, `$CLIP`
-holds it. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. On Windows
+(or the message) into the shell's own clip register, which keeps the last ten copies: `$CLIP`
+is the newest, `$CLIP1` the one before, up to `$CLIP9` (`clip -l` lists them). **Alt-v** pastes
+`$CLIP` at the prompt, in the main shell and in a `sub shellcraft`; pressed again right away it
+swaps in `$CLIP1`, then `$CLIP2`… (**Ctrl-] v** types the newest into another program in a
+subshell). `clip -i N` starts the next prompt with copy N, `clip N` prints it, `clip | jq` pipes
+the newest on. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. On Windows
 consoles Alt-v needs the left Alt key. Konsole uses Alt-v for its View menu while its menu
 bar is shown; Esc then v is the same key.) Alerts can come from anywhere: the main shell, a subshell
 (`sub bash` and `sub pwsh` get an `alert` command on their PATH, so `make && alert done` works),
