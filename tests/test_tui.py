@@ -190,6 +190,10 @@ def test_toolbar_shows_usage_or_not_found(repl):
 
     typed("grep -i")
     assert "grep [-i" in text() and sh.session.bottom_toolbar is not None
+    sh._reset_input()  # the next prompt: the old text is gone, and so is the toolbar
+    assert sh.session.default_buffer.text == "" and sh.session.bottom_toolbar is None
+    sh.session.default_buffer.text = "grep -i"
+    sh._update_toolbar()
     typed("nosuch x")
     assert "command not found" in text()
     typed("gre")

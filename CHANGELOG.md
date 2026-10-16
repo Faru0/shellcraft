@@ -127,6 +127,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **A blank toolbar row:** the usage toolbar stayed on into the next prompt (the input buffer
+  still held the last command when the toolbar was decided) and drew as an empty colored row;
+  with the footer at the prompt it sat right above it. The buffer is cleared first now. A
+  footer that gets shorter (a fold, a subshell gone) clears the rows it gave up.
 - **Alert clicks:** with alerts showing and no subshell, the prompt left the mouse to the
   terminal, so the × (and its hover) and the right-click did nothing; the mouse is now on
   whenever the panel shows. On Windows a release is reported without its button

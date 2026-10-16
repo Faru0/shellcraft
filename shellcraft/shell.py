@@ -695,6 +695,19 @@ class Shell:
     def _current_lexer(self) -> Any:
         return self._lexer if settings.get(self.ctx.config, "highlight") else None
 
+    def _reset_input(self) -> None:
+        """Before a prompt: the input buffer still holds the last command (prompt_toolkit resets
+        it only when the prompt starts), which kept the usage toolbar on and drew it as a blank
+        row at the bottom of the screen. Clear it first, then decide about the toolbar."""
+        buffer = getattr(self.session, "default_buffer", None)
+        if buffer is not None and buffer.text:
+            reset = getattr(buffer, "reset", None)  # tests stub the buffer
+            if reset is not None:
+                reset()
+            else:
+                buffer.text = ""
+        self._update_toolbar()
+
     def _update_toolbar(self) -> None:
         buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
         text = buffer.text if buffer is not None else ""
@@ -923,7 +936,7 @@ class Shell:
         self.footer.set_hover(None)
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()
-        self._update_toolbar()
+        self._reset_input()
         line = self.session.prompt(message)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)

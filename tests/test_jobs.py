@@ -777,6 +777,12 @@ def test_footer_height_fold_click_and_shortened_screen(repl_shell, monkeypatch):
     assert footer.collapsed and footer.height() == 1 and footer.rows[0].text.rstrip().endswith("⤷ 9 subshells ▸")
     assert footer.mouse("up", 5, 40, "left") == ("switch", 0)  # the main row itself still switches
     assert footer.toggle_collapsed() is False and footer.height() == 10
+    footer.sequence()  # 10 rows painted (31-40); folding to 1 row clears rows 31-39
+    footer.collapsed = True
+    folded = footer.sequence()
+    assert all(f"\x1b[{row};1H\x1b[2K" in folded for row in range(31, 40)) and "\x1b[1;39r" in folded
+    assert "\x1b[30;1H" not in folded and footer.sequence().count("\x1b[2K") == 1  # nothing to clear now
+    footer.collapsed = False
     # the prompt's screen is shorter by the footer while it is drawn at the prompt
     sh.footer.size = lambda: (24, 80)
     monkeypatch.setattr(sh.session.app.output, "get_size", lambda: Size(rows=24, columns=80), raising=False)

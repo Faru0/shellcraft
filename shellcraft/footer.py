@@ -49,6 +49,7 @@ class Footer:
         self.cursor: int | None = None  # the subshell row chosen with ↓ / ↑ at the prompt
         self.at_prompt = False  # drawn at the prompt too (the `footer` setting), not only in subshells
         self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
+        self._painted = 0  # rows the last draw painted: a shorter footer clears the ones it gave up
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
@@ -80,7 +81,8 @@ class Footer:
             return
         self.enabled = False
         rows = self.size()[0]
-        clear = "".join(f"\x1b[{rows - i};1H\x1b[2K" for i in range(self.height()))
+        clear = "".join(f"\x1b[{rows - i};1H\x1b[2K" for i in range(max(self._painted, self.height())))
+        self._painted = 0
         self._write(f"\x1b7\x1b[r{clear}\x1b8")
 
     def draw(self) -> None:
@@ -94,10 +96,14 @@ class Footer:
         lines = self.render(cols)
         self._rows = rows
         top = rows - len(lines) + 1
+        # A footer that got shorter (a fold, a subshell gone, an alert expired) clears the rows it
+        # no longer paints: they are back in the scroll region, and would keep its colors otherwise.
+        freed = "".join(f"\x1b[{top - 1 - i};1H\x1b[2K" for i in range(max(0, self._painted - len(lines))))
+        self._painted = len(lines)
         # Region first (it also moves the cursor home, hence the save / restore around it), then
         # the rows: they are outside the region, so absolute moves reach them.
         body = "".join(f"\x1b[{top + i};1H\x1b[2K{line}" for i, line in enumerate(lines))
-        return f"\x1b7\x1b[1;{top - 1}r\x1b8\x1b7{body}\x1b8"
+        return f"\x1b7\x1b[1;{top - 1}r\x1b8\x1b7{freed}{body}\x1b8"
 
     def render_bytes(self) -> bytes:
         """The draw sequence as bytes, appended to an attached program's output."""
