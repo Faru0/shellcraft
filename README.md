@@ -273,6 +273,7 @@ sub shellcraft --theme nord  # a lite ShellCraft in a subshell (its prompt shows
 sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
 find / -name "*.log" &       # the same, bash style: a trailing & backgrounds any line (a program isn't attached)
 jobs                         # the table of subshells; jobs 2 selects one, jobs -k 2 stops it, jobs -c clears
+jobs -r 2 api logs           # rename job 2: the footer shows "api logs" instead of its command
 jobs -f 2                    # follow a background command's output as it grows, like tail -f (Ctrl-C stops following)
 ```
 

@@ -7,6 +7,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`jobs -r N NAME`** renames a subshell: the footer, the `jobs` table and the `[N] done` note
+  show the name instead of the command (`jobs -r N` alone puts the command back).
 - **`record` / `script`:** a transcript of the session, like Linux `script` without the escape
   codes: every command with its time and what the shell printed, into
   `~/.shellcraft/records/session-DATE.txt` or a file you name (`record notes.txt`); `record

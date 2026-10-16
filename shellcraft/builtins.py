@@ -1170,7 +1170,8 @@ def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 JOBS_DOC = """# jobs
 
-List the subshells started with `sub`, select one, stop one, or clear the finished ones.
+List the subshells started with `sub`, select one, rename one, stop one, or clear the finished
+ones.
 
 ## Usage
 
@@ -1178,6 +1179,8 @@ List the subshells started with `sub`, select one, stop one, or clear the finish
 jobs                 # the table: number, state, elapsed time, command
 jobs N               # select job N: attach to a program (Ctrl-] detaches), or show a command's output
 jobs -f N            # follow a command job's output as it grows, like tail -f (Ctrl-C stops following)
+jobs -r N NAME...    # rename job N: the footer and this table show NAME instead of the command
+jobs -r N            # back to its command
 jobs -k N            # stop job N
 jobs -c              # forget the finished jobs now (their logs stay in ~/.shellcraft/jobs/)
 ```
@@ -1525,8 +1528,8 @@ def follow_job(ctx: ShellContext, job: Any, poll: float = 0.2) -> Any:
     return WithStatus(note, job.status or 0) if job.status else note
 
 
-@builtin("jobs", "List, select or stop the subshells started with sub", "jobs [N | -f N | -k N | -c]",
-         stateful=True, direct=True, doc=JOBS_DOC)
+@builtin("jobs", "List, select, rename or stop the subshells started with sub",
+         "jobs [N | -f N | -k N | -r N [NAME] | -c]", stateful=True, direct=True, doc=JOBS_DOC)
 def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     table = _jobs_or_refuse(ctx, "jobs")
     if args and args[0] in ("-c", "--clear"):
@@ -1534,6 +1537,16 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return Text(f"✓ {n} finished job{'s' if n != 1 else ''} cleared", style="sc.success")
     if args and args[0] in ("-f", "--follow"):
         return select_job(ctx, _job_number(args[1:2]), follow=True)
+    if args and args[0] in ("-r", "--rename"):
+        job = table.get(_job_number(args[1:2]))
+        if job is None:
+            raise CommandError("jobs: -r needs the number of a job, then its new name (jobs lists them)")
+        name = " ".join(args[2:]).strip()
+        table.rename(job, name or None)
+        if not name:
+            return Text(f"✓ [{job.number}] is {job.command} again", style="sc.success")
+        return Text.assemble(("✓ [", "sc.success"), (str(job.number), "sc.success"), ("] ", "sc.success"),
+                             (job.command, "sc.muted"), (" is now ", "sc.success"), (name, "sc.accent"))
     if args and args[0] in ("-k", "--kill"):
         job = table.get(_job_number(args[1:2]))
         if job is None:
@@ -1551,10 +1564,14 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     plain = []
     for job in table:
         style = "sc.warning" if job.running else "sc.success" if job.status == 0 else "sc.error"
-        tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind,
-                    Text(job.command, style="sc.accent"))
-        plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.command}")
-    hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -k N stops · jobs -c clears", style="sc.muted")
+        shown = Text(job.title, style="sc.accent")
+        if job.name:
+            shown.append(f"  ({job.command})", style="sc.muted")
+        tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind, shown)
+        plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.title}"
+                     + (f"\t{job.command}" if job.name else ""))
+    hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -r N NAME renames · jobs -k N stops · "
+                "jobs -c clears", style="sc.muted")
     return Styled(Group(tbl, hint), "\n".join(plain) + "\n")
 
 

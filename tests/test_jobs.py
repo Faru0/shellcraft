@@ -891,3 +891,24 @@ def test_finished_line_has_a_close_mark_and_rows_fill_the_width(tmp_path, repl_s
     footer.remove_job(running.number)  # a running one is not removed
     assert len(table) == 1
     table.kill(running)
+
+
+def test_jobs_rename_shows_in_the_footer_and_the_table(ictx, tmp_path):
+    from shellcraft.footer import panel_lines
+    from shellcraft.jobs import JobTable
+
+    ictx.jobs = JobTable(tmp_path / "jobs")
+    job = ictx.jobs.start_command("sleep 30", lambda: (_wait(lambda: False, 0.3), (0, ""))[1])
+    out = to_text(run_line("jobs -r 1 api logs", ictx).output)
+    assert "is now api logs" in out and job.name == "api logs" and job.title == "api logs"
+    assert panel_lines([job], 0, width=60, stack=True)[1].text.startswith(" ○ 1  api logs")
+    listed = to_text(run_line("jobs", ictx).output)
+    assert "api logs" in listed and "sleep 30" in listed
+    assert "is sleep 30 again" in to_text(run_line("jobs -r 1", ictx).output) and job.name is None
+    with pytest.raises(PipelineError, match="-r needs the number"):
+        run_line("jobs -r 9 x", ictx)
+    ictx.jobs.rename(job, "   ")
+    assert job.name is None
+    ictx.jobs.rename(job, "x")
+    assert _wait(lambda: not job.running)
+    assert ictx.jobs.pop_notifications() == ["[1] done: x"]

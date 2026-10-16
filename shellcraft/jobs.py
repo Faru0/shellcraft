@@ -65,6 +65,7 @@ class Job:
     def __init__(self, number: int, command: str, kind: str, log: Path):
         self.number = number
         self.command = command  # what the user typed after `sub`, for display
+        self.name: str | None = None  # a name given with `jobs -r N NAME`, shown instead of the command
         self.kind = kind  # "program" | "command"
         self.log = log
         self.started = time.monotonic()
@@ -111,8 +112,13 @@ class Job:
     def elapsed(self) -> float:
         return (self.finished or time.monotonic()) - self.started
 
+    @property
+    def title(self) -> str:
+        """What the footer and the notes call the job: its name (`jobs -r`), else its command."""
+        return self.name or self.command
+
     def short(self, width: int = 18) -> str:
-        text = " ".join(self.command.split())
+        text = " ".join(self.title.split())
         return text if len(text) <= width else text[: width - 1] + "…"
 
     # ── output ───────────────────────────────────────────────────────────────
@@ -300,7 +306,7 @@ class JobTable:
 
     def _done(self, job: Job, status: int) -> None:
         job._finish(status)
-        self.notifications.append(f"[{job.number}] {job.label}: {job.command}")
+        self.notifications.append(f"[{job.number}] {job.label}: {job.title}")
         self._changed()
         for hook in list(self.on_done):  # the startup Supervisor restarts what asked for it
             try:
@@ -319,6 +325,11 @@ class JobTable:
     def unreported(self) -> list[Job]:
         """Finished jobs nobody has shown yet: the prompt prints their output, then clears them."""
         return [j for j in self if not j.running and not j.reported]
+
+    def rename(self, job: Job, name: str | None) -> None:
+        """Give a job a name for the footer and the table (None: back to its command)."""
+        job.name = " ".join(name.split()) if name and name.strip() else None
+        self._changed()
 
     def remove(self, job: Job) -> None:
         """Forget a finished job (its log stays in the jobs folder)."""
