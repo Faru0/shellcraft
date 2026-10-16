@@ -58,6 +58,7 @@ SEGMENTS: dict[str, str] = {
     "clock": "the time (HH:MM)",
     "python": "the Python version",
     "jobs": "N sub while subshells started with `sub` are running",
+    "rec": "🔴 REC, blinking, while `record` writes a transcript of the session",
 }
 DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
@@ -201,6 +202,9 @@ class Shell:
             except OSError:
                 pass  # no spool: `alert` still works inside this shell
         self._cleanup.callback(ctx.alerts.close)
+        from shellcraft import recording
+
+        self._cleanup.callback(recording.stop, ctx)  # a transcript still open at exit is closed
         self.footer = ctx.footer = Footer(self.ui, ctx.jobs, depth(), alerts=ctx.alerts)
         self.footer.show_hint = lambda: bool(settings.get(ctx.config, "panel_hint"))
         self.footer.on_change = self._jobs_changed
@@ -516,6 +520,8 @@ class Shell:
         if name == "jobs":
             running = len(self.ctx.jobs.running) if self.ctx.jobs is not None else 0
             return [("class:mcp", f"{running} sub", self._click("jobs"))] if running else []
+        if name == "rec":
+            return [("class:rec", "🔴 REC", self._click("record status"))] if self.ctx.recording else []
         if name == "user":
             return [("class:user", self.user_host)]
         if name == "path":
@@ -544,7 +550,10 @@ class Shell:
         from `prompt`, joined with `─`; the short ones (status, duration) with a space."""
         parts: StyleAndTextTuples = [("class:frame", "╭─")]
         previous: str | None = None  # the last segment shown
-        for name in prompt_segments(self.ctx.config, "left"):
+        names = prompt_segments(self.ctx.config, "left")
+        if "rec" not in names and "rec" not in prompt_segments(self.ctx.config, "right"):
+            names = ["rec", *names]  # the recording light shows even when the prompt was customized
+        for name in names:
             fragments = self._segment(name)
             if not fragments:
                 continue
@@ -982,6 +991,8 @@ class Shell:
             if expanded:
                 self.ui.console.print(Text(line, style="sc.muted"), markup=False, highlight=False)
             self._remember(line)
+            if self.ctx.recording is not None:
+                self.ctx.recording.command(line)
 
             self._hot_reload()
             started = time.monotonic()

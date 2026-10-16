@@ -763,6 +763,82 @@ def _clip(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return bus.clip + "\n" if bus.clip else ""
 
 
+RECORD_DOC = """# record
+
+Write a transcript of the session to a file, like Linux `script` without the escape codes:
+every command you type, with the time, and what the shell prints in return. `script` is the
+same command. While it runs the prompt shows a blinking **🔴 REC**.
+
+## Usage
+
+```
+record                          # start: ~/.shellcraft/records/session-DATE.txt
+record start notes.txt          # start, into this file (appended to if it exists)
+record status                   # where it is writing, for how long, how many commands
+record stop                     # end it (leaving ShellCraft ends it too)
+script [...]                    # the same command under its Linux name
+```
+
+## What goes in
+
+```
+# ShellCraft session · started 2026-10-15 14:03:12 · xwing · ~/work
+[14:03:15] ❯ ls
+CHANGELOG.md  README.md  …
+[14:03:20] ❯ grep -n TODO *.md
+…
+# ended 14:10:01 · 6 min 49 s · 12 commands
+```
+
+Colors and cursor movements are stripped, so the file reads as plain text. The prompt itself,
+the footer and what happens inside an attached subshell (`sub bash`) are not recorded; a line
+says when a subshell was attached.
+"""
+
+
+@builtin("record", "Write a transcript of the session to a file (like Linux script)",
+         "record [start [FILE] | stop | status]", stateful=True, doc=RECORD_DOC)
+def _record(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from pathlib import Path
+
+    from shellcraft import recording
+
+    if not ctx.interactive:
+        raise CommandError("record: only in the interactive shell")
+    action, rest = (args[0], args[1:]) if args else ("start", [])
+    if action == "status":
+        rec = ctx.recording
+        if rec is None:
+            return Text("not recording (record starts a transcript)", style="sc.muted")
+        minutes, seconds = divmod(int(rec.elapsed), 60)
+        return Text.assemble(("🔴 recording to ", "sc.error"), (str(rec.path), "sc.accent"),
+                             (f"  {minutes} min {seconds} s · {rec.commands} command{'s' if rec.commands != 1 else ''}",
+                              "sc.muted"))
+    if action == "stop":
+        rec = recording.stop(ctx)
+        if rec is None:
+            raise CommandError("record: not recording")
+        return Text.assemble(("■ transcript saved: ", "sc.success"), (str(rec.path), "sc.accent"),
+                             (f"  ({rec.commands} command{'s' if rec.commands != 1 else ''})", "sc.muted"))
+    if action not in ("start", "-o", "--output"):
+        rest = [action, *rest]  # `record notes.txt`
+    if len(rest) > 1:
+        raise CommandError("usage: record [start [FILE] | stop | status]")
+    path = Path(rest[0]).expanduser() if rest else None
+    try:
+        rec = recording.start(ctx, path)
+    except OSError as exc:
+        raise CommandError(f"record: {exc}") from None
+    return Text.assemble(("🔴 recording to ", "sc.error"), (str(rec.path), "sc.accent"),
+                         ("  (record stop ends it)", "sc.muted"))
+
+
+@builtin("script", "The same as record: a transcript of the session, under its Linux name",
+         "script [start [FILE] | stop | status]", stateful=True, doc=RECORD_DOC)
+def _script(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    return _record(ctx, args, stdin)
+
+
 READ_DOC = """# read
 
 Ask for a value and keep it in a shell variable, like bash's `read`. The Python spelling works too,
@@ -1270,6 +1346,8 @@ def _attach(ctx: ShellContext, job: Any) -> Any:
     terminal = Terminal.real()
     pages = Pages(terminal)  # subshells live on the alternate screen: the prompt comes back untouched
     pages.begin()
+    if ctx.recording is not None:
+        ctx.recording.note(f"subshell {job.number} attached: {job.command}; what happens inside is not recorded")
     if footer is not None:
         footer.enable()  # drawn on the alternate screen (already enabled when it lives at the prompt too)
     try:

@@ -110,9 +110,11 @@ class Footer:
         return self.sequence().encode("utf-8") if self.enabled else b""
 
     def _write(self, text: str) -> None:
+        file = self.ui.console.file
+        file = getattr(file, "raw", file)  # while `record` runs: the terminal, not the transcript
         try:
-            self.ui.console.file.write(text)
-            self.ui.console.file.flush()
+            file.write(text)
+            file.flush()
         except (OSError, ValueError):
             pass
 
