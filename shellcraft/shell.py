@@ -454,9 +454,12 @@ class Shell:
             bus = self.ctx.alerts
             current = bus.current() if bus is not None else []
             if current:
-                bus.copy(current[0])
+                self._host_copy(bus.copy(current[0]))
 
-        @kb.add("escape", "v")  # Alt-v (or Esc then v): paste the clip register at the cursor
+        # Paste the clip register at the cursor: Alt-v (Esc then v), and Ctrl-] v, which does not
+        # depend on how a terminal sends Alt (the left Alt key only, on Windows consoles).
+        @kb.add("escape", "v")
+        @kb.add("c-]", "v")
         def _paste_clip(event: Any) -> None:
             clip = self.ctx.alerts.clip if self.ctx.alerts is not None else ""
             if clip:
@@ -632,11 +635,9 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        # While an alert shows, its ✖, its right-click copy and the badge need the mouse. Otherwise
-        # the terminal keeps it (the wheel scrolls the output) unless footer_mouse asks for the
-        # subshell lines to be clickable too.
-        if self.ctx.alerts is not None and self.ctx.alerts.current():
-            return True
+        # While the shell has the mouse the terminal needs Shift for its own wheel scrolling and
+        # text selection, so at the prompt it is the terminal's unless something asks: an open
+        # menu, mouse_always, or footer_mouse (the footer's lines, an alert's ✖ and the badge).
         return settings.get(self.ctx.config, "footer_mouse") and self._clickable()
 
     def _click(self, line: str | None) -> Callable[[MouseEvent], Any]:
@@ -852,10 +853,24 @@ class Shell:
                 return None  # take the press, so its release comes here too
             if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "right":
                 if self.ctx.alerts is not None:
-                    self.ctx.alerts.copy(alert)
+                    self._host_copy(self.ctx.alerts.copy(alert))
                 return None
             return NotImplemented
         return handler
+
+    def _host_copy(self, text: str) -> None:
+        """Put text on the host's clipboard too (OSC 52, and the Win32 clipboard on Windows), so
+        a copied alert pastes into any program with the terminal's own paste."""
+        from shellcraft import hostclip
+
+        file = self.ui.console.file
+        file = getattr(file, "raw", file)
+
+        def write(data: str) -> None:
+            file.write(data)
+            file.flush()
+
+        hostclip.copy(text, write)
 
     def _close_handler(self, alert: Any) -> Callable[[MouseEvent], Any]:
         """The icon at the start of an alert row: a left click dismisses it, a right-click
@@ -864,7 +879,7 @@ class Shell:
             if event.event_type == MouseEventType.MOUSE_UP:
                 if self._released(event) == "right":
                     if self.ctx.alerts is not None:
-                        self.ctx.alerts.copy(alert)
+                        self._host_copy(self.ctx.alerts.copy(alert))
                     return None
                 return self._dismiss_alert(alert)
             if event.event_type == MouseEventType.MOUSE_DOWN:
@@ -1016,7 +1031,8 @@ class Shell:
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()
         self._reset_input()
-        line = self.session.prompt(message)
+        prefill, self.ctx.prefill = self.ctx.prefill, ""  # `clip -i`: the next prompt starts with it
+        line = self.session.prompt(message, default=prefill) if prefill else self.session.prompt(message)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line

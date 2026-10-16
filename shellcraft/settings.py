@@ -96,10 +96,11 @@ SETTINGS: dict[str, Setting] = {
         Setting("footer_mouse", "Clickable footer at the prompt", False,
                 "Report the mouse to the shell while a subshell or an alert is listed, so the footer's "
                 "lines, an alert's ✖ and the badge can be clicked at the prompt. The terminal's wheel then "
-                "moves through the history instead of scrolling the output (Shift+wheel still scrolls) and "
-                "selecting text needs Shift. Off: the wheel and selection work as usual at the prompt, and "
-                "the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c). Inside a subshell the "
-                "footer is always clickable."),
+                "moves through the history instead of scrolling the output and selecting text needs Shift "
+                "(the terminal's rule while a program has the mouse). Off: the wheel and selection work as "
+                "usual at the prompt, and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, alert -c, "
+                "Alt-c). Inside a subshell the footer is always clickable, and the wheel scrolls the "
+                "subshell's page while a drag selects text and a right-click copies it, without Shift."),
         Setting("footer", "Shell footer", True,
                 "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
                 "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "

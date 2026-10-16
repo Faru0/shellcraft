@@ -234,7 +234,9 @@ class Footer:
         col = x - 1
         if row.alert is not None and button == "right":
             if self.alerts is not None:
-                self.alerts.copy(row.alert)
+                from shellcraft import hostclip
+
+                hostclip.copy(self.alerts.copy(row.alert), self._write)  # the register and the host's clipboard
                 self.draw()
             return "handled", None
         if row.alert is not None and row.close >= 0 and \

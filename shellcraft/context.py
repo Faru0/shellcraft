@@ -46,6 +46,7 @@ class ShellContext:
     lite: bool = False  # `shellcraft --lite` (what `sub shellcraft` runs): builtins, modules and settings only
     recording: Any = None  # the session transcript being written (shellcraft.recording.Recorder), or None
     console_report: Any = None  # () -> the console / footer diagnostics text; the REPL sets it (`diag`)
+    prefill: str = ""  # text the next prompt starts with (`clip -i`)
     startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per script
     supervisor: Any = None  # the background startup scripts (shellcraft.startup.Supervisor); the REPL sets it
     stop: Any = None  # a background job's stop flag (streams.StopFlag): every pipeline it runs stops with it

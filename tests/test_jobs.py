@@ -649,7 +649,10 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts = AlertBus()
     assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
     warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
-    assert sh._mouse_wanted()  # an alert shows: its ✖, right-click and badge need the mouse
+    assert not sh._mouse_wanted()  # an alert shows, yet the terminal keeps the mouse (no Shift needed)
+    ctx.config.setdefault("settings", {})["footer_mouse"] = True
+    assert sh._mouse_wanted()  # asked for: the ✖, the right-click and the badge work at the prompt
+    del ctx.config["settings"]["footer_mouse"]
     # the keyboard ways: Alt-c copies the top alert, clip -a N alert N
     binding = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["Keys.Escape", "c"])
     binding.handler(None)
@@ -926,7 +929,7 @@ def test_mouse_mode_helpers():
     modes = jobmod.mouse_modes_after(set(), b"x\x1b[?1000h\x1b[?1006hy")
     assert modes == {1000, 1006}
     assert jobmod.mouse_modes_after(modes, b"\x1b[?1000l\x1b[?1006l") == set()
-    assert jobmod.footer_mouse_bytes(set()).endswith(b"\x1b[?1000h\x1b[?1006h")
+    assert jobmod.footer_mouse_bytes(set()).endswith(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h")  # drags reported
     assert b"\x1b[?1003h" in jobmod.footer_mouse_bytes({1000, 1003, 1006})
     click = b"\x1b[<0;5;7M"
     assert jobmod.sgr_for_program(click, {1000, 1006}) == click  # it asked for SGR: as is
