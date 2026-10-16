@@ -136,6 +136,15 @@ class Footer:
             rows += shown + (1 if shown < len(jobs) else 0)
         return rows
 
+    def remove_job(self, number: int | None) -> None:
+        """The × on a finished line: forget that job (as `jobs -c` would for all of them)."""
+        get, remove = getattr(self.jobs, "get", None), getattr(self.jobs, "remove", None)
+        job = get(number) if get is not None and number is not None else None
+        if job is not None and not job.running and remove is not None:
+            remove(job)
+            self.set_hover(None)
+            self.draw()
+
     def toggle_collapsed(self) -> bool:
         """Fold the subshell rows into the main row, or unfold them; the new state. The attach
         loop resizes the program to the rows that freed up (dirty), the prompt redraws."""
@@ -240,6 +249,9 @@ class Footer:
         for start, end, _style, role in row.spans:
             if role == "fold" and get_cwidth(row.text[:start]) <= col < get_cwidth(row.text[:end]):
                 self.toggle_collapsed()
+                return "handled", None
+            if role == "close-job" and get_cwidth(row.text[:start]) <= col < get_cwidth(row.text[:end]):
+                self.remove_job(row.tab)
                 return "handled", None
         if row.badge >= 0 and col >= get_cwidth(row.text[: row.badge]):
             if self.alerts is not None:
@@ -375,7 +387,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
                                                        else "↓ to manage · x stops")
     if hint and jobs:
-        lines.append(Row(None, "header", head, False))
+        lines.append(Row(None, "header", head + " " * max(0, width - get_cwidth(head)), False))
     main_hover = hover == 0
     main = _marker(current == 0 or main_hover) + "main" + (f" [{depth}]" if depth else "")
     spans: tuple = ((0, MARK, "rec", "rec"),) if recording else ()
@@ -393,6 +405,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         spans += tuple((badge_at + s, badge_at + e, style, "badge") for s, e, style in marks)
         spans += ((badge_at + len(badge) - 2, badge_at + len(badge) + 1, None, "badge"),) if foldable else ()
         main += " " * pad + badge + " "
+    main += " " * max(0, width - get_cwidth(main))  # the row's color runs to the right edge, as every row's does
     lines.append(Row(0, "current" if current == 0 else "main", main, main_hover, spans=spans, badge=badge_at))
     if collapsed:
         return lines
@@ -402,7 +415,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         chosen = hover == job.number or cursor == index
         left = _marker(current == job.number or chosen) + f"{job.number}  {job.short(width // 3)}"
         state = "running" if job.running else "done" if job.status == 0 else "failed"
-        right = "" if job.running else f"{job.label} "
+        right = "" if job.running else f"{job.label} × "  # a finished line: × removes it (as jobs -c would)
         spans = ((0, MARK, "rec", "rec"),) if getattr(job, "recording", False) else ()
         own = [a for a in alerts if a.job == job.number and a.job in numbers]
         if own:
@@ -415,9 +428,13 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
             left += inline
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
         style = "current" if current == job.number else state
-        lines.append(Row(job.number, style, left + " " * pad + right, chosen, spans=spans))
+        text = left + " " * pad + right
+        if not job.running:
+            spans += ((len(text) - 2, len(text) - 1, None, "close-job"),)
+        lines.append(Row(job.number, style, text, chosen, spans=spans))
     if len(jobs) > len(shown):
-        lines.append(Row(None, "header", f"   … and {len(jobs) - len(shown)} more (jobs)", False))
+        more = f"   … and {len(jobs) - len(shown)} more (jobs)"
+        lines.append(Row(None, "header", more + " " * max(0, width - get_cwidth(more)), False))
     return lines
 
 

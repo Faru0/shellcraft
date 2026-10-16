@@ -803,7 +803,8 @@ class Shell:
                 if start > at:
                     parts.append((cls, text[at:start], handler))
                 span_handler = (self._badge_handler() if role == "badge"
-                                else self._close_handler(row.alert) if role == "close" else handler)
+                                else self._close_handler(row.alert) if role == "close"
+                                else self._close_job_handler(row.tab) if role == "close-job" else handler)
                 parts.append((f"class:toolbar.{style}" if style else cls, text[start:end], span_handler))
                 at = end
             parts.append((cls, text[at:], handler))
@@ -843,6 +844,17 @@ class Shell:
                 return None
             if event.event_type == MouseEventType.MOUSE_MOVE:
                 return self._set_panel_hover(alert)
+            return NotImplemented
+        return handler
+
+    def _close_job_handler(self, number: int | None) -> Callable[[MouseEvent], Any]:
+        """The × on a finished subshell's line: a click forgets that job."""
+        def handler(event: MouseEvent) -> Any:
+            if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "left":
+                self.footer.remove_job(number)
+                return None
+            if event.event_type == MouseEventType.MOUSE_MOVE:
+                return self._set_panel_hover(number)
             return NotImplemented
         return handler
 

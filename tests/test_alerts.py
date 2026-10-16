@@ -199,7 +199,7 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
     bash = rows[2]
     assert bash.text.startswith(" ○ 1  bash --norc  ● Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
     assert "running" not in bash.text and bash.spans[0][2] == "alert.warning.mark"
-    assert rows[3].text.rstrip().endswith("done") and "s ·" not in rows[3].text  # no time on the right
+    assert rows[3].text.rstrip().endswith("done ×") and "s ·" not in rows[3].text  # no time on the right
     # unfolded: every alert gets a row, the badge shows ▾
     assert bus.toggle() is True
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current(), expanded=True)

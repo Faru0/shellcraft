@@ -224,12 +224,12 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert _wait(lambda: not job.running)
     # the same stack at the prompt and in the footer
     lines = panel_lines([job], 0, None, 80, cursor=None)
-    assert [r.tab for r in lines] == [0, 1] and lines[0][2] == " ● main ▾" and lines[1][2].startswith(" ○ 1  seq 2")
+    assert [r.tab for r in lines] == [0, 1] and lines[0][2].rstrip() == " ● main ▾" and lines[1][2].startswith(" ○ 1  seq 2")
     assert "done" in lines[1][2] and lines[1][1] == "done" and not lines[1][3]
     hovered = panel_lines([job], 0, 1, 80)  # hover fills the circle, the line keeps its style
     assert hovered[1][2].startswith(" ● 1 ") and hovered[1][1] == "done" and hovered[1][3]
     attached = panel_lines([job], 1, None, 80, attached=True)
-    assert attached[0][2] == " ○ main ▾" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
+    assert attached[0][2].rstrip() == " ○ main ▾" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
     hinted = panel_lines([job], 1, None, 80, attached=True, hint=True)  # settings panel_hint on
     assert hinted[0][0] is None and "Ctrl-] alone returns" in hinted[0][2] and hinted[1:] == attached
     seq = footer.sequence()  # the scroll region above the stack (2 rows), the rows painted at the bottom
@@ -274,7 +274,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     footer.enabled = False
     sh._update_toolbar()
     lines = "".join(f[1] for f in sh._toolbar()).split("\n")
-    assert lines[0] == " ● main ▾" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
+    assert lines[0].rstrip() == " ● main ▾" and lines[1].startswith(f" ○ {job.number}  seq 3") and "done" in lines[1]
     ctx.config.setdefault("settings", {})["panel_hint"] = True  # the header line with the keys
     hinted = "".join(f[1] for f in sh._toolbar()).split("\n")
     assert hinted[0].startswith(" 1 subshell") and "↓ to manage" in hinted[0] and hinted[1:] == lines
@@ -859,3 +859,31 @@ def test_sc_is_shellcraft_and_ampersand_inside_a_subshell_goes_to_main(ictx, mon
     assert any(j.command == "sleep 9" for j in ictx.jobs)
     for job in list(ictx.jobs):
         ictx.jobs.kill(job)
+
+
+def test_finished_line_has_a_close_mark_and_rows_fill_the_width(tmp_path, repl_shell):
+    from prompt_toolkit.utils import get_cwidth
+
+    from shellcraft.footer import Footer, panel_lines
+    from shellcraft.jobs import JobTable
+
+    sh, ctx = repl_shell
+    table = JobTable(tmp_path / "jobs")
+    done = table.start_command("seq 1", lambda: (0, "1\n"))
+    running = table.start_command("sleep", lambda: (_wait(lambda: False, 0.5), "")[1] and (0, "") or (0, ""))
+    assert _wait(lambda: not done.running)
+    rows = panel_lines(list(table), 0, width=60, stack=True)
+    assert all(get_cwidth(r.text) == 60 for r in rows)  # every row's color runs to the right edge
+    assert rows[1].text.rstrip().endswith("done ×") and rows[1].spans[-1][3] == "close-job"
+    assert rows[2].text.rstrip().endswith("sleep") and not any(role == "close-job" for *_, role in rows[2].spans)
+    footer = Footer(sh.ui, table, alerts=None)
+    footer.size = lambda: (24, 60)
+    footer.enabled = True
+    footer.sequence()
+    row = footer.rows[1]
+    col = row.text.rindex("×") + 1  # 1-based terminal column of the ×
+    assert footer.mouse("up", col, 24 - len(footer.rows) + 2, "left") == ("handled", None)
+    assert table.get(done.number) is None and len(table) == 1  # the × forgot the finished job
+    footer.remove_job(running.number)  # a running one is not removed
+    assert len(table) == 1
+    table.kill(running)

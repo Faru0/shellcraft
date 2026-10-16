@@ -68,7 +68,7 @@ class ThemeDef:
                 "sc.match": f"bold {self._on_accent()} on {self.accent}",
                 "sc.footer.header": f"bold {self._on_accent()} on {self.accent}",
                 "sc.footer.main": f"{self._surface_text()} on {self._surface()}",
-                "sc.footer.running": f"{self.warning} on {self._surface()}",
+                "sc.footer.running": f"{self._surface_text()} on {self._surface()}",  # plain, like main
                 "sc.footer.done": f"{self.success} on {self._surface()}",
                 "sc.footer.failed": f"{self.error} on {self._surface()}",
                 "sc.footer.current": f"bold {self._surface_text()} on {self._surface()}",
@@ -130,7 +130,7 @@ class ThemeDef:
                 "toolbar.key": f"bg:{self.accent} {self._on_accent()} bold noreverse",
                 "toolbar.error": f"bg:{surface} {self.error} noreverse",
                 "toolbar.job": f"bg:{surface} {text} noreverse",
-                "toolbar.job.running": f"bg:{surface} {self.warning} noreverse",
+                "toolbar.job.running": f"bg:{surface} {text} noreverse",  # plain, like main
                 "toolbar.job.done": f"bg:{surface} {self.success} noreverse",
                 "toolbar.job.failed": f"bg:{surface} {self.error} noreverse",
                 "toolbar.job.hover": f"bg:{surface} {self.accent} bold noreverse",

@@ -568,8 +568,8 @@ An `&` anywhere else is still an error.
   jobs_autoclear off` keeps it until `jobs -c`). Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
 - The footer looks the same at the prompt and inside a subshell: the line under the mouse is
-  highlighted, the ● marks where you are, the color is the state (amber running, green done, red
-  failed) and a finished line says `done`, `exit 2` or `killed` on the right (`jobs` has the
+  highlighted, the ● marks where you are, a running line is plain and a finished one is green
+  (`done`) or red (`exit 2`, `killed`), with an × on the right that removes it (`jobs` has the
   times). It takes up to half the screen, then says how many more there are. An alert sent from
   a subshell shows inline on its line; the badge on the `main` line counts them all (`man alert`).
   `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` goes back to a

@@ -116,6 +116,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **Footer lines:** a running subshell's line is plain (it was amber); the main line's color
+  runs to the right edge like every other; a finished line has an × after `done` / `exit N`
+  that removes it with a click.
 - **Finished jobs clear themselves:** `sub ls` or `make &` used to stay in the stack as `done`
   until `jobs -c`. A job that ended is now reported at the next prompt (`[N] done: …`, plus a
   command job's output) and then leaves the stack, like a finished `ls &` in bash. `settings
