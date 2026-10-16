@@ -5,6 +5,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-10-16
+
 ### Added
 
 - **`diag`** prints the console diagnostics (`--diag`'s report) at any time, with a new **footer
