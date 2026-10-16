@@ -321,3 +321,38 @@ def test_mcp_tool_send_tui_alert(bus, registry):
     assert bad.is_error and "severity" in bad.content[0].text
     empty = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "   "}))
     assert empty.is_error and "required" in empty.content[0].text
+
+
+def test_a_nested_shell_asks_main_for_a_subshell(bus, home, ictx, monkeypatch, tmp_path):
+    """`sub` in a lite shell writes a request into the spool; the main shell's bus hands it to
+    on_request instead of posting an alert; the attach loop and the prompt open it."""
+    got: list = []
+    bus.on_request = got.append
+    path = alertmod.request_sub(["pwsh", "-NoLogo"], str(tmp_path))
+    assert json.loads(path.read_text())["kind"] == "sub"
+    assert _wait(lambda: got) and got[0]["args"] == ["pwsh", "-NoLogo"] and got[0]["cwd"] == str(tmp_path)
+    assert bus.current() == [] and _wait(lambda: not list(bus.spool.glob("*.json")))
+    # the builtin, in a nested shell
+    monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
+    monkeypatch.setenv(alertmod.SUB_ENV, "2:shellcraft")
+    out = to_text(run_line("sub pwsh -NoLogo", ictx).output)
+    assert "asked the main shell to open sub pwsh -NoLogo in the background" in out
+    assert _wait(lambda: len(got) == 2) and got[1]["source"] == "sub 2 (shellcraft)"
+    from shellcraft import builtins as bmod
+    from shellcraft.jobs import JobTable
+
+    ictx.jobs = JobTable(tmp_path / "jobs")
+    with pytest.raises(PipelineError, match="only the main ShellCraft"):
+        run_line("jobs", ictx)
+    monkeypatch.delenv("SHELLCRAFT_DEPTH")
+    # the main shell opens the requests in the background, never attached
+    ictx.jobs.requests.append({"args": ["echo", "from", "a", "subshell"], "cwd": str(tmp_path), "source": "sub 2 (shellcraft)"})
+    ictx.jobs.requests.append({"args": ["/bin/sleep", "5"], "cwd": "/nonexistent"})
+    ictx.jobs.requests.append({"args": ["no-such-program-xyz"], "cwd": str(tmp_path)})
+    notes = bmod.open_requested(ictx)
+    assert notes[0].startswith("sub echo from a subshell (asked by sub 2 (shellcraft)): ") and "background" in notes[0]
+    assert notes[1].startswith("[2] sub /bin/sleep 5 (asked by a subshell) started in the background (Ctrl-] 2 switches")
+    assert "not a command" in notes[2] and len(ictx.jobs) == 2 and ictx.jobs.get(2).running  # nothing attached
+    monkeypatch.setattr(bmod, "_attach", lambda ctx, job: pytest.fail("a requested subshell must not be attached"))
+    assert bmod.open_requested(ictx) == [] and not ictx.jobs.requests
+    ictx.jobs.kill(ictx.jobs.get(2))

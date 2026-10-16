@@ -253,6 +253,8 @@ class JobTable:
         self.log_dir = Path(log_dir)
         self.jobs: dict[int, Job] = {}
         self.notifications: list[str] = []  # "[1] done: grep -r …", printed at the next prompt
+        self.requests: list[dict[str, Any]] = []  # `sub` typed inside a subshell (shellcraft.alerts.request_sub)
+        self.on_request: Callable[[], None] | None = None  # the shell: open the requested subshells in the background
         self.on_change: Callable[[], None] | None = None  # the shell redraws its panel
         self.on_done: list[Callable[[Job], None]] = []  # called when a job finishes
         self._next = 1
@@ -482,6 +484,10 @@ class JobTable:
                         show_page()
                     else:
                         footer.draw()
+                if self.requests and self.on_request is not None:  # `sub` typed inside a subshell:
+                    self.on_request()  # main opens it in the background; the footer shows it, you stay here
+                    if footer is not None:
+                        footer.dirty = True
                 if data is None:
                     if prefix_at is not None and time.monotonic() - prefix_at > PREFIX_WAIT:
                         return "detached", 0

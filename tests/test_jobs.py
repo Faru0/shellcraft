@@ -139,10 +139,13 @@ def test_sub_runs_a_shell_command_in_the_background(ictx):
     assert "no subshells" in to_text(run_line("jobs", ictx).output)
 
 
-def test_only_the_main_shellcraft_starts_subshells(ictx, monkeypatch):
+def test_only_the_main_shellcraft_runs_subshells(ictx, monkeypatch, tmp_path):
+    """Inside a subshell, `sub` hands the request to the main shell (tested in test_alerts);
+    `jobs` is for the main shell."""
     monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
-    with pytest.raises(PipelineError, match="only the main ShellCraft"):
-        run_line("sub seq 1", ictx)
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / "home"))
+    out = to_text(run_line("sub seq 1", ictx).output)
+    assert "asked the main shell to open sub seq 1 in the background" in out
     with pytest.raises(PipelineError, match="only the main ShellCraft"):
         run_line("jobs", ictx)
 
@@ -552,6 +555,12 @@ def test_ctrl_bracket_x_ends_the_attached_subshell(tmp_path, ictx, monkeypatch):
     assert _wait(lambda: job.sink is not None)
     os.write(term_master, jobmod.DETACH_KEY + b"v")  # Ctrl-] v: the clip goes to the program (cat echoes it)
     assert _wait(lambda: "pasted text" in job.output) and not job.output.endswith("\n\n")
+    os.write(term_master, jobmod.DETACH_KEY + b"c")  # Ctrl-] c: fold the stack
+    assert _wait(lambda: footer.collapsed)
+    opened: list = []
+    table.on_request = lambda: opened.append(table.requests.pop(0))  # the shell's handler: open it, stay here
+    table.requests.append({"args": ["pwsh"], "cwd": "/"})  # `sub pwsh` typed inside a subshell
+    assert _wait(lambda: opened) and job.sink is not None and thread.is_alive()  # still attached
     os.write(term_master, jobmod.DETACH_KEY + b"x")
     thread.join(3)
     assert result["how"] == ("kill", job.number)

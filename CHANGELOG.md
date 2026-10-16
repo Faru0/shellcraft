@@ -7,6 +7,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`sub` inside a subshell:** instead of being refused, it hands the request to the main shell
+  (through the alert spool), which opens the subshell in the background under `main`: it
+  appears in the footer, you stay where you are, Ctrl-] N switches to it. Every subshell
+  belongs to main; there is no subshell inside a subshell.
 - **The footer at the prompt too:** the shell stack (`● main`, then one line per subshell,
   newest at the bottom) now sits on the last rows of the terminal at the main prompt as well as
   inside every subshell, growing as subshells open (up to half the screen, then "… and N

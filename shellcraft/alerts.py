@@ -77,6 +77,7 @@ class AlertBus:
         self.clip = ""  # the clip register: what a right-click on an alert copied (Alt-v pastes it)
         self.copied: Alert | None = None  # the alert just copied, for the "copied" hint on its row
         self.on_change: Callable[[], None] | None = None  # the shell redraws the panel / footer
+        self.on_request: Callable[[dict[str, Any]], None] | None = None  # `sub` asked for by a nested shell
         self.spool: Path | None = None
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
@@ -214,6 +215,13 @@ class AlertBus:
                 continue
             if time.time() - float(data.get("time", 0) or 0) > STALE:
                 continue  # left behind while no shell was running
+            if data.get("kind") == "sub":  # a nested shell asks the main one to open a subshell
+                if self.on_request is not None and isinstance(data.get("args"), list):
+                    try:
+                        self.on_request(data)
+                    except Exception:  # noqa: BLE001 — a bad request must not kill the listener
+                        pass
+                continue
             timeout: Any = data.get("timeout", "default")
             if timeout not in (None, "default"):
                 try:
@@ -274,11 +282,22 @@ def send(message: str, level: str = "info", timeout: float | None | str = "defau
     """Drop one alert into the spool for the running shell; returns the file written. Raises
     OSError when the folder cannot be written. `content` is the optional payload a right-click
     on the alert copies (a path, a command, JSON…)."""
-    folder = spool_dir(home)
     payload: dict[str, Any] = {"time": time.time(), "level": level, "message": message, "timeout": timeout,
                                "source": source or source_label()}
     if content:
         payload["content"] = content[:MAX_CONTENT]
+    return _spool(payload, home)
+
+
+def request_sub(args: list[str], cwd: str, home: Path | None = None) -> Path:
+    """Inside `sub shellcraft`: ask the main shell to open `sub ARGS` (it lists the subshell under
+    main and switches to it). The request travels through the spool like an alert."""
+    return _spool({"time": time.time(), "kind": "sub", "args": [str(a) for a in args], "cwd": cwd,
+                   "source": source_label()}, home)
+
+
+def _spool(payload: dict[str, Any], home: Path | None) -> Path:
+    folder = spool_dir(home)
     name = f"{time.time():.6f}-{os.getpid()}-{secrets.token_hex(3)}"
     tmp = folder / f"{name}.tmp"
     tmp.write_text(json.dumps(payload), encoding="utf-8")

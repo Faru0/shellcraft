@@ -193,6 +193,8 @@ class Shell:
         # ~/.shellcraft/alerts, which a thread watches (shellcraft.alerts).
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
+        ctx.alerts.on_request = self._sub_requested
+        ctx.jobs.on_request = self._open_requests_attached
         if not ctx.lite:  # a lite (nested) shell leaves the spool to the main shell: `alert` forwards to it
             try:
                 ctx.alerts.watch(config_dir())
@@ -328,6 +330,27 @@ class Shell:
             names = ", ".join(f"[{j.number}] {j.command}" for j in stopped)
             self.ui.console.print(Text(f"⤷ stopped: {names}", style="sc.muted"), markup=False, highlight=False)
 
+    def _sub_requested(self, data: dict[str, Any]) -> None:
+        """`sub …` typed inside a subshell (from the watcher thread): queued; the attach loop or
+        the prompt loop opens it under main, in the background."""
+        if self.ctx.jobs is not None:
+            self.ctx.jobs.requests.append(data)
+        self._jobs_changed()
+
+    def _open_requests(self) -> None:
+        """At the prompt: open the requested subshells in the background and say so."""
+        from shellcraft.builtins import open_requested
+
+        for note in open_requested(self.ctx):
+            self.ui.console.print(Text(f"⤷ {note}", style="sc.muted"), markup=False, highlight=False)
+
+    def _open_requests_attached(self) -> None:
+        """Inside a subshell (the attach loop): the same, with the notes kept for the next prompt."""
+        from shellcraft.builtins import open_requested
+
+        if self.ctx.jobs is not None:
+            self.ctx.jobs.notifications.extend(open_requested(self.ctx))
+
     def _jobs_changed(self) -> None:
         """A job started or finished, or an alert came or went (from another thread): redraw the
         panel at the prompt, or tell the attach loop to redraw the footer."""
@@ -366,7 +389,8 @@ class Shell:
         """Keep the footer on at the prompt while the `footer` setting is on (and this is a
         terminal), off otherwise; checked before every prompt, so `settings footer off` acts
         at once."""
-        wanted = settings.get(self.ctx.config, "footer") and bool(self.ui.console.is_terminal)
+        wanted = (settings.get(self.ctx.config, "footer") and bool(self.ui.console.is_terminal)
+                  and not getattr(self.ctx, "lite", False))  # a lite subshell: the main shell's footer is there
         if wanted and not self.footer.at_prompt:
             self.footer.at_prompt = True
             self.footer.enable()
@@ -680,8 +704,9 @@ class Shell:
         self.session.bottom_toolbar = self._toolbar if wanted or self._panel_wanted() else None
 
     def _panel_wanted(self) -> bool:
-        """The panel under the prompt: only while the footer is not drawn at the prompt."""
-        return not self.footer.enabled and self._clickable()
+        """The panel under the prompt: only while the footer is not drawn at the prompt, and never
+        in a lite subshell (the main shell's footer lists everything)."""
+        return not self.footer.enabled and not getattr(self.ctx, "lite", False) and self._clickable()
 
     def _panel_jobs(self) -> list[Any]:
         return list(self.ctx.jobs) if self.ctx.jobs is not None else []
@@ -906,6 +931,7 @@ class Shell:
 
     def loop(self) -> int:
         while True:
+            self._open_requests()
             try:
                 line = self._ask(self._prompt)
                 line = self._read_continuation(line)

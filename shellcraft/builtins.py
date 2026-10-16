@@ -526,7 +526,7 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 SUB_DOC = """# sub
 
-Open a subshell: a program with the keyboard and the screen handed to it, a nested ShellCraft,
+Open a subshell: a program with the keyboard and the screen handed to it, a lite ShellCraft,
 or a ShellCraft command running in the background. Every subshell is a numbered **job**, and the
 **footer** on the last rows of the terminal lists them as a stack (`● main`, then `○ 1  bash …`,
 newest at the bottom, growing as you open more), at the prompt and inside every subshell, with
@@ -540,7 +540,7 @@ when you need the room, and unfolds them again.
 ```
 sub                        # your own shell (bash, zsh, pwsh…); exit brings you back
 sub PROGRAM [ARGS...]      # any program: sub vim notes.md, sub htop, sub ssh host, sub python
-sub shellcraft [ARGS...]   # a nested, lite ShellCraft (its prompt shows the depth: ⚡shellcraft ⤷1)
+sub shellcraft [ARGS...]   # a lite ShellCraft in a subshell (its prompt says so: ⚡shellcraft ⤷1)
 sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub grep -r TODO .
 COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
@@ -582,8 +582,10 @@ runs the program in the foreground (you are back when it exits) and it is not li
 
 `sub shellcraft` runs a **lite** ShellCraft (`shellcraft --lite`): the builtins, the modules,
 settings, aliases and history, without the banner, the startup scripts, hot reload, the alert
-watcher or the MCP server (`mcp` says so). Only the main ShellCraft runs subshells: `jobs` is
-refused inside a nested shell, and the main footer at the bottom lists everything.
+watcher or the MCP server (`mcp` says so). Every subshell belongs to the main ShellCraft; there
+is no subshell inside a subshell. `sub` typed inside one hands the request to the main shell,
+which opens it in the background: it appears in the footer under `main`, you stay where you
+are, and Ctrl-] N switches to it when you want. `jobs` is for the main shell.
 
 ## Examples
 
@@ -1090,7 +1092,27 @@ def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
 def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import jobs as jobmod
 
+    if jobmod.depth() and ctx.interactive:  # inside a subshell: the main shell opens it, in the background
+        from shellcraft import alerts as alertmod
+
+        try:
+            alertmod.request_sub(args, os.getcwd())
+        except OSError as exc:
+            raise CommandError(f"sub: cannot reach the main shell: {exc}") from None
+        return Text.assemble(("⤷ ", "sc.accent"), ("asked the main shell to open ", "sc.muted"),
+                             ("sub " + " ".join(args) if args else "sub", "sc.accent"),
+                             (" in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
     table = _jobs_or_refuse(ctx, "sub")
+    kind, started = _start_sub(ctx, table, args, os.getcwd())
+    return _attach(ctx, started) if kind == "program" else started
+
+
+def _start_sub(ctx: ShellContext, table: Any, args: list[str], cwd: str) -> tuple[str, Any]:
+    """Start what `sub ARGS` names: ("program", job) for a program, the login shell or a nested
+    ShellCraft; ("note", text) for a builtin or module started as a command job, or a program
+    run in the foreground (no pseudo-terminal)."""
+    from shellcraft import jobs as jobmod
+
     command = " ".join(args) if args else os.path.basename(jobmod.login_shell()[0])
     env: dict[str, str] | None = None
     if not args:
@@ -1098,7 +1120,7 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     elif args[0] == "shellcraft":
         argv, env = jobmod.nested_shellcraft(args[1:])
     elif _is_shell_command(ctx, args[0]):
-        return _sub_command(ctx, table, command)
+        return "note", _sub_command(ctx, table, command)
     else:
         argv = list(args)
     from shellcraft.alerts import SUB_ENV, with_shim
@@ -1107,15 +1129,38 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     env = with_shim(env if env is not None else dict(os.environ), config_dir())  # `alert` on the PATH
     env[SUB_ENV] = f"{table.next_number}:{command}"  # so an alert from inside says which subshell sent it
     try:
-        job = table.start_program(argv, command, env=env, cwd=os.getcwd())
+        job = table.start_program(argv, command, env=env, cwd=cwd)
     except jobmod.JobsUnsupported:
         if ctx.ui is not None:
             ctx.ui.console.file.flush()
         code = jobmod.run_foreground(argv, env)
-        return WithStatus("", code) if code else ""
+        return "note", (WithStatus("", code) if code else "")
     except FileNotFoundError:
         raise CommandError(f"sub: {args[0]}: not a command, a module or a program on PATH") from None
-    return _attach(ctx, job)
+    return "program", job
+
+
+def open_requested(ctx: ShellContext) -> list[str]:
+    """Open the subshells typed as `sub …` inside a subshell (ctx.jobs.requests), in the
+    background: a program starts on its own pseudo-terminal without being attached, a builtin or
+    module as a command job. Returns one note per request, for the prompt or the notifications."""
+    notes: list[str] = []
+    while ctx.jobs is not None and ctx.jobs.requests:
+        data = ctx.jobs.requests.pop(0)
+        args = [str(a) for a in data.get("args", [])]
+        cwd = data.get("cwd") if isinstance(data.get("cwd"), str) and os.path.isdir(data.get("cwd")) else os.getcwd()
+        asked = f"sub {' '.join(args)}".rstrip() + f" (asked by {data.get('source') or 'a subshell'})"
+        try:
+            kind, started = _start_sub(ctx, ctx.jobs, args, cwd)
+        except CommandError as exc:
+            notes.append(f"{asked}: {exc}")
+            continue
+        if kind == "program":
+            n = started.number
+            notes.append(f"[{n}] {asked} started in the background (Ctrl-] {n} switches to it)")
+        else:
+            notes.append(f"{asked}: {to_text(started).strip()}" if started else asked)
+    return notes
 
 
 def start_background(ctx: ShellContext, line: str) -> Any:
