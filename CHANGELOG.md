@@ -169,6 +169,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Footer clicks inside a subshell stopped now and then:** a program in the subshell that turns
+  its own mouse reporting on and off (the lite ShellCraft's completion menu and pager, `less`,
+  `vim`, `htop`) passed those switches straight to the terminal, so the footer could lose the
+  mouse until the next one. While a subshell is attached the footer keeps the mouse: the
+  program's mode switches are replaced by the footer's (clicks in SGR form, plus the motion the
+  program asked for), and its mouse events are handed to it in the form it asked for.
 - **The clip register inside `sub shellcraft`:** a right-click on an alert is handled by the main
   shell (it draws the footer), so the copy went to the main shell's register and `clip`,
   `$CLIP` and Alt-v in a lite subshell found nothing. A lite subshell now asks the main shell

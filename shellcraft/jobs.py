@@ -39,7 +39,47 @@ PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
 TAIL_BYTES = 64 * 1024  # kept in memory per job
 HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
-MOUSE_MODE_RE = re.compile(rb"\x1b\[\?(?:1000|1002|1003|1006|1015)[hl]")
+MOUSE_MODE_RE = re.compile(rb"\x1b\[\?(1000|1002|1003|1006|1015)([hl])")
+
+
+def mouse_modes_after(modes: set[int], data: bytes) -> set[int]:
+    """The mouse modes a program has asked for, after the sequences in `data`."""
+    modes = set(modes)
+    for m in MOUSE_MODE_RE.finditer(data):
+        (modes.add if m.group(2) == b"h" else modes.discard)(int(m.group(1)))
+    return modes
+
+
+def footer_mouse_bytes(modes: set[int]) -> bytes:
+    """The terminal's mouse modes while the footer is shown: always clicks in SGR coordinates
+    (the footer needs them), plus the motion tracking the program asked for."""
+    out = b"\x1b[?1003l\x1b[?1002l\x1b[?1015l\x1b[?1000h"
+    if 1002 in modes:
+        out += b"\x1b[?1002h"
+    if 1003 in modes:
+        out += b"\x1b[?1003h"
+    return out + b"\x1b[?1006h"
+
+
+def sgr_for_program(seq: bytes, modes: set[int]) -> bytes:
+    """A mouse event (SGR, as the terminal reports it) in the form the program asked for:
+    unchanged when it asked for SGR (1006), the classic X10 bytes otherwise; nothing when it
+    did not ask for this kind of event (motion without 1002 / 1003)."""
+    m = re.match(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])", seq)
+    if not m:
+        return b""
+    code, x, y, final = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)
+    if code & 32 and not ({1002, 1003} & modes):
+        return b""  # motion: only for a program that asked for it
+    if code & 32 and 1003 not in modes and (code & 3) == 3:
+        return b""  # 1002 reports motion only while a button is held
+    if 1006 in modes:
+        return seq
+    if x > 223 or y > 223:
+        return b""  # beyond what the X10 encoding can say
+    if final == b"m":
+        code = (code & ~3) | 3  # X10 has no button on a release
+    return b"\x1b[M" + bytes((32 + code, 32 + x, 32 + y))
 MOUSE_SEQ_RE = re.compile(rb"\x1b\[<\d+;\d+;\d+[Mm]")
 
 
@@ -85,6 +125,7 @@ class Job:
         self.sink: Callable[[bytes], None] | None = None  # the terminal while attached
         self.on_output: Callable[[bytes], bytes] | None = None  # while attached: filters the live output
         self.mouse_on = False  # the program turned on mouse reporting (seen in its output)
+        self.mouse_modes: set[int] = set()  # which modes it asked for (1000 clicks, 1002/1003 motion, 1006 SGR)
         self.scrolled = 0  # pages scrolled back in the emulator's history while attached
         # command jobs
         self.thread: threading.Thread | None = None
@@ -134,7 +175,8 @@ class Job:
             if len(self._tail) > TAIL_BYTES:
                 del self._tail[: len(self._tail) - TAIL_BYTES]
             if MOUSE_MODE_RE.search(data):
-                self.mouse_on = MOUSE_MODE_RE.findall(data)[-1].endswith(b"h")
+                self.mouse_modes = mouse_modes_after(self.mouse_modes, data)
+                self.mouse_on = bool(self.mouse_modes & {1000, 1002, 1003})
             if self.screen is not None:
                 data = self._emulate(data)
             sink, on_output = self.sink, self.on_output
@@ -463,23 +505,31 @@ class JobTable:
             if footer is not None:
                 footer.draw()
 
+        carry = b""  # an escape sequence cut at the end of a chunk, held for the next one
+
         def filter_output(data: bytes) -> bytes:
-            """Keep the program's margins above the footer; redraw the footer after its output."""
-            nonlocal pending_redraw
+            """Keep the program's margins above the footer, keep the terminal's mouse for the
+            footer (a program turning its own mouse off must not turn the footer's off: its
+            mode sequences are replaced by ours), and redraw the footer after its output."""
+            nonlocal pending_redraw, carry
             if job.scrolled:
                 return b""  # the user is reading the scrollback: the page is redrawn on return
             if footer is None:
                 return data
             from shellcraft.footer import incomplete_escape
 
+            data, carry = carry + data, b""
+            if incomplete_escape(data):
+                cut = data.rfind(b"\x1b")
+                data, carry = data[:cut], data[cut:]
+            if MOUSE_MODE_RE.search(data):
+                data = MOUSE_MODE_RE.sub(b"", data) + footer_mouse_bytes(job.mouse_modes)
             data = footer.clamp_margins(data, size()[0])
-            pending_redraw = incomplete_escape(data)
-            if not pending_redraw:
-                data += footer.render_bytes()
-            return data
+            pending_redraw = False
+            return data + footer.render_bytes()
 
         def mouse_wanted() -> bool:
-            return not job.mouse_on
+            return footer is not None or not job.mouse_on  # with a footer, the mouse is always ours
 
         our_mouse = False
         if raw:
@@ -493,16 +543,20 @@ class JobTable:
             job.on_output = filter_output
             job.sink = term.write
             term.on_resize = lambda: (job.resize(*size()), show_page())
-            if mouse_wanted():
+            if footer is not None:
+                term.write(footer_mouse_bytes(job.mouse_modes))
+                our_mouse = True
+            elif mouse_wanted():
                 term.mouse(True)
                 our_mouse = True
             prefix_at: float | None = None  # when Ctrl-] was pressed and no digit has followed
             while job.running:
-                if our_mouse and job.mouse_on:  # the program took the mouse itself
-                    our_mouse = False
-                elif not our_mouse and mouse_wanted():
-                    term.mouse(True)
-                    our_mouse = True
+                if footer is None:  # no footer: the program's own mouse modes reach the terminal
+                    if our_mouse and job.mouse_on:  # the program took the mouse itself
+                        our_mouse = False
+                    elif not our_mouse and mouse_wanted():
+                        term.mouse(True)
+                        our_mouse = True
                 data = term.read(0.1)
                 if footer is not None and footer.dirty:  # an alert or a job change from a thread
                     footer.dirty = False
@@ -565,7 +619,8 @@ class JobTable:
                                 show_page()
                                 continue
                         if job.mouse_on:
-                            forward += m.group()
+                            forward += sgr_for_program(m.group(), job.mouse_modes) if footer is not None \
+                                else m.group()
                     forward += data[pos:]
                     data = bytes(forward)
                 if job.scrolled and data:  # any key: back to the live page
@@ -599,6 +654,8 @@ class JobTable:
             job.scroll_bottom()
             term.on_resize = None
             if our_mouse:
+                if footer is not None:
+                    term.write(b"\x1b[?1003l\x1b[?1002l")
                 term.mouse(False)
             if footer is not None:
                 footer.current = 0

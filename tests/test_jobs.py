@@ -920,3 +920,65 @@ def test_jobs_rename_shows_in_the_footer_and_the_table(ictx, tmp_path):
     ictx.jobs.rename(job, "x")
     assert _wait(lambda: not job.running)
     assert ictx.jobs.pop_notifications() == ["[1] done: x"]
+
+
+def test_mouse_mode_helpers():
+    modes = jobmod.mouse_modes_after(set(), b"x\x1b[?1000h\x1b[?1006hy")
+    assert modes == {1000, 1006}
+    assert jobmod.mouse_modes_after(modes, b"\x1b[?1000l\x1b[?1006l") == set()
+    assert jobmod.footer_mouse_bytes(set()).endswith(b"\x1b[?1000h\x1b[?1006h")
+    assert b"\x1b[?1003h" in jobmod.footer_mouse_bytes({1000, 1003, 1006})
+    click = b"\x1b[<0;5;7M"
+    assert jobmod.sgr_for_program(click, {1000, 1006}) == click  # it asked for SGR: as is
+    assert jobmod.sgr_for_program(click, {1000}) == b"\x1b[M" + bytes((32, 37, 39))  # X10 for an old program
+    assert jobmod.sgr_for_program(b"\x1b[<0;5;7m", {1000}) == b"\x1b[M" + bytes((35, 37, 39))  # release
+    assert jobmod.sgr_for_program(b"\x1b[<35;5;7M", {1000, 1006}) == b""  # motion it did not ask for
+    assert jobmod.sgr_for_program(b"\x1b[<35;5;7M", {1003, 1006}) == b"\x1b[<35;5;7M"
+    assert jobmod.sgr_for_program(b"\x1b[<32;5;7M", {1002, 1006}) == b"\x1b[<32;5;7M"  # a drag
+    assert jobmod.sgr_for_program(b"\x1b[<0;300;7M", {1000}) == b""  # too far for X10
+
+
+@posix_only
+def test_a_program_turning_its_mouse_off_keeps_the_footers(tmp_path):
+    """A program inside a subshell (a lite ShellCraft, less, vim) switching mouse reporting on and
+    off must not switch the footer's off: its mode sequences never reach the terminal, ours do."""
+    import select
+    import tty
+
+    from rich.console import Console
+
+    from shellcraft.footer import Footer
+    from shellcraft.themes import UI, all_themes
+
+    table = JobTable(tmp_path / "jobs")
+    script = "printf 'A\\033[?1000h\\033[?1006hB'; sleep 0.4; printf 'C\\033[?1000l\\033[?1006lD'; cat"
+    job = table.start_program(["sh", "-c", script], "sh")
+    term_master, term_slave = os.openpty()
+    tty.setraw(term_slave)
+    jobmod._set_winsize(term_slave, 24, 80)
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), table)
+    footer.size = lambda: (24, 80)
+    seen = bytearray()
+
+    def drain(seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            if select.select([term_master], [], [], 0.05)[0]:
+                seen.extend(os.read(term_master, 65536))
+
+    thread = threading.Thread(target=lambda: table.attach(job, terminal=terminal, footer=footer, raw=False),
+                              daemon=True)
+    thread.start()
+    drain(1.5)
+    assert b"C" in seen and b"D" in seen
+    after = bytes(seen[seen.rindex(b"D"):])
+    assert b"\x1b[?1000l" not in after and b"\x1b[?1000h" in bytes(seen[seen.index(b"C"):])  # re-asserted
+    assert job.mouse_modes == set() and not job.mouse_on
+    tail = bytes(seen[seen.index(b"A"):])
+    assert tail.count(b"\x1b[?1000l") == 0  # the program's switch-offs never reached the terminal
+    os.write(term_master, jobmod.DETACH_KEY + b"x")
+    thread.join(3)
+    table.kill(job)
+    os.close(term_master)
+    os.close(term_slave)
