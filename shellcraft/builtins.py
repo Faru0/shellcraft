@@ -187,7 +187,7 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings "
-                   "banner diag"),
+                   "banner diag hotkeys"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -208,6 +208,7 @@ HELP_SHORT = {  # one line each, for the ShellCraft group
     "startup": "List or rerun the startup scripts", "theme": "List or switch color themes",
     "prompt": "Choose the prompt's segments", "settings": "Settings and API keys",
     "banner": "Show the welcome banner", "diag": "Console, color and footer diagnostics",
+    "hotkeys": "Keyboard shortcuts and mouse actions",
 }
 HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
 
@@ -317,7 +318,8 @@ def _help_screen(ctx: ShellContext, rows: list[tuple[str, str, str, str]], every
     keywords = Text.assemble((" keywords  ", "sc.muted"), (" ".join(KEYWORDS_HELP), "sc.accent"))
     tips = Text()
     for i, (key, what) in enumerate((("help NAME", "one command"), ("help -a", "all described"),
-                                     ("man NAME", "the manual"), ("help -k WORD", "search"))):
+                                     ("man NAME", "the manual"), ("help -k WORD", "search"),
+                                     ("hotkeys", "keys and mouse"))):
         tips.append(" · " if i else " ", style="sc.muted")
         tips.append(key, style="sc.accent")
         if width >= 90:
@@ -971,6 +973,109 @@ def _clip(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         bus.clip = stdin.rstrip("\n")
         return ""
     return bus.clip + "\n" if bus.clip else ""
+
+
+HOTKEYS_DOC = """# hotkeys
+
+Every keyboard shortcut and mouse action in ShellCraft, by where it works, with what differs
+between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in the viewer.
+
+## At the prompt: editing
+
+| Keys | What they do |
+| --- | --- |
+| `Enter` | Run the line (a line with an open `{` or `(` asks for more) |
+| `Tab` | Complete a command, a switch, a value or a path |
+| `→` or `End` | Accept the grey suggestion from your history |
+| `↑` `↓` | The previous / next command in the history |
+| `Ctrl-R` | Search the history as you type |
+| `Ctrl-A` `Ctrl-E` | The start / end of the line |
+| `Alt-B` `Alt-F` | One word back / forward |
+| `Ctrl-W` | Delete the word before the cursor |
+| `Ctrl-U` `Ctrl-K` | Delete to the start / end of the line |
+| `Ctrl-L` | Clear the screen |
+| `Ctrl-C` | Drop the line (or stop the running command) |
+| `Ctrl-D` | Leave ShellCraft, on an empty line |
+
+## The clip register and alerts
+
+| Keys or mouse | What they do |
+| --- | --- |
+| `Alt-v` | Paste the newest copy (`$CLIP`). Press it again right away for `$CLIP1`, `$CLIP2`… |
+| `Esc` then `Ctrl-V` | The same paste (Ctrl+Alt+v: what AltGr+v sends) |
+| `Alt-c` | Copy the top alert's content |
+| Right-click an alert | Copy its content (`clip -a N` from the keyboard) |
+| Click an alert's `✖` | Dismiss it (`alert -c N` from the keyboard) |
+| Click the badge on `main` | Show / fold the alert rows |
+| `clip -i [N]` | Start the next prompt with copy N, no key chord at all |
+
+## The footer and subshells
+
+| Keys or mouse | Where | What they do |
+| --- | --- | --- |
+| `Ctrl-]` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
+| `Ctrl-]` alone | in a subshell | Back to the prompt; the subshell keeps running |
+| `Ctrl-]` then `x` | in a subshell | End the subshell you are in |
+| `Ctrl-]` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
+| `Ctrl-]` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
+| `Ctrl-]` twice | in a subshell | Send one `Ctrl-]` to the program |
+| `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
+| Click a line | anywhere | Switch to that shell |
+| Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
+| Click the `×` of a finished line | anywhere | Remove it from the footer |
+
+## Mouse: scrolling and selecting
+
+| Mouse | When | What it does |
+| --- | --- | --- |
+| Wheel | nothing to click in the footer | The terminal's own scrolling |
+| Wheel | the footer lists subshells or alerts | The **scroll view** of the output (`q` or down past the end closes) |
+| Wheel | inside a subshell | Scrolls that subshell's output (a full-screen program such as `less` gets arrow keys) |
+| Drag | nothing to click in the footer | The terminal's own selection |
+| `Shift` + drag | the shell has the mouse (footer items, or a subshell) | The terminal's own selection |
+
+Copy and paste of selected text is the terminal's own: on Linux usually `Ctrl-Shift-C` and
+`Ctrl-Shift-V` (and a middle click pastes the selection); in Windows Terminal `Ctrl-C` with a
+selection and `Ctrl-V`, or `Ctrl-Shift-C` and `Ctrl-Shift-V`. `settings footer_mouse off` leaves
+the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's mouse off.
+
+## The viewer (man, less, the scroll view)
+
+| Keys | What they do |
+| --- | --- |
+| `↑` `↓` or `j` `k` | One line |
+| `PgUp` `PgDn`, `b` `f`, `Space` | One screen |
+| `d` `u` | Half a screen |
+| `g` `G`, `Home` `End` | The top / the end |
+| `←` `→` | Sideways, when lines are not wrapped |
+| `w` | Wrap long lines on / off |
+| `/` then `n` `N` | Search, then the next / previous match |
+| Wheel, the bar on the right | Scroll; click or drag the bar |
+| `?` | The keys |
+| `q` or `Esc` | Close |
+
+## Linux and Windows
+
+| | Linux | Windows 11 |
+| --- | --- | --- |
+| Alt shortcuts (`Alt-v`, `Alt-c`) | Left and right Alt; AltGr unless it types a character | Left, right Alt and AltGr |
+| Alt does not arrive | Press `Esc` then the key (Konsole's menu bar takes Alt-v) | Press `Esc` then the key |
+| Subshells (`sub`) | Always | Need the `pywinpty` package (the banner says when it is missing) |
+| Terminal | Any modern terminal | Windows Terminal; the classic console works with fewer colors |
+
+`diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
+Windows it also shows the console's Alt flags, to paste into a bug report.
+"""
+
+
+@builtin("hotkeys", "Keyboard shortcuts and mouse actions, for Linux and Windows", "hotkeys",
+         category="shell", doc=HOTKEYS_DOC)
+def _hotkeys(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if args:
+        raise CommandError("usage: hotkeys  (man hotkeys opens it in the viewer)")
+    if ctx.ui is None:
+        return HOTKEYS_DOC
+    return Styled(Paged(Markdown(HOTKEYS_DOC), page=False), HOTKEYS_DOC)  # printed in full, to scroll back to
 
 
 RECORD_DOC = """# record

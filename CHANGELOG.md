@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`hotkeys`:** every keyboard shortcut and mouse action, by where it works (the prompt, the
+  clip and alerts, the footer and subshells, scrolling and selecting, the viewer), with what
+  differs between Linux and Windows. `man hotkeys` opens it in the viewer, `help` lists it among
+  ShellCraft's own commands and its footer points to it, and the README has the same tables
+  under "Keyboard and mouse".
 - **Clip history:** the clip register keeps the last ten copies, newest first: a right-click on
   a second alert no longer loses the first. `$CLIP` is the newest, `$CLIP1` the one before, up to
   `$CLIP9`; **Alt-v** pastes the newest and, pressed again right away, swaps in the next older one

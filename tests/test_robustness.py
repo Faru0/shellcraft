@@ -345,3 +345,17 @@ def test_function_helpers_are_off_help_but_on_the_function_page(ctx):
     assert "declare -f NAME..." in page and "each a" in page and "man function" not in page
     assert "local" in to_text(run_line("man -p local", ctx).output)  # its own page still works
     assert run_line("f() { local x=1; echo $x; } ; f", ctx).status == 0  # and the command
+
+
+def test_hotkeys_lists_keys_and_mouse_for_linux_and_windows(ctx):
+    page = to_text(run_line("hotkeys", ctx).output)
+    for heading in ("At the prompt: editing", "The clip register and alerts", "The footer and subshells",
+                    "Mouse: scrolling and selecting", "The viewer", "Linux and Windows"):
+        assert f"## {heading}" in page, heading
+    for key in ("Alt-v", "Ctrl-]", "Ctrl-R", "Right-click an alert", "scroll view", "AltGr", "diag keys"):
+        assert key in page, key
+    assert to_text(run_line("man -p hotkeys", ctx).output).startswith("# hotkeys")
+    listed = [line.split()[0] for line in to_text(run_line("help", ctx).output).splitlines() if line.strip()]
+    assert "hotkeys" in listed
+    with pytest.raises(PipelineError, match="usage: hotkeys"):
+        run_line("hotkeys extra", ctx)

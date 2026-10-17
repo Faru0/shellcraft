@@ -24,7 +24,7 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **76 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
+| 🧰 **77 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
 | 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
 | ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `>&2`, functions, `select`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
@@ -457,6 +457,99 @@ port and no token. `man alert` has the details.
 
 ---
 
+## Keyboard and mouse
+
+Every keyboard shortcut and mouse action in ShellCraft, by where it works, with what differs
+between Linux and Windows. In the shell, `hotkeys` prints this list and `man hotkeys` opens it in the viewer.
+
+### At the prompt: editing
+
+| Keys | What they do |
+| --- | --- |
+| `Enter` | Run the line (a line with an open `{` or `(` asks for more) |
+| `Tab` | Complete a command, a switch, a value or a path |
+| `→` or `End` | Accept the grey suggestion from your history |
+| `↑` `↓` | The previous / next command in the history |
+| `Ctrl-R` | Search the history as you type |
+| `Ctrl-A` `Ctrl-E` | The start / end of the line |
+| `Alt-B` `Alt-F` | One word back / forward |
+| `Ctrl-W` | Delete the word before the cursor |
+| `Ctrl-U` `Ctrl-K` | Delete to the start / end of the line |
+| `Ctrl-L` | Clear the screen |
+| `Ctrl-C` | Drop the line (or stop the running command) |
+| `Ctrl-D` | Leave ShellCraft, on an empty line |
+
+### The clip register and alerts
+
+| Keys or mouse | What they do |
+| --- | --- |
+| `Alt-v` | Paste the newest copy (`$CLIP`). Press it again right away for `$CLIP1`, `$CLIP2`… |
+| `Esc` then `Ctrl-V` | The same paste (Ctrl+Alt+v: what AltGr+v sends) |
+| `Alt-c` | Copy the top alert's content |
+| Right-click an alert | Copy its content (`clip -a N` from the keyboard) |
+| Click an alert's `✖` | Dismiss it (`alert -c N` from the keyboard) |
+| Click the badge on `main` | Show / fold the alert rows |
+| `clip -i [N]` | Start the next prompt with copy N, no key chord at all |
+
+### The footer and subshells
+
+| Keys or mouse | Where | What they do |
+| --- | --- | --- |
+| `Ctrl-]` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
+| `Ctrl-]` alone | in a subshell | Back to the prompt; the subshell keeps running |
+| `Ctrl-]` then `x` | in a subshell | End the subshell you are in |
+| `Ctrl-]` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
+| `Ctrl-]` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
+| `Ctrl-]` twice | in a subshell | Send one `Ctrl-]` to the program |
+| `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
+| Click a line | anywhere | Switch to that shell |
+| Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
+| Click the `×` of a finished line | anywhere | Remove it from the footer |
+
+### Mouse: scrolling and selecting
+
+| Mouse | When | What it does |
+| --- | --- | --- |
+| Wheel | nothing to click in the footer | The terminal's own scrolling |
+| Wheel | the footer lists subshells or alerts | The **scroll view** of the output (`q` or down past the end closes) |
+| Wheel | inside a subshell | Scrolls that subshell's output (a full-screen program such as `less` gets arrow keys) |
+| Drag | nothing to click in the footer | The terminal's own selection |
+| `Shift` + drag | the shell has the mouse (footer items, or a subshell) | The terminal's own selection |
+
+Copy and paste of selected text is the terminal's own: on Linux usually `Ctrl-Shift-C` and
+`Ctrl-Shift-V` (and a middle click pastes the selection); in Windows Terminal `Ctrl-C` with a
+selection and `Ctrl-V`, or `Ctrl-Shift-C` and `Ctrl-Shift-V`. `settings footer_mouse off` leaves
+the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's mouse off.
+
+### The viewer (man, less, the scroll view)
+
+| Keys | What they do |
+| --- | --- |
+| `↑` `↓` or `j` `k` | One line |
+| `PgUp` `PgDn`, `b` `f`, `Space` | One screen |
+| `d` `u` | Half a screen |
+| `g` `G`, `Home` `End` | The top / the end |
+| `←` `→` | Sideways, when lines are not wrapped |
+| `w` | Wrap long lines on / off |
+| `/` then `n` `N` | Search, then the next / previous match |
+| Wheel, the bar on the right | Scroll; click or drag the bar |
+| `?` | The keys |
+| `q` or `Esc` | Close |
+
+### Linux and Windows
+
+| | Linux | Windows 11 |
+| --- | --- | --- |
+| Alt shortcuts (`Alt-v`, `Alt-c`) | Left and right Alt; AltGr unless it types a character | Left, right Alt and AltGr |
+| Alt does not arrive | Press `Esc` then the key (Konsole's menu bar takes Alt-v) | Press `Esc` then the key |
+| Subshells (`sub`) | Always | Need the `pywinpty` package (the banner says when it is missing) |
+| Terminal | Any modern terminal | Windows Terminal; the classic console works with fewer colors |
+
+`diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
+Windows it also shows the console's Alt flags, to paste into a bug report.
+
+---
+
 ## Built-in commands
 
 Built into ShellCraft (written in Python), so they work the same on every operating system. Each
@@ -464,7 +557,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `diag` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `diag` `hotkeys` |
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
