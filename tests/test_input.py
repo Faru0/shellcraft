@@ -318,3 +318,61 @@ def test_diag_keys_shows_what_each_key_arrives_as():
         with create_app_session(input=pipe, output=DummyOutput()):
             lines = key_test(UI(all_themes({})["nord"], Console(file=io.StringIO())))
     assert lines == ["escape v", "a", "escape c-v"]
+
+
+# ── the hover highlight goes away ────────────────────────────────────────────
+
+def test_the_footer_highlight_clears_when_the_mouse_leaves_and_after_a_second(tmp_path, monkeypatch):
+    from shellcraft import footer as footer_mod
+    from shellcraft.jobs import JobTable
+
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_command("sleep", lambda: (time.sleep(5), (0, ""))[1])
+    footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), table)
+    footer.size = lambda: (24, 80)
+    footer.enabled = True
+    footer.sequence()
+    changes = []
+    footer.on_change = lambda: changes.append(1)
+    job_row = 24  # main on 23, the subshell on the last row
+    assert footer.mouse("move", 5, job_row, "none") == ("handled", None) and footer.hover == job.number
+    assert footer.mouse("move", 5, 10, "none") is None  # over the output: still not ours …
+    assert footer.hover is None  # … but the highlight is gone
+    # without moving away: it goes by itself after HOVER_TIMEOUT
+    monkeypatch.setattr(footer_mod, "HOVER_TIMEOUT", 0.2)
+    footer.mouse("move", 5, job_row, "none")
+    assert footer.hover == job.number
+    footer.dirty = False
+    assert _wait_for(lambda: footer.hover is None, 2) and footer.dirty and changes
+    # still moving over it: the second starts again
+    footer.mouse("move", 5, job_row, "none")
+    time.sleep(0.12)
+    footer.mouse("move", 6, job_row, "none")
+    time.sleep(0.12)
+    assert footer.hover == job.number  # 0.24 s after the first move, 0.12 after the last
+    # a click on the fold control leaves nothing lit
+    col = footer.rows[0].text.index("▾") + 1
+    footer.mouse("move", col, job_row - 1, "none")
+    assert footer.mouse("up", col, job_row - 1, "left") == ("handled", None)
+    assert footer.hover is None and footer.collapsed
+    footer.disable()
+    table.kill(job)
+
+
+def _wait_for(predicate, seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_the_prompt_panel_highlight_clears_after_a_second(repl_shell, monkeypatch):
+    from shellcraft import footer as footer_mod
+
+    sh, ctx = repl_shell
+    monkeypatch.setattr(footer_mod, "HOVER_TIMEOUT", 0.2)
+    assert sh._set_panel_hover(1) is None and sh._panel_hover == 1
+    assert _wait_for(lambda: sh._panel_hover is None, 2)
+    assert sh.footer.dirty  # a redraw was asked for

@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import threading
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from prompt_toolkit.utils import get_cwidth
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from shellcraft.themes import UI
 
 PREFIX = "Ctrl-]"
+HOVER_TIMEOUT = 1.0  # seconds a highlighted line stays highlighted without the mouse moving
 MIN_STACK = 3  # subshell rows the stack may always take; beyond that, up to half the screen
 # A scroll-region command from an attached program (`ESC[r`, `ESC[a;br`): rewritten to stay
 # above the footer, else a full-screen reset would let its output scroll over the footer row.
@@ -51,6 +53,7 @@ class Footer:
         self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
         self.is_recording: Callable[[], bool] = lambda: False  # the main shell's own `record` (set by the shell)
         self._painted = 0  # rows the last draw painted: a shorter footer clears the ones it gave up
+        self._hover_timer: threading.Timer | None = None  # clears the highlight after HOVER_TIMEOUT
         self.show_hint: Callable[[], bool] = lambda: False  # the panel_hint setting (set by the shell)
         self._rows = 0
 
@@ -78,6 +81,7 @@ class Footer:
 
     def disable(self) -> None:
         """Back to a plain terminal: no scroll region, the footer row cleared."""
+        self._cancel_hover_timer()
         if not self.enabled:
             return
         self.enabled = False
@@ -205,13 +209,45 @@ class Footer:
         return row.tab if row is not None else None
 
     def set_hover(self, key: Any) -> bool:
-        """Returns whether it changed (then the footer needs a redraw)."""
+        """Highlight the line under the mouse (None: no line). Returns whether it changed (then
+        the footer needs a redraw). A highlight clears itself after HOVER_TIMEOUT without the mouse
+        moving, so a bubble never stays lit once the mouse has gone."""
+        if key is not None:
+            self._arm_hover_timer()  # still moving over the footer: the second starts again
         if key is self.hover or (key == self.hover and type(key) is type(self.hover)):
             return False
         self.hover = key
+        if key is None:
+            self._cancel_hover_timer()
         if self.alerts is not None and self.alerts.copied is not key:
             self.alerts.copied = None  # the "copied" hint goes when the mouse moves to another row
         return True
+
+    def _arm_hover_timer(self) -> None:
+        self._cancel_hover_timer()
+        self._hover_timer = threading.Timer(HOVER_TIMEOUT, self._hover_expired)
+        self._hover_timer.daemon = True
+        self._hover_timer.start()
+
+    def _cancel_hover_timer(self) -> None:
+        if self._hover_timer is not None:
+            self._hover_timer.cancel()
+            self._hover_timer = None
+
+    def _hover_expired(self) -> None:
+        """From the timer's thread: drop the highlight and ask for a redraw the usual ways (the
+        attach loop looks at `dirty`, the prompt redraws through on_change); nothing is written to
+        the terminal from here."""
+        self._hover_timer = None
+        if self.hover is None:
+            return
+        self.hover = None
+        self.dirty = True
+        if self.on_change is not None:
+            try:
+                self.on_change()
+            except Exception:  # noqa: BLE001 — a redraw problem must not kill the timer thread
+                pass
 
     def mouse(self, kind: str, x: int, y: int, button: str = "left") -> tuple[str, Any] | None:
         """A mouse event (from parse_mouse) over the footer. None when it is not on the footer;
@@ -224,6 +260,8 @@ class Footer:
             button = self._pressed  # Windows: RIGHT;MOUSE_DOWN, then NONE;MOUSE_UP
         row = self.row_at(y)
         if row is None:
+            if self.hover is not None and kind in ("move", "scroll", "down", "up") and self.set_hover(None):
+                self.draw()  # the mouse left the footer: no line stays highlighted
             return None
         key = row.alert if row.alert is not None else row.tab
         if kind == "move":
@@ -236,7 +274,7 @@ class Footer:
         if row.alert is not None and button == "right":
             if self.alerts is not None:
                 self.alerts.copy(row.alert)
-                self.draw()
+                self.draw()  # the row stays highlighted a moment, with its "copied" hint
             return "handled", None
         if row.alert is not None and row.close >= 0 and \
                 get_cwidth(row.text[: row.close]) <= col < get_cwidth(row.text[: row.close + 1]):
@@ -249,13 +287,16 @@ class Footer:
             return "handled", None
         for start, end, _style, role in row.spans:
             if role == "fold" and get_cwidth(row.text[:start]) <= col < get_cwidth(row.text[:end]):
+                self.set_hover(None)
                 self.toggle_collapsed()
                 return "handled", None
             if role == "close-job" and get_cwidth(row.text[:start]) <= col < get_cwidth(row.text[:end]):
+                self.set_hover(None)
                 self.remove_job(row.tab)
                 return "handled", None
         if row.badge >= 0 and col >= get_cwidth(row.text[: row.badge]):
             if self.alerts is not None:
+                self.set_hover(None)
                 self.alerts.toggle()
                 self.draw()
             return "handled", None

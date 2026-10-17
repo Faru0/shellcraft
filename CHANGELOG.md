@@ -34,6 +34,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **A footer bubble stayed highlighted:** the line under the mouse lights up (its bubble filled,
+  in the accent color) to show what a click picks, but it stayed lit after the click and after
+  the mouse left the footer. It now goes back to its normal color when the mouse moves off the
+  footer, after a click that acts, and after one second without the mouse moving over it.
 - **Alt-v with the right Alt or AltGr on Windows:** prompt_toolkit's classic Windows key reader
   (the one ShellCraft uses in Windows Terminal) turns only the left Alt into the Escape prefix
   that means Alt, so right-Alt+v typed a plain `v`, and AltGr+v (right Alt + Ctrl to Windows)

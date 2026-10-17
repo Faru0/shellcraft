@@ -237,6 +237,7 @@ class Shell:
         # The panel under the prompt: one line per subshell. `_panel_hover` is the job under
         # the mouse, `_panel_cursor` the one chosen with ↓ / ↑ (None: the input line has the keys).
         self._panel_hover: Any = None
+        self._panel_hover_timer: Any = None  # threading.Timer clearing _panel_hover
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
         self._yank: tuple[int, int, str] | None = None  # the last Alt-v: (copy number, where, the text)
         ctx.runner = make_spinner_runner(ctx)
@@ -997,12 +998,32 @@ class Shell:
     def _set_panel_hover(self, key: Any) -> Any:
         """None when it changed (repaint), NotImplemented when nothing changed. `key` is a tab
         (0 or a job number) or an Alert."""
+        if key is not None:
+            self._arm_panel_hover_timer()  # cleared after HOVER_TIMEOUT without the mouse moving
         if key is self._panel_hover or (key == self._panel_hover and type(key) is type(self._panel_hover)):
             return NotImplemented
         self._panel_hover = key
         if self.ctx.alerts is not None and self.ctx.alerts.copied is not key:
             self.ctx.alerts.copied = None  # the "copied" hint goes when the mouse moves to another row
         return None
+
+    def _arm_panel_hover_timer(self) -> None:
+        import threading
+
+        from shellcraft.footer import HOVER_TIMEOUT
+
+        if self._panel_hover_timer is not None:
+            self._panel_hover_timer.cancel()
+
+        def expired() -> None:
+            self._panel_hover_timer = None
+            if self._panel_hover is not None:
+                self._panel_hover = None
+                self._jobs_changed()  # redraw the prompt (and the footer with it)
+
+        self._panel_hover_timer = threading.Timer(HOVER_TIMEOUT, expired)
+        self._panel_hover_timer.daemon = True
+        self._panel_hover_timer.start()
 
     def _usage_line(self) -> FormattedText:
         """One line under the prompt: the usage of the command being typed."""
