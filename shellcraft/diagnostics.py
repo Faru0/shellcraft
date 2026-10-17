@@ -64,7 +64,7 @@ def _section(title: str, lines: list[str]) -> list[str]:
 
 
 FOOTER_STATES = ("main", "running", "done", "failed", "current", "hover", "rec",
-                 "alert.info.mark", "alert.warning.mark", "alert.critical.mark")
+                 "alert.info.mark", "alert.warn.mark", "alert.crit.mark")
 
 
 def _sgr(console: Any, name: str) -> str:

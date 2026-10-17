@@ -33,6 +33,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **`alert` is quicker to type:** the levels are `info`, `warn` and `crit` (the long `warning`
+  and `critical` still work, from scripts, older spool files and AI clients), the data switch is
+  `-d DATA` / `--data DATA` instead of `-C`, which was easy to mix up with `-c` (clear), and the
+  usage line the toolbar shows while you type names the levels:
+  `alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE... | --list | -c [N]`.
+  Alert rows end with `crit` and `warn · 57s`; `alert --list` shows `[warn]` and `[crit]`. The
+  `send_tui_alert` MCP tool takes `warn` and `crit` too.
 - **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
   lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.

@@ -48,13 +48,13 @@ def test_bus_orders_by_severity_caps_the_list_and_expires():
     b = AlertBus()
     b.on_change = lambda: changes.append(1)
     b.post("first", "info")
-    b.post("second", "critical")
-    b.post("third", "warning")
+    b.post("second", "crit")
+    b.post("third", "warn")
     b.post("fourth", "info")
     levels = [(a.level, a.message) for a in b.current()]
-    assert levels == [("critical", "second"), ("warning", "third"), ("info", "fourth")]  # three kept, severe first
+    assert levels == [("crit", "second"), ("warn", "third"), ("info", "fourth")]  # three kept, severe first
     assert b.current()[0].remaining is None and b.current()[2].timeout == 15.0 and b.current()[1].timeout == 60.0
-    short = b.post("blink", "critical", timeout=1)  # a fourth alert: the lowest, oldest one ("fourth") goes
+    short = b.post("blink", "crit", timeout=1)  # a fourth alert: the lowest, oldest one ("fourth") goes
     assert short.timeout == 1.0 and [a.message for a in b.current()] == ["blink", "second", "third"]  # newest first
     assert _wait(lambda: all(a.message != "blink" for a in b.current()), 3)  # expired by the timer
     assert len(changes) >= 6
@@ -69,11 +69,11 @@ def test_spool_delivers_labels_and_drops_stale_files(bus, home, monkeypatch):
     assert bus.spool == spool and spool.is_dir()
     if sys.platform != "win32":
         assert (spool.stat().st_mode & 0o777) == 0o700
-    written = alertmod.send("disk almost full", "warning", 30, source="test")
+    written = alertmod.send("disk almost full", "warn", 30, source="test")
     assert written.parent == spool and written.suffix == ".json"
     assert _wait(lambda: bus.current() and bus.current()[0].message == "disk almost full")
     first = bus.current()[0]
-    assert first.level == "warning" and first.timeout == 30.0 and first.source == "test"
+    assert first.level == "warn" and first.timeout == 30.0 and first.source == "test"
     assert _wait(lambda: not list(spool.glob("*.json")))  # consumed
     # the sender's label comes from the environment
     assert alertmod.source_label() == f"pid {os.getppid()}"
@@ -95,14 +95,14 @@ def test_spool_delivers_labels_and_drops_stale_files(bus, home, monkeypatch):
 
 
 def test_command_line_client_and_shim(bus, home, capsys):
-    assert alertmod.main(["-l", "critical", "-t", "9", "build", "failed"]) == 0
-    assert _wait(lambda: any(a.message == "build failed" and a.level == "critical" and a.timeout == 9.0
+    assert alertmod.main(["-l", "crit", "-t", "9", "build", "failed"]) == 0
+    assert _wait(lambda: any(a.message == "build failed" and a.level == "crit" and a.timeout == 9.0
                              for a in bus.current()))
     assert alertmod.main([]) == 2 and "message is needed" in capsys.readouterr().err
     assert alertmod.main(["-c"]) == 2
     assert alertmod.parse_args(["-s", "hello", "there"]) == ("hello there", "info", None, False, False, "")
     assert alertmod.parse_args(["--list"])[4] is True
-    assert alertmod.parse_args(["-C", "/var/log/app.log", "errors"])[5] == "/var/log/app.log"
+    assert alertmod.parse_args(["-d", "/var/log/app.log", "errors"])[5] == "/var/log/app.log"
     folder = alertmod.shim_dir(home)
     script = folder / ("alert.cmd" if sys.platform == "win32" else "alert")
     assert script.exists() and "shellcraft.alerts" in script.read_text()
@@ -111,7 +111,7 @@ def test_command_line_client_and_shim(bus, home, capsys):
     if sys.platform != "win32":
         import subprocess
 
-        done = subprocess.run([str(script), "-l", "warning", "from the shim"], capture_output=True, text=True,
+        done = subprocess.run([str(script), "-l", "warn", "from the shim"], capture_output=True, text=True,
                               env={**os.environ, "PATH": env["PATH"], alertmod.SUB_ENV: "1:bash"})
         assert done.returncode == 0, done.stderr
         assert _wait(lambda: any(a.message == "from the shim" and a.source == "sub 1 (bash)" for a in bus.current()))
@@ -129,11 +129,11 @@ def ictx(home, tmp_path, monkeypatch):
 
 def test_alert_builtin_posts_lists_and_dismisses(ictx):
     assert run_line("alert deploy finished", ictx).status == 0
-    run_line("alert -l warning -t 40 disk at 90%", ictx)
-    run_line("alert -l critical -s pager is down", ictx)
+    run_line("alert -l warn -t 40 disk at 90%", ictx)
+    run_line("alert -l crit -s pager is down", ictx)
     listed = to_text(run_line("alert --list", ictx).output)
-    assert listed.startswith("1. [critical] pager is down  (sticky, from main shell)")
-    assert "2. [warning] disk at 90%" in listed and "3. [info] deploy finished" in listed
+    assert listed.startswith("1. [crit] pager is down  (sticky, from main shell)")
+    assert "2. [warn] disk at 90%" in listed and "3. [info] deploy finished" in listed
     assert "1 alert dismissed" in to_text(run_line("alert -c 2", ictx).output)
     assert "2 alerts dismissed" in to_text(run_line("alert -c", ictx).output)
     assert "no alerts" in to_text(run_line("alert --list", ictx).output)
@@ -148,9 +148,9 @@ def test_alert_builtin_posts_lists_and_dismisses(ictx):
 def test_nested_shell_forwards_to_the_main_shell(ictx, bus, monkeypatch):
     monkeypatch.setenv("SHELLCRAFT_DEPTH", "1")
     monkeypatch.setenv(alertmod.SUB_ENV, "3:shellcraft --no-banner")
-    out = to_text(run_line("alert -l warning from inside", ictx).output)
+    out = to_text(run_line("alert -l warn from inside", ictx).output)
     assert "sent to the main shell" in out
-    assert _wait(lambda: any(a.message == "from inside" and a.level == "warning"
+    assert _wait(lambda: any(a.message == "from inside" and a.level == "warn"
                              and a.source == "sub 3 (shellcraft --no-banner) shellcraft [1]" for a in bus.current()))
     with pytest.raises(PipelineError, match="main ShellCraft"):
         run_line("alert --list", ictx)
@@ -160,13 +160,13 @@ def test_panel_lines_show_alerts_first_with_their_source(bus):
     from shellcraft.footer import panel_lines
 
     bus.post("all good", "info", source="main shell")
-    bus.post("look here", "critical", source="sub 1 (bash)")
+    bus.post("look here", "crit", source="sub 1 (bash)")
     lines = panel_lines([], 0, None, 80, alerts=bus.current())
-    assert [row.style for row in lines] == ["alert.critical", "alert.info"]  # no stack without jobs
-    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("critical")
+    assert [row.style for row in lines] == ["alert.crit", "alert.info"]  # no stack without jobs
+    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("crit")
     assert lines[1][2].startswith(" ✖ all good · from main shell") and "info · " in lines[1][2]
     long = AlertBus()
-    long.post("x" * 200, "warning")
+    long.post("x" * 200, "warn")
     text = panel_lines([], 0, None, 60, alerts=long.current())[0][2]
     assert "…" in text and len(text) <= 60
 
@@ -185,30 +185,30 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
 
     bus = AlertBus()
     info = bus.post("Backup finished", "info", source="sub 1 (bash --norc)")
-    warn = bus.post("Disk /home at 91%", "warning", source="sub 1 (bash --norc)")
-    crit = bus.post("Payment API is down", "critical", source="mcp · claude")
+    warn = bus.post("Disk /home at 91%", "warn", source="sub 1 (bash --norc)")
+    crit = bus.post("Payment API is down", "crit", source="mcp · claude")
     assert (info.job, warn.job, crit.job) == (1, 1, None)
     jobs = [_Job(1, "bash --norc"), _Job(2, "find / -name x", running=False)]
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
-    assert [r.style for r in rows] == ["alert.critical", "current", "running", "done"]  # critical keeps its row
+    assert [r.style for r in rows] == ["alert.crit", "current", "running", "done"]  # critical keeps its row
     main = rows[1]
     assert main.text.startswith(" ● main") and main.text.rstrip().endswith("● 1  ● 1  ● 1 ▸") and main.badge > 0
     assert [(main.text[s:e], style, role) for s, e, style, role in main.spans] == [
-        (" ▾", None, "fold"), ("● 1", "alert.critical.mark", "badge"), ("● 1", "alert.warning.mark", "badge"),
+        (" ▾", None, "fold"), ("● 1", "alert.crit.mark", "badge"), ("● 1", "alert.warn.mark", "badge"),
         ("● 1", "alert.info.mark", "badge"), (" ▸ ", None, "badge")]
     bash = rows[2]
     assert bash.text.startswith(" ○ 1  bash --norc  ● Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
-    assert "running" not in bash.text and bash.spans[0][2] == "alert.warning.mark"
+    assert "running" not in bash.text and bash.spans[0][2] == "alert.warn.mark"
     assert rows[3].text.rstrip().endswith("done ×") and "s ·" not in rows[3].text  # no time on the right
     # unfolded: every alert gets a row, the badge shows ▾
     assert bus.toggle() is True
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current(), expanded=True)
-    assert [r.style for r in rows][:3] == ["alert.critical", "alert.warning", "alert.info"]
+    assert [r.style for r in rows][:3] == ["alert.crit", "alert.warn", "alert.info"]
     assert rows[3].text.rstrip().endswith("▾") and [r.alert for r in rows[:3]] == [crit, warn, info]
     assert alert_rows(bus.current(), jobs, False) == [crit] and alert_rows(bus.current(), [], False) == [crit, warn, info]
     # the icon at the start of every alert row is its close button
     hovered = panel_lines(jobs, 0, warn, 80, alerts=bus.current(), expanded=True)
-    assert hovered[1].hovered and hovered[1].text.endswith("warning · 60s ") and hovered[1].close == 1
+    assert hovered[1].hovered and hovered[1].text.endswith("warn · 60s ") and hovered[1].close == 1
     assert hovered[1].spans == ((1, 2, None, "close"),) and hovered[1].text[1] == "✖"
     assert not hovered[0].hovered and hovered[0].close == 1 and hovered[0].spans == ((1, 2, None, "close"),)
     # only critical alerts: no ▸, nothing to fold
@@ -225,8 +225,8 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
     from shellcraft.themes import UI, all_themes
 
     bus = AlertBus()
-    warn = bus.post("disk", "warning", source="sub 1 (bash)")
-    crit = bus.post("down", "critical", source="pid 7")
+    warn = bus.post("disk", "warn", source="sub 1 (bash)")
+    crit = bus.post("down", "crit", source="pid 7")
     jobs = [_Job(1, "bash")]
     footer = Footer(UI(all_themes({})["nord"], Console(file=io.StringIO())), jobs, alerts=bus)
     footer.size = lambda: (24, 80)
@@ -242,7 +242,7 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
     assert footer.mouse("up", 79, 23, "left") == ("handled", None) and bus.expanded  # the badge on main
     assert footer.row_tabs == [None, 0, 1] and footer.rows[0].alert is warn
     assert footer.mouse("up", 10, 22, "right") == ("handled", None) and bus.current() == [warn]  # right-click: copy
-    assert bus.clip == "disk" and bus.copied is warn and footer.rows[0].text.rstrip().endswith("warning · 60s")
+    assert bus.clip == "disk" and bus.copied is warn and footer.rows[0].text.rstrip().endswith("warn · 60s")
     assert footer.mouse("move", 10, 22) == ("handled", None) and "copied · Alt-v pastes" in footer.rows[0].text
     assert footer.mouse("move", 10, 23) == ("handled", None) and bus.copied is None  # the hint goes with the mouse
     assert footer.mouse("up", 2, 22, "left") == ("handled", None) and not bus.current()  # the icon dismisses
@@ -255,7 +255,7 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
 def test_content_travels_through_the_spool_and_the_clip(bus, home, ictx, capsys):
     """-C keeps a payload with the alert; a right-click copies it; Alt-v, Ctrl-] v, clip and
     $CLIP give it back."""
-    written = alertmod.send("errors in the log", "warning", 30, source="sub 1 (bash)", content="/var/log/app.log")
+    written = alertmod.send("errors in the log", "warn", 30, source="sub 1 (bash)", content="/var/log/app.log")
     assert json.loads(written.read_text())["content"] == "/var/log/app.log"
     assert _wait(lambda: bus.current() and bus.current()[0].content == "/var/log/app.log")
     assert bus.copy(bus.current()[0]) == "/var/log/app.log" and bus.clip == "/var/log/app.log"
@@ -270,14 +270,14 @@ def test_content_travels_through_the_spool_and_the_clip(bus, home, ictx, capsys)
     real = sysmod.stdin
     sysmod.stdin = monkey_stdin
     try:
-        assert alertmod.main(["-l", "critical", "build failed", "-C", "-"]) == 0
+        assert alertmod.main(["-l", "crit", "build failed", "-d", "-"]) == 0
     finally:
         sysmod.stdin = real
     assert _wait(lambda: any(a.message == "build failed" and a.content == "line 1\nline 2\n" for a in bus.current()))
     # the builtin: -C, -C - and --list; the clip builtin and $CLIP
-    run_line("alert -l warning -C /tmp/x.json 'see the file'", ictx)
+    run_line("alert -l warn -d /tmp/x.json 'see the file'", ictx)
     assert ictx.alerts.current()[0].content == "/tmp/x.json"
-    run_line("echo payload | alert piped -C -", ictx)
+    run_line("echo payload | alert piped -d -", ictx)
     assert any(a.content == "payload\n" for a in ictx.alerts.current())
     assert "11 characters of content" in to_text(run_line("alert --list", ictx).output)  # the --list hint
     ictx.alerts.copy(ictx.alerts.current()[0])
@@ -307,13 +307,15 @@ def test_mcp_tool_send_tui_alert(bus, registry):
 
     tools = {t.name: t for t in call(lambda c: c.list_tools()).tools}
     assert ALERT_TOOL in tools and tools[ALERT_TOOL].input_schema["required"] == ["message"]
-    assert tools[ALERT_TOOL].input_schema["properties"]["severity"]["enum"] == ["info", "warning", "critical"]
-    ok = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "model says hi", "severity": "warning",
+    assert tools[ALERT_TOOL].input_schema["properties"]["severity"]["enum"] == ["info", "warn", "crit", "warning", "critical"]
+    ok = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "model says hi", "severity": "warn",
                                                  "timeout_seconds": 20, "content": "cat /tmp/report.md"}))
-    assert not ok.is_error and "alert shown (warning)" in ok.content[0].text and "with content" in ok.content[0].text
+    assert not ok.is_error and "alert shown (warn)" in ok.content[0].text and "with content" in ok.content[0].text
     assert _wait(lambda: any(a.message == "model says hi" and a.timeout == 20.0 and a.source.startswith("mcp · ")
                              and a.content == "cat /tmp/report.md" for a in bus.current()))
     assert "content" in tools[ALERT_TOOL].input_schema["properties"]
+    legacy = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "old client", "severity": "critical"}))
+    assert not legacy.is_error and "alert shown (crit)" in legacy.content[0].text  # the long name still works
     bad_content = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "x", "content": 5}))
     assert bad_content.is_error and "content" in bad_content.content[0].text
     bad = call(lambda c: c.call_tool(ALERT_TOOL, {"message": "x", "severity": "loud"}))
@@ -371,7 +373,7 @@ def test_a_lite_subshell_uses_the_main_shells_clip_over_the_link(monkeypatch):
             monkeypatch.setenv(name, value)
         lite = AlertBus()
         lite.remote_clip = mainlink.available()
-        main.copy(main.post("errors", "critical", content="/var/log/app.log"))
+        main.copy(main.post("errors", "crit", content="/var/log/app.log"))
         assert lite.clip == "/var/log/app.log"  # copied in main, read in the subshell
         lite.clip = "from the subshell"
         assert main.clip == "from the subshell"  # set in the subshell, seen by main
@@ -401,7 +403,7 @@ def test_the_clip_history_keeps_ten_copies_newest_first(ictx, monkeypatch):
 
     bus = ictx.alerts
     for name in ("first", "second", "third"):
-        bus.copy(bus.post(name, "critical", content=f"/var/log/{name}.log"))
+        bus.copy(bus.post(name, "crit", content=f"/var/log/{name}.log"))
     assert bus.clips() == ["/var/log/third.log", "/var/log/second.log", "/var/log/first.log"]
     assert to_text(run_line("echo $CLIP $CLIP1 $CLIP2 [$CLIP9]", ictx).output) == \
         "/var/log/third.log /var/log/second.log /var/log/first.log []\n"
@@ -436,3 +438,27 @@ def test_the_clip_history_keeps_ten_copies_newest_first(ictx, monkeypatch):
     finally:
         link.close()
         main.close()
+
+
+def test_short_level_names_old_names_still_work_and_d_carries_the_data(bus, home, ictx):
+    assert alertmod.LEVELS == ("info", "warn", "crit")
+    assert alertmod.normalize_level("warning") == "warn" and alertmod.normalize_level("CRITICAL") == "crit"
+    assert alertmod.normalize_level("loud") is None
+    assert alertmod.parse_args(["-l", "warning", "old", "name"])[1] == "warn"  # scripts written for 2.0
+    assert alertmod.parse_args(["-l", "crit", "-d", "/tmp/x", "down"])[1::4] == ("crit", "/tmp/x")
+    assert alertmod.parse_args(["--content", "kept", "m"])[5] == "kept"  # the old long name
+    with pytest.raises(SystemExit):
+        alertmod.parse_args(["-C", "/tmp/x", "down"])  # -C is gone: no more mixing it up with -c
+    with pytest.raises(SystemExit):
+        alertmod.parse_args(["-l", "loud", "m"])
+    # a spool file from an older shell, with the long name
+    (bus.spool / "0-old.json").write_text(json.dumps({"time": time.time(), "message": "old style",
+                                                       "level": "critical"}))
+    assert _wait(lambda: any(a.message == "old style" and a.level == "crit" for a in bus.current()))
+    run_line("alert -l crit -d /var/log/a.log down", ictx)
+    shown = ictx.alerts.current()[0]
+    assert shown.level == "crit" and shown.content == "/var/log/a.log"
+    assert "[crit] down" in to_text(run_line("alert --list", ictx).output)
+    from shellcraft.builtins import BUILTINS
+
+    assert BUILTINS["alert"].usage.startswith("alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA]")

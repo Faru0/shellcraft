@@ -307,7 +307,7 @@ class Supervisor:
             if self.alerts is not None:
                 self.alerts.post(f"startup {managed.path.name} crashed {CRASH_LIMIT} times in "
                                  f"{int(CRASH_WINDOW // 60)} min: not restarted (startup start {managed.name})",
-                                 "critical", source="startup")
+                                 "crit", source="startup")
             return
         delay = RESTART_DELAYS[min(len(managed.crashes) - 1, len(RESTART_DELAYS) - 1)]
         managed.timer = threading.Timer(delay, self._restart_now, args=(managed,))
@@ -322,7 +322,7 @@ class Supervisor:
             managed.job = self._spawn(managed)
         except OSError as exc:
             if self.alerts is not None:
-                self.alerts.post(f"startup {managed.path.name} could not restart: {exc}", "critical",
+                self.alerts.post(f"startup {managed.path.name} could not restart: {exc}", "crit",
                                  source="startup")
 
 

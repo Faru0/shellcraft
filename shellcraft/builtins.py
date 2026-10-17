@@ -759,8 +759,8 @@ jobs 1                      # attach to job 1 (Ctrl-] leaves it running, Ctrl-] 
 
 ALERT_DOC = """# alert
 
-Show an alert in the status panel: green for information, amber for a warning, red for
-something critical. From the main shell it is shown at once; from a subshell (`sub bash`,
+Show an alert in the status panel: green for information (`info`), amber for a warning (`warn`),
+red for something critical (`crit`). From the main shell it is shown at once; from a subshell (`sub bash`,
 `sub pwsh`, `sub shellcraft`) the same command reaches the main shell's panel, and so does the
 `send_tui_alert` MCP tool an AI client calls.
 
@@ -768,8 +768,8 @@ something critical. From the main shell it is shown at once; from a subshell (`s
 
 ```
 alert MESSAGE...                     # an info alert, shown for 15 s
-alert -l warning MESSAGE...          # amber, 60 s
-alert -l critical MESSAGE...         # red, stays until dismissed
+alert -l warn MESSAGE...             # amber, 60 s
+alert -l crit MESSAGE...             # red, stays until dismissed
 alert -t 5 MESSAGE...                # shown for 5 s; -s keeps it until dismissed
 alert --list                         # the current alerts, numbered
 alert -c                             # dismiss every alert (alert -c N: just number N)
@@ -779,10 +779,10 @@ alert -c                             # dismiss every alert (alert -c N: just num
 
 | Option | Meaning |
 | --- | --- |
-| `-l LEVEL`, `--level LEVEL` | `info` (default), `warning` or `critical`. |
-| `-t SECONDS`, `--timeout SECONDS` | How long it stays (default: 15 for info, 60 for warning, critical stays). |
+| `-l LEVEL`, `--level LEVEL` | `info` (default), `warn` or `crit`. |
+| `-t SECONDS`, `--timeout SECONDS` | How long it stays (default: 15 for info, 60 for warn, crit stays). |
 | `-s`, `--sticky` | Stay until dismissed. |
-| `-C TEXT`, `--content TEXT` | A payload kept with the alert, up to 64 KB (`-C -`: stdin); a right-click copies it. |
+| `-d DATA`, `--data DATA` | Data kept with the alert, up to 64 KB (`-d -`: stdin); a right-click copies it. |
 | `-c [N]`, `--clear [N]` | Dismiss every alert, or alert N of `alert --list`. |
 | `--list` | List the current alerts. |
 
@@ -795,10 +795,10 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   (`● 1  ● 1  ● 1 ▸`, a filled bubble in each level's color). A click on it unfolds one row per
   alert, the most severe first, with the message, where it came from and the time left; another
   click folds them back (`▾` / `▸`).
-- A **critical** alert always keeps its full row, folded or not.
+- A **crit** alert always keeps its full row, folded or not.
 - To dismiss one: click its **✖** at the start of the row (`alert -c [N]` from the keyboard).
-  Every level has the same mark, in its color: green info, amber warning, red critical.
-- A **right-click** on a row copies the alert's content (`-C`, or the message when it has none)
+  Every level has the same mark, in its color: green info, amber warn, red crit.
+- A **right-click** on a row copies the alert's data (`-d`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt
   (**Ctrl-] v** into another program inside a subshell); `clip` prints it and `$CLIP` holds it
   (`man clip`). From the keyboard: **Alt-c** copies the top alert, `clip -a
@@ -807,8 +807,8 @@ room. In the panel under the prompt (and in the footer inside a subshell):
 - With no subshell to fold into, every alert shows as a row.
 
 ```
-alert -l warning -C /var/log/app.log "errors in the app log"   # right-click, then: tail -f  Alt-v
-make 2>&1 | alert -l critical build failed -C -                 # the build output as the content
+alert -l warn -d /var/log/app.log "errors in the app log"   # right-click, then: tail -f  Alt-v
+make 2>&1 | alert -l crit build failed -d -                  # the build output as the data
 ```
 
 ## How it reaches the shell
@@ -824,7 +824,8 @@ in the spool while no shell was running is dropped after five minutes.
 
 
 @builtin("alert", "Show an alert in the status panel",
-         "alert [-l LEVEL] [-t SECONDS | -s] [-C CONTENT] MESSAGE... | --list | -c [N]", stateful=True,
+         "alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE... | --list | -c [N]",
+         stateful=True,
          doc=ALERT_DOC)
 def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import alerts as alertmod
@@ -836,7 +837,7 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError("alert: bad arguments (man alert)") from None
         return ""
     bus = ctx.alerts
-    if content == "-":  # `cmd | alert done -C -`: the payload is what was piped in
+    if content == "-":  # `cmd | alert done -d -`: the data is what was piped in
         content = stdin
     if alertmod.depth_forward():  # a nested ShellCraft: the main shell shows it
         if clear or listing:
@@ -922,7 +923,7 @@ has the mouse) and use the terminal's copy.
 
 ## See also
 
-`alert -C CONTENT MESSAGE` (an alert with a payload), `man alert`.
+`alert -d DATA MESSAGE` (an alert with data), `man alert`.
 """
 
 

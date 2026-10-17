@@ -282,7 +282,7 @@ stack, at the prompt and inside every subshell alike: `main` first, then one lin
 newest at the bottom, growing as you open more (up to half the screen, then "… and N more"):
 
 ```
- ✖ Payment API is down · from mcp · claude-code                          critical
+ ✖ Payment API is down · from mcp · claude-code                              crit
  ● main ▾                                                         ● 1  ● 1  ● 1 ▸
  ○ 1  bash --norc  ● Disk /home at 91%
  ○ 2  find / -name "*.log"                                                   done
@@ -401,8 +401,8 @@ normal script more than 30 s. `templates/startup/30-watcher.example.py` is an ex
 
 ```
 alert deploy finished                 # green, 15 s
-alert -l warning disk at 90%          # amber, 60 s
-alert -l critical pager is down       # red, stays until alert -c
+alert -l warn disk at 90%             # amber, 60 s
+alert -l crit pager is down           # red, stays until alert -c
 alert --list · alert -c [N]           # see them, dismiss them
 ```
 
@@ -411,11 +411,11 @@ An alert sent from a subshell shows inline on that subshell's line, after its co
 color (`● Disk /home at 91%`; `+1` when it has more). The **badge** at the right end of the
 `main` line counts every alert by level (`● 1  ● 1  ● 1 ▸`, a filled bubble in each level's color): a click on it unfolds one full row
 per alert, most severe first, with the message, where it came from and the time left; another
-click folds them back. A **critical** alert always keeps its full row, so it cannot be missed.
+click folds them back. A **crit** alert always keeps its full row, so it cannot be missed.
 To dismiss an alert, click its **✖** at the start of the row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
 
-An alert can carry a **payload**: `alert -C /var/log/app.log "errors in the log"` or
-`make 2>&1 | alert -l critical build failed -C -`. A **right-click** on its row copies the payload
+An alert can carry **data**: `alert -d /var/log/app.log "errors in the log"` or
+`make 2>&1 | alert -l crit build failed -d -`. A **right-click** on its row copies the payload
 (or the message) into the shell's own clip register, which keeps the last ten copies: `$CLIP`
 is the newest, `$CLIP1` the one before, up to `$CLIP9` (`clip -l` lists them). **Alt-v** pastes
 `$CLIP` at the prompt, in the main shell and in a `sub shellcraft`; pressed again right away it
@@ -719,7 +719,7 @@ the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when 
 shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
-- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warning / critical, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
+- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warn / crit, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.

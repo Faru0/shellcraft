@@ -44,10 +44,11 @@ ALERT_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "message": {"type": "string",
                     "description": "The alert text (one line; up to 300 characters)."},
-        "severity": {"type": "string", "enum": ["info", "warning", "critical"], "default": "info",
-                     "description": "info (green), warning (amber) or critical (red, stays until dismissed)."},
+        "severity": {"type": "string", "enum": ["info", "warn", "crit", "warning", "critical"], "default": "info",
+                     "description": "info (green), warn (amber) or crit (red, stays until dismissed); the long "
+                                    "names warning and critical work too."},
         "timeout_seconds": {"type": "integer", "minimum": 1,
-                            "description": "Seconds to show it. Default: 15 for info, 60 for warning; critical stays."},
+                            "description": "Seconds to show it. Default: 15 for info, 60 for warn; crit stays."},
         "content": {"type": "string",
                     "description": "Optional payload the user can copy with a right-click on the alert and paste "
                                    "with Alt-v: a path, a command to run, a URL, JSON (up to 64 KB)."},
@@ -342,8 +343,8 @@ def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
     message = str(arguments.get("message", "")).strip()
     if not message:
         raise CommandError("send_tui_alert: `message` is required")
-    severity = str(arguments.get("severity", "info") or "info")
-    if severity not in alerts.LEVELS:
+    severity = alerts.normalize_level(arguments.get("severity", "info") or "info")
+    if severity is None:
         raise CommandError(f"send_tui_alert: severity must be one of {', '.join(alerts.LEVELS)}")
     timeout: Any = arguments.get("timeout_seconds")
     if timeout is not None:

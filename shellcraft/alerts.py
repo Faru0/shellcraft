@@ -1,6 +1,6 @@
 """Alerts in the status panel, from subshells, nested ShellCrafts and AI clients over MCP.
 
-The main shell runs an `AlertBus`: a short list of alerts (info / warning / critical), each with
+The main shell runs an `AlertBus`: a short list of alerts (info / warn / crit), each with
 a timeout, shown at the top of the panel under the prompt and of the footer inside a subshell.
 Alerts reach it through a **spool folder**, `~/.shellcraft/alerts/` (owner-only): a sender drops
 one small JSON file there (written whole, then renamed into place) and the shell's watcher thread
@@ -28,9 +28,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-LEVELS = ("info", "warning", "critical")
-ICONS = {"info": "✖", "warning": "✖", "critical": "✖"}  # the same mark, in the level's color; a click on it dismisses
-DEFAULT_TIMEOUT = {"info": 15.0, "warning": 60.0, "critical": None}  # None: stays until dismissed
+LEVELS = ("info", "warn", "crit")
+# The long names of earlier versions, still accepted (scripts, spool files from older shells, MCP clients).
+LEVEL_ALIASES = {"warning": "warn", "critical": "crit"}
+ICONS = {"info": "✖", "warn": "✖", "crit": "✖"}  # the same mark, in the level's color; a click on it dismisses
+DEFAULT_TIMEOUT = {"info": 15.0, "warn": 60.0, "crit": None}  # None: stays until dismissed
+
+
+def normalize_level(name: Any) -> str | None:
+    """`info`, `warn` or `crit` for a level name (the long `warning` / `critical` too, any case);
+    None for anything else."""
+    word = str(name or "").strip().lower()
+    word = LEVEL_ALIASES.get(word, word)
+    return word if word in LEVELS else None
 MAX_ALERTS = 3  # shown at once; older ones of a lower level give way
 MAX_MESSAGE = 300
 MAX_CONTENT = 64 * 1024  # characters of `content` kept with an alert (what a right-click copies)
@@ -97,7 +107,7 @@ class AlertBus:
     def post(self, message: str, level: str = "info", timeout: float | None | str = "default",
              source: str = "", content: str = "") -> Alert:
         """Add an alert. `timeout` in seconds, None for sticky, "default" for the level's own."""
-        level = level if level in LEVELS else "info"
+        level = normalize_level(level) or "info"
         message = " ".join(str(message).split())[:MAX_MESSAGE] or "(empty alert)"
         seconds = DEFAULT_TIMEOUT[level] if timeout == "default" else timeout
         alert = Alert(level, message, timeout=None if seconds is None else max(1.0, float(seconds)), source=source,
@@ -374,22 +384,28 @@ def _spool(payload: dict[str, Any], home: Path | None) -> Path:
 
 
 def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, bool, str]:
-    """(message, level, timeout, clear, list, content) for
-    `alert [-l LEVEL] [-t SECONDS] [-C CONTENT] [-c] MESSAGE…`."""
+    """(message, level, timeout, clear, list, data) for
+    `alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE… | --list | -c [N]`."""
     import argparse
 
     parser = argparse.ArgumentParser(prog="alert", add_help=True,
                                      description="Show an alert in ShellCraft's status panel.")
-    parser.add_argument("-l", "--level", choices=LEVELS, default="info")
+    parser.add_argument("-l", "--level", default="info", metavar="LEVEL",
+                        help="info (default), warn or crit")
     parser.add_argument("-t", "--timeout", type=float, metavar="SECONDS",
-                        help="seconds to show it (default: 15 info, 60 warning, critical stays)")
+                        help="seconds to show it (default: 15 info, 60 warn, crit stays)")
     parser.add_argument("-s", "--sticky", action="store_true", help="stay until dismissed")
     parser.add_argument("-c", "--clear", action="store_true", help="dismiss every alert")
     parser.add_argument("--list", action="store_true", help="list the current alerts")
-    parser.add_argument("-C", "--content", default="", metavar="TEXT",
-                        help="a payload a right-click on the alert copies (- reads it from stdin)")
+    # -d, not -C: -C and -c (clear) were too easy to mix up. --content is the old long name.
+    parser.add_argument("-d", "--data", "--content", dest="content", default="", metavar="DATA",
+                        help="data kept with the alert, which a right-click copies (- reads stdin)")
     parser.add_argument("message", nargs="*")
     opts = parser.parse_args(argv)
+    level = normalize_level(opts.level)
+    if level is None:
+        parser.error(f"argument -l/--level: '{opts.level}' is not a level (info, warn or crit)")
+    opts.level = level
     timeout: float | None | str = "default"
     if opts.sticky:
         timeout = None
@@ -411,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     if not message:
         print("alert: a message is needed", file=sys.stderr)
         return 2
-    if content == "-":  # `make 2>&1 | alert -l warning build failed -C -`
+    if content == "-":  # `make 2>&1 | alert -l crit build failed -d -`
         content = sys.stdin.read()
     try:
         send(message, level, timeout, content=content)

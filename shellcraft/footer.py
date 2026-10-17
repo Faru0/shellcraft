@@ -352,7 +352,7 @@ def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
     stack to fold them into), else only the critical ones; the rest live in the badge."""
     if expanded or not jobs:
         return list(alerts)
-    return [a for a in alerts if a.level == "critical"]
+    return [a for a in alerts if a.level == "crit"]
 
 
 def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None) -> list[Row]:
@@ -439,7 +439,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         spans += ((len(main), len(main) + len(fold), None, "fold"),)
         main += fold
     if alerts:
-        foldable = any(a.level != "critical" for a in alerts)
+        foldable = any(a.level != "crit" for a in alerts)
         badge, marks = alert_badge(alerts, foldable)
         badge += (" ▾" if expanded else " ▸") if foldable else ""
         pad = max(2, width - get_cwidth(main) - get_cwidth(badge) - 1)

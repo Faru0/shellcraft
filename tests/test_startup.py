@@ -213,7 +213,7 @@ def test_supervisor_starts_stops_and_restarts_on_crash(home, monkeypatch):
     assert loop.job.kind == "program" and loop.job.command == "startup: 50-loop.py" and loop.job.running
     # the crashing one is restarted until the limit, then a red alert
     assert _wait(lambda: crash.gave_up)
-    assert len(crash.crashes) == 3 and any(a.level == "critical" and "30-crash.py" in a.message for a in alerts.current())
+    assert len(crash.crashes) == 3 and any(a.level == "crit" and "30-crash.py" in a.message for a in alerts.current())
     assert sum(1 for j in table if j.command == "startup: 30-crash.py") == 1  # one line in the panel, not one per restart
     # a clean exit is not a crash: never restarted
     assert _wait(lambda: not once.job.running) and once.job.status == 0 and once.crashes == []
