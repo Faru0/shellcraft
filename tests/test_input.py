@@ -497,3 +497,40 @@ def test_describe_windows_mouse():
     assert describe_windows_mouse(1, 0, 0, 0, 0).startswith("buttons left at 1,1")
     assert describe_windows_mouse(0, 0, 0, 0, 0).startswith("buttons released")
     assert describe_windows_mouse(0, 0x1, 0, 4, 4) is None  # a plain move
+
+
+def test_windows_mouse_reaches_the_completion_menu():
+    """On Windows the classic reader delivers the mouse as WindowsMouseEvent; prompt_toolkit's
+    own handler ignores it with our DirectOutput, so the shell maps it onto the prompt's layout."""
+    from types import SimpleNamespace as NS
+
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.layout.mouse_handlers import MouseHandlers
+    from prompt_toolkit.mouse_events import MouseEventType
+
+    from shellcraft.shell import Shell, windows_mouse_to_layout
+
+    got = []
+    handlers = MouseHandlers()
+    handlers.set_mouse_handler_for_range(4, 20, 2, 3, lambda e: got.append(e) or None)  # a menu row
+    renderer = NS(_cursor_pos=Point(x=6, y=0), mouse_handlers=handlers)
+    # screen buffer: the prompt starts at buffer row 40 (cursor row 40, renderer row 0); window from 30
+    info = NS(dwCursorPosition=NS(X=6, Y=40), srWindow=NS(Top=30, Left=0))
+
+    def event(data):
+        return NS(data=data, app=NS(renderer=renderer), key_sequence=[NS(key=Keys.WindowsMouseEvent)])
+
+    assert windows_mouse_to_layout(event("LEFT;MOUSE_UP;7;42"), info) is None
+    assert got[-1].position == Point(x=7, y=2) and got[-1].event_type == MouseEventType.MOUSE_UP
+    assert windows_mouse_to_layout(event("NONE;SCROLL_DOWN;5;42"), info) is None
+    assert got[-1].event_type == MouseEventType.SCROLL_DOWN
+    assert windows_mouse_to_layout(event("bad"), info) is NotImplemented
+
+    # through the shell: the footer does not want it, the menu (open) gets the wheel and the click
+    shell = NS(session=NS(default_buffer=NS(complete_state=object())), _pressed=None,
+               direct_console=NS(buffer_info=lambda: info), footer=NS(mouse=lambda *a: None))
+    got.clear()
+    assert Shell._footer_mouse(shell, event("NONE;SCROLL_UP;5;42")) is None
+    assert Shell._footer_mouse(shell, event("LEFT;MOUSE_DOWN;8;42")) is None
+    assert [e.event_type for e in got] == [MouseEventType.SCROLL_UP, MouseEventType.MOUSE_DOWN]

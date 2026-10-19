@@ -72,6 +72,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **The completion menu took no clicks and no wheel on Windows:** with the classic key reader
+  (what Windows Terminal uses) the mouse arrives as Windows mouse events, and prompt_toolkit maps
+  those onto the screen only for its own Windows outputs, so with ShellCraft's console output it
+  dropped every one. The shell now maps them itself: a click picks a completion and the wheel
+  scrolls the menu, as on Linux.
+
 - **The wheel did nothing in the viewer on Windows 11** (the scroll view, `man`, `less`), with the
   legacy and the direct key reader alike: the Windows console reports wheel events at screen
   coordinates, which the viewer's layout did not match. The viewer now takes every wheel event

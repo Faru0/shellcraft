@@ -581,6 +581,7 @@ class Shell:
                 return None
             if kind == "down":
                 self._pressed = button  # for the release, which may not say which button it was
+            info = None
             if event.key_sequence[0].key == Keys.WindowsMouseEvent and self.direct_console is not None:
                 info = self.direct_console.buffer_info()  # Windows: rows count from the top of the
                 if info is not None:  # screen buffer, not of the window the footer sits at the bottom of
@@ -591,6 +592,8 @@ class Shell:
                     tab = acted[1]
                     run_in_terminal(lambda: self._run_clicked(f"jobs {tab}"))
                 return None
+            if info is not None:
+                return windows_mouse_to_layout(event, info)
         for binding in self._default_mouse.get_bindings_for_keys((event.key_sequence[0].key,)):
             return binding.handler(event)
         return NotImplemented
@@ -1258,3 +1261,27 @@ def _last_segment_words(text: str) -> list[str]:
     from shellcraft.completer import _current_segment
 
     return _current_segment(text)
+
+
+def windows_mouse_to_layout(event: Any, info: Any) -> Any:
+    """A Windows mouse event (`button;type;x;y`, screen buffer coordinates) handed to the mouse
+    handler of what the prompt drew there: the completion menu (a click picks an item, the wheel
+    scrolls it), the input line. prompt_toolkit's own Windows handler does this only for its
+    Win32Output / Windows10_Output and ignores the event for our DirectOutput, so on Windows the
+    menu took no clicks and no wheel. The prompt's first row is the console cursor's row less the
+    renderer's cursor row, as prompt_toolkit works it out."""
+    from prompt_toolkit.data_structures import Point
+    from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
+
+    pieces = event.data.split(";")
+    try:
+        button, kind = MouseButton(pieces[0]), MouseEventType(pieces[1])
+        x, y = int(pieces[2]), int(pieces[3])
+    except (ValueError, IndexError):
+        return NotImplemented
+    renderer = event.app.renderer
+    y -= info.dwCursorPosition.Y - renderer._cursor_pos.y
+    if y < 0 or x < 0:
+        return NotImplemented
+    handler = renderer.mouse_handlers.mouse_handlers[y][x]
+    return handler(MouseEvent(position=Point(x=x, y=y), event_type=kind, button=button, modifiers=frozenset()))
