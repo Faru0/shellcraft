@@ -127,10 +127,16 @@ delivers (key down and key up, the virtual key, the scan code, the character and
 flags), so it shows whether a key reaches ShellCraft at all and how; `--vt` turns the console's
 VT input on first, as the direct key reader has it. On Linux it prints the raw bytes the terminal
 sends. Enter ends it.
+
+`diag keys --raw --mouse` shows only the mouse: it turns mouse reporting on and prints each
+click and each wheel step (`wheel up at 12,5`), with the console's raw mouse record on Windows
+(buttons, flags, wheel delta) or the SGR report elsewhere. With `--vt` on Windows the mouse comes
+as SGR reports, as Windows Terminal sends them to the direct key reader. Plain moves are left out.
 """
 
 
-@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag [keys [--raw [--vt]]]",
+@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report",
+         "diag [keys [--raw [--vt] [--mouse]]]",
          category="shell", stateful=True, doc=DIAG_DOC)
 def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args == ["keys"]:  # the key test: what each key press reaches the shell as
@@ -140,20 +146,27 @@ def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
         lines = key_test(ctx.ui)
         return "".join(line + "\n" for line in lines)  # printed after, to copy into a report
-    if args[:2] == ["keys", "--raw"] and set(args[2:]) <= {"--vt"}:  # below prompt_toolkit
+    if args[:2] == ["keys", "--raw"] and set(args[2:]) <= {"--vt", "--mouse"}:  # below prompt_toolkit
         if ctx.ui is None or not ctx.interactive:
             raise CommandError("diag keys --raw: only in the interactive shell")
         from shellcraft.output import raw_keys
 
         console = ctx.ui.console
-        console.print(Text("raw keys: press the keys to test (Alt-v, right Alt-v, AltGr-v); Enter ends",
+        mouse = "--mouse" in args
+        console.print(Text("raw mouse: scroll the wheel and click; Enter ends" if mouse else
+                           "raw keys: press the keys to test (Alt-v, right Alt-v, AltGr-v); Enter ends",
                            style="sc.muted"))
         console.file.flush()
-        lines = raw_keys(lambda line: (console.file.write(line + "\r\n"), console.file.flush()), vt="--vt" in args)
+
+        def control(seq: str) -> None:
+            console.file.write(seq)
+            console.file.flush()
+
+        lines = raw_keys(lambda line: control(line + "\r\n"), vt="--vt" in args, mouse=mouse, control=control)
         return Styled(Text("✓ copy the lines above into a report", style="sc.success"),
                       "".join(line + "\n" for line in lines))
     if args:
-        raise CommandError("usage: diag [keys [--raw [--vt]]]")
+        raise CommandError("usage: diag [keys [--raw [--vt] [--mouse]]]")
     if ctx.console_report is None:
         raise CommandError("diag: only in the interactive shell")
     report = ctx.console_report()
@@ -1086,7 +1099,8 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 `diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
 Windows it also shows the console's Alt flags, to paste into a bug report. When a key does not
 show there at all, `diag keys --raw` prints what the console itself delivers, below the key
-reader (`--vt` with the console's VT input on).
+reader (`--vt` with the console's VT input on), and `diag keys --raw --mouse` the same for
+the mouse wheel and clicks.
 """
 
 

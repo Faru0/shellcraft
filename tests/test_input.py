@@ -413,7 +413,12 @@ def test_the_scroll_view_is_bottom_aligned():
     assert plain["match"] == 0
 
 
-def test_diag_keys_raw_prints_the_bytes_of_each_key():
+def test_diag_keys_raw_prints_the_bytes_of_each_key(monkeypatch):
+    import termios
+    import tty
+
+    raw = tty.setraw  # without its default flush, which could drop the keys typed below
+    monkeypatch.setattr(tty, "setraw", lambda fd, when=None: raw(fd, termios.TCSANOW))
     import os
     import pty
 
@@ -449,3 +454,46 @@ def test_diag_keys_raw_usage(tmp_path):
         run_line("diag keys --raw", ctx)
     with pytest.raises(PipelineError, match=r"usage: diag \[keys \[--raw"):
         run_line("diag keys --raw --bogus", ctx)
+
+
+def test_diag_keys_raw_mouse_turns_reporting_on_and_shows_the_wheel(monkeypatch):
+    import termios
+    import tty
+
+    raw = tty.setraw  # without its default flush, which could drop the keys typed below
+    monkeypatch.setattr(tty, "setraw", lambda fd, when=None: raw(fd, termios.TCSANOW))
+    import os
+    import pty
+
+    from shellcraft.output import MOUSE_REPORT_OFF, MOUSE_REPORT_ON, raw_keys
+
+    master, slave = pty.openpty()
+    sent: list[str] = []
+    try:
+        # two wheel steps and a click split across reads, a key that is ignored, then Enter
+        os.write(master, b"\x1b[<64;12;5M\x1b[<65;12;5Mx\x1b[<0;3;")
+        seen: list[str] = []
+
+        def write(line: str) -> None:
+            seen.append(line)
+            if len(seen) == 2:
+                os.write(master, b"1M\x1b[<16;3;1m\r")
+
+        lines = raw_keys(write, fd=slave, mouse=True, control=sent.append)
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert sent == [MOUSE_REPORT_ON, MOUSE_REPORT_OFF]
+    assert [line.split("    ")[0] for line in lines] == [
+        "wheel up at 12,5", "wheel down at 12,5", "left down at 3,1", "left up at 3,1 +ctrl"]
+
+
+def test_describe_windows_mouse():
+    from shellcraft.output import describe_windows_mouse
+
+    assert describe_windows_mouse(120 << 16, 0x4, 0, 9, 2).startswith("wheel up (delta 120) at 10,3  none")
+    assert describe_windows_mouse((0x10000 - 120) << 16, 0x4, 0x8, 0, 0).startswith(
+        "wheel down (delta -120) at 1,1  left-ctrl")
+    assert describe_windows_mouse(1, 0, 0, 0, 0).startswith("buttons left at 1,1")
+    assert describe_windows_mouse(0, 0, 0, 0, 0).startswith("buttons released")
+    assert describe_windows_mouse(0, 0x1, 0, 4, 4) is None  # a plain move

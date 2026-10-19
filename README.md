@@ -548,7 +548,8 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 `diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
 Windows it also shows the console's Alt flags, to paste into a bug report. When a key does not
 show there at all, `diag keys --raw` prints what the console itself delivers, below the key
-reader (`--vt` with the console's VT input on).
+reader (`--vt` with the console's VT input on), and `diag keys --raw --mouse` the same for
+the mouse wheel and clicks.
 
 ---
 

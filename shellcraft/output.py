@@ -724,25 +724,68 @@ def key_test(ui: UI) -> list[str]:
     return seen
 
 
-def raw_keys(write: Callable[[str], None], vt: bool = False, fd: int | None = None) -> list[str]:
+# Mouse reporting for `diag keys --raw --mouse`: clicks and the wheel (1000), SGR encoding (1006).
+MOUSE_REPORT_ON, MOUSE_REPORT_OFF = "\x1b[?1000h\x1b[?1006h", "\x1b[?1006l\x1b[?1000l"
+SGR_MOUSE_RE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+
+
+def raw_keys(write: Callable[[str], None], vt: bool = False, fd: int | None = None, mouse: bool = False,
+             control: Callable[[str], None] | None = None) -> list[str]:
     """`diag keys --raw`: what the console itself delivers, below prompt_toolkit, until Enter.
     Windows: every key record from CONIN$, key down and key up, with its virtual key, scan code,
     character and modifier flags (`vt`: with the console's VT input on, as the direct key reader
-    has it). Elsewhere: the raw bytes the terminal sends for each key press. Returns the lines."""
+    has it). Elsewhere: the raw bytes the terminal sends for each key press.
+    `mouse`: only the mouse (clicks and the wheel), with mouse reporting turned on; `control`
+    writes the escape sequences that turn it on and off (default: to `fd`). Returns the lines."""
     lines: list[str] = []
 
     def emit(line: str) -> None:
         lines.append(line)
         write(line)
 
+    fd = sys.stdin.fileno() if fd is None else fd
+    if control is None:
+        def control(seq: str) -> None:
+            os.write(fd, seq.encode())
     if sys.platform == "win32":
-        _raw_keys_windows(emit, vt)
+        _raw_keys_windows(emit, vt, mouse, control)
+    elif mouse:
+        _raw_mouse_posix(emit, fd, control)
     else:
-        _raw_keys_posix(emit, sys.stdin.fileno() if fd is None else fd)
+        _raw_keys_posix(emit, fd)
     return lines
 
 
-def _raw_keys_windows(emit: Callable[[str], None], vt: bool) -> None:
+def describe_sgr_mouse(code: int, x: int, y: int, final: str) -> str:
+    """One SGR mouse report in words: `wheel up at 12,5 +ctrl`, `left down at 3,1`."""
+    mods = "".join(f" +{name}" for bit, name in ((4, "shift"), (8, "alt"), (16, "ctrl")) if code & bit)
+    button = code & 3
+    if code & 64:
+        what = {0: "wheel up", 1: "wheel down", 2: "wheel left", 3: "wheel right"}[button]
+    else:
+        name = ("left", "middle", "right", "none")[button]
+        what = f"{name} {'move' if code & 32 else 'up' if final == 'm' else 'down'}"
+    return f"{what} at {x},{y}{mods}"
+
+
+def _mouse_reports(buf: str, emit: Callable[[str], None]) -> tuple[str, bool]:
+    """Print every complete SGR mouse report in `buf`; returns (the unfinished rest, Enter seen)."""
+    done = False
+    pos = 0
+    for m in SGR_MOUSE_RE.finditer(buf):
+        done = done or "\r" in buf[pos:m.start()] or "\n" in buf[pos:m.start()]
+        emit(f"{describe_sgr_mouse(int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))}"
+             f"    (sgr {m.group(0)[1:]!r})")
+        pos = m.end()
+    rest = buf[pos:]
+    if "\r" in rest or "\n" in rest:
+        return "", True
+    i = rest.rfind("\x1b")
+    return (rest[i:] if i >= 0 and len(rest) - i < 32 else ""), done
+
+
+def _raw_keys_windows(emit: Callable[[str], None], vt: bool, mouse: bool = False,
+                      control: Callable[[str], None] | None = None) -> None:
     import ctypes
     import msvcrt
     from ctypes import wintypes
@@ -757,11 +800,17 @@ def _raw_keys_windows(emit: Callable[[str], None], vt: bool) -> None:
     before = mode.value
     raw = (before | 0x0008) & ~(0x0001 | 0x0002 | 0x0004)  # window input on; processed, line, echo off
     raw = (raw | 0x0200) if vt else (raw & ~0x0200)  # VT input as asked
+    if mouse:  # mouse records on; quick edit off (it takes the mouse for selecting), extended flags on
+        raw = (raw | 0x0010 | 0x0080) & ~0x0040
     k32.SetConsoleMode(conin, raw)
-    emit(f"console input mode 0x{before:04X} -> 0x{raw:04X} (VT input {'on' if vt else 'off'}); "
+    emit(f"console input mode 0x{before:04X} -> 0x{raw:04X} (VT input {'on' if vt else 'off'}"
+         f"{', mouse input on' if mouse else ''}); "
          f"WT_SESSION {'set' if os.environ.get('WT_SESSION') else 'not set'}")
+    if mouse and vt and control:  # with VT input the mouse comes as SGR reports, once asked for
+        control(MOUSE_REPORT_ON)
     records = (INPUT_RECORD * 64)()
     count = wintypes.DWORD()
+    pending = ""  # VT input: the characters of a mouse report not finished yet
     try:
         while True:
             if not k32.ReadConsoleInputW(conin, records, 64, ctypes.byref(count)):
@@ -769,17 +818,73 @@ def _raw_keys_windows(emit: Callable[[str], None], vt: bool) -> None:
                 return
             for i in range(count.value):
                 rec = records[i]
+                if mouse and rec.EventType == 2:  # MOUSE_EVENT
+                    m = rec.Event.MouseEvent
+                    line = describe_windows_mouse(m.ButtonState, m.EventFlags, m.ControlKeyState,
+                                                  m.MousePosition.X, m.MousePosition.Y)
+                    if line:
+                        emit(line)
+                    continue
                 if rec.EventType != 1:  # only key events
                     continue
                 k = rec.Event.KeyEvent
+                if mouse:  # only the mouse: VT mouse reports arrive as typed characters; Enter ends
+                    if k.KeyDown and k.uChar.UnicodeChar not in ("", "\x00"):
+                        pending, done = _mouse_reports(pending + k.uChar.UnicodeChar, emit)
+                        if done:
+                            return
+                    elif k.KeyDown and k.VirtualKeyCode == 0x0D:
+                        return
+                    continue
                 emit(f"{'down' if k.KeyDown else 'up  '}  vk=0x{k.VirtualKeyCode:02X}  scan=0x{k.VirtualScanCode:02X}  "
                      f"char={k.uChar.UnicodeChar!r}  {windows_flags(k.ControlKeyState)}  "
                      f"(state=0x{k.ControlKeyState:04X})")
                 if k.KeyDown and k.VirtualKeyCode == 0x0D:
                     return
     finally:
+        if mouse and vt and control:
+            control(MOUSE_REPORT_OFF)
         k32.SetConsoleMode(conin, before)
         os.close(conin_fd)
+
+
+def describe_windows_mouse(buttons: int, flags: int, state: int, x: int, y: int) -> str | None:
+    """A Windows MOUSE_EVENT record in words, or None for a plain move (too many to show)."""
+    if flags & 0x0001 and not buttons & 0xFFFF:  # MOUSE_MOVED with no button held
+        return None
+    delta = (buttons >> 16) & 0xFFFF
+    delta = delta - 0x10000 if delta & 0x8000 else delta
+    if flags & 0x0004:  # MOUSE_WHEELED
+        what = f"wheel {'up' if delta > 0 else 'down'} (delta {delta})"
+    elif flags & 0x0008:  # MOUSE_HWHEELED
+        what = f"wheel {'right' if delta > 0 else 'left'} (delta {delta})"
+    else:
+        held = [name for bit, name in ((1, "left"), (2, "right"), (4, "middle")) if buttons & bit]
+        kind = "double-click" if flags & 0x0002 else "drag" if flags & 0x0001 else "buttons"
+        what = f"{kind} {'+'.join(held) or 'released'}"
+    return (f"{what} at {x + 1},{y + 1}  {windows_flags(state)}  "
+            f"(buttons=0x{buttons & 0xFFFFFFFF:08X} flags=0x{flags:X})")
+
+
+def _raw_mouse_posix(emit: Callable[[str], None], fd: int, control: Callable[[str], None]) -> None:
+    import termios
+    import tty
+
+    before = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    control(MOUSE_REPORT_ON)
+    pending = ""
+    try:
+        while True:
+            data = os.read(fd, 256)
+            if not data:
+                return
+            pending, done = _mouse_reports(pending + data.decode("utf-8", "replace"), emit)
+            if done:
+                return
+    finally:
+        control(MOUSE_REPORT_OFF)
+        termios.tcsetattr(fd, termios.TCSADRAIN, before)
 
 
 def _raw_keys_posix(emit: Callable[[str], None], fd: int) -> None:
