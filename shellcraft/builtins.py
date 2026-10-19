@@ -121,10 +121,16 @@ should have turned green or red and does not. `shellcraft --diag` prints the sam
 Alt-v pastes when it shows as `escape v` (or `escape c-v`, which is Ctrl+Alt+v: AltGr+v on
 Windows). On Windows each line also shows the console's raw flags (`left-alt`, `right-alt`,
 `left-ctrl`, `shift`). Try the left Alt, the right Alt and AltGr with v, and paste the result.
+
+`diag keys --raw` goes below prompt_toolkit: on Windows it prints every key record the console
+delivers (key down and key up, the virtual key, the scan code, the character and the modifier
+flags), so it shows whether a key reaches ShellCraft at all and how; `--vt` turns the console's
+VT input on first, as the direct key reader has it. On Linux it prints the raw bytes the terminal
+sends. Enter ends it.
 """
 
 
-@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag [keys]",
+@builtin("diag", "Console, color and footer diagnostics, to paste into a bug report", "diag [keys [--raw [--vt]]]",
          category="shell", stateful=True, doc=DIAG_DOC)
 def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args == ["keys"]:  # the key test: what each key press reaches the shell as
@@ -134,8 +140,20 @@ def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
         lines = key_test(ctx.ui)
         return "".join(line + "\n" for line in lines)  # printed after, to copy into a report
+    if args[:2] == ["keys", "--raw"] and set(args[2:]) <= {"--vt"}:  # below prompt_toolkit
+        if ctx.ui is None or not ctx.interactive:
+            raise CommandError("diag keys --raw: only in the interactive shell")
+        from shellcraft.output import raw_keys
+
+        console = ctx.ui.console
+        console.print(Text("raw keys: press the keys to test (Alt-v, right Alt-v, AltGr-v); Enter ends",
+                           style="sc.muted"))
+        console.file.flush()
+        lines = raw_keys(lambda line: (console.file.write(line + "\r\n"), console.file.flush()), vt="--vt" in args)
+        return Styled(Text("✓ copy the lines above into a report", style="sc.success"),
+                      "".join(line + "\n" for line in lines))
     if args:
-        raise CommandError("usage: diag [keys]")
+        raise CommandError("usage: diag [keys [--raw [--vt]]]")
     if ctx.console_report is None:
         raise CommandError("diag: only in the interactive shell")
     report = ctx.console_report()
@@ -1066,7 +1084,9 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 | Terminal | Any modern terminal | Windows Terminal; the classic console works with fewer colors |
 
 `diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
-Windows it also shows the console's Alt flags, to paste into a bug report.
+Windows it also shows the console's Alt flags, to paste into a bug report. When a key does not
+show there at all, `diag keys --raw` prints what the console itself delivers, below the key
+reader (`--vt` with the console's VT input on).
 """
 
 

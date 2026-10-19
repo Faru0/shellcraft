@@ -411,3 +411,41 @@ def test_the_scroll_view_is_bottom_aligned():
     assert state["match"] == 2
     plain = _pager("\x1b[<0;5;1M\x1b[<0;5;1m" + "q", 3)  # the ordinary viewer (man, less): from the top
     assert plain["match"] == 0
+
+
+def test_diag_keys_raw_prints_the_bytes_of_each_key():
+    import os
+    import pty
+
+    from shellcraft.output import raw_keys
+
+    master, slave = pty.openpty()
+    try:
+        os.write(master, b"\x1bv")
+        seen: list[str] = []
+
+        def write(line: str) -> None:
+            seen.append(line)
+            if len(seen) == 1:
+                os.write(master, b"\r")
+
+        lines = raw_keys(write, fd=slave)
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert lines == seen
+    assert lines[0] == "bytes b'\\x1bv'  (1b 76)" and lines[-1].startswith("bytes b'\\r'")
+
+
+def test_diag_keys_raw_usage(tmp_path):
+    import pytest
+
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import PipelineError, run_line
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path))
+    with pytest.raises(PipelineError, match="only in the interactive shell"):
+        run_line("diag keys --raw", ctx)
+    with pytest.raises(PipelineError, match=r"usage: diag \[keys \[--raw"):
+        run_line("diag keys --raw --bogus", ctx)

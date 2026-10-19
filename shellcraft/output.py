@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -669,7 +671,8 @@ def windows_flags(state: int) -> str:
 
     names = [name for bit, name in ((LEFT_ALT_PRESSED, "left-alt"), (RIGHT_ALT_PRESSED, "right-alt"),
                                     (LEFT_CTRL_PRESSED, "left-ctrl"), (0x0004, "right-ctrl"),
-                                    (SHIFT_PRESSED, "shift")) if state & bit]
+                                    (SHIFT_PRESSED, "shift"), (0x0020, "numlock"), (0x0080, "capslock"),
+                                    (0x0100, "enhanced")) if state & bit]
     return "+".join(names) or "none"
 
 
@@ -719,3 +722,79 @@ def key_test(ui: UI) -> list[str]:
                                    full_screen=False, style=ui.pt_style)
     app.run(in_thread=_loop_running())
     return seen
+
+
+def raw_keys(write: Callable[[str], None], vt: bool = False, fd: int | None = None) -> list[str]:
+    """`diag keys --raw`: what the console itself delivers, below prompt_toolkit, until Enter.
+    Windows: every key record from CONIN$, key down and key up, with its virtual key, scan code,
+    character and modifier flags (`vt`: with the console's VT input on, as the direct key reader
+    has it). Elsewhere: the raw bytes the terminal sends for each key press. Returns the lines."""
+    lines: list[str] = []
+
+    def emit(line: str) -> None:
+        lines.append(line)
+        write(line)
+
+    if sys.platform == "win32":
+        _raw_keys_windows(emit, vt)
+    else:
+        _raw_keys_posix(emit, sys.stdin.fileno() if fd is None else fd)
+    return lines
+
+
+def _raw_keys_windows(emit: Callable[[str], None], vt: bool) -> None:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    from prompt_toolkit.win32_types import INPUT_RECORD
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    conin_fd = os.open("CONIN$", os.O_RDWR | os.O_BINARY)  # type: ignore[attr-defined]
+    conin = wintypes.HANDLE(msvcrt.get_osfhandle(conin_fd))  # type: ignore[attr-defined]
+    mode = wintypes.DWORD()
+    k32.GetConsoleMode(conin, ctypes.byref(mode))
+    before = mode.value
+    raw = (before | 0x0008) & ~(0x0001 | 0x0002 | 0x0004)  # window input on; processed, line, echo off
+    raw = (raw | 0x0200) if vt else (raw & ~0x0200)  # VT input as asked
+    k32.SetConsoleMode(conin, raw)
+    emit(f"console input mode 0x{before:04X} -> 0x{raw:04X} (VT input {'on' if vt else 'off'}); "
+         f"WT_SESSION {'set' if os.environ.get('WT_SESSION') else 'not set'}")
+    records = (INPUT_RECORD * 64)()
+    count = wintypes.DWORD()
+    try:
+        while True:
+            if not k32.ReadConsoleInputW(conin, records, 64, ctypes.byref(count)):
+                emit(f"ReadConsoleInputW failed (error {ctypes.get_last_error()})")
+                return
+            for i in range(count.value):
+                rec = records[i]
+                if rec.EventType != 1:  # only key events
+                    continue
+                k = rec.Event.KeyEvent
+                emit(f"{'down' if k.KeyDown else 'up  '}  vk=0x{k.VirtualKeyCode:02X}  scan=0x{k.VirtualScanCode:02X}  "
+                     f"char={k.uChar.UnicodeChar!r}  {windows_flags(k.ControlKeyState)}  "
+                     f"(state=0x{k.ControlKeyState:04X})")
+                if k.KeyDown and k.VirtualKeyCode == 0x0D:
+                    return
+    finally:
+        k32.SetConsoleMode(conin, before)
+        os.close(conin_fd)
+
+
+def _raw_keys_posix(emit: Callable[[str], None], fd: int) -> None:
+    import termios
+    import tty
+
+    before = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    try:
+        while True:
+            data = os.read(fd, 64)
+            if not data:
+                return
+            emit(f"bytes {data!r}  ({' '.join(f'{b:02x}' for b in data)})")
+            if data in (b"\r", b"\n"):
+                return
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, before)

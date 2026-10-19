@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`diag keys --raw`:** for a key that `diag keys` does not show at all (Alt-v on some Windows
+  setups). On Windows it prints every key record the console delivers, key down and key up, with
+  the virtual key, scan code, character and modifier flags, before prompt_toolkit reads them;
+  `--vt` turns the console's VT input on first. On Linux it prints the raw bytes of each key.
+
 - **A saved MCP token:** `mcp start` used to make a new bearer token every time, so clients had to
   be added again. The token is now made once and saved (in the OS keyring when there is one,
   else in `config.json`, like an API key), and so is the address of the last `mcp start`.
