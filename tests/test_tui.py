@@ -381,6 +381,81 @@ def test_theme_switch_persists_preview_does_not(tmp_path, monkeypatch):
         run_line("theme nrod", ctx)
 
 
+def test_theme_in_a_subshell_is_not_saved(tmp_path, monkeypatch):
+    """`theme NAME` in a lite shell (`sub shellcraft`) changes that subshell only."""
+    from shellcraft.pipeline import run_line
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    ui = _ui()
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui, config={}, lite=True)
+    out = to_text(run_line("theme nord", ctx).output)
+    assert ui.theme.name == "nord" and not (tmp_path / "config.json").exists()
+    assert "this subshell only" in out and "theme --sub nord" in out
+    run_line("theme reset", ctx)
+    assert ui.theme.name == "cyberpunk" and not (tmp_path / "config.json").exists()
+    main = ShellContext(registry=ModuleRegistry(tmp_path), ui=_ui(), config={})
+    run_line("theme dracula", main)  # the main shell still saves
+    assert json.loads((tmp_path / "config.json").read_text())["theme"] == "dracula"
+
+
+def test_theme_sub_sets_shows_and_clears(tmp_path, monkeypatch):
+    from shellcraft.pipeline import PipelineError, run_line
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    ui = _ui()
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=ui, config={})
+    assert "no subshell theme" in to_text(run_line("theme --sub", ctx).output)
+    run_line("theme --sub matrix", ctx)
+    saved = json.loads((tmp_path / "config.json").read_text())
+    assert saved["sub_theme"] == "matrix" and "theme" not in saved
+    assert ui.theme.name == "cyberpunk"  # the main shell keeps its own
+    assert "Matrix" in to_text(run_line("theme --sub", ctx).output)
+    run_line("theme --sub --clear", ctx)
+    assert "sub_theme" not in json.loads((tmp_path / "config.json").read_text())
+    run_line("theme --sub nord", ctx)
+    run_line("theme --sub off", ctx)
+    assert "sub_theme" not in json.loads((tmp_path / "config.json").read_text())
+    with pytest.raises(PipelineError, match="did you mean 'nord'"):
+        run_line("theme --sub nrod", ctx)
+    with pytest.raises(PipelineError, match="usage"):
+        run_line("theme --sub nord matrix", ctx)
+    lite_ui = _ui()  # from a subshell: saved, and that subshell switches too
+    lite = ShellContext(registry=ModuleRegistry(tmp_path), ui=lite_ui, config={}, lite=True)
+    run_line("theme --sub gruvbox", lite)
+    assert lite_ui.theme.name == "gruvbox"
+    assert json.loads((tmp_path / "config.json").read_text())["sub_theme"] == "gruvbox"
+
+
+def test_a_lite_shell_starts_with_the_subshell_theme(tmp_path, monkeypatch, started):
+    from shellcraft import cli
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "nord", "sub_theme": "matrix"}))
+    assert cli.main(["--lite", "--modules", str(tmp_path)]) == 0
+    assert started[-1].ui.theme.name == "matrix"
+    assert cli.main(["--no-banner", "--modules", str(tmp_path)]) == 0
+    assert started[-1].ui.theme.name == "nord"  # the main shell: its own theme
+    assert cli.main(["--lite", "--theme", "dracula", "--modules", str(tmp_path)]) == 0
+    assert started[-1].ui.theme.name == "dracula"  # --theme still wins
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "nord"}))
+    assert cli.main(["--lite", "--modules", str(tmp_path)]) == 0
+    assert started[-1].ui.theme.name == "nord"  # none set: the main theme, as before
+    (tmp_path / "config.json").write_text(json.dumps({"theme": "nord", "sub_theme": "gone"}))
+    assert cli.main(["--lite", "--modules", str(tmp_path)]) == 0
+    assert started[-1].ui.theme.name == "nord"  # an unknown one: the main theme
+
+
+def test_theme_sub_completes_theme_names_and_clear(tmp_path):
+    from shellcraft.completer import ShellCompleter
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), ui=_ui(), config={})
+    completer = ShellCompleter(ctx)
+    words = [c.text for c in completer.get_completions(Document("theme --"), CompleteEvent())]
+    assert "--sub" in words
+    words = [c.text for c in completer.get_completions(Document("theme --sub "), CompleteEvent())]
+    assert "nord" in words and "--clear" in words
+
+
 def test_light_themes_and_surface_colors():
     assert PRESETS["solarized-light"].light and PRESETS["catppuccin-latte"].light
     dark, light = PRESETS["nord"], PRESETS["catppuccin-latte"]

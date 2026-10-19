@@ -19,7 +19,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 # What each known section must be. A section of the wrong type (a hand edit gone wrong, or a
 # newer ShellCraft's layout) is dropped with a warning instead of crashing every mode at startup.
 SECTION_TYPES: dict[str, type] = {
-    "theme": str, "themes": dict, "settings": dict, "env": dict, "aliases": dict,
+    "theme": str, "sub_theme": str, "themes": dict, "settings": dict, "env": dict, "aliases": dict,
     "disabled_modules": list, "prompt": dict,
 }
 # Sections whose entries are merged one key at a time when saving (see save_config).

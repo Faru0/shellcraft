@@ -57,7 +57,16 @@ and the project uses [semantic versioning](https://semver.org/).
 - **`diag keys`:** a key test that shows what each key press reaches the shell as (`escape v`
   is Alt-v), and on Windows the console's raw flags (left-alt, right-alt, left-ctrl, shift).
 
+- **`theme --sub NAME`:** a theme for every subshell (`sub shellcraft`), saved in `config.json`
+  as `sub_theme`. A subshell starts with it; without one it starts with the main theme, as
+  before. `theme --sub` shows it and `theme --sub --clear` (or `off`) removes it. It works from
+  the main shell and from a subshell.
+
 ### Changed
+
+- **`theme NAME` in a subshell changes that subshell only:** it used to save the theme, so the
+  main shell opened with it next time. The message says so and points at `theme --sub NAME`.
+  `theme reset` in a subshell is not saved either. In the main shell nothing changes.
 
 - **`alert` is quicker to type:** the levels are `info`, `warn` and `crit` (the long `warning`
   and `critical` still work, from scripts, older spool files and AI clients), the data switch is

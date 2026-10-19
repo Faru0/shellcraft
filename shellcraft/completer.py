@@ -95,6 +95,10 @@ class ShellCompleter(Completer):
             if segment[0] == "theme" and len(segment) == 2 and segment[1] == "preview":
                 yield from self._arguments("theme", word)
                 return
+            if segment[0] == "theme" and len(segment) == 2 and segment[1] == "--sub":
+                options = {t.name: t.label for t in all_themes(self.ctx.config).values()}
+                yield from self._complete(word, options | {"--clear": "subshells use the main theme"})
+                return
             if segment[0] == "prompt":
                 from shellcraft.shell import SEGMENTS
 
@@ -200,7 +204,8 @@ class ShellCompleter(Completer):
     def _arguments(self, command: str, word: str) -> Iterable[Completion]:
         if command == "theme":
             options = {t.name: t.label for t in all_themes(self.ctx.config).values()}
-            options |= {"preview": "try a theme without saving", "reset": "back to the default"}
+            options |= {"preview": "try a theme without saving", "reset": "back to the default",
+                        "--sub": "the theme subshells start with"}
         elif command == "settings":
             options = self._setting_names() | {"reset": "restore a default"}
         elif command == "prompt":

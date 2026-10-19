@@ -136,6 +136,12 @@ def main(argv: list[str] | None = None) -> int:
     theme_warnings: list[str] = []
     themes = all_themes(config, theme_warnings)
     theme_name = args.theme or config.get("theme", "cyberpunk")
+    sub_theme = config.get("sub_theme")
+    if args.lite and not args.theme and sub_theme:  # `theme --sub NAME`: the theme subshells start with
+        if sub_theme in themes:
+            theme_name = sub_theme
+        else:
+            theme_warnings.append(f"unknown subshell theme '{sub_theme}', using the main theme")
     if not isinstance(theme_name, str) or theme_name not in themes:
         theme_warnings.append(f"unknown theme '{theme_name}', using cyberpunk")
         theme_name = "cyberpunk"

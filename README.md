@@ -672,6 +672,9 @@ programs such as `vim` or `top` don't work inside ShellCraft yet.
 `tokyonight`, plus `solarized-light` and `catppuccin-latte` for a light terminal background.
 `theme` lists them with color swatches, `theme NAME` switches immediately and saves your choice,
 `theme preview NAME` tries one without saving, and `theme reset` goes back to the default.
+In a subshell (`sub shellcraft`), `theme NAME` changes that subshell only. `theme --sub NAME`
+saves a theme for every subshell to start with, `theme --sub` shows it and `theme --sub --clear`
+removes it (subshells then start with the main theme).
 
 <details>
 <summary>Make your own theme</summary>

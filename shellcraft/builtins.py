@@ -498,13 +498,20 @@ THEME_DOC = """# theme
 
 List the color themes, or switch to one. The choice is saved, so it is back next time.
 
+In a subshell (`sub shellcraft`), `theme NAME` changes that subshell only and saves nothing.
+Subshells start with the main theme, or with the subshell theme when one is set
+(`theme --sub NAME`, from the main shell or a subshell).
+
 ## Usage
 
 ```
 theme                  # the list, with a swatch of each palette (● marks the active one)
-theme NAME             # switch to NAME and save it
+theme NAME             # switch to NAME and save it (in a subshell: this subshell only)
 theme preview NAME     # try NAME in this session only (not saved)
-theme reset            # back to the default theme (cyberpunk), saved
+theme reset            # back to the default theme (cyberpunk), saved (in a subshell: not saved)
+theme --sub            # the theme subshells start with
+theme --sub NAME       # subshells start with NAME from now on (saved)
+theme --sub --clear    # subshells start with the main theme again (also: theme --sub off)
 ```
 
 Themes made for a **light** terminal background: `solarized-light`, `catppuccin-latte`. Your own
@@ -513,7 +520,10 @@ and `light = true` picks light menu surfaces.
 """
 
 
-@builtin("theme", "List color themes or switch theme", "theme [NAME | preview NAME | reset]", stateful=True,
+THEME_USAGE = "theme [NAME | preview NAME | reset | --sub [NAME | --clear]]"
+
+
+@builtin("theme", "List color themes or switch theme", THEME_USAGE, stateful=True,
          doc=THEME_DOC)
 def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft.themes import DEFAULT_THEME
@@ -537,6 +547,8 @@ def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         if not warnings:
             return table
         return Group(table, Text("\n".join(f"⚠ {w}" for w in warnings), style="sc.warning"))
+    if args[0] == "--sub":
+        return _sub_theme(ctx, args[1:], themes)
     preview = save = False
     if args[0] == "preview" and len(args) == 2:
         name, preview = args[1], True
@@ -545,11 +557,8 @@ def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     elif len(args) == 1:
         name, save = args[0], True
     else:
-        raise CommandError("usage: theme [NAME | preview NAME | reset]")
-    if name not in themes:
-        close = difflib.get_close_matches(name, list(themes), n=1)
-        hint = f" — did you mean '{close[0]}'?" if close else f" (try: {', '.join(themes)})"
-        raise CommandError(f"theme: unknown theme '{name}'{hint}")
+        raise CommandError(f"usage: {THEME_USAGE}")
+    _check_theme(name, themes)
     if ctx.ui is None:
         raise CommandError("theme: no interactive UI to theme")
     ctx.ui.set_theme(themes[name])
@@ -557,12 +566,51 @@ def _theme(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return Text.assemble(("👁 ", "sc.accent"), ("previewing ", ""), (themes[name].label, "sc.accent"),
                              (f"  (theme {name} keeps it)", "sc.muted"))
     assert save
+    if ctx.lite:  # a subshell's theme is its own: the main shell's saved theme stays
+        return Text.assemble(("✓ ", "sc.success"), ("theme set to ", ""), (themes[name].label, "sc.accent"),
+                             (" for this subshell only", ""),
+                             (f"  (theme --sub {name} makes it the default for subshells)", "sc.muted"))
     ctx.config["theme"] = name
     try:
         save_config(ctx.config)
     except OSError as exc:
         return Text(f"theme set to {themes[name].label} (not saved: {exc})", style="sc.warning")
     return Text.assemble(("✓ ", "sc.success"), ("theme set to ", ""), (themes[name].label, "sc.accent"))
+
+
+def _check_theme(name: str, themes: dict[str, Any]) -> None:
+    if name not in themes:
+        close = difflib.get_close_matches(name, list(themes), n=1)
+        hint = f" — did you mean '{close[0]}'?" if close else f" (try: {', '.join(themes)})"
+        raise CommandError(f"theme: unknown theme '{name}'{hint}")
+
+
+def _sub_theme(ctx: ShellContext, args: list[str], themes: dict[str, Any]) -> Any:
+    """theme --sub [NAME | --clear | off]: the theme every subshell starts with (config "sub_theme")."""
+    current = ctx.config.get("sub_theme")
+    if not args:
+        if isinstance(current, str) and current in themes:
+            return Text.assemble(("subshell theme: ", ""), (themes[current].label, "sc.accent"),
+                                 (f"  ({current}; theme --sub --clear goes back to the main theme)", "sc.muted"))
+        return Text.assemble(("no subshell theme: subshells start with the main theme", ""),
+                             ("  (theme --sub NAME sets one)", "sc.muted"))
+    if len(args) != 1:
+        raise CommandError(f"usage: {THEME_USAGE}")
+    if args[0] in ("--clear", "off"):
+        ctx.config.pop("sub_theme", None)
+        done = Text.assemble(("✓ ", "sc.success"), ("subshells start with the main theme", ""))
+    else:
+        name = args[0]
+        _check_theme(name, themes)
+        ctx.config["sub_theme"] = name
+        if ctx.lite and ctx.ui is not None:  # in a subshell, this one switches too
+            ctx.ui.set_theme(themes[name])
+        done = Text.assemble(("✓ ", "sc.success"), ("subshells start with ", ""), (themes[name].label, "sc.accent"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        return Text(f"{done.plain[2:]} (not saved: {exc})", style="sc.warning")
+    return done
 
 
 PROMPT_DOC = """# prompt
