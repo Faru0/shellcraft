@@ -172,8 +172,8 @@ def test_sub_program_attaches_and_reports_its_exit(ictx, monkeypatch):
     monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", job.status) if _wait(lambda: not job.running) else ("exited", 1))
     result = run_line("sub sh -c 'exit 4'", ictx)
     assert result.status == 4 and "exit 4" in to_text(result.output)
-    job = ictx.jobs.get(1)
-    assert job.kind == "program" and job.command == "sh -c exit 4"  # shown as parsed, quotes gone
+    assert "sh -c exit 4" in to_text(result.output)  # shown as parsed, quotes gone
+    assert ictx.jobs.get(1) is None  # exited while attached: cleared from the footer at once
     monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("detached", 0))
     result = run_line("sub sh -c 'sleep 5'", ictx)  # sleep itself is a builtin: that would be a command job
     assert "detached" in to_text(result.output) and ictx.jobs.get(2).running
@@ -983,3 +983,25 @@ def test_a_program_turning_its_mouse_off_keeps_the_footers(tmp_path):
     table.kill(job)
     os.close(term_master)
     os.close(term_slave)
+
+
+@posix_only
+def test_exit_in_a_subshell_clears_it_from_the_footer(ictx, monkeypatch):
+    """`exit` closes the pty before the reader marks the job finished (on Windows up to half a
+    second later): the attach comes back "exited" with the job still running. It must leave the
+    table anyway, with no × to click, once it ends."""
+    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", 0))  # back at once
+    result = run_line("sub sh -c 'sleep 0.3'", ictx)
+    assert "done" in to_text(result.output) and ictx.jobs.get(1) is None
+
+    monkeypatch.setattr(JobTable, "wait_finished", lambda self, job, timeout=2.0: False)  # still winding down
+    result = run_line("sub sh -c 'sleep 0.3'", ictx)
+    job = ictx.jobs.get(2)
+    assert job is not None and job.clear_on_done and "done" in to_text(result.output)
+    assert _wait(lambda: ictx.jobs.get(2) is None) and ictx.jobs.notifications == []
+
+    ictx.config["settings"] = {"jobs_autoclear": False}  # off: it stays listed as done
+    monkeypatch.undo()
+    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", 0))
+    run_line("sub sh -c 'sleep 0.2'", ictx)
+    assert ictx.jobs.get(3) is not None and not ictx.jobs.get(3).running

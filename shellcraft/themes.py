@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
@@ -21,6 +22,16 @@ def _mix(color: str, other: str, amount: float) -> str:
     """`color` moved `amount` (0..1) of the way towards `other`."""
     a, b = _hex(color), _hex(other)
     return "#" + "".join(f"{int(a[k] + (b[k] - a[k]) * amount):02x}" for k in range(3))
+
+
+# The recording bubble on Windows: the theme's error red looked dim there next to Linux, so it
+# is a bright red of its own (Windows Terminal draws bold without brightening the color).
+WINDOWS_REC_RED = "#ff2d2d"
+
+
+def rec_color(error: str, platform: str | None = None) -> str:
+    """The color of the recording bubble: the theme's error red, a bright red on Windows."""
+    return WINDOWS_REC_RED if (platform or sys.platform) == "win32" else error
 
 
 @dataclass(frozen=True)
@@ -76,7 +87,7 @@ class ThemeDef:
                 "sc.footer.alert.info": f"bold {self._on_accent()} on {self.success}",
                 "sc.footer.alert.warn": f"bold #000000 on {self.warning}",
                 "sc.footer.alert.crit": f"bold #ffffff on {self.error}",
-                "sc.footer.rec": f"bold {self.error} on {self._surface()}",  # the bubble of a shell that records
+                "sc.footer.rec": f"bold {rec_color(self.error)} on {self._surface()}",  # a shell that records
                 "sc.footer.alert.info.mark": f"bold {self.success} on {self._surface()}",
                 "sc.footer.alert.warn.mark": f"bold {self.warning} on {self._surface()}",
                 "sc.footer.alert.crit.mark": f"bold {self.error} on {self._surface()}",

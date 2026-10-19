@@ -1847,10 +1847,17 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
             return Text.assemble(("\n", ""), (f"[{job.number}] detached: ", "sc.muted"),
                                  (job.command, "sc.accent"),
                                  (f" keeps running (jobs {job.number} or Ctrl-] {job.number} to return)", "sc.muted"))
+        # `exit` inside it: the pty closed, and the reader marks the job finished a moment later
+        finished = ctx.jobs.wait_finished(job)
         ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
+        if settings.get(ctx.config, "jobs_autoclear"):  # it leaves the footer now, no × to click
+            if finished:
+                ctx.jobs.remove(job)
+            else:
+                job.clear_on_done = True  # still winding down: it leaves when it ends
         status = job.status or 0
         note = Text.assemble(("\n", ""), (f"[{job.number}] ", "sc.muted"), (job.command, "sc.accent"),
-                             (f" {job.label}", "sc.success" if status == 0 else "sc.error"))
+                             (f" {job.label if finished else 'done'}", "sc.success" if status == 0 else "sc.error"))
         return WithStatus(note, status) if status else note
 
 

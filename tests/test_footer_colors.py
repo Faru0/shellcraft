@@ -295,3 +295,10 @@ def test_diag_prints_the_report_in_the_shell(shell_ctx):
     ctx.console_report = None
     with pytest.raises(PipelineError, match="only in the interactive shell"):
         run_line("diag", ctx)
+
+
+def test_the_recording_bubble_is_bright_red_on_windows():
+    from shellcraft.themes import WINDOWS_REC_RED, rec_color
+
+    assert rec_color("#bf616a", "win32") == WINDOWS_REC_RED
+    assert rec_color("#bf616a", "linux") == "#bf616a"  # elsewhere the theme's own red, as before

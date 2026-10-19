@@ -81,6 +81,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **A subshell left with `exit` stayed in the footer** with a × to click: the pty closes a
+  moment before the job is marked finished (on Windows up to half a second later), so the
+  prompt's autoclear saw it still running. It now leaves the footer as soon as it ends
+  (`jobs_autoclear` off keeps it listed as done, as before).
+
+- **The recording bubble was a dim red on Windows:** it is a bright red there now; Linux keeps
+  the theme's red.
+
 - **The completion menu took no clicks and no wheel on Windows:** with the classic key reader
   (what Windows Terminal uses) the mouse arrives as Windows mouse events, and prompt_toolkit maps
   those onto the screen only for its own Windows outputs, so with ShellCraft's console output it

@@ -179,6 +179,7 @@ class Job:
         self.stop: Any = None  # a background command's stop flag (streams.StopFlag), set by kill()
         self.reported = False  # its end has been shown (a note at the prompt, `jobs N`, the attach loop)
         self.recording = False  # a `sub shellcraft` that runs `record`: 🔴 / ⭕ on its line in the footer
+        self.clear_on_done = False  # it leaves the table as soon as it ends (exited while attached)
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -401,7 +402,11 @@ class JobTable:
     def _done(self, job: Job, status: int) -> None:
         if not job._finish(status):
             return  # already reported: one end, one note, one round of hooks
-        self.notifications.append(f"[{job.number}] {job.label}: {job.title}")
+        if job.clear_on_done:  # the user just left it with `exit`: its end was shown, no × to click
+            job.reported = True
+            self.jobs.pop(job.number, None)
+        else:
+            self.notifications.append(f"[{job.number}] {job.label}: {job.title}")
         self._changed()
         for hook in list(self.on_done):  # the startup Supervisor restarts what asked for it
             try:
@@ -430,6 +435,15 @@ class JobTable:
         """Forget a finished job (its log stays in the jobs folder)."""
         if self.jobs.pop(job.number, None) is not None:
             self._changed()
+
+    def wait_finished(self, job: Job, timeout: float = 2.0) -> bool:
+        """Wait for a job whose terminal has closed to be marked finished: its reader thread
+        reaps the process a moment later (on Windows after up to WINPTY_DRAIN for the last
+        output), so right after `exit` the job can still count as running."""
+        deadline = time.monotonic() + timeout
+        while job.running and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return not job.running
 
     def clear_finished(self) -> int:
         gone = [n for n, j in self.jobs.items() if not j.running]
