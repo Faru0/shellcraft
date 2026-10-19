@@ -82,6 +82,15 @@ class Styled:
 
 
 @dataclass
+class SoftWrapped:
+    """Output whose long lines must not be broken by Rich (a command line to copy, such as
+    `claude mcp add …`): printed with soft wrapping, so the terminal folds a long line on screen
+    but a copy of it is still one line. Pipes, files and MCP get it unbroken too."""
+
+    value: Any
+
+
+@dataclass
 class Paged:
     """Output that chooses how the screen shows it, whatever its height: `page=True` always opens
     the pager (man pages), `page=False` always prints (help). Pipes, files and MCP see `value`."""
@@ -116,7 +125,9 @@ class CommandError(Exception):
 def to_text(value: Any, width: int | None = None) -> str:
     """Flatten a str or Rich renderable into plain text (for pipes, files, MCP). `width` is the
     console width to wrap at; the current terminal's when there is one, else 100."""
-    while isinstance(value, (Paged, WithStatus, Styled)):  # wrappers nest in any order
+    soft = False
+    while isinstance(value, (Paged, WithStatus, Styled, SoftWrapped)):  # wrappers nest in any order
+        soft = soft or isinstance(value, SoftWrapped)
         value = value.text if isinstance(value, Styled) else value.value
     if value is None:
         return ""
@@ -133,7 +144,7 @@ def to_text(value: Any, width: int | None = None) -> str:
     # Uses a preset theme so sc.* style names resolve even without a UI.
     console = Console(file=buf, width=width, color_system=None, force_terminal=False, highlight=False,
                       theme=PRESETS["nord"].rich_theme())
-    console.print(value)
+    console.print(value, soft_wrap=soft)
     return buf.getvalue()
 
 

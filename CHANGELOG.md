@@ -7,6 +7,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A saved MCP token:** `mcp start` used to make a new bearer token every time, so clients had to
+  be added again. The token is now made once and saved (in the OS keyring when there is one,
+  else in `config.json`, like an API key), and so is the address of the last `mcp start`.
+  `mcp show` prints the token and the `claude mcp add` line; `mcp token rotate` makes a new token,
+  restarts a running server with it, and prints what to run in the client:
+  `claude mcp remove shellcraft`, then the new `claude mcp add` line. The `claude mcp add` line is
+  no longer broken in two by the shell's line wrapping, so it copies as one line.
 - **A review loop with an AI** (`mark`, `review`, and four MCP tools). You flag output for the AI
   with `mark` (`pytest | mark --type test-failure`, `mark --file F`, `mark --diff A B`); it reads
   them with `get_flagged_items` or the `shellcraft://review/queue` resource and closes them with

@@ -201,3 +201,49 @@ def test_prompt_marker_shows_a_non_default_host(ctx):
     ctx.mcp_http = SimpleNamespace(host="::1", port=9000, url="http://[::1]:9000/mcp", running=lambda: True)
     assert shell.Shell._mcp_marker(fake) == [("class:mcp", "● mcp [::1]:9000")]
     ctx.mcp_http = None
+
+
+def test_the_token_is_saved_and_the_same_after_every_start(server_ctx):
+    from shellcraft import settings
+    from shellcraft.builtins import MCP_TOKEN_KEY
+    from shellcraft.config import load_config
+
+    ctx = server_ctx
+    port = _free_port()
+    out(f"mcp start 127.0.0.1:{port}", ctx)
+    token = ctx.mcp_http.token
+    assert settings.env_get(ctx.config, MCP_TOKEN_KEY) == token
+    out("mcp stop", ctx)
+    started = out("mcp start", ctx)  # no address: the saved one, and the saved token
+    assert ctx.mcp_http.port == port and ctx.mcp_http.token == token and token in started
+    assert _initialize(f"http://127.0.0.1:{port}/mcp", token)["result"]["serverInfo"]["name"] == "shellcraft"
+    out("mcp stop", ctx)
+    # a new session reads the same token and address back from the saved settings
+    fresh = load_config()
+    assert settings.env_get(fresh, MCP_TOKEN_KEY) == token and fresh["mcp"]["address"] == f"127.0.0.1:{port}"
+    shown = out("mcp show", ctx)
+    assert "not running" in shown and token in shown
+    assert f'claude mcp add --transport http shellcraft http://127.0.0.1:{port}/mcp --header "Authorization: Bearer {token}"' in shown.replace("\n  ", " ")
+
+
+def test_token_rotate_saves_a_new_one_and_restarts_a_running_server(server_ctx):
+    ctx = server_ctx
+    port = _free_port()
+    out(f"mcp start 127.0.0.1:{port}", ctx)
+    old = ctx.mcp_http.token
+    url = f"http://127.0.0.1:{port}/mcp"
+    rotated = out("mcp token rotate", ctx)
+    new = ctx.mcp_http.token
+    assert new != old and new in rotated and "restarted" in rotated
+    assert "You need to remove and add the MCP server with the new bearer token" in rotated
+    assert "claude mcp remove shellcraft" in rotated
+    assert f'--header "Authorization: Bearer {new}"' in rotated
+    assert _initialize(url, new)["result"]["serverInfo"]["name"] == "shellcraft"
+    with pytest.raises(urllib.error.HTTPError):
+        _initialize(url, old)  # the old token no longer works
+    out("mcp stop", ctx)
+    again = out("mcp token rotate", ctx)  # not running: only saved
+    assert "restarted" not in again and ctx.mcp_http is None
+    assert out("mcp show", ctx).count("token ") == 1
+    with pytest.raises(PipelineError, match="usage: mcp"):
+        run_line("mcp token", ctx)

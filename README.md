@@ -713,9 +713,13 @@ one (printed at startup), or turn it off with `--no-token`.
 
 To keep using the shell while the HTTP server runs, start it from inside the shell instead:
 `mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
-stop it, and the prompt shows `● mcp :38765` while it runs), generates a token and prints the
-`claude mcp add … --header "Authorization: Bearer …"` line to use; `mcp` shows its status and
-the token again, `mcp log` its log, and `mcp stop` stops it. It also stops when you leave the
+stop it, and the prompt shows `● mcp :38765` while it runs) and prints the
+`claude mcp add … --header "Authorization: Bearer …"` line to use. The token is made once and
+**saved** (in the OS keyring when there is one, else in `config.json`), and so is the address: every
+`mcp start`, in any session, uses the same ones, so a client added once keeps working. `mcp show`
+prints the token and the `claude mcp add` line again; `mcp token rotate` makes a new token (a
+running server restarts with it) and prints `claude mcp remove shellcraft` and the new `claude mcp
+add` line to run. `mcp` shows the status, `mcp log` the log, and `mcp stop` stops it. It also stops when you leave the
 shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.

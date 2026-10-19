@@ -2541,6 +2541,8 @@ mcp start [HOST:PORT]        # start it (default 127.0.0.1:38765)
 mcp start --allow-system     # ... and let clients run OS commands
 mcp stop                     # stop it
 mcp restart                  # stop and start again at the same address
+mcp show                     # the token and the `claude mcp add` line for it
+mcp token rotate             # a new token, saved (a running server restarts with it)
 mcp log [N]                  # the last N lines of its log (default 20)
 ```
 
@@ -2551,8 +2553,19 @@ mcp log [N]                  # the last N lines of its log (default 20)
 | `--allow-system` | Let MCP clients fall back to OS programs (off by default, like `--mcp-http`). |
 
 The server only listens on this machine (`127.0.0.1`, `localhost` or `::1`), and every request
-must carry a **bearer token** that `mcp start` generates and prints (`mcp` shows it again), so
-other local users and processes can't use it. Its log is `~/.shellcraft/mcp-http.log`. API keys
+must carry a **bearer token**, so other local users and processes can't use it. The token is made
+once and **saved** (in the OS keyring when there is one, else in `~/.shellcraft/config.json`, like
+an API key), so every `mcp start`, in any session, uses the same one and a client added once keeps
+working. `mcp show` prints it with the `claude mcp add` line; `mcp token rotate` makes a new one
+(do it if the old one leaked) and prints what to run in your client:
+
+```
+claude mcp remove shellcraft
+claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer NEWTOKEN"
+```
+
+The address of the last `mcp start` is saved too, for `mcp show` and the next start.
+Its log is `~/.shellcraft/mcp-http.log`. API keys
 set with `settings NAME` before `mcp start` are passed to it; set a key later and `mcp restart`
 to pass it on. Point a client at the URL and token `mcp start` prints, for example:
 `claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer TOKEN"`.
@@ -2580,6 +2593,54 @@ def _uptime(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
+MCP_TOKEN_KEY = "SHELLCRAFT_MCP_TOKEN"  # where the server's bearer token is kept (the keyring when there is one)
+
+
+def _mcp_token(ctx: ShellContext, rotate: bool = False) -> str:
+    """The MCP server's bearer token: the saved one, so clients keep working across `mcp start`s
+    and shell sessions; a new one the first time, or with `rotate`. Kept like an API key: in the
+    OS keyring when there is one, else in config.json."""
+    import secrets
+
+    token = None if rotate else settings.env_get(ctx.config, MCP_TOKEN_KEY)
+    if not token:
+        token = secrets.token_urlsafe(24)
+        try:
+            settings.env_set(ctx.config, MCP_TOKEN_KEY, token)
+            save_config(ctx.config)
+        except OSError as exc:
+            raise CommandError(f"mcp: the token could not be saved: {exc}") from None
+    return token
+
+
+def _mcp_address(ctx: ShellContext) -> str:
+    """The address `mcp start` used last (saved), else the default."""
+    from shellcraft import mcp_child
+
+    section = ctx.config.get("mcp")
+    address = section.get("address") if isinstance(section, dict) else None
+    return address if isinstance(address, str) and address else mcp_child.DEFAULT_ADDRESS
+
+
+def _mcp_url(address: str) -> str:
+    from shellcraft import mcp_child
+
+    host, _, port = address.rpartition(":")
+    return mcp_child._url(host.strip("[]") or "127.0.0.1", int(port)) if port.isdigit() else f"http://{address}/mcp"
+
+
+def _mcp_add_line(url: str, token: str) -> str:
+    return f"claude mcp add --transport http shellcraft {url} --header \"Authorization: Bearer {token}\""
+
+
+def _unwrapped(text: Text) -> Any:
+    """Printed without Rich's line breaks: the `claude mcp add` line must copy as one line (the
+    terminal still folds it on screen)."""
+    from shellcraft.context import SoftWrapped
+
+    return SoftWrapped(text)
+
+
 def _mcp_running(ctx: ShellContext) -> Any:
     """The server started with `mcp start`, or None; forgets one that has exited by itself."""
     child = ctx.mcp_http
@@ -2591,7 +2652,7 @@ def _mcp_running(ctx: ShellContext) -> Any:
 
 
 @builtin("mcp", "Start or stop the MCP HTTP server in the background",
-         "mcp [start [HOST:PORT] | stop | restart | log [N]]", stateful=True, doc=MCP_DOC)
+         "mcp [start [HOST:PORT] | stop | restart | show | token rotate | log [N]]", stateful=True, doc=MCP_DOC)
 def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import mcp_child
 
@@ -2611,6 +2672,39 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
                              ("  token ", "sc.muted"), (child.token, "sc.accent"),
                              ("  (header: Authorization: Bearer …)", "sc.muted"))
 
+    if action == "show" and not rest:  # the token and the line to add the server to a client
+        url = child.url if child is not None else _mcp_url(_mcp_address(ctx))
+        token = child.token if child is not None else _mcp_token(ctx)
+        state = Text.assemble(("● ", "sc.success"), "running at ", (url, "sc.accent")) if child is not None else \
+            Text.assemble(("○ ", "sc.muted"), "not running (mcp start); it will listen at ", (url, "sc.accent"))
+        return _unwrapped(Text.assemble(state, "\n", ("  token ", "sc.muted"), (token, "sc.accent"),
+                             ("  (saved: the same after every mcp start)\n", "sc.muted"),
+                             ("  add it to a client with:\n  ", "sc.muted"), (_mcp_add_line(url, token), "sc.path")))
+
+    if action == "token" and rest == ["rotate"]:  # a new token, saved; a running server takes it at once
+        token = _mcp_token(ctx, rotate=True)
+        url = _mcp_url(_mcp_address(ctx))
+        note = ""
+        if child is not None:
+            address = f"{mcp_child._url_host(child.host)}:{child.port}"
+            allow_system = child.allow_system
+            child.stop()
+            ctx.mcp_http = None
+            try:
+                child = ctx.runner("restarting the MCP server with the new token…",
+                                   lambda: mcp_child.start(address, ctx.registry.directory, allow_system,
+                                                           lambda c: setattr(ctx, "mcp_http", c), token))
+            except Exception as exc:  # noqa: BLE001
+                ctx.mcp_http = None
+                raise CommandError(f"mcp: the new token is saved, but the server did not restart: {exc}") from None
+            ctx.mcp_http = child
+            url, note = child.url, "  (the running server was restarted with it)"
+        return _unwrapped(Text.assemble(("✓ ", "sc.success"), "new MCP token saved", (note + "\n", "sc.muted"),
+                             ("  token ", "sc.muted"), (token, "sc.accent"), "\n\n",
+                             ("You need to remove and add the MCP server with the new bearer token:\n", "sc.warning"),
+                             ("  claude mcp remove shellcraft\n", "sc.path"),
+                             (f"  {_mcp_add_line(url, token)}", "sc.path")))
+
     if action in ("start", "restart"):
         allow_system = "--allow-system" in rest
         addresses = [a for a in rest if a != "--allow-system"]
@@ -2628,7 +2722,8 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         elif child is not None:
             raise CommandError(f"mcp: the MCP server is already running at {child.url} (mcp stop, or mcp restart)")
         else:
-            address = addresses[0] if addresses else mcp_child.DEFAULT_ADDRESS
+            address = addresses[0] if addresses else _mcp_address(ctx)
+            token = _mcp_token(ctx)  # the saved one: clients keep working
         def track(spawned: Any) -> None:
             ctx.mcp_http = spawned
 
@@ -2639,13 +2734,20 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             ctx.mcp_http = None  # a failed start has already stopped its process
             raise CommandError(f"mcp: {exc}") from None
         ctx.mcp_http = child
-        return Text.assemble(("● ", "sc.success"), f"MCP server {action}ed at ", (child.url, "sc.accent"),
+        if action == "start":  # the address too, so `mcp show` and the next start use it
+            section = ctx.config.get("mcp") if isinstance(ctx.config.get("mcp"), dict) else {}
+            if section.get("address") != address:
+                ctx.config["mcp"] = {**section, "address": address}
+                try:
+                    save_config(ctx.config)
+                except OSError:
+                    pass
+        return _unwrapped(Text.assemble(("● ", "sc.success"), f"MCP server {action}ed at ", (child.url, "sc.accent"),
                              (f"  pid {child.pid}{', OS commands allowed' if allow_system else ''}"
                               f" · log: {mcp_child.log_path()}\n", "sc.muted"),
                              ("  token ", "sc.muted"), (child.token, "sc.accent"),
                              ("   add it to a client with:\n  ", "sc.muted"),
-                             (f"claude mcp add --transport http shellcraft {child.url} "
-                              f"--header \"Authorization: Bearer {child.token}\"", "sc.path"))
+                             (_mcp_add_line(child.url, child.token), "sc.path")))
 
     if action == "stop" and not rest:
         if child is None:
@@ -2658,7 +2760,8 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         tail = mcp_child.log_tail(int(rest[0]) if rest else 20)
         return (tail + "\n") if tail else Text("(the MCP server's log is empty)", style="sc.muted")
 
-    raise CommandError("usage: mcp [start [HOST:PORT] [--allow-system] | stop | restart | log [N]]")
+    raise CommandError("usage: mcp [start [HOST:PORT] [--allow-system] | stop | restart | show | token rotate"
+                       " | log [N]]")
 
 
 SETTINGS_DOC = """# settings

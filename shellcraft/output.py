@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from shellcraft import settings
-from shellcraft.context import Paged, ShellContext, Styled
+from shellcraft.context import Paged, ShellContext, SoftWrapped, Styled
 from shellcraft.parser import ParseError
 from shellcraft.pipeline import PipelineError
 from shellcraft.themes import UI
@@ -119,8 +119,11 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
     opens the viewer instead, unless the `pager` setting is off. Tall output is never paged by
     itself: `less` is for that. `title` (the command line) is shown in the viewer's status bar."""
     forced: bool | None = None
-    while isinstance(value, (Paged, Styled)):  # either may wrap the other (help: Styled(Paged))
-        if isinstance(value, Paged):
+    soft = False
+    while isinstance(value, (Paged, Styled, SoftWrapped)):  # they may wrap each other (help: Styled(Paged))
+        if isinstance(value, SoftWrapped):
+            value, soft = value.value, True
+        elif isinstance(value, Paged):
             value, forced = value.value, value.page
         else:
             if not value.text:
@@ -135,7 +138,7 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
         return
     renderable = Text.from_ansi(value.rstrip("\n")) if isinstance(value, str) else value
     if not console.is_terminal or not pager or not forced:
-        console.print(renderable)
+        console.print(renderable, soft_wrap=soft)  # soft: a long line the terminal folds, copied whole
         return
     with console.capture() as capture:
         console.print(renderable)
