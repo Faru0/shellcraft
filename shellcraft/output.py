@@ -189,7 +189,8 @@ def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = N
          close_past_end: bool = False) -> dict[str, Any]:
     """Interactive scrollable viewport for ANSI text (cross-platform, no external pager).
     `at_end`: open N lines above the end instead of at the top (the scroll view); with
-    `close_past_end`, scrolling down past the end closes it."""
+    `close_past_end`, scrolling down past the end closes it. The scroll view (`at_end`) is
+    bottom-aligned like a terminal: output shorter than the screen sits at its bottom."""
     lines = strip_links(rendered).rstrip("\n").split("\n")
     plain = [_ANSI_RE.sub("", ln) for ln in lines]
     widths = [get_cwidth(ln) for ln in plain]
@@ -243,6 +244,13 @@ def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = N
             return
         state["match"], state["top"], state["message"] = hit, min(hit, max_top()), ""
 
+    def top_pad() -> int:
+        """Blank rows above the text in the scroll view, so short output sits at the bottom of the
+        screen, as the terminal showed it."""
+        if at_end is None or state["help"] or state["wrap"]:
+            return 0
+        return max(0, body_height() - len(lines))
+
     def get_body() -> StyleAndTextTuples:
         if state["help"]:
             out: StyleAndTextTuples = [("class:pager.help", " keys ".center(size()[1], "─")), ("", "\n")]
@@ -260,7 +268,7 @@ def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = N
             shown = lines[top: top + height]
         if state["pattern"]:
             shown = [_highlight(ln, state["pattern"], hl_on, hl_off) for ln in shown]
-        fragments: StyleAndTextTuples = []
+        fragments: StyleAndTextTuples = [("", "\n" * top_pad())] if top_pad() else []
         for k, line in enumerate(shown):
             parts = to_formatted_text(ANSI(line))
             if state["left"] and not state["wrap"]:
@@ -295,6 +303,7 @@ def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = N
 
     def line_at(y: int) -> int:
         """The line shown on screen row y of the body."""
+        y -= top_pad()
         used, i = 0, state["top"]
         while i < len(lines) - 1 and used + rows_of(i) <= y:
             used += rows_of(i)
@@ -353,6 +362,27 @@ def page(ui: UI, rendered: str, title: str | None = None, at_end: int | None = N
     kb = KeyBindings()
     not_searching = Condition(lambda: not state["searching"])
     searching = Condition(lambda: state["searching"])
+
+    from prompt_toolkit.key_binding.bindings.mouse import load_mouse_bindings
+    from prompt_toolkit.keys import Keys
+
+    default_mouse = load_mouse_bindings()
+
+    @kb.add(Keys.Vt100MouseEvent)
+    @kb.add(Keys.WindowsMouseEvent)
+    def _mouse(event):
+        """The wheel scrolls wherever the mouse is: the Windows console reports wheel events at
+        screen coordinates, which the layout's own handlers don't match (so the wheel did
+        nothing on Windows 11, in both key readers). Other mouse events go to the layout."""
+        from shellcraft.footer import parse_mouse, wheel_up
+
+        parsed = parse_mouse(event.data)
+        if parsed is not None and parsed[0] == "scroll" and not state["help"]:
+            scroll(-3 if wheel_up(event.data) else 3)
+            return None
+        for binding in default_mouse.get_bindings_for_keys((event.key_sequence[0].key,)):
+            return binding.handler(event)
+        return NotImplemented
 
     @kb.add("q", filter=not_searching)
     @kb.add("escape", filter=not_searching)

@@ -376,3 +376,38 @@ def test_the_prompt_panel_highlight_clears_after_a_second(repl_shell, monkeypatc
     assert sh._set_panel_hover(1) is None and sh._panel_hover == 1
     assert _wait_for(lambda: sh._panel_hover is None, 2)
     assert sh.footer.dirty  # a redraw was asked for
+
+
+def _pager(keys, lines, **kw):
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from shellcraft.output import page
+
+    text = "\n".join(f"line {i}" for i in range(lines))
+    with create_pipe_input() as pipe:
+        pipe.send_text(keys)
+        out = DummyOutput()
+        out.get_size = lambda: Size(rows=11, columns=40)
+        with create_app_session(input=pipe, output=out):
+            return page(UI(all_themes({})["nord"], Console(file=io.StringIO())), text, **kw)
+
+
+def test_the_pager_wheel_scrolls_wherever_the_mouse_is():
+    """The Windows console reports wheel events at screen coordinates the layout does not match:
+    the wheel must scroll anyway. Here: a wheel event over the status bar (row 11)."""
+    assert _pager("\x1b[<65;5;11M" * 2 + "q", 60)["top"] == 6  # down twice, 3 lines each
+    assert _pager("\x1b[<64;5;11M" + "q", 60, at_end=0)["top"] == 50 - 3  # up from the end
+    # the scroll view: wheel down past the end closes it (no q needed)
+    assert _pager("\x1b[<64;5;5M" + "\x1b[<65;5;5M" * 3, 60, at_end=0, close_past_end=True)["top"] == 50
+
+
+def test_the_scroll_view_is_bottom_aligned():
+    """Output shorter than the screen sits at the bottom, as the terminal showed it: a click on
+    the last body row marks the last line."""
+    state = _pager("\x1b[<0;5;10M\x1b[<0;5;10m" + "q", 3, at_end=0)
+    assert state["match"] == 2
+    plain = _pager("\x1b[<0;5;1M\x1b[<0;5;1m" + "q", 3)  # the ordinary viewer (man, less): from the top
+    assert plain["match"] == 0

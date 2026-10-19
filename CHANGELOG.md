@@ -58,6 +58,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **The wheel did nothing in the viewer on Windows 11** (the scroll view, `man`, `less`), with the
+  legacy and the direct key reader alike: the Windows console reports wheel events at screen
+  coordinates, which the viewer's layout did not match. The viewer now takes every wheel event
+  itself, wherever the mouse is. The scroll view is also bottom-aligned, like the terminal: output
+  shorter than the screen sits at its bottom, so opening it looks like scrolling up from the
+  prompt.
 - **A footer bubble stayed highlighted:** the line under the mouse lights up (its bubble filled,
   in the accent color) to show what a click picks, but it stayed lit after the click and after
   the mouse left the footer. It now goes back to its normal color when the mouse moves off the
