@@ -137,13 +137,33 @@ class ShellCompleter(Completer):
                 yield c
 
     def _positional_values(self, segment: list[str]) -> dict[str, str]:
-        """`queryCensys <Tab>` → host / cert / search, from the .skill's positional entries."""
-        spec = self.ctx.registry.get(aliases.expand_command(Command(segment[0], []), self._aliases()).name)
+        """`queryCensys <Tab>` → host / cert / search, from the .skill's positional entries;
+        `review <Tab>` → its actions, then the review items' ids."""
+        name = aliases.expand_command(Command(segment[0], []), self._aliases()).name
+        if name == "review":
+            return self._review_values(segment)
+        spec = self.ctx.registry.get(name)
         if spec is None:
             return {}
         index = sum(1 for w in segment[1:] if not w.startswith("-"))
         values = positional_values(spec, index)
         return {v: f"{segment[0]} argument" for v in values}
+
+    @staticmethod
+    def _review_values(segment: list[str]) -> dict[str, str]:
+        words = [w for w in segment[1:] if not w.startswith("-")]
+        if not words:
+            return {"show": "one item in full", "approve": "let the AI go ahead", "reject": "tell it not to"}
+        if len(words) == 1 and words[0] in ("show", "approve", "reject"):
+            from shellcraft import review_spool
+
+            try:
+                items = review_spool.list_items("pending" if words[0] != "show" else None,
+                                                "review" if words[0] != "show" else None)
+            except OSError:
+                return {}
+            return {i["id"]: i.get("title", "")[:60] for i in items}
+        return {}
 
     def _options_for(self, command: str) -> list[OptionSpec] | tuple[OptionSpec, ...]:
         command = aliases.expand_command(Command(command, []), self._aliases()).name  # ll -<Tab> → ls's switches

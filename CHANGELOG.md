@@ -7,6 +7,18 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A review loop with an AI** (`mark`, `review`, and four MCP tools). You flag output for the AI
+  with `mark` (`pytest | mark --type test-failure`, `mark --file F`, `mark --diff A B`); it reads
+  them with `get_flagged_items` or the `shellcraft://review/queue` resource and closes them with
+  `resolve_review_item`. Before a destructive action the AI calls `request_human_review`: the
+  request shows in the footer as an alert (info / warn / crit for a low / medium / high
+  priority) until you answer with `review approve ID [NOTES]` or `review reject ID [NOTES]`; the
+  AI waits for the answer (`wait_seconds`) or asks again with `get_review_status`. The items are
+  JSON files in `~/.shellcraft/review/` (owner-only), written atomically and changed under a
+  per-item lock, so the shell, `mcp start`'s server and every client's own `--mcp` server can
+  share them; connected clients are notified when the queue changes. Each piece keeps its last
+  256 KB; done items are deleted after 7 days. Advisory: the server instructions tell the AI to
+  ask, nothing stops its own tools.
 - **`hotkeys`:** every keyboard shortcut and mouse action, by where it works (the prompt, the
   clip and alerts, the footer and subshells, scrolling and selecting, the viewer), with what
   differs between Linux and Windows. `man hotkeys` opens it in the viewer, `help` lists it among

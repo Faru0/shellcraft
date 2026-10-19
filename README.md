@@ -24,7 +24,7 @@
 | | |
 | --- | --- |
 | 🔗 **Real pipelines** | `a \| b \| c`, `> file` and `>> file`, with an error panel that points at the step that failed. |
-| 🧰 **77 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
+| 🧰 **79 built-in commands** | `ls`, `cat`, `grep`, `find`, `sort`, `cut`, `tr`, `diff`, `du`, `tree`, `printf`, `seq`, `xargs`… written in Python, so they behave the same on every OS. |
 | 🧩 **Pluggable modules** | Drop a `.py` (plus its `.md` manual and `.skill` AI description) into `modules/` and it's a new command, hot-reloaded as you edit. Turn any of them off with `modules disable`. |
 | 🔁 **Loops & conditions** | Bash's `for`, `while`, `until`, `if` and `case`, or `for -py h in (cat hosts.txt) { if (h.endswith(".gov")) { queryDns $h } }`: no escaping, and conditions are sandboxed Python expressions. A whole loop can be piped: `done \| sort`. |
 | ↩️ **Shell habits** | Variables (`x=1`, `$x`, `$HOME`, `$((n + 1))`), `$(…)`, globs, `$?`, `!!`, `!$`, `!N`, `;`, `&&`, `\|\|`, `<`, `2>`, `2>&1`, `>&2`, functions, `select`, `test` / `[ ]` / `[[ ]]`, with the exit status and git branch in the prompt. |
@@ -557,7 +557,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `diag` `hotkeys` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `diag` `hotkeys` `mark` `review` |
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
@@ -720,6 +720,7 @@ shell, even if the shell is killed outright. See `man mcp`.
 
 - **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
 - **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warn / crit, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
+- **The review loop:** `get_flagged_items`, `request_human_review`, `get_review_status` and `resolve_review_item`, plus the `shellcraft://review/queue` resource. See **Reviewing with an AI** below.
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.
@@ -756,6 +757,40 @@ To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/py
 > you trust.
 
 ---
+
+### Reviewing with an AI
+
+A two-way queue between you and an AI client, shared through files in `~/.shellcraft/review/`
+(readable by you only), so it works with the `mcp start` server and with every client's own
+`--mcp` server alike.
+
+- **You flag things for the AI** with `mark`: what you pipe in, files, or a diff.
+  ```
+  pytest | mark --type test-failure -p high
+  mark --file app.log --file config.toml -m "startup crash"
+  mark --diff old.py new.py
+  git diff | mark --type diff
+  ```
+  The AI reads them with `get_flagged_items` (or the `shellcraft://review/queue` resource) and
+  closes them with `resolve_review_item`, saying what it did. Each piece keeps its last 256 KB.
+  What you mark is stored as is, so mark only what an AI may read.
+- **The AI asks you before destructive actions** with `request_human_review` (a title, a
+  description, the commands or diffs involved, a priority). It shows in the footer as an alert,
+  `info`, `warn` or `crit` for a low, medium or high priority, until you answer:
+  ```
+  review                       # what is pending
+  review show r-…a1b2c3        # one item in full (the last characters of the id are enough)
+  review approve a1b2c3 go ahead
+  review reject a1b2c3 not on Fridays
+  ```
+  The AI either waits for your answer (`wait_seconds`, up to a little under the call timeout)
+  or asks again with `get_review_status`, and goes ahead only on `approved`. This is advisory:
+  ShellCraft's server instructions tell the AI to ask, but it can't stop what the AI does with
+  its own tools.
+
+Connected clients are told when the queue changes (a resource-updated notification for
+`shellcraft://review/queue`). Items that are done are deleted after 7 days; pending ones stay
+until answered.
 
 ## Write your own module
 

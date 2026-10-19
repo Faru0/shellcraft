@@ -187,7 +187,7 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings "
-                   "banner diag hotkeys"),
+                   "banner diag hotkeys mark review"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -209,6 +209,7 @@ HELP_SHORT = {  # one line each, for the ShellCraft group
     "prompt": "Choose the prompt's segments", "settings": "Settings and API keys",
     "banner": "Show the welcome banner", "diag": "Console, color and footer diagnostics",
     "hotkeys": "Keyboard shortcuts and mouse actions",
+    "mark": "Flag output, files or a diff for an AI", "review": "Flags and the AI's approval requests",
 }
 HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
 

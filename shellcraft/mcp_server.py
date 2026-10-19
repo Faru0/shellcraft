@@ -11,6 +11,7 @@ Over stdio, nothing may be written to stdout except MCP protocol traffic.
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import secrets
@@ -22,7 +23,13 @@ import anyio
 import mcp_types as types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
-from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ResourcesListChanged, ToolsListChanged
+from mcp.server.subscriptions import (
+    InMemorySubscriptionBus,
+    ListenHandler,
+    ResourcesListChanged,
+    ResourceUpdated,
+    ToolsListChanged,
+)
 from mcp.shared.exceptions import MCPError
 
 from shellcraft import __version__
@@ -60,6 +67,67 @@ ALERT_DESCRIPTION = ("Show a short alert in the user's ShellCraft terminal statu
                      "a question waiting. It is picked up by the interactive ShellCraft when one is running.")
 MAN_URI = "shellcraft://man/"
 WATCH_INTERVAL = 1.0  # seconds between checks of the modules directory
+REVIEW_INTERVAL = 1.0  # seconds between checks of the review spool (shellcraft.review_spool)
+REVIEW_QUEUE_URI = "shellcraft://review/queue"
+GET_FLAGGED_TOOL = "get_flagged_items"
+REQUEST_REVIEW_TOOL = "request_human_review"
+REVIEW_STATUS_TOOL = "get_review_status"
+RESOLVE_TOOL = "resolve_review_item"
+REVIEW_TOOLS = (GET_FLAGGED_TOOL, REQUEST_REVIEW_TOOL, REVIEW_STATUS_TOOL, RESOLVE_TOOL)
+GET_FLAGGED_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "resolved", "all"],
+                   "default": "pending"},
+        "kind": {"type": "string", "enum": ["flag", "review", "all"], "default": "flag"},
+        "include_artifacts": {"type": "boolean", "default": True},
+    },
+    "additionalProperties": False,
+}
+REQUEST_REVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string", "maxLength": 200, "description": "What you want to do, in one line."},
+        "description": {"type": "string", "maxLength": 20000,
+                        "description": "Why, what it changes, and what could go wrong."},
+        "artifacts": {"type": "array", "maxItems": 20, "description": "The commands, diffs or files involved.",
+                      "items": {"type": "object",
+                                "properties": {"name": {"type": "string"},
+                                               "kind": {"type": "string", "enum": ["text", "diff", "file"]},
+                                               "content": {"type": "string"}},
+                                "required": ["name", "content"], "additionalProperties": False}},
+        "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+        "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 0,
+                         "description": "Wait up to this long for the answer (capped below the call timeout); "
+                                        "0 returns at once, then use get_review_status."},
+    },
+    "required": ["title", "description"],
+    "additionalProperties": False,
+}
+GET_REVIEW_STATUS_SCHEMA: dict[str, Any] = {
+    "type": "object", "properties": {"item_id": {"type": "string"}},
+    "required": ["item_id"], "additionalProperties": False,
+}
+RESOLVE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"item_id": {"type": "string"},
+                   "resolution_notes": {"type": "string", "maxLength": 20000}},
+    "required": ["item_id", "resolution_notes"], "additionalProperties": False,
+}
+REVIEW_DESCRIPTIONS = {
+    GET_FLAGGED_TOOL: "Read the items in ShellCraft's review spool: what the user flagged for you with `mark` "
+                      "(test failures, logs, diffs; kind \"flag\") and your own review requests (kind \"review\"). "
+                      "Returns JSON, newest first. Call resolve_review_item when you have dealt with a flag.",
+    REQUEST_REVIEW_TOOL: "Ask the user to approve an action before you take it: anything destructive or hard to "
+                         "undo (deleting files, rewriting history, migrations, force pushes). The request shows "
+                         "as an alert in the user's ShellCraft; they answer with `review approve` or `review "
+                         "reject` and notes. Go ahead only when the status is \"approved\". With wait_seconds the "
+                         "call returns when they answer; otherwise poll get_review_status.",
+    REVIEW_STATUS_TOOL: "The status of a review item (pending, approved, rejected, resolved) and the user's "
+                        "decision and notes.",
+    RESOLVE_TOOL: "Mark a review item as dealt with: a flag you have handled, or a review you have acted on. "
+                  "Say what you did in resolution_notes.",
+}
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
 CALL_TIMEOUT = float(os.environ.get("SHELLCRAFT_MCP_TIMEOUT", "120"))  # seconds
 MAX_STDIN = 10 * 1024 * 1024  # bytes of `stdin` a call may send
@@ -98,7 +166,10 @@ SERVER_INSTRUCTIONS = (
     "ShellCraft tools are Unix-style text filters: each takes its parameters and optional "
     "`stdin` text and returns text. Chain them yourself by passing one tool's output as the next "
     f"tool's `stdin`, or call `{PIPELINE_TOOL}` with a full `a | b` command line. Each command's "
-    f"manual is a resource at {MAN_URI}<name>."
+    f"manual is a resource at {MAN_URI}<name>.\n\n"
+    f"Review loop: the user flags output for you with `mark`; read it with `{GET_FLAGGED_TOOL}` or the "
+    f"{REVIEW_QUEUE_URI} resource, and call `{RESOLVE_TOOL}` when done. Before any destructive or "
+    f"irreversible action, call `{REQUEST_REVIEW_TOOL}` and go ahead only if the user approves."
 )
 
 
@@ -195,6 +266,9 @@ class ShellcraftMCP:
         tools.append(types.Tool(name=PIPELINE_TOOL, description=_pipeline_description(self.registry, self.tool_names()),
                                 input_schema=PIPELINE_INPUT_SCHEMA))
         tools.append(types.Tool(name=ALERT_TOOL, description=ALERT_DESCRIPTION, input_schema=ALERT_INPUT_SCHEMA))
+        for name, schema in ((GET_FLAGGED_TOOL, GET_FLAGGED_SCHEMA), (REQUEST_REVIEW_TOOL, REQUEST_REVIEW_SCHEMA),
+                             (REVIEW_STATUS_TOOL, GET_REVIEW_STATUS_SCHEMA), (RESOLVE_TOOL, RESOLVE_SCHEMA)):
+            tools.append(types.Tool(name=name, description=REVIEW_DESCRIPTIONS[name], input_schema=schema))
         return types.ListToolsResult(tools=tools)
 
     async def _call_tool(self, request_ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
@@ -203,6 +277,8 @@ class ShellcraftMCP:
         if params.name == ALERT_TOOL:
             client = _client_name(request_ctx)
             return await _call(lambda: _send_alert(arguments, client), self.timeout)
+        if params.name in REVIEW_TOOLS:
+            return await self._review_tool(params.name, arguments, _client_name(request_ctx))
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -228,6 +304,77 @@ class ShellcraftMCP:
             args = [str(a) for a in raw_args]
         return await _call(lambda: to_text(spec.run(args, stdin)), self.timeout)
 
+    # ── the review loop (shellcraft.review_spool) ─────────────────────────────
+
+    async def _review_tool(self, name: str, arguments: dict[str, Any], client: str) -> types.CallToolResult:
+        from shellcraft import review_spool as spool
+
+        by = f"mcp · {client}"
+        try:
+            if name == GET_FLAGGED_TOOL:
+                status, kind = arguments.get("status", "pending"), arguments.get("kind", "flag")
+                items = await anyio.to_thread.run_sync(lambda: spool.list_items(status, kind))
+                if not arguments.get("include_artifacts", True):
+                    items = [spool.summary(i) for i in items]
+                return _json_result(items)
+            if name == REVIEW_STATUS_TOOL:
+                item = await anyio.to_thread.run_sync(lambda: spool.get(str(arguments.get("item_id", ""))))
+                return _json_result(_status_of(item))
+            if name == RESOLVE_TOOL:
+                item_id, notes = str(arguments.get("item_id", "")), str(arguments.get("resolution_notes", ""))
+                item = await anyio.to_thread.run_sync(lambda: spool.resolve(item_id, notes, by))
+                return _json_result(_status_of(item))
+            # request_human_review
+            title, description = str(arguments.get("title", "")).strip(), str(arguments.get("description", ""))
+            if not title:
+                return _error("request_human_review: `title` is required")
+            raw = arguments.get("artifacts") or []
+            if not isinstance(raw, list):
+                return _error("request_human_review: `artifacts` must be an array")
+            artifacts = [spool.artifact(str(a.get("name", "text")), str(a.get("content", "")),
+                                        str(a.get("kind", "text"))) for a in raw if isinstance(a, dict)]
+            priority = str(arguments.get("priority", "medium") or "medium")
+            item = await anyio.to_thread.run_sync(
+                lambda: spool.create("review", title, description, artifacts, priority, "", created_by=by))
+            wait = max(0.0, min(float(arguments.get("wait_seconds", 0) or 0), 600.0, self.timeout - 5))
+            deadline = anyio.current_time() + wait
+            while wait and anyio.current_time() < deadline:
+                await anyio.sleep(0.5)
+                item = await anyio.to_thread.run_sync(lambda: spool.get(item["id"]))
+                if item["status"] != "pending":
+                    break
+            return _json_result(_status_of(item))
+        except spool.SpoolError as exc:
+            return _error(f"{name}: {exc}")
+        except (TypeError, ValueError) as exc:
+            return _error(f"{name}: bad arguments: {exc}")
+
+    async def notify_reviews_changed(self) -> None:
+        """The review spool changed: the queue resource is to be read again."""
+        await self.bus.publish(ResourcesListChanged())
+        await self.bus.publish(ResourceUpdated(REVIEW_QUEUE_URI))
+        for connection in list(self.connections):
+            try:
+                await connection.send_resource_list_changed()
+                send_updated = getattr(connection, "send_resource_updated", None)
+                if send_updated is not None:
+                    await send_updated(REVIEW_QUEUE_URI)
+            except Exception:  # noqa: BLE001 — a closed connection just stops getting notified
+                self.connections.discard(connection)
+
+    async def watch_reviews(self, interval: float = REVIEW_INTERVAL) -> None:
+        """Look at the review spool every `interval`: a new or changed item (the shell's `mark`, the
+        user's answer, another client's request) is announced to the connected clients."""
+        from shellcraft import review_spool as spool
+
+        last = await anyio.to_thread.run_sync(spool.signature)
+        while True:
+            await anyio.sleep(interval)
+            now = await anyio.to_thread.run_sync(spool.signature)
+            if now != last:
+                last = now
+                await self.notify_reviews_changed()
+
     # ── resources: man pages ─────────────────────────────────────────────────
 
     def _manual_names(self) -> list[str]:
@@ -244,11 +391,23 @@ class ShellcraftMCP:
             resources.append(types.Resource(uri=MAN_URI + name, name=f"man {name}", title=f"{name} manual",
                                             description=f"Manual for the {kind} `{name}`: {summary}",
                                             mime_type="text/markdown"))
+        resources.append(types.Resource(uri=REVIEW_QUEUE_URI, name="review queue", title="Review queue",
+                                        description="What is pending in ShellCraft's review spool: items the user "
+                                                    "flagged for you (`mark`) and review requests waiting for "
+                                                    "an answer. JSON; read the full items with get_flagged_items.",
+                                        mime_type="application/json"))
         return types.ListResourcesResult(resources=resources)
 
     async def _read_resource(self, request_ctx, params: types.ReadResourceRequestParams) -> types.ReadResourceResult:
         self._remember(request_ctx)
         uri = str(params.uri)
+        if uri == REVIEW_QUEUE_URI:
+            from shellcraft import review_spool as spool
+
+            items = await anyio.to_thread.run_sync(lambda: spool.list_items("pending"))
+            text = json.dumps([spool.summary(i) for i in items], ensure_ascii=False, indent=1)
+            return types.ReadResourceResult(
+                contents=[types.TextResourceContents(uri=uri, mime_type="application/json", text=text)])
         name = uri[len(MAN_URI):] if uri.startswith(MAN_URI) else ""
         if name not in self._manual_names():
             raise MCPError(types.INVALID_PARAMS, f"Unknown resource: {uri}")
@@ -364,6 +523,16 @@ def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
     return f"alert shown ({severity}): {message}" + (" (with content)" if content else "")
 
 
+def _status_of(item: dict[str, Any]) -> dict[str, Any]:
+    return {"item_id": item["id"], "kind": item["kind"], "status": item["status"],
+            "decision": item.get("decision"), "resolution": item.get("resolution")}
+
+
+def _json_result(value: Any) -> types.CallToolResult:
+    return types.CallToolResult(content=[types.TextContent(type="text",
+                                                           text=json.dumps(value, ensure_ascii=False, indent=1))])
+
+
 def _error(message: str) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(type="text", text=message)], is_error=True)
 
@@ -411,6 +580,7 @@ def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = Tr
         async with anyio.create_task_group() as tg:
             if watch:
                 tg.start_soon(app.watch)
+            tg.start_soon(app.watch_reviews)  # the review spool, whatever hot_reload says
             async with stdio_server() as (read_stream, write_stream):
                 await app.server.run(read_stream, write_stream, app.server.create_initialization_options())
             tg.cancel_scope.cancel()
@@ -474,6 +644,7 @@ def serve_http(registry: ModuleRegistry, host: str, port: int, allow_system: boo
         async with anyio.create_task_group() as tg:
             if watch:
                 tg.start_soon(app.watch)
+            tg.start_soon(app.watch_reviews)  # the review spool, whatever hot_reload says
             await uvicorn.Server(config).serve()
             tg.cancel_scope.cancel()
 

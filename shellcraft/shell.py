@@ -202,6 +202,8 @@ class Shell:
         ctx.alerts = AlertBus()
         ctx.alerts.on_change = self._jobs_changed
         ctx.alerts.on_request = self._sub_requested
+        if not ctx.lite:  # the AI's review requests become alerts until answered (shellcraft.review_spool)
+            self._start_review_watcher()
         from shellcraft import mainlink
 
         if ctx.lite:  # one clip register: the main shell's, asked for over its private channel
@@ -359,6 +361,49 @@ class Shell:
         if stopped:
             names = ", ".join(f"[{j.number}] {j.command}" for j in stopped)
             self.ui.console.print(Text(f"stopped: {names}", style="sc.muted"), markup=False, highlight=False)
+
+    REVIEW_LEVELS = {"low": "info", "medium": "warn", "high": "crit"}
+
+    def _start_review_watcher(self, interval: float = 1.0) -> None:
+        """A thread that looks at the review spool every `interval`: an AI's pending review request
+        becomes a sticky alert (its level from the request's priority, its data `review show ID`),
+        and the alert goes when the request is answered, here or from another shell."""
+        import threading
+
+        from shellcraft import review_spool as spool
+
+        stop = threading.Event()
+        self._review_alerts: dict[str, Any] = {}
+
+        def check() -> None:
+            bus = self.ctx.alerts
+            if bus is None:
+                return
+            pending = {i["id"]: i for i in spool.list_items("pending", "review")}
+            for item_id, item in pending.items():
+                if item_id not in self._review_alerts:
+                    level = self.REVIEW_LEVELS.get(item.get("priority"), "warn")
+                    self._review_alerts[item_id] = bus.post(
+                        f"AI asks for review: {item.get('title', '')}", level, timeout=None,
+                        source=str(item.get("created_by", "")), content=f"review show {item_id}")
+            for item_id in [i for i in self._review_alerts if i not in pending]:
+                bus.remove(self._review_alerts.pop(item_id))
+
+        def run() -> None:
+            last = None
+            while not stop.wait(interval):
+                try:
+                    now = spool.signature()
+                    if now != last:
+                        last = now
+                        check()
+                except Exception:  # noqa: BLE001 — a spool problem must not kill the watcher
+                    continue
+
+        self._review_check = check  # for tests and for a check right after `review approve`
+        thread = threading.Thread(target=run, daemon=True, name="shellcraft:review-watcher")
+        thread.start()
+        self._cleanup.callback(stop.set)
 
     def _sub_recording(self, data: dict[str, Any]) -> None:
         """A subshell started or stopped `record` (from the watcher thread): its line in the
