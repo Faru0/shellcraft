@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Completion that follows the usage line:** Tab offered file names wherever it knew nothing
+  better, even where a command can't take one (`cut <Tab>`, which needs `-f` or `-c`). It now
+  reads each command's and module's usage line (`[optional]`, `(a | b)`, `WORD...`, `-f VALUE`,
+  `a|b|c`) and offers what may come next: the switches a command can't run without, its words
+  (`mcp <Tab>` → start, stop …), a file only where one goes, a command after `time` / `xargs`.
+  Where only a free value fits (a PATTERN, an IP) Tab on an empty word offers nothing. A usage
+  line it can't read, or words that don't fit it, keep the old completion.
+
 - **`diag keys --raw`:** for a key that `diag keys` does not show at all (Alt-v on some Windows
   setups). On Windows it prints every key record the console delivers, key down and key up, with
   the virtual key, scan code, character and modifier flags, before prompt_toolkit reads them;

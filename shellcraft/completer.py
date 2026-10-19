@@ -20,6 +20,7 @@ from shellcraft.options import OptionSpec, builtin_options, positional_values
 from shellcraft.parser import Command
 from shellcraft.settings import SETTINGS, env_settings
 from shellcraft.themes import all_themes
+from shellcraft.usage import Expect, expect
 
 _BREAK_CHARS = " \t|>"
 
@@ -121,14 +122,61 @@ class ShellCompleter(Completer):
                 elif wanted.takes_path:
                     yield from self._paths(word, quote, event)
                 return  # a free-form value (N, PATTERN, …): offering file names would mislead
-            if word.startswith("-") and options:
+            guide = self._usage_expect(segment, options)
+            if word.startswith("-") and (options or guide is not None):
                 yield from self._switches(word, options, used=set(segment[1:]))
+                if guide is not None:  # switches the usage line names but the docs don't describe
+                    known = {f for o in options for f in o.flags}
+                    extra = {f: "switch" for f in guide.flags | guide.free_flags if f not in known}
+                    yield from self._complete(word, extra)
                 return
             values = self._positional_values(segment)
             if values:
                 yield from self._complete(word, values)
                 return
+            if guide is not None:
+                yield from self._guided(guide, segment, word, quote, event, options)
+                return
         yield from self._paths(word, quote, event)
+
+    def _usage_expect(self, segment: list[str], options) -> Expect | None:
+        """What the command's usage line allows after the words typed so far, or None (no usage
+        line, one it can't read, or words it doesn't fit: then file names, as before)."""
+        name = aliases.expand_command(Command(segment[0], []), self._aliases()).name
+        if name in BUILTINS:
+            usage = BUILTINS[name].usage
+        else:
+            spec = self.ctx.registry.get(name)
+            usage = spec.skill.usage if spec is not None and spec.skill is not None else ""
+        if not usage:
+            return None
+        takes_value = {f: bool(o.metavar) for o in options for f in o.flags}
+        return expect(name, usage, segment[1:], takes_value)
+
+    def _guided(self, guide: Expect, segment: list[str], word: str, quote: str | None,
+                event: CompleteEvent, options) -> Iterable[Completion]:
+        """Offer what the usage line says comes next: its words (`mcp <Tab>` → start, stop …), a
+        file name only where it takes one, a command where it runs one, and the switches when
+        the line can't go on without one (`cut <Tab>` → -f, -c). Where only a free value fits
+        (a PATTERN, a MESSAGE) Tab on an empty word offers nothing rather than file names that
+        would mislead (the usage toolbar shows what to type); a word typed in part still gets
+        the file names that start with it."""
+        literals = {w: d or f"{segment[0]} argument" for w, d in guide.literals.items() if w[:1].isalnum()}
+        yield from self._complete(word, literals)
+        if guide.wants_command:
+            yield from self._commands(word)
+            return
+        if guide.wants_path:
+            yield from self._paths(word, quote, event)
+            return
+        if guide.flags or not (guide.metas or literals):  # a switch is needed, or nothing but switches fits
+            helps = {f: o.help or o.label for o in options for f in o.flags}
+            flags = guide.flags or guide.free_flags  # the ones it can't do without, else the optional ones
+            for flag in sorted(flags):
+                if flag.startswith(word):
+                    yield Completion(flag, start_position=-len(word), display_meta=helps.get(flag, "switch"))
+        if guide.metas and word:  # a value typed in part: a file name that fits it may be what is meant
+            yield from self._paths(word, quote, event)
 
     def _paths(self, word: str, quote: str | None, event: CompleteEvent) -> Iterable[Completion]:
         """Path completions; a name with spaces is quoted unless the word already is."""

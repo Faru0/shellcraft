@@ -500,7 +500,8 @@ def test_completer_handles_quotes_and_positional_values(tmp_path, monkeypatch, r
     assert run('cat "my') == [" file.txt"]  # inside quotes: just the rest
     assert run("queryCensys ") == ["cert", "host", "search"]
     assert run("queryCensys h") == ["host"]
-    assert "plain.txt" in run("queryCensys host ")  # free-form from here on
+    assert run("queryCensys host ") == []  # an IP goes here (its usage says so), not a file name
+    assert run("queryCensys host pl") == ["ain.txt"]  # though a word typed in part still gets them
     assert run("theme pre") == ["preview"] and run("theme preview no") == ["nord"]
     assert run("prompt na") == ["name"] and run("help gr") == ["grep"]
 
