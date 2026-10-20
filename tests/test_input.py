@@ -164,7 +164,10 @@ def test_the_shell_captures_output_and_the_footer_bypasses_it(repl_shell):
     assert sh.scrollback.text() == ""  # clear empties it, like the terminal's history
 
 
-def test_wheel_at_the_prompt_opens_the_scroll_view(repl_shell, monkeypatch):
+def test_wheel_at_the_prompt_hands_the_mouse_to_the_terminal(repl_shell, monkeypatch):
+    """The shell holds the mouse for the footer, so the wheel's turn came to it: it releases the
+    mouse (the renderer turns reporting off), the terminal scrolls on the turns that follow, and
+    typing takes the mouse back."""
     from types import SimpleNamespace
 
     from shellcraft import output
@@ -174,14 +177,29 @@ def test_wheel_at_the_prompt_opens_the_scroll_view(repl_shell, monkeypatch):
     assert wheel_up("\x1b[<64;5;5M") and not wheel_up("\x1b[<65;5;5M")
     assert wheel_up("NONE;SCROLL_UP;3;4") and not wheel_up("NONE;SCROLL_DOWN;3;4")
     sh, ctx = repl_shell
+    sh.ui.mouse_always = True  # the shell wants the mouse
+    assert sh._mouse_wanted()
+    invalidated = []
+    app = SimpleNamespace(invalidate=lambda: invalidated.append(True))
+    keys = [SimpleNamespace(key=Keys.Vt100MouseEvent)]
+    assert sh._footer_mouse(SimpleNamespace(data="\x1b[<64;5;5M", key_sequence=keys, app=app)) is None
+    assert not sh._mouse_wanted() and invalidated  # released, and a render asked for
+    sh._take_mouse_back()  # what a key press does (the buffer's cursor-moved hook): the mouse comes back
+    assert sh._mouse_wanted()
+    sh._footer_mouse(SimpleNamespace(data="NONE;SCROLL_DOWN;3;4", key_sequence=keys, app=app))
+    assert not sh._mouse_wanted()
+    sh._reset_input()  # a new prompt: back too
+    assert sh._mouse_wanted()
+
+    # `settings scroll_view on`: the old behavior, the scroll view at its end
+    ctx.config["settings"] = {"scroll_view": True}
     opened = []
     monkeypatch.setattr(output, "page", lambda ui, text, title=None, **kw: opened.append((text, kw)))
     monkeypatch.setattr(shell_module, "run_in_terminal", lambda func: func())
     sh.ui.console.print("output to scroll back to")
-    keys = [SimpleNamespace(key=Keys.Vt100MouseEvent)]
-    assert sh._footer_mouse(SimpleNamespace(data="\x1b[<65;5;5M", key_sequence=keys)) is None
-    assert opened == []  # down: nothing to do
-    assert sh._footer_mouse(SimpleNamespace(data="\x1b[<64;5;5M", key_sequence=keys)) is None
+    assert sh._footer_mouse(SimpleNamespace(data="\x1b[<65;5;5M", key_sequence=keys, app=app)) is None
+    assert opened == [] and sh._mouse_wanted()  # down: nothing to do, the mouse is kept
+    assert sh._footer_mouse(SimpleNamespace(data="\x1b[<64;5;5M", key_sequence=keys, app=app)) is None
     assert "output to scroll back to" in opened[0][0]
     assert opened[0][1] == {"at_end": 3, "close_past_end": True}
 

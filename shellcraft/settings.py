@@ -95,11 +95,16 @@ SETTINGS: dict[str, Setting] = {
                 _apply_mouse_always),
         Setting("footer_mouse", "Clickable footer at the prompt", True,
                 "While the footer lists a subshell or an alert, the shell has the mouse at the prompt: "
-                "the footer's lines, an alert's ✖ and the badge can be clicked, text is selected with "
-                "Shift and a drag, and the wheel opens the scroll view of the session's output (wheel "
-                "down past the end, or q, closes it). Off: the terminal keeps the mouse at the prompt "
-                "(its own wheel and selection) and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, "
+                "the footer's lines, an alert's ✖ and the badge can be clicked, and text is selected "
+                "with Shift and a drag. The wheel hands the mouse back to the terminal, so its turns "
+                "scroll the terminal's own history until the next key press. Off: the terminal keeps "
+                "the mouse at the prompt and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, "
                 "alert -c, Alt-c). With nothing to click the terminal always keeps the mouse."),
+        Setting("scroll_view", "Wheel opens the scroll view", False,
+                "While the shell has the mouse at the prompt (footer_mouse), a turn of the wheel up "
+                "opens the scroll view: the session's recent output in the viewer, at its end (wheel "
+                "down past the end, or q, closes it). Off: the wheel hands the mouse to the terminal "
+                "instead, so its turns scroll the terminal's own history."),
         Setting("footer", "Shell footer", True,
                 "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
                 "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "

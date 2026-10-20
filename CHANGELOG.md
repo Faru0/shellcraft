@@ -72,6 +72,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The wheel at the prompt scrolls the terminal again.** While the footer had something to
+  click, the shell held the mouse, so the wheel could not reach the terminal and opened the
+  scroll view instead: a page to be in, where a terminal just scrolls. Now the first turn of the
+  wheel hands the mouse back to the terminal and the turns that follow scroll its own history,
+  as in any terminal; the next key press (or the next prompt) takes the mouse again for the
+  footer. `settings scroll_view on` brings the scroll view back.
+
 - **`theme NAME` in a subshell changes that subshell only:** it used to save the theme, so the
   main shell opened with it next time. The message says so and points at `theme --sub NAME`.
   `theme reset` in a subshell is not saved either. In the main shell nothing changes.

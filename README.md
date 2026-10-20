@@ -299,11 +299,13 @@ the prompt that appears only while something is running.
 **↓** on an empty line moves into the footer (↑ / ↓ walk it, **Enter** switches, **x** or Delete
 stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere. The footer's lines, an
 alert's ✖ and the badge are clickable at the prompt and inside a subshell. While the shell has
-the mouse that way, select text with **Shift** and a drag, and the **wheel** works without Shift:
-inside a subshell it scrolls the subshell's own scrollback, and at the prompt it opens the
-**scroll view**, the session's recent output in the viewer, at its end (wheel down past the end,
-or `q`, closes it). With nothing in the footer to click, the terminal keeps the mouse and its own
-wheel. `settings footer_mouse off` always leaves the mouse to the terminal at the prompt.
+the mouse that way, select text with **Shift** and a drag. The **wheel** inside a subshell scrolls
+the subshell's own scrollback; at the prompt, a turn of the wheel hands the mouse back to the
+terminal, so the turns that follow scroll the terminal's own history as in any terminal, until the
+next key press takes the mouse again. `settings scroll_view on` opens the **scroll view** instead:
+the session's recent output in the viewer, at its end (wheel down past the end, or `q`, closes
+it). With nothing in the footer to click, the terminal keeps the mouse and its own wheel.
+`settings footer_mouse off` always leaves the mouse to the terminal at the prompt.
 
 Subshells are shown like the pages of a book. Each program has its own terminal emulator, so
 switching to it redraws its screen exactly as it was, scrollback included, and switching away
@@ -512,7 +514,7 @@ between Linux and Windows. In the shell, `hotkeys` prints this list and `man hot
 | Mouse | When | What it does |
 | --- | --- | --- |
 | Wheel | nothing to click in the footer | The terminal's own scrolling |
-| Wheel | the footer lists subshells or alerts | The **scroll view** of the output (`q` or down past the end closes) |
+| Wheel | the footer lists subshells or alerts | The terminal's own scrolling (the first turn hands it the mouse back) |
 | Wheel | inside a subshell | Scrolls that subshell's output (a full-screen program such as `less` gets arrow keys) |
 | Drag | nothing to click in the footer | The terminal's own selection |
 | `Shift` + drag | the shell has the mouse (footer items, or a subshell) | The terminal's own selection |
@@ -628,7 +630,8 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
 | `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
-| `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel opens the scroll view. Off: the terminal keeps the mouse at the prompt. |
+| `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
+| `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |

@@ -241,6 +241,9 @@ class Shell:
         self._panel_hover: Any = None
         self._panel_hover_timer: Any = None  # threading.Timer clearing _panel_hover
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
+        # The wheel at the prompt hands the mouse back to the terminal (its own scrolling) until
+        # the next key press or prompt (_footer_mouse, _mouse_wanted).
+        self._mouse_released = False
         self._yank: tuple[int, int, str] | None = None  # the last Alt-v: (copy number, where, the text)
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
@@ -293,6 +296,7 @@ class Shell:
         self.session.default_buffer.append_to_history = lambda: None  # type: ignore[method-assign]
         # The toolbar line only exists while there is something on the line to describe.
         self.session.default_buffer.on_text_changed += lambda _buffer: self._update_toolbar()
+        self.session.default_buffer.on_cursor_position_changed += lambda _buffer: self._take_mouse_back()
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
 
@@ -574,10 +578,16 @@ class Shell:
         if parsed is not None:
             kind, x, y, button = parsed
             if kind == "scroll" and self.session.default_buffer.complete_state is None:
-                # The shell has the mouse, so the terminal can't scroll its history: the wheel
-                # opens the scroll view of the session's output instead (up), or does nothing.
-                if wheel_up(event.data):
-                    run_in_terminal(self._open_scrollback)
+                # The shell has the mouse (for the footer), so this turn of the wheel came to
+                # us, not to the terminal. The terminal gets the mouse back now, so the turns
+                # that follow scroll its own history, as in any terminal; the next key press or
+                # prompt takes it again. The `scroll_view` setting opens the scroll view instead.
+                if settings.get(self.ctx.config, "scroll_view"):
+                    if wheel_up(event.data):
+                        run_in_terminal(self._open_scrollback)
+                    return None
+                self._mouse_released = True
+                event.app.invalidate()  # the renderer turns mouse reporting off on this render
                 return None
             if kind == "down":
                 self._pressed = button  # for the release, which may not say which button it was
@@ -727,11 +737,20 @@ class Shell:
 
     # ── the input line: highlighting, the toolbar and the mouse ──────────────
 
+    def _take_mouse_back(self) -> None:
+        """A key press after the wheel handed the mouse to the terminal: the shell wants it back
+        (the footer's lines), so the next render turns mouse reporting on again."""
+        if self._mouse_released:
+            self._mouse_released = False
+            app = getattr(self.session, "app", None)
+            if app is not None and app.is_running:
+                app.invalidate()
+
     def _mouse_wanted(self) -> bool:
         """Mouse reporting on while a completion menu is open, while the subshell panel shows
         (so its lines can be clicked), or always with `mouse_always`. Otherwise the terminal keeps
         the mouse: the wheel scrolls its scrollback, text can be selected without Shift."""
-        if not self.ui.mouse:
+        if not self.ui.mouse or self._mouse_released:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
@@ -873,6 +892,7 @@ class Shell:
         self._update_toolbar()
 
     def _update_toolbar(self) -> None:
+        self._mouse_released = False  # typing, or a new prompt: the shell takes the mouse back
         buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
         text = buffer.text if buffer is not None else ""
         if text:

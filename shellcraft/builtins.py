@@ -883,7 +883,7 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   (**Ctrl-] v** into another program inside a subshell); `clip` prints it and `$CLIP` holds it
   (`man clip`). From the keyboard: **Alt-c** copies the top alert, `clip -a
   N` alert N. While the footer lists a subshell or an alert the shell has the mouse: select text
-  with Shift and a drag, and the wheel opens the scroll view of the session's output.
+  with Shift and a drag; the wheel hands the mouse back to the terminal, so it scrolls as usual.
 - With no subshell to fold into, every alert shows as a row.
 
 ```
@@ -1110,7 +1110,7 @@ between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in
 | Mouse | When | What it does |
 | --- | --- | --- |
 | Wheel | nothing to click in the footer | The terminal's own scrolling |
-| Wheel | the footer lists subshells or alerts | The **scroll view** of the output (`q` or down past the end closes) |
+| Wheel | the footer lists subshells or alerts | The terminal's own scrolling (the first turn hands it the mouse back) |
 | Wheel | inside a subshell | Scrolls that subshell's output (a full-screen program such as `less` gets arrow keys) |
 | Drag | nothing to click in the footer | The terminal's own selection |
 | `Shift` + drag | the shell has the mouse (footer items, or a subshell) | The terminal's own selection |
