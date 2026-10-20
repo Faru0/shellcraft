@@ -112,8 +112,26 @@ def _footer_lines(ui: Any, jobs: Any, footer: Any) -> list[str]:
                          f"recording={getattr(job, 'recording', None)} {how}")
         signals = list(getattr(jobs, "recording_signals", []))
         lines.append("record signals from subshells: " + ("; ".join(signals) if signals else "(none received)"))
+    return lines
+
+
+def _packages() -> list[str]:
+    """Each optional package with its version or `missing`, then the warnings the banner shows
+    for the missing ones: a missing pywinpty or pyte is what makes subshells, the footer and
+    the mouse look broken on Windows, and the banner may have scrolled away."""
+    from shellcraft.banner import core_warnings
+
+    names = ["pyte", "mcp", "keyring", "requests"]
     if sys.platform == "win32":
-        lines.append(f"pywinpty {_try(lambda: metadata.version('pywinpty'))}")
+        names.insert(0, "pywinpty")
+    found = []
+    for dist in names:
+        try:
+            found.append(f"{dist} {metadata.version(dist)}")
+        except metadata.PackageNotFoundError:
+            found.append(f"{dist} missing")
+    lines = [", ".join(found)]
+    lines += [f"⚠ {w}" for w in core_warnings()] or ["(nothing missing)"]
     return lines
 
 
@@ -137,6 +155,8 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
         *([f"windows version {_try(sys.getwindowsversion)}"] if sys.platform == "win32" else []),
         f"cwd {os.getcwd()}",
     ])
+
+    out += _section("packages", _packages())
 
     out += _section("std streams", [
         _stream("stdin", sys.stdin), _stream("stdout", sys.stdout), _stream("stderr", sys.stderr),

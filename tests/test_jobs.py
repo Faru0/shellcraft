@@ -1005,3 +1005,13 @@ def test_exit_in_a_subshell_clears_it_from_the_footer(ictx, monkeypatch):
     monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", 0))
     run_line("sub sh -c 'sleep 0.2'", ictx)
     assert ictx.jobs.get(3) is not None and not ictx.jobs.get(3).running
+
+
+def test_conin_raw_mode_gives_an_attached_subshell_the_mouse():
+    """Windows: the console hands clicks and the wheel to the program only with MOUSE_INPUT on
+    and Quick Edit off; the prompt's DirectOutput sets the same bits (test_console)."""
+    before = 0x01F7  # what a fresh console has: processed, line, echo, window, mouse, insert, quick edit, extended
+    raw = jobmod.conin_raw_mode(before)
+    assert raw & 0x0200 and raw & 0x0008 and raw & 0x0010 and raw & 0x0080  # VT, resize, mouse, extended
+    assert not raw & (0x0001 | 0x0002 | 0x0004 | 0x0040)  # processed, line, echo, quick edit
+    assert raw & 0x0020  # insert mode untouched

@@ -544,7 +544,8 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 | Alt shortcuts (`Alt-v`, `Alt-c`) | Left and right Alt; AltGr unless it types a character | Left, right Alt and AltGr |
 | Alt does not arrive | Press `Esc` then the key (Konsole's menu bar takes Alt-v) | Press `Esc` then the key |
 | Subshells (`sub`) | Always | Need the `pywinpty` package (the banner says when it is missing) |
-| Terminal | Any modern terminal | Windows Terminal; the classic console works with fewer colors |
+| Terminal | Any modern terminal | Windows Terminal or the classic console; keys and the mouse are read the way prompt_toolkit's own Windows support does it (VT input when the console takes it) |
+| What is missing | The banner and `diag` name a missing package (`pyte`, `keyring`) | The same, plus `pywinpty`: without it there are no subshells, no footer and no mouse there |
 
 `diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
 Windows it also shows the console's Alt flags, to paste into a bug report. When a key does not

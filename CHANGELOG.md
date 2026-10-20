@@ -89,6 +89,30 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Windows: the key reader is chosen by what the console accepts, not by `WT_SESSION`.**
+  Since 13 October Windows Terminal got the classic key reader whenever `WT_SESSION` was set.
+  A shell opened through Windows 11's default-terminal handoff runs in Windows Terminal with no
+  `WT_SESSION`, so the same window could run either reader, and bugs looked random. ShellCraft
+  now does what prompt_toolkit's own `create_input()` does: it asks the console for VT input and
+  uses the VT reader when it takes it, the classic one otherwise. `SHELLCRAFT_CONSOLE=legacy-keys`
+  still forces the classic reader, to compare.
+
+- **Windows: the mouse inside an attached subshell.** The console only hands clicks and the
+  wheel to a program with mouse input on and Quick Edit off; the prompt set both, the subshell
+  attach set neither, so the wheel and the footer's lines could do nothing there.
+
+- **`diag` lists the optional packages** (`pywinpty`, `pyte`, `mcp`, `keyring`, `requests`) with
+  their versions or `missing`, and repeats the banner's warnings for the missing ones, so a
+  report shows at once when subshells or the footer are off because a package is absent.
+
+- **cmd.exe's own commands (`dir`, `copy`…) refuse an argument with `"`, `%`, `!` or a line
+  break:** cmd.exe parses its command line again after Python quotes it, so such an argument
+  could run a second command or expand a variable. Everything else, including `&`, `|` and
+  spaces, is passed as one quoted argument as before.
+
+- **The MCP server's parent watch on Windows** declared no types for `OpenProcess` /
+  `WaitForSingleObject`, so a 64-bit process handle could be truncated and the wait miss.
+
 - **A subshell left with `exit` stayed in the footer** with a × to click: the pty closes a
   moment before the job is marked finished (on Windows up to half a second later), so the
   prompt's autoclear saw it still running. It now leaves the footer as soon as it ends

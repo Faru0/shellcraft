@@ -288,6 +288,7 @@ def test_diag_prints_the_report_in_the_shell(shell_ctx):
     ctx.interactive = True
     out = to_text(run_line("diag", ctx).output)
     assert "[footer colors]" in out and "sc.footer.done" in out and "0 jobs" in out
+    assert "[packages]" in out and "pyte " in out  # the optional packages, with their versions
     ctx.jobs.start_command("seq 1", lambda: (0, "1\n"))
     assert "[1] command" in to_text(run_line("diag", ctx).output)
     with pytest.raises(PipelineError, match="usage: diag"):

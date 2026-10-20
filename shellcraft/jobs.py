@@ -1057,6 +1057,21 @@ def win_key(char: str, virtual_key: int) -> str:
     return WIN_VT_KEYS.get(virtual_key, "")
 
 
+# Console input mode bits (SetConsoleMode on CONIN$) for an attached subshell.
+_ENABLE_PROCESSED_INPUT, _ENABLE_LINE_INPUT, _ENABLE_ECHO_INPUT = 0x0001, 0x0002, 0x0004
+_ENABLE_WINDOW_INPUT, _ENABLE_MOUSE_INPUT, _ENABLE_QUICK_EDIT_MODE = 0x0008, 0x0010, 0x0040
+_ENABLE_EXTENDED_FLAGS, _ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0080, 0x0200
+
+
+def conin_raw_mode(mode: int) -> int:
+    """The CONIN$ mode while a subshell has the terminal: keys as VT sequences, resizes as
+    events, and the mouse. The console hands clicks and the wheel to the program only with
+    MOUSE_INPUT on and Quick Edit off (else it keeps them for its own selection; EXTENDED_FLAGS
+    makes the Quick Edit bit count), the same three bits the prompt's DirectOutput sets."""
+    mode |= _ENABLE_VIRTUAL_TERMINAL_INPUT | _ENABLE_WINDOW_INPUT | _ENABLE_MOUSE_INPUT | _ENABLE_EXTENDED_FLAGS
+    return mode & ~(_ENABLE_PROCESSED_INPUT | _ENABLE_LINE_INPUT | _ENABLE_ECHO_INPUT | _ENABLE_QUICK_EDIT_MODE)
+
+
 def _windows_terminal() -> Terminal:
     """Windows: keys from CONIN$ as VT sequences (a reader thread that waits for input before
     reading, so nothing is swallowed after detaching), output to CONOUT$, raw mode through the
@@ -1074,8 +1089,6 @@ def _windows_terminal() -> Terminal:
     incoming: queue.Queue[bytes] = queue.Queue()
     stop = threading.Event()
     state: dict[str, Any] = {"mode": None, "thread": None}
-    enable_vt_input, enable_window_input = 0x0200, 0x0008
-    enable_processed, enable_line, enable_echo = 0x0001, 0x0002, 0x0004
 
     def reader() -> None:
         records = (INPUT_RECORD * 256)()
@@ -1117,9 +1130,7 @@ def _windows_terminal() -> Terminal:
         if on:
             k32.GetConsoleMode(conin, ctypes.byref(mode))
             state["mode"] = mode.value
-            raw_mode = mode.value | enable_vt_input | enable_window_input
-            raw_mode &= ~(enable_processed | enable_line | enable_echo)
-            k32.SetConsoleMode(conin, raw_mode)
+            k32.SetConsoleMode(conin, conin_raw_mode(mode.value))
             stop.clear()
             state["thread"] = threading.Thread(target=reader, daemon=True, name="shellcraft:console-keys")
             state["thread"].start()

@@ -151,12 +151,22 @@ def watch_parent(pid: int) -> None:
     def wait() -> None:
         if sys.platform == "win32":
             import ctypes
+            from ctypes import wintypes
 
-            handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
-            if handle:
-                ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
-            else:
+            # With the argument and result types declared: a HANDLE is 64 bits, and ctypes'
+            # default (a C int) truncates it, so the wait could be on a wrong handle.
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+            k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k32.OpenProcess.restype = wintypes.HANDLE
+            k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            k32.WaitForSingleObject.restype = wintypes.DWORD
+            k32.CloseHandle.argtypes = [wintypes.HANDLE]
+            k32.CloseHandle.restype = wintypes.BOOL
+            handle = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
                 return
+            k32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+            k32.CloseHandle(handle)
         else:
             while os.getppid() == pid:
                 time.sleep(1.0)

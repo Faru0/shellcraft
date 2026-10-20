@@ -51,14 +51,17 @@ CONSOLE_MODES = ("direct", "legacy-keys", "native")
 
 
 def console_mode() -> str:
-    """The SHELLCRAFT_CONSOLE setting: direct, legacy-keys or native. Without it, Windows Terminal
-    (WT_SESSION is set) gets legacy-keys, the classic key reader without VT input, which is what
-    works there; the classic console gets direct."""
+    """The SHELLCRAFT_CONSOLE setting: direct, legacy-keys or native; direct without it.
+
+    direct picks the key reader the way prompt_toolkit's own create_input() does: by asking the
+    console whether it takes VT input (ENABLE_VIRTUAL_TERMINAL_INPUT), not by the terminal's
+    name. From 13 to 19 October 2026 Windows Terminal (WT_SESSION set) got legacy-keys instead;
+    but a shell started through Windows 11's default-terminal handoff runs in Windows Terminal
+    with no WT_SESSION, so the same window could run either reader. legacy-keys stays as the
+    setting to compare with."""
     value = os.environ.get("SHELLCRAFT_CONSOLE", "").strip().lower()
     if value in CONSOLE_MODES:
         return value
-    if os.environ.get("WT_SESSION"):
-        return "legacy-keys"
     return "direct"
 
 

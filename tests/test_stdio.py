@@ -84,3 +84,14 @@ def test_windows_cmd_builtins_use_unicode_output(monkeypatch):
     monkeypatch.setattr(pipeline.shutil, "which", lambda name: None)
     argv = pipeline._resolve_system(pipeline.Command("dir", ["/b"]))
     assert argv == ["cmd", "/d", "/u", "/c", "dir", "/b"]
+
+
+def test_cmd_builtin_arguments_cmd_exe_would_reinterpret_are_refused():
+    from shellcraft.context import CommandError
+    from shellcraft.pipeline import cmd_safe_args
+
+    assert cmd_safe_args("dir", ["/b", "C:\\Program Files", "a&b", "x|y", "out>f"]) == \
+        ["/b", "C:\\Program Files", "a&b", "x|y", "out>f"]  # safe inside subprocess's quotes
+    for arg, what in (('a"&calc', "'\"'"), ("%PATH%", "'%'"), ("!X!", "'!'"), ("a\nb", "a newline")):
+        with pytest.raises(CommandError, match=f"can't contain {what}"):
+            cmd_safe_args("dir", [arg])

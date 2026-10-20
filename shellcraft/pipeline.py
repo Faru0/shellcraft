@@ -636,8 +636,26 @@ def _resolve_system(cmd: Command) -> list[str] | None:
     if exe:
         return [exe, *cmd.args]
     if sys.platform == "win32" and cmd.name.lower() in _WINDOWS_CMD_BUILTINS:
-        return [*_CMD_UNICODE, cmd.name, *cmd.args]
+        return [*_CMD_UNICODE, cmd.name, *cmd_safe_args(cmd.name, cmd.args)]
     return None
+
+
+_CMD_UNSAFE = '"%!\r\n'
+
+
+def cmd_safe_args(name: str, args: list[str]) -> list[str]:
+    """The arguments of a cmd.exe command (`dir`, `copy`…), checked: cmd.exe parses its own
+    command line again after subprocess has quoted it, so a `"` would end the quoting and let
+    `&`, `|` or `>` in the argument run a second command, and `%NAME%` / `!NAME!` would expand a
+    variable. Such arguments are refused with a clear error; everything else is safe inside the
+    quotes subprocess puts around it."""
+    for arg in args:
+        bad = next((ch for ch in arg if ch in _CMD_UNSAFE), None)
+        if bad is not None:
+            shown = {"\r": "a carriage return", "\n": "a newline"}.get(bad, repr(bad))
+            raise CommandError(f"{name}: an argument can't contain {shown} ({arg!r}): cmd.exe would "
+                               "read it as part of its own command line")
+    return list(args)
 
 
 # cmd.exe with /u writes its internal commands' output to a pipe as UTF-16 (without /u it's the

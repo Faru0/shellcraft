@@ -277,11 +277,13 @@ def test_mouse_support_sets_console_input_mode_and_restores_quick_edit(monkeypat
     assert modes["CONIN$"] == raw | 0x0100
 
 
-def test_windows_terminal_defaults_to_legacy_keys(monkeypatch):
+def test_windows_terminal_gets_the_same_default_as_any_console(monkeypatch):
+    """The reader is chosen by what the console accepts (the VT input test), not by WT_SESSION:
+    Windows 11's default-terminal handoff opens Windows Terminal without it."""
     monkeypatch.delenv("SHELLCRAFT_CONSOLE", raising=False)
     monkeypatch.delenv("WT_SESSION", raising=False)
     assert console.console_mode() == "direct"
     monkeypatch.setenv("WT_SESSION", "1234")
-    assert console.console_mode() == "legacy-keys"
+    assert console.console_mode() == "direct"
     monkeypatch.setenv("SHELLCRAFT_CONSOLE", "native")
     assert console.console_mode() == "native"  # an explicit setting always wins
