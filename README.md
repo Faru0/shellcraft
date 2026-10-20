@@ -328,6 +328,11 @@ subshell belongs to the main shell; there is no subshell inside a subshell. `sub
 it appears in the footer under `main`, you stay where you are, and Ctrl-] N switches to it.
 `sub sc` is short for `sub shellcraft`, and `sc &` starts a lite ShellCraft in the background.
 
+An AI client can open one too (its `open_subshell` tool): a lite ShellCraft named `✦ AI · finding`
+in the footer, started in the background, that prints the AI's brief first (its findings, the
+evidence, what to do next), with an alert pointing to it; Ctrl-] N or a click shows it, `exit`
+returns. See **Use it from an AI client** below and [ai/README.md](ai/README.md).
+
 Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY through the
 `pywinpty` package on Windows (installed with the requirements there). Without `pywinpty`,
 `sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
@@ -632,6 +637,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
 | `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
+| `ai_run` | off | This session only, never saved: an AI client may run any command here at once (`run_in_shell`); `✦ run` shows in the prompt. Off: read-only commands run at once, the rest asks in the review queue. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
@@ -736,6 +742,7 @@ shell, even if the shell is killed outright. See `man mcp`.
 - **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
 - **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warn / crit, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
 - **The review loop:** `get_flagged_items`, `request_human_review`, `get_review_status` and `resolve_review_item`, plus the `shellcraft://review/queue` resource. See **Reviewing with an AI** below.
+- **The co-pilot tools** reach your **interactive** shell through its private link, published in `~/.shellcraft/mainlink.json` (readable by you only, removed when the shell exits), from the `mcp start` server and a client's own `--mcp` server alike: `get_recent_output` (your screen), `get_jobs` / `get_job_output`, `get_history` (keys redacted), `get_clip` / `set_clip` (what Alt-v pastes: the AI stages a command for you), `open_subshell` (a lite ShellCraft named `✦ AI · finding` in the footer that prints the AI's brief first, with an alert pointing to it), `run_in_shell` (read-only commands run at once with their trace above your prompt; the rest waits for `review approve`, or runs at once after `settings ai_run on`) and `request_session_grant` (the AI asks for that grant once). The `ai/` folder has agents and skills that teach an AI to use them: [ai/README.md](ai/README.md).
 - **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
 - **Man pages as resources** at `shellcraft://man/<name>`.
 - **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.
@@ -767,9 +774,10 @@ To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/py
 
 > [!WARNING]
 > Connected AI clients can read any file your user account can read (through `fetch`, `cat`,
-> `grep`, …), and `fetch` can request any URL. They can't change files. Modules that use your API
-> keys (`queryDns`, `queryCensys`) spend your quota when an AI calls them. Only connect AI clients
-> you trust.
+> `grep`, …), and `fetch` can request any URL; while your interactive shell runs they can also read
+> its screen, its subshells' output and your command history, and run the commands you approve
+> (or any command after `settings ai_run on`). Modules that use your API keys (`queryDns`,
+> `queryCensys`) spend your quota when an AI calls them. Only connect AI clients you trust.
 
 ---
 
@@ -802,6 +810,18 @@ A two-way queue between you and an AI client, shared through files in `~/.shellc
   or asks again with `get_review_status`, and goes ahead only on `approved`. This is advisory:
   ShellCraft's server instructions tell the AI to ask, but it can't stop what the AI does with
   its own tools.
+- **The AI runs commands in your shell** with `run_in_shell`, in three tiers. A **read-only**
+  command (grep, cat, jq, sort, the query modules; no redirection, no file changes, no `&`) runs
+  at once as a background job named `✦ AI: command`, and its trace shows above your prompt like
+  any `cmd &`. With the **session grant** everything runs at once: `settings ai_run on` (never
+  saved; `✦ run` shows in the prompt while it is on), or the AI asks once with
+  `request_session_grant` and you answer `review approve`. Anything else waits in the queue as
+  `AI wants to run: command`:
+  ```
+  review show a1b2c3           # the command and the AI's reason
+  review approve a1b2c3        # runs it here, now, with your permissions; the AI gets the output
+  review reject a1b2c3 no      # it never runs
+  ```
 
 Connected clients are told when the queue changes (a resource-updated notification for
 `shellcraft://review/queue`). Items that are done are deleted after 7 days; pending ones stay
@@ -832,6 +852,7 @@ details, the rules, a reference module and the checker:
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
+| [ai/README.md](ai/README.md) | Agents and skills that teach an AI client to work as a co-pilot in ShellCraft |
 
 <div align="center">
 

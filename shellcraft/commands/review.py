@@ -72,6 +72,24 @@ review reject ID [NOTES...]   # tell it not to
 An ID can be shortened to its last characters when only one item matches (`review show a1b2c3`),
 and Tab completes them. Only requests from the AI can be approved or rejected, and only while
 pending.
+
+## Commands the AI wants to run
+
+With the `run_in_shell` MCP tool the AI runs commands in this shell. A read-only command (grep,
+cat, jq, sort, the query modules; no redirection, no file changes) runs at once, as a background
+job named `✦ AI: command` whose trace shows above your prompt. Any other command waits here as
+`AI wants to run: command` (`review show ID` prints its reason):
+
+```
+review approve ID [NOTES...]  # runs it here, now, with your permissions; the AI gets the output
+review reject ID [NOTES...]   # it never runs; the AI gets your notes
+```
+
+Ctrl-C stops an approved command (the AI is told). `review show ID` afterwards prints the output
+under `── result`. To skip the approvals for a session, `settings ai_run on` lets the AI run
+anything at once (`✦ run` shows in the prompt; `off` revokes it, and it is never saved); the AI
+can ask for that itself (`request_session_grant`), which shows as `AI asks to run commands for
+this session` and is granted with `review approve ID`.
 """
 
 

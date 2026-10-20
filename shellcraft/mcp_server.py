@@ -292,7 +292,14 @@ SERVER_INSTRUCTIONS = (
     f"manual is a resource at {MAN_URI}<name>.\n\n"
     f"Review loop: the user flags output for you with `mark`; read it with `{GET_FLAGGED_TOOL}` or the "
     f"{REVIEW_QUEUE_URI} resource, and call `{RESOLVE_TOOL}` when done. Before any destructive or "
-    f"irreversible action, call `{REQUEST_REVIEW_TOOL}` and go ahead only if the user approves."
+    f"irreversible action, call `{REQUEST_REVIEW_TOOL}` and go ahead only if the user approves.\n\n"
+    f"Co-pilot: the user's interactive ShellCraft publishes a private link; `{RECENT_OUTPUT_TOOL}`, "
+    f"`{JOBS_TOOL}`, `{JOB_OUTPUT_TOOL}`, `{HISTORY_TOOL}` and `{GET_CLIP_TOOL}` read it. Bring findings "
+    f"to the user with `{ALERT_TOOL}` (one line), `{OPEN_SUBSHELL_TOOL}` (a named subshell that prints "
+    f"your text: anything longer), or `{SET_CLIP_TOOL}` (a command they paste with Alt-v). Run in their "
+    f"shell only through `{RUN_TOOL}`: read-only commands run at once, everything does with the session "
+    f"grant (`{GRANT_TOOL}`, asked once), the rest waits for `review approve`. Alert levels: info = good "
+    "to know, warn = look soon, crit = act now (stays until dismissed)."
 )
 
 

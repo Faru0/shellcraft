@@ -240,7 +240,7 @@ HELP_SHORT = {  # one line each, for the ShellCraft group
     "prompt": "Choose the prompt's segments", "settings": "Settings and API keys",
     "banner": "Show the welcome banner", "diag": "Console, color and footer diagnostics",
     "hotkeys": "Keyboard shortcuts and mouse actions",
-    "mark": "Flag output, files or a diff for an AI", "review": "Flags and the AI's approval requests",
+    "mark": "Flag output, files or a diff for an AI", "review": "Flags, the AI's requests and the commands it runs",
 }
 HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
 
@@ -782,6 +782,12 @@ sub COMMAND [ARGS...]      # a builtin or module, run in the background: sub gre
 COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   tail -f log | grep x &
 ```
 
+An AI client can open a subshell too (the `open_subshell` MCP tool, `man mcp`): a lite ShellCraft
+named `✦ AI · finding` in the footer, started in the background, that prints the AI's brief first
+(its findings, the evidence, what to do next); an alert points to it. Ctrl-] N or a click shows
+it, `exit` returns. A command the AI runs for you (`run_in_shell`) is a background job named
+`✦ AI: command`, reported above your prompt like any `cmd &`.
+
 A trailing `&` (after a space, outside quotes) runs the whole line as a background job: a
 builtin, a module, a pipeline or a loop becomes a command job (quotes and pipes kept as typed); a
 single OS program starts as a program job **without** attaching (switch to it with Ctrl-] N).
@@ -965,7 +971,8 @@ another program inside a subshell (bash, pwsh, vim), where Alt-v is the program'
 **Ctrl-] v** types it in. `clip -i` does it without a key chord: the next prompt starts with
 the text on the line.
 
-It is also the `$CLIP` variable (`echo $CLIP`, `grep "$CLIP" file`).
+It is also the `$CLIP` variable (`echo $CLIP`, `grep "$CLIP" file`). An AI client can stage a
+command in it with the `set_clip` MCP tool (it says so in an alert): Alt-v pastes it.
 
 ## Usage
 
@@ -1588,7 +1595,8 @@ jobs -c              # forget the finished jobs now (their logs stay in ~/.shell
 ```
 
 **Ctrl-] N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
-a click on the job's tab in the footer. `man sub` explains the two kinds of job.
+a click on the job's tab in the footer. `man sub` explains the two kinds of job. A `✦` before a
+job's name means an AI opened it, or runs that command for you (`man mcp`).
 
 Selecting a **command** job that is still running follows it: what it printed so far, then each
 new line as it comes, until it finishes (its status line ends the view) or you press Ctrl-C, which
@@ -2659,6 +2667,18 @@ working. `mcp show` prints it with the `claude mcp add` line; `mcp token rotate`
 claude mcp remove shellcraft
 claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer NEWTOKEN"
 ```
+
+## The co-pilot tools
+
+Every ShellCraft MCP server (this one, or the `--mcp` one a client starts) can reach the
+interactive shell through its private link, published in `~/.shellcraft/mainlink.json` (readable
+by you only, removed when the shell exits): `get_recent_output` (your screen), `get_jobs` and
+`get_job_output`, `get_history` (keys redacted), `get_clip` / `set_clip` (what Alt-v pastes),
+`open_subshell` (a `✦ AI · name` subshell that prints the AI's brief; `man sub`), and
+`run_in_shell`: a read-only command runs at once as a `✦ AI:` background job with its trace above
+your prompt; so does anything while `settings ai_run on` (the AI can ask for it once with
+`request_session_grant`); the rest waits in the review queue until `review approve` (`man review`).
+The `ai/` folder of the repository has agents and skills that teach an AI to use them well.
 
 The address of the last `mcp start` is saved too, for `mcp show` and the next start.
 Its log is `~/.shellcraft/mcp-http.log`. API keys

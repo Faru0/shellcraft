@@ -7,6 +7,29 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **An AI co-pilot in the shell.** The interactive shell publishes its private link in
+  `~/.shellcraft/mainlink.json` (readable by you only, removed at exit), and every ShellCraft MCP
+  server — the `mcp start` one and a client's own `--mcp` one — reaches it through that file.
+  New tools: `get_recent_output` (your screen), `get_jobs` / `get_job_output`, `get_history`
+  (keys redacted), `get_clip` / `set_clip` (what Alt-v pastes), `open_subshell` (a lite ShellCraft
+  named `✦ AI · finding` in the footer, started in the background, that prints the AI's brief
+  first; an alert points to it), `run_in_shell` and `request_session_grant`. `man mcp`.
+
+- **`run_in_shell` in three tiers.** A read-only command (grep, cat, jq, sort, the query modules;
+  no redirection, no file changes, no `&`, no `sub`) runs at once as a `✦ AI: command` background
+  job with its trace above the prompt. With the session grant, `settings ai_run on` (never saved;
+  `✦ run` in the prompt while on) or a `request_session_grant` the user approves once, everything
+  runs at once. Anything else waits in the review queue as `AI wants to run: command`;
+  `review approve ID` runs it in the user's shell and sends the output back, `review reject` never
+  runs it. `man review`.
+
+- **`ai/`:** agents (`shellcraft-copilot`, `soc-triage`) and skills (`shellcraft-copilot`,
+  `soc-triage`, `review-loop`) for Claude Code and other clients, with a README that explains
+  the tools, the `claude mcp add` lines and how to install them.
+
+- **A `sub` request from a subshell, or an AI-opened subshell, now appears at once** when the
+  prompt is up, instead of after the next Enter.
+
 - **Completion that follows the usage line:** Tab offered file names wherever it knew nothing
   better, even where a command can't take one (`cut <Tab>`, which needs `-f` or `-c`). It now
   reads each command's and module's usage line (`[optional]`, `(a | b)`, `WORD...`, `-f VALUE`,
