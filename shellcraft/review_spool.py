@@ -178,6 +178,8 @@ def summary(item: dict[str, Any]) -> dict[str, Any]:
                          "truncated": a.get("truncated")} for a in item.get("artifacts", [])]
     if item.get("decision"):
         out["decision"] = item["decision"]
+    if item.get("result"):
+        out["result"] = {"status": item["result"].get("status"), "bytes": item["result"].get("bytes")}
     return out
 
 
@@ -200,9 +202,20 @@ def create(kind: str, title: str, description: str = "", artifacts: list[dict[st
     return item
 
 
+MAX_RESULT = 256 * 1024  # characters of an approved command's output kept (the end)
+
+
+def result_of(output: str, status: int, error: str | None, seconds: float, cwd: str) -> dict[str, Any]:
+    """What an approved `run_in_shell` command produced, stored with the decision."""
+    truncated = len(output) > MAX_RESULT
+    return {"output": output[-MAX_RESULT:] if truncated else output, "bytes": len(output), "truncated": truncated,
+            "status": status, "error": error, "seconds": round(seconds, 2), "cwd": cwd, "at": now()}
+
+
 def decide(item_id: str, status: str, notes: str = "", by: str = "user",
-           home: Path | None = None) -> dict[str, Any]:
-    """The user's answer to a review: approved or rejected, with notes."""
+           home: Path | None = None, result: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The user's answer to a review: approved or rejected, with notes; `result` (result_of) when
+    approving ran a command, written in the same step so a waiting AI sees both at once."""
     if status not in ("approved", "rejected"):
         raise SpoolError("a decision is approved or rejected")
 
@@ -210,6 +223,8 @@ def decide(item_id: str, status: str, notes: str = "", by: str = "user",
         if item.get("kind") != "review":
             raise SpoolError(f"{item['id']} is a flag for the AI, not a review request: nothing to approve")
         item["decision"] = {"status": status, "notes": notes, "by": by, "at": now()}
+        if result is not None:
+            item["result"] = result
 
     return _update(item_id, status, change, home)
 

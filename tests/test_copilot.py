@@ -212,3 +212,151 @@ def test_the_lite_shell_takes_a_brief_on_the_command_line(tmp_path, started):
     assert started[-1].brief == brief and started.briefs[-1] == brief
     assert cli.main(["--no-banner", "--brief", str(brief), "--modules", str(tmp_path)]) == 0
     assert started[-1].brief is None  # only a lite shell prints one
+
+
+# ── run_in_shell: read-only runs free, the session grant, approval for the rest ──
+
+def test_read_only_classification(real_shell):
+    from shellcraft.ai_run import read_only, tier
+
+    sh, ctx = real_shell
+    ctx.config["aliases"] = {"ll": "ls -l"}
+    for line in ("grep root auth.log", "cat a | sort | uniq -c", "echo hi", "jq .x data.json", "head -5 x",
+                 "cat a 2>&1 | wc -l", "cat < in.txt", "grep x a ; grep y b"):
+        assert read_only(line, ctx), line
+    for line in ("cat f > g", "rm f", "cd /", "sub bash", "ls &", "for x in a b; do echo $x; done",
+                 "ll", "export X=1", "env", "tee out", "echo hi 2> err", "nosuchcmd", "! grep x f",
+                 "mkdir d", "x=1", "", "cat a |"):
+        assert not read_only(line, ctx), line
+    assert tier("rm f", ctx) == "approval"
+    ctx.ai_run = True
+    assert tier("rm f", ctx) == "granted" and tier("echo x", ctx) == "read-only"
+
+
+def test_a_read_only_command_runs_at_once_with_its_trace(registry, real_shell):
+    sh, ctx = real_shell
+    server = build_server(registry)
+    out = _json(_call(server, lambda c: c.call_tool("run_in_shell", {"command": "echo hi from the AI",
+                                                                       "reason": "a test", "wait_seconds": 10})))
+    assert out["mode"] == "read-only" and out["output"] == "hi from the AI\n" and out["status"] == 0
+    assert not out["pending"] and out["number"] == 1
+    job = ctx.jobs.get(1)
+    assert job.origin == "ai" and job.title == "✦ AI: echo hi from the AI" and job.kind == "command"
+    sh._report_finished()  # what the prompt does: the trace
+    text = sh.ui.console.export_text()
+    assert "[1] done: ✦ AI: echo hi from the AI" in text and "hi from the AI" in text
+    bad = _call(server, lambda c: c.call_tool("run_in_shell", {"command": "echo x"}))
+    assert bad.is_error and "`reason` is required" in bad.content[0].text
+
+
+def test_a_command_that_changes_things_waits_for_approval_and_runs_on_approve(registry, real_shell, tmp_path):
+    import threading
+
+    from shellcraft import review_spool as spool
+    from shellcraft.pipeline import run_line
+
+    sh, ctx = real_shell
+    server = build_server(registry)
+    out = _json(_call(server, lambda c: c.call_tool(
+        "run_in_shell", {"command": "mkdir made-by-the-ai", "reason": "a folder for the report", "wait_seconds": 0})))
+    assert out["mode"] == "approval" and out["status"] == "pending" and out["result"] is None
+    item_id = out["item_id"]
+    assert not (tmp_path / "made-by-the-ai").exists()  # nothing ran
+    sh._review_check()
+    alert = ctx.alerts.current()[0]
+    assert alert.message == "AI wants to run: mkdir made-by-the-ai" and alert.content == f"review show {item_id}"
+    listing = run_line("review", ctx).output.renderable.plain
+    assert "AI runs" in listing and item_id in listing
+    from shellcraft.context import to_text
+
+    note = to_text(run_line(f"review approve {item_id} fine", ctx).output)
+    assert "approved and run: mkdir made-by-the-ai" in note and "exit 0" in note
+    assert (tmp_path / "made-by-the-ai").is_dir()
+    assert "❯ mkdir made-by-the-ai" in sh.ui.console.export_text()
+    status = _json(_call(server, lambda c: c.call_tool("get_review_status", {"item_id": item_id})))
+    assert status["status"] == "approved" and status["type"] == "command" and status["result"]["status"] == 0
+    assert status["result"]["error"] is None and status["decision"]["notes"] == "fine"
+    shown = to_text(run_line(f"review show {item_id}", ctx).output)
+    assert "── result (exit 0" in shown
+    sh._review_check()
+    assert ctx.alerts.current() == []
+
+    # the AI waits for the answer: a reject arrives while it waits
+    def reject_soon():
+        import time
+
+        for _ in range(100):
+            pending = spool.list_items("pending", "review")
+            if pending:
+                run_line(f"review reject {pending[0]['id']} not now", ctx)
+                return
+            time.sleep(0.05)
+
+    threading.Thread(target=reject_soon, daemon=True).start()
+    out = _json(_call(server, lambda c: c.call_tool(
+        "run_in_shell", {"command": "rm -r made-by-the-ai", "reason": "clean up", "wait_seconds": 10})))
+    assert out["mode"] == "rejected" and out["result"] is None and out["decision"]["notes"] == "not now"
+    assert (tmp_path / "made-by-the-ai").is_dir()
+
+    # a failing command: the AI gets the error
+    out = _json(_call(server, lambda c: c.call_tool(
+        "run_in_shell", {"command": "nosuchcommand-xyz", "reason": "x", "wait_seconds": 0})))
+    note = to_text(run_line(f"review approve {out['item_id']}", ctx).output)
+    assert "the AI is told" in note
+    status = _json(_call(server, lambda c: c.call_tool("get_review_status", {"item_id": out["item_id"]})))
+    assert status["result"]["error"] and status["result"]["status"] != 0
+
+
+def test_approving_a_command_item_needs_the_interactive_shell(home, tmp_path):
+    from shellcraft import review_spool as spool
+    from shellcraft.pipeline import PipelineError, run_line
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path / "modules"))
+    item = spool.create("review", "rm x", "why", [spool.artifact("command", "rm x", "text")], "medium", "command")
+    with pytest.raises(PipelineError, match="interactive shell"):
+        run_line(f"review approve {item['id']}", ctx)
+    assert spool.get(item["id"])["status"] == "pending"
+
+
+def test_the_session_grant(registry, real_shell, tmp_path):
+    import threading
+
+    from shellcraft import review_spool as spool
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import run_line
+
+    sh, ctx = real_shell
+    server = build_server(registry)
+    assert not ctx.ai_run and not any("✦ run" in t for _s, t, *_ in sh._segment("mcp"))
+    assert "this session only" in to_text(run_line("settings ai_run on", ctx).output)
+    assert ctx.ai_run and any("✦ run" in t for _s, t, *_ in sh._segment("mcp"))
+    assert "ai_run" in to_text(run_line("settings", ctx).output)
+    out = _json(_call(server, lambda c: c.call_tool(
+        "run_in_shell", {"command": "mkdir granted-dir", "reason": "x", "wait_seconds": 10})))
+    assert out["mode"] == "granted" and out["status"] == 0 and (tmp_path / "granted-dir").is_dir()
+    assert ctx.jobs.get(out["number"]).title == "✦ AI: mkdir granted-dir"
+    run_line("settings ai_run toggle", ctx)
+    assert not ctx.ai_run
+    assert ctx.config.get("settings", {}).get("ai_run") is None  # never saved
+
+    # the AI asks for the grant; the user approves it
+    def approve_soon():
+        import time
+
+        for _ in range(100):
+            pending = spool.list_items("pending", "review")
+            if pending:
+                assert pending[0]["type"] == "grant"
+                sh._review_check()
+                assert ctx.alerts.current()[0].message.startswith("AI asks to run commands for this session: ")
+                run_line(f"review approve {pending[0]['id']}", ctx)
+                return
+            time.sleep(0.05)
+
+    threading.Thread(target=approve_soon, daemon=True).start()
+    out = _json(_call(server, lambda c: c.call_tool(
+        "request_session_grant", {"reason": "triage auth.log for the next hour", "wait_seconds": 10})))
+    assert out["granted"] is True and out["status"] == "approved" and ctx.ai_run
+    assert "AI grant" in run_line("review --all", ctx).output.renderable.plain
+    missing = _call(server, lambda c: c.call_tool("request_session_grant", {"reason": " "}))
+    assert missing.is_error

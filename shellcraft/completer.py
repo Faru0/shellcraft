@@ -282,7 +282,9 @@ class ShellCompleter(Completer):
 
     def _setting_names(self) -> dict[str, str]:
         keys = {name: entry.label for name, entry in env_settings(self.ctx.registry).items()}
-        return {k: s.label for k, s in SETTINGS.items()} | keys
+        from shellcraft.builtins import AI_RUN_KEY, AI_RUN_LABEL
+
+        return {k: s.label for k, s in SETTINGS.items()} | {AI_RUN_KEY: f"{AI_RUN_LABEL} (this session)"} | keys
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):

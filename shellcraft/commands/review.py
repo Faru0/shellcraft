@@ -75,6 +75,48 @@ pending.
 """
 
 
+def _approve_and_run(ctx: ShellContext, item: dict[str, Any], notes: str) -> Any:
+    """`review approve` of a command the AI wants to run (`run_in_shell`): run it here, now, in
+    this shell with its full permissions, show its output, and store the output with the
+    decision so the waiting AI gets both at once. Ctrl-C stops it (the AI is told)."""
+    import time
+
+    from shellcraft.context import ShellExit, to_text
+    from shellcraft.output import show
+    from shellcraft.parser import ParseError
+    from shellcraft.pipeline import PipelineError, run_line
+
+    if not ctx.interactive or ctx.ui is None:
+        raise CommandError("review: a command the AI wants to run is approved from the interactive shell, "
+                           "where it runs")
+    command = next((a.get("content", "") for a in item.get("artifacts", []) if a.get("name") == "command"), "")
+    command = command.strip()
+    if not command:
+        raise CommandError(f"review: {item['id']} names no command")
+    ctx.ui.console.print(Text(f"❯ {command}", style="sc.muted"), markup=False, highlight=False)
+    started = time.monotonic()
+    output, status, error = "", 0, None
+    try:
+        result = run_line(command, ctx)
+        output = to_text(result.output) if result is not None else ""
+        status = ctx.last_status
+        show(ctx.ui, result.output if result is not None else "", pager=False, title=command)
+    except (ParseError, PipelineError, CommandError) as exc:
+        error, status = str(exc), getattr(exc, "status", 1) or 1
+        ctx.ui.console.print(Text(f"✗ {exc}", style="sc.error"), markup=False, highlight=False)
+    except KeyboardInterrupt:
+        error, status = "interrupted", 130
+    except ShellExit:
+        error, status = "the command asked the shell to exit; refused", 1
+    result_data = spool.result_of(output, status, error, time.monotonic() - started, os.getcwd())
+    decided = spool.decide(item["id"], "approved", notes, result=result_data)
+    lines = output.count("\n") + (1 if output and not output.endswith("\n") else 0)
+    return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"), (" approved and run: ", "sc.success"),
+                         (command, "sc.accent"),
+                         (f"  (exit {status}, {lines} line{'s' if lines != 1 else ''}; the AI gets the output)"
+                          if error is None else f"  ({error}; the AI is told)", "sc.muted"))
+
+
 def _size(n: int) -> str:
     return f"{n} B" if n < 1024 else f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1048576:.1f} MB"
 
@@ -130,7 +172,8 @@ def _age(item: dict[str, Any]) -> str:
 
 
 def _line(item: dict[str, Any]) -> Text:
-    kind = "→ AI" if item["kind"] == "flag" else "AI asks"
+    kind = ("→ AI" if item["kind"] == "flag" else "AI runs" if item.get("type") == "command"
+            else "AI grant" if item.get("type") == "grant" else "AI asks")
     style = {"high": "sc.error", "medium": "sc.warning", "low": "sc.muted"}.get(item.get("priority"), "")
     return Text.assemble((f"{item['id']}  ", "sc.accent"), (f"{kind:<8}", "sc.muted"),
                          (f"{item.get('priority', ''):<7}", style), (f"{item.get('status', ''):<9}", ""),
@@ -153,6 +196,11 @@ def show_text(item: dict[str, Any]) -> str:
     for a in item.get("artifacts", []):
         cut = f", the last {_size(spool.MAX_ARTIFACT)} of {_size(a.get('bytes', 0))}" if a.get("truncated") else ""
         lines += ["", f"── {a.get('name')} ({a.get('kind')}{cut}) " + "─" * 20, a.get("content", "").rstrip("\n")]
+    r = item.get("result")
+    if r:
+        head = f"── result (exit {r.get('status')}, {r.get('seconds')} s" + (f", {r['error']}" if r.get("error") else "")
+        head += f", the last {_size(spool.MAX_RESULT)} of {_size(r.get('bytes', 0))}" if r.get("truncated") else ""
+        lines += ["", head + ") " + "─" * 20, (r.get("output") or "(no output)").rstrip("\n")]
     return "\n".join(lines) + "\n"
 
 
@@ -181,7 +229,15 @@ def review(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             return text
         if action in ("approve", "reject") and rest:
             item = spool.find(rest[0])
-            decided = spool.decide(item["id"], "approved" if action == "approve" else "rejected", " ".join(rest[1:]))
+            notes = " ".join(rest[1:])
+            if action == "approve" and item.get("type") == "command" and item.get("status") == "pending":
+                return _approve_and_run(ctx, item, notes)
+            decided = spool.decide(item["id"], "approved" if action == "approve" else "rejected", notes)
+            if action == "approve" and decided.get("type") == "grant":
+                ctx.ai_run = True
+                return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"),
+                                     (" approved: the AI may run commands here for this session", "sc.success"),
+                                     ("  (settings ai_run off revokes it; ✦ run shows in the prompt)", "sc.muted"))
             return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"),
                                  (f" {decided['status']}: {decided.get('title', '')}", "sc.success"))
     except spool.SpoolError as exc:

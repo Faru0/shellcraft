@@ -136,8 +136,10 @@ HISTORY_TOOL = "get_history"
 GET_CLIP_TOOL = "get_clip"
 SET_CLIP_TOOL = "set_clip"
 OPEN_SUBSHELL_TOOL = "open_subshell"
+RUN_TOOL = "run_in_shell"
+GRANT_TOOL = "request_session_grant"
 SHELL_TOOLS = (RECENT_OUTPUT_TOOL, JOBS_TOOL, JOB_OUTPUT_TOOL, HISTORY_TOOL, GET_CLIP_TOOL, SET_CLIP_TOOL,
-               OPEN_SUBSHELL_TOOL)
+               OPEN_SUBSHELL_TOOL, RUN_TOOL, GRANT_TOOL)
 MAX_BRIEF = 64 * 1024
 LINK_TIMEOUT = 5.0  # seconds to wait for the shell's answer
 NO_MAIN_MESSAGE = ("no interactive ShellCraft is running on this machine (start `shellcraft`; it publishes "
@@ -194,6 +196,34 @@ SHELL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["name", "text"],
         "additionalProperties": False,
     },
+    RUN_TOOL: {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "maxLength": 4000,
+                        "description": "One ShellCraft command line, exactly as the user would type it."},
+            "reason": {"type": "string", "maxLength": 2000,
+                       "description": "Why, what it touches, what could go wrong. Shown to the user when they "
+                                      "have to approve it."},
+            "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+            "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 120,
+                             "description": "How long to wait for the command to finish, or for the user to "
+                                            "approve it; 0 returns at once (then get_job_output or "
+                                            "get_review_status)."},
+        },
+        "required": ["command", "reason"],
+        "additionalProperties": False,
+    },
+    GRANT_TOOL: {
+        "type": "object",
+        "properties": {
+            "reason": {"type": "string", "maxLength": 2000,
+                       "description": "What you are going to do this session and why you need to run commands "
+                                      "without asking each time."},
+            "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 120},
+        },
+        "required": ["reason"],
+        "additionalProperties": False,
+    },
 }
 SHELL_DESCRIPTIONS = {
     RECENT_OUTPUT_TOOL: "The last lines of the user's ShellCraft screen: the commands they ran (as `❯ cmd`) and "
@@ -210,6 +240,15 @@ SHELL_DESCRIPTIONS = {
                         "start, and post an alert pointing to it. For findings that deserve their own screen: "
                         "evidence, analysis, next steps. Returns the subshell's number (the user switches with "
                         "a click or Ctrl-] N). Check get_jobs first: don't open a second one for the same finding.",
+    RUN_TOOL: "Run a command in the user's interactive ShellCraft, with its trace shown to them. A read-only "
+              "command (grep, cat, jq, sort, the query modules; no redirection, no file changes) runs at once; "
+              "so does anything while the session grant is on. Otherwise the command waits in the review "
+              "queue until the user types `review approve ID`, and the answer carries `mode` \"approval\" "
+              "with the item id. The result has the output and exit status. Never use it for anything "
+              "destructive without saying so in `reason`.",
+    GRANT_TOOL: "Ask the user once to let you run any command for the rest of this session (`settings ai_run "
+                "on`). Do it at the start of a working session with a one-line reason. Returns granted true "
+                "or false; the user can revoke it any time.",
 }
 
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
@@ -397,20 +436,70 @@ class ShellcraftMCP:
     async def _shell_tool(self, name: str, arguments: dict[str, Any], client: str) -> types.CallToolResult:
         from shellcraft import mainlink
 
+        by = f"mcp · {client}"
+        if name == GRANT_TOOL:
+            return await self._request_grant(arguments, by)
         try:
-            request = link_request(name, arguments, f"mcp · {client}")
+            request = link_request(name, arguments, by)
         except ValueError as exc:
             return _error(f"{name}: {exc}")
-        answer = await anyio.to_thread.run_sync(lambda: mainlink.ask(request, _NO_MAIN, timeout=LINK_TIMEOUT))
+        timeout = LINK_TIMEOUT + (request[1].get("wait", 0) if name == RUN_TOOL else 0)
+        answer = await anyio.to_thread.run_sync(lambda: mainlink.ask(request, _NO_MAIN, timeout=timeout))
         if answer is _NO_MAIN:
             return _error(NO_MAIN_MESSAGE)
         if isinstance(answer, tuple) and answer[:1] == ("error",):
             return _error(f"{name}: {answer[1]}")
         if name == SET_CLIP_TOOL:
             return _json_result({"set": True, "characters": len(request[1])})
+        if name == RUN_TOOL and isinstance(answer, dict) and answer.get("needs_approval"):
+            return await self._run_with_approval(arguments, f"mcp · {client}")
         if name == GET_CLIP_TOOL:
             return _json_result({"text": answer})
         return _json_result(answer)
+
+    async def _run_with_approval(self, arguments: dict[str, Any], by: str) -> types.CallToolResult:
+        """`run_in_shell` for a command the shell would not run on its own: a review item of type
+        "command"; `review approve ID` runs it there and stores the output with the decision."""
+        from shellcraft import review_spool as spool
+
+        command, reason = str(arguments.get("command", "")).strip(), str(arguments.get("reason", ""))
+        priority = str(arguments.get("priority") or "medium")
+        try:
+            item = await anyio.to_thread.run_sync(lambda: spool.create(
+                "review", command[:200], reason, [spool.artifact("command", command, "text")], priority, "command",
+                created_by=by))
+            item = await self._await_decision(item, arguments.get("wait_seconds", 120))
+        except (spool.SpoolError, ValueError) as exc:
+            return _error(f"{RUN_TOOL}: {exc}")
+        mode = {"approved": "approved", "rejected": "rejected"}.get(item["status"], "approval")
+        return _json_result({**_status_of(item), "mode": mode, "command": command, "result": item.get("result"),
+                             "note": None if mode != "approval" else
+                             "waiting for `review approve` in the user's shell; poll get_review_status"})
+
+    async def _request_grant(self, arguments: dict[str, Any], by: str) -> types.CallToolResult:
+        from shellcraft import review_spool as spool
+
+        reason = str(arguments.get("reason", "")).strip()
+        if not reason:
+            return _error(f"{GRANT_TOOL}: `reason` is required")
+        try:
+            item = await anyio.to_thread.run_sync(lambda: spool.create(
+                "review", "run any command this session", reason, [], "medium", "grant", created_by=by))
+            item = await self._await_decision(item, arguments.get("wait_seconds", 120))
+        except (spool.SpoolError, ValueError) as exc:
+            return _error(f"{GRANT_TOOL}: {exc}")
+        return _json_result({**_status_of(item), "granted": item["status"] == "approved"})
+
+    async def _await_decision(self, item: dict[str, Any], wait_seconds: Any) -> dict[str, Any]:
+        """Poll the item every 0.5 s for up to `wait_seconds` (capped below the call timeout)."""
+        from shellcraft import review_spool as spool
+
+        wait = max(0.0, min(float(wait_seconds or 0), 600.0, self.timeout - 5))
+        deadline = anyio.current_time() + wait
+        while wait and anyio.current_time() < deadline and item["status"] == "pending":
+            await anyio.sleep(0.5)
+            item = await anyio.to_thread.run_sync(lambda: spool.get(item["id"]))
+        return item
 
     # ── the review loop (shellcraft.review_spool) ─────────────────────────────
 
@@ -676,12 +765,27 @@ def link_request(name: str, arguments: dict[str, Any], by: str) -> tuple:
         if isinstance(arguments.get("cwd"), str):
             spec["cwd"] = arguments["cwd"]
         return ("open-sub", spec)
+    if name == RUN_TOOL:
+        command = arguments.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError("`command` is required")
+        if len(command) > 4000:
+            raise ValueError("`command` is over 4000 characters")
+        if not str(arguments.get("reason", "")).strip():
+            raise ValueError("`reason` is required")
+        return ("run", {"command": command.strip(), "reason": str(arguments["reason"]), "source": by,
+                        "wait": integer("wait_seconds", 120, 0, 600)})
     raise ValueError(f"unknown tool {name}")
 
 
 def _status_of(item: dict[str, Any]) -> dict[str, Any]:
-    return {"item_id": item["id"], "kind": item["kind"], "status": item["status"],
-            "decision": item.get("decision"), "resolution": item.get("resolution")}
+    out = {"item_id": item["id"], "kind": item["kind"], "status": item["status"],
+           "decision": item.get("decision"), "resolution": item.get("resolution")}
+    if item.get("type"):
+        out["type"] = item["type"]
+    if item.get("result") is not None:
+        out["result"] = item["result"]
+    return out
 
 
 def _json_result(value: Any) -> types.CallToolResult:

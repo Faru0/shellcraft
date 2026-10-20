@@ -416,8 +416,11 @@ class Shell:
             for item_id, item in pending.items():
                 if item_id not in self._review_alerts:
                     level = self.REVIEW_LEVELS.get(item.get("priority"), "warn")
+                    kind = item.get("type")
+                    head = ("AI wants to run" if kind == "command" else
+                            "AI asks to run commands for this session" if kind == "grant" else "AI asks for review")
                     self._review_alerts[item_id] = bus.post(
-                        f"AI asks for review: {item.get('title', '')}", level, timeout=None,
+                        f"{head}: {item.get('title', '')}", level, timeout=None,
                         source=str(item.get("created_by", "")), content=f"review show {item_id}")
             for item_id in [i for i in self._review_alerts if i not in pending]:
                 bus.remove(self._review_alerts.pop(item_id))
@@ -494,6 +497,7 @@ class Shell:
         link.handle("job-output", self._link_job_output)
         link.handle("history", self._link_history)
         link.handle("open-sub", self._link_open_ai_sub)
+        link.handle("run", self._link_run)
         from shellcraft import briefs
 
         briefs.sweep()  # briefs no subshell ever read
@@ -533,6 +537,34 @@ class Shell:
             self.ctx.alerts.post(title, spec.get("level") or "info", source=source, content=f"jobs {job.number}")
         self._wake(self._report_finished)
         return {"number": job.number, "title": job.title}
+
+    def _link_run(self, spec: Any) -> Any:
+        """`run_in_shell` (from the link thread): a read-only command, or any command with the
+        session grant on, runs now as a background command job named `✦ AI: …` (its trace shows
+        above the prompt as a finished `cmd &` does); the answer carries its output once it is
+        done, within `wait` seconds. Anything else answers {"needs_approval": true}: the MCP
+        server then puts it in the review queue."""
+        from shellcraft import ai_run
+        from shellcraft.builtins import command_job
+
+        if not isinstance(spec, dict) or not isinstance(spec.get("command"), str) or not spec["command"].strip():
+            return ("error", "run needs a command")
+        if self.ctx.jobs is None:
+            return ("error", "this shell has no job table")
+        command = spec["command"].strip()
+        mode = ai_run.tier(command, self.ctx)
+        if mode == "approval":
+            return {"needs_approval": True, "mode": "approval"}
+        job = command_job(self.ctx, self.ctx.jobs, command, name=ai_run.job_name(command), origin="ai")
+        wait = _clamp(spec.get("wait", 0), 0, 600)
+        deadline = time.monotonic() + wait
+        while job.running and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not job.running:
+            self._wake(self._report_finished)  # the trace, now, if the prompt is up
+        answer = ai_run.output_of(job)
+        answer.update({"mode": mode, "pending": job.running, "source": str(spec.get("source") or "")})
+        return answer
 
     def show_brief(self, path: Any) -> None:
         """A lite shell opened by an AI (`--brief FILE`): print what it left, then delete the file."""
@@ -834,7 +866,10 @@ class Shell:
             branch = gitinfo.branch()
             return [("class:git", f"⎇ {branch}", self._click("git status"))] if branch else []
         if name == "mcp":
-            return [(style, text, self._click("mcp log")) for style, text in self._mcp_marker()]
+            parts = [(style, text, self._click("mcp log")) for style, text in self._mcp_marker()]
+            if getattr(self.ctx, "ai_run", False):  # the session grant is on: say so until it is off
+                parts.append(("class:mcp", (" " if parts else "") + "✦ run", self._click("settings ai_run off")))
+            return parts
         if name == "status":
             if not self.ctx.last_status:
                 return []

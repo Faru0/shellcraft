@@ -47,6 +47,7 @@ class ShellContext:
     recording: Any = None  # the session transcript being written (shellcraft.recording.Recorder), or None
     prefill: str = ""  # text the next prompt starts with (`clip -i`)
     brief: Any = None  # a lite shell: the brief file an AI left for it to print at start (shellcraft.briefs)
+    ai_run: bool = False  # the session grant: an AI may run any command here (settings ai_run, a grant approved)
     console_report: Any = None  # () -> the console / footer diagnostics text; the REPL sets it (`diag`)
     startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per script
     supervisor: Any = None  # the background startup scripts (shellcraft.startup.Supervisor); the REPL sets it

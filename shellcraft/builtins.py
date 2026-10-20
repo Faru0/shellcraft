@@ -1758,6 +1758,14 @@ def script_command(name: str) -> Any:
 def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
     """A ShellCraft command line as a background job: its own context (no shell state changes,
     output collected), run through the normal pipeline in a worker thread."""
+    job = command_job(ctx, table, line)
+    return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
+                         (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
+                          "sc.muted"))
+
+
+def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = None, origin: str = "") -> Any:
+    """Start `line` as a background command job (see _sub_command) and return the job."""
     import dataclasses
 
     from shellcraft.context import _direct
@@ -1790,10 +1798,7 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
         holder.append(job)
         job.stop = stop
 
-    job = table.start_command(line, run, before_start=started)
-    return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
-                          "sc.muted"))
+    return table.start_command(line, run, before_start=started, name=name, origin=origin)
 
 
 def _attach(ctx: ShellContext, job: Any) -> Any:
@@ -2955,6 +2960,16 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         where = "set in the keyring" if settings.stored_in_keyring(ctx.config, entry.name) else "set"
         return _store_env(ctx, entry, where, value.strip())
 
+    if args[0] == AI_RUN_KEY:  # the session grant: never saved
+        if len(args) != 2:
+            raise CommandError(f"usage: settings {AI_RUN_KEY} on|off|toggle")
+        value = not ctx.ai_run if args[1].lower() == "toggle" else settings.parse_bool(args[1])
+        if value is None:
+            raise CommandError(f"settings: expected on, off or toggle, got '{args[1]}'")
+        ctx.ai_run = bool(value)
+        state = ("On", "sc.success") if value else ("Off", "sc.error")
+        note = "  (this session only; ✦ run shows in the prompt while it is on)" if value else "  (this session only)"
+        return Text.assemble(("✓ ", "sc.success"), f"{AI_RUN_LABEL} ", state, (note, "sc.muted"))
     if len(args) != 2:
         key = _setting_key(args[0], keys)
         raise CommandError(f"usage: settings {key} on|off|toggle")
@@ -2969,6 +2984,13 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return _store_setting(ctx, key, value, "set to")
 
 
+AI_RUN_KEY = "ai_run"
+AI_RUN_LABEL = "AI runs any command"
+AI_RUN_DESCRIPTION = ("An AI client may run any command here at once (its trace shows above the prompt). "
+                      "Off: it runs read-only commands at once and asks for the rest in the review queue. "
+                      "Never saved: off at every start; the AI can ask for it (request_session_grant).")
+
+
 def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Table:
     table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
     table.add_column("key", style="sc.path", no_wrap=True)
@@ -2979,7 +3001,10 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
     for i, s in enumerate(rows):
         on = settings.get(ctx.config, s.key)
         value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
-        table.add_row(s.key, s.label, value, s.description, end_section=bool(keys) and i == len(rows) - 1)
+        table.add_row(s.key, s.label, value, s.description)
+    on = bool(getattr(ctx, "ai_run", False))
+    table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on
+                  else Text("Off", style="sc.error"), AI_RUN_DESCRIPTION, end_section=bool(keys))
     styles = {"set": "sc.success", "environment": "sc.accent", "unset": "sc.muted"}
     for name in sorted(keys, key=lambda n: (keys[n].module.lower(), n)):
         entry = keys[name]
