@@ -360,3 +360,27 @@ def test_the_session_grant(registry, real_shell, tmp_path):
     assert "AI grant" in run_line("review --all", ctx).output.renderable.plain
     missing = _call(server, lambda c: c.call_tool("request_session_grant", {"reason": " "}))
     assert missing.is_error
+
+
+def test_tell_sends_a_message_the_ai_reads_as_a_flag(registry, home, tmp_path):
+    from shellcraft import review_spool as spool
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import PipelineError, run_line
+
+    ctx = ShellContext(registry=registry)
+    ctx.interactive = True
+    note = to_text(run_line("tell -p high look at auth.log, something is off", ctx).output)
+    assert "✓ told the AI" in note
+    item = spool.list_items("pending", "flag")[0]
+    assert item["type"] == "message" and item["priority"] == "high"
+    assert item["description"] == "look at auth.log, something is off" and item["title"].startswith("look at")
+    run_line("echo three failed | tell -m 'failed count'", ctx)
+    piped = spool.list_items("pending", "flag")[0]
+    assert piped["title"] == "failed count" and piped["description"] == "three failed"
+    assert "message" in run_line("review", ctx).output.renderable.plain
+    with pytest.raises(PipelineError, match="say something"):
+        run_line("tell", ctx)
+    server = build_server(registry)
+    items = _json(_call(server, lambda c: c.call_tool("get_flagged_items", {"kind": "flag"})))
+    assert [i["type"] for i in items] == ["message", "message"]
+    assert items[1]["description"] == "look at auth.log, something is off"

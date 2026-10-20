@@ -181,6 +181,56 @@ def mark(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return note
 
 
+TELL_DOC = """# tell
+
+Send the AI a message: a question, an instruction, a note about what you are doing. It goes into
+the review spool like a `mark` (type `message`), where the AI reads it with `get_flagged_items`
+(a monitor agent sees it at once) and marks it done with `resolve_review_item`.
+
+## Usage
+
+```
+tell look at the last 50 lines of auth.log, something is off
+tell -p high the deploy failed, check the log in the subshell
+echo "see the attached" | tell                     # the message from a pipe
+grep -c failed auth.log | tell -m "failed count"   # a title for it
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-m TITLE`, `--title TITLE` | A title (default: the first words of the message). |
+| `-p LEVEL`, `--priority LEVEL` | `low`, `medium` (default) or `high`. |
+
+`review` lists messages with the other items; `review show ID` prints one. A message is stored
+as is: write only what an AI may read.
+"""
+
+
+@builtin("tell", "Send a message to the AI (a question, an instruction, a note)",
+         "tell [-m TITLE] [-p low|medium|high] MESSAGE... | COMMAND | tell",
+         category="shell", stateful=True, doc=TELL_DOC)
+def tell(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    parser = ArgParser("tell")
+    parser.add_argument("-m", "--title", default="")
+    parser.add_argument("-p", "--priority", default="medium", choices=spool.PRIORITIES)
+    parser.add_argument("words", nargs="*")
+    opts = parser.parse_args(args)
+    message = " ".join(opts.words).strip()
+    if stdin.strip():
+        message = (message + "\n\n" if message else "") + stdin.rstrip("\n")
+    if not message:
+        raise CommandError("tell: say something: tell MESSAGE, or pipe it in (man tell)")
+    title = opts.title or " ".join(message.split())[:60]
+    try:
+        item = spool.create("flag", title, message, [], opts.priority, "message")
+    except (OSError, spool.SpoolError) as exc:
+        raise CommandError(f"tell: {exc}") from None
+    return Text.assemble(("✓ told the AI ", "sc.success"), (item["id"], "sc.accent"),
+                         (f": {title}", "sc.muted"))
+
+
 def _age(item: dict[str, Any]) -> str:
     seconds = max(0, int(spool.time.time() - spool._timestamp(item.get("updated") or item.get("created"))))
     for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
@@ -190,8 +240,9 @@ def _age(item: dict[str, Any]) -> str:
 
 
 def _line(item: dict[str, Any]) -> Text:
-    kind = ("→ AI" if item["kind"] == "flag" else "AI runs" if item.get("type") == "command"
-            else "AI grant" if item.get("type") == "grant" else "AI asks")
+    kind = ("message" if item.get("type") == "message" else "→ AI" if item["kind"] == "flag"
+            else "AI runs" if item.get("type") == "command" else "AI grant" if item.get("type") == "grant"
+            else "AI asks")
     style = {"high": "sc.error", "medium": "sc.warning", "low": "sc.muted"}.get(item.get("priority"), "")
     return Text.assemble((f"{item['id']}  ", "sc.accent"), (f"{kind:<8}", "sc.muted"),
                          (f"{item.get('priority', ''):<7}", style), (f"{item.get('status', ''):<9}", ""),

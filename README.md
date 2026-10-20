@@ -787,6 +787,9 @@ A two-way queue between you and an AI client, shared through files in `~/.shellc
 (readable by you only), so it works with the `mcp start` server and with every client's own
 `--mcp` server alike.
 
+- **You talk to the AI** with `tell`: `tell look at the last 50 lines of auth.log` (or pipe text
+  into it). It is a flag of type `message`, read with `get_flagged_items`; the `monitor` agent in
+  `ai/` watches for them and reports them to the orchestrating AI.
 - **You flag things for the AI** with `mark`: what you pipe in, files, or a diff.
   ```
   pytest | mark --type test-failure -p high

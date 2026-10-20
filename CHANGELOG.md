@@ -23,7 +23,10 @@ and the project uses [semantic versioning](https://semver.org/).
   `review approve ID` runs it in the user's shell and sends the output back, `review reject` never
   runs it. `man review`.
 
-- **`ai/`:** agents (`shellcraft-copilot`, `soc-triage`) and skills (`shellcraft-copilot`,
+- **`tell MESSAGE…`:** send the AI a message (a question, an instruction), stored in the review
+  spool as a flag of type `message`; `COMMAND | tell` sends output with it.
+
+- **`ai/`:** agents (`shellcraft-copilot`, `soc-triage`, `monitor`) and skills (`shellcraft-copilot`,
   `soc-triage`, `review-loop`) for Claude Code and other clients, with a README that explains
   the tools, the `claude mcp add` lines and how to install them.
 

@@ -20,7 +20,7 @@ Markdown: copy them into your client, or point it at them.
 | `open_subshell` | A named ShellCraft subshell (`✦ AI · name` in the footer) that prints the AI's brief at start |
 | `run_in_shell` | Run a command in your shell with its trace shown: read-only ones at once, the rest after `review approve` |
 | `request_session_grant` | Ask once to run anything for the session (`settings ai_run on`; `✦ run` in the prompt while on) |
-| `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` |
+| `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` and the messages you sent with `tell` |
 | `request_human_review`, `get_review_status` | Approval before something destructive |
 
 The read tools and `open_subshell` / `run_in_shell` reach your **interactive** ShellCraft through its
@@ -56,6 +56,7 @@ skills name the real tools, so they work as written.
 | --- | --- |
 | `agents/shellcraft-copilot.md` | A co-pilot that watches your session and speaks up when something matters |
 | `agents/soc-triage.md` | A triage routine over logs and indicators, SOC style |
+| `agents/monitor.md` | Watches for your `mark`s and `tell`s and reports them to the orchestrator |
 | `skills/shellcraft-copilot/SKILL.md` | The etiquette: which channel for what, alert levels, what never to do |
 | `skills/soc-triage/SKILL.md` | The triage steps with concrete pipelines and the finding format |
 | `skills/review-loop/SKILL.md` | `mark` / `review`, approvals, `run_in_shell` results |
