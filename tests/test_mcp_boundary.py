@@ -55,9 +55,9 @@ def test_unexposed_modules_are_not_tools_anywhere(local):
 def test_expose_narrows_the_tool_list(local):
     server = build_server(local, expose=["slow"])
     tools = {t.name for t in _call(server, lambda c: c.list_tools()).tools}
-    from shellcraft.mcp_server import REVIEW_TOOLS
+    from shellcraft.mcp_server import REVIEW_TOOLS, SHELL_TOOLS
 
-    assert tools == {"slow", PIPELINE_TOOL, ALERT_TOOL, *REVIEW_TOOLS}  # the alert and review tools always are
+    assert tools == {"slow", PIPELINE_TOOL, ALERT_TOOL, *REVIEW_TOOLS, *SHELL_TOOLS}  # these are always offered
     result = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "pub"}))
     assert result.is_error
 

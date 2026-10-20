@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -17,6 +18,14 @@ MODULES_DIR = ROOT / "modules"
 
 # A real OS program that exists wherever the tests run: the current interpreter.
 OS_UPPER = f'"{sys.executable}" -c "print(input().upper())"'
+
+
+@pytest.fixture(autouse=True)
+def _own_home(tmp_path, monkeypatch):
+    """Every test gets its own ~/.shellcraft unless it sets one: a real Shell publishes its link
+    there (shellcraft.mainlink) and must never touch the developer's running shell."""
+    if not os.environ.get("SHELLCRAFT_HOME"):
+        monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path / ".shellcraft-test"))
 
 
 @pytest.fixture

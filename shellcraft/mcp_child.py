@@ -86,6 +86,9 @@ class McpHttpChild:
         # `-m shellcraft.cli` must import this checkout (or installed copy) from any cwd.
         env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
         env["PYTHONUNBUFFERED"] = "1"  # the log is complete even if the server is killed
+        from shellcraft.jobs import MAIN_LINK_ENV
+
+        env.update(MAIN_LINK_ENV)  # the way into this shell for the co-pilot tools (shellcraft.mainlink)
         env.pop("SHELLCRAFT_MCP_TOKEN", None)
         argv = [sys.executable, "-m", "shellcraft.cli", "--mcp-http", f"{_url_host(host)}:{port}",
                 "--modules", str(modules_dir), "--parent-pid", str(os.getpid())]

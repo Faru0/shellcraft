@@ -128,6 +128,66 @@ REVIEW_DESCRIPTIONS = {
     RESOLVE_TOOL: "Mark a review item as dealt with: a flag you have handled, or a review you have acted on. "
                   "Say what you did in resolution_notes.",
 }
+# The co-pilot tools: questions to the interactive shell over its private link (shellcraft.mainlink).
+RECENT_OUTPUT_TOOL = "get_recent_output"
+JOBS_TOOL = "get_jobs"
+JOB_OUTPUT_TOOL = "get_job_output"
+HISTORY_TOOL = "get_history"
+GET_CLIP_TOOL = "get_clip"
+SET_CLIP_TOOL = "set_clip"
+SHELL_TOOLS = (RECENT_OUTPUT_TOOL, JOBS_TOOL, JOB_OUTPUT_TOOL, HISTORY_TOOL, GET_CLIP_TOOL, SET_CLIP_TOOL)
+LINK_TIMEOUT = 5.0  # seconds to wait for the shell's answer
+NO_MAIN_MESSAGE = ("no interactive ShellCraft is running on this machine (start `shellcraft`; it publishes "
+                   "~/.shellcraft/mainlink.json for this server to find)")
+_NO_MAIN = object()
+SHELL_SCHEMAS: dict[str, dict[str, Any]] = {
+    RECENT_OUTPUT_TOOL: {
+        "type": "object",
+        "properties": {
+            "lines": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200,
+                      "description": "How many of the last lines of the user's screen to return."},
+            "strip_ansi": {"type": "boolean", "default": True, "description": "Drop the colors; false keeps them."},
+        },
+        "additionalProperties": False,
+    },
+    JOBS_TOOL: {"type": "object", "properties": {}, "additionalProperties": False},
+    JOB_OUTPUT_TOOL: {
+        "type": "object",
+        "properties": {
+            "number": {"type": "integer", "minimum": 1, "description": "The subshell number the footer shows."},
+            "lines": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 200},
+            "strip_ansi": {"type": "boolean", "default": True},
+        },
+        "required": ["number"],
+        "additionalProperties": False,
+    },
+    HISTORY_TOOL: {
+        "type": "object",
+        "properties": {"n": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
+        "additionalProperties": False,
+    },
+    GET_CLIP_TOOL: {"type": "object", "properties": {}, "additionalProperties": False},
+    SET_CLIP_TOOL: {
+        "type": "object",
+        "properties": {"text": {"type": "string", "maxLength": 65536,
+                                "description": "What Alt-v pastes at the user's prompt: usually one command line."}},
+        "required": ["text"],
+        "additionalProperties": False,
+    },
+}
+SHELL_DESCRIPTIONS = {
+    RECENT_OUTPUT_TOOL: "The last lines of the user's ShellCraft screen: the commands they ran (as `❯ cmd`) and "
+                        "what those printed. Needs an interactive ShellCraft running on this machine.",
+    JOBS_TOOL: "The user's subshells and background jobs: number, title, state, and origin (\"ai\" for the "
+               "ones you opened).",
+    JOB_OUTPUT_TOOL: "The last lines a subshell or background job printed, by its number.",
+    HISTORY_TOOL: "The last commands the user typed at the prompt (API keys redacted). Use it to understand "
+                  "what they are doing; never echo it back to them or store it.",
+    GET_CLIP_TOOL: "The user's clip register: what they last copied in ShellCraft ($CLIP).",
+    SET_CLIP_TOOL: "Put text in the user's clip register, so Alt-v pastes it at their prompt: the safest way "
+                   "to hand them a command. Say so in an alert.",
+}
+
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
 CALL_TIMEOUT = float(os.environ.get("SHELLCRAFT_MCP_TIMEOUT", "120"))  # seconds
 MAX_STDIN = 10 * 1024 * 1024  # bytes of `stdin` a call may send
@@ -269,6 +329,8 @@ class ShellcraftMCP:
         for name, schema in ((GET_FLAGGED_TOOL, GET_FLAGGED_SCHEMA), (REQUEST_REVIEW_TOOL, REQUEST_REVIEW_SCHEMA),
                              (REVIEW_STATUS_TOOL, GET_REVIEW_STATUS_SCHEMA), (RESOLVE_TOOL, RESOLVE_SCHEMA)):
             tools.append(types.Tool(name=name, description=REVIEW_DESCRIPTIONS[name], input_schema=schema))
+        for name in SHELL_TOOLS:
+            tools.append(types.Tool(name=name, description=SHELL_DESCRIPTIONS[name], input_schema=SHELL_SCHEMAS[name]))
         return types.ListToolsResult(tools=tools)
 
     async def _call_tool(self, request_ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
@@ -279,6 +341,8 @@ class ShellcraftMCP:
             return await _call(lambda: _send_alert(arguments, client), self.timeout)
         if params.name in REVIEW_TOOLS:
             return await self._review_tool(params.name, arguments, _client_name(request_ctx))
+        if params.name in SHELL_TOOLS:
+            return await self._shell_tool(params.name, arguments, _client_name(request_ctx))
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -303,6 +367,26 @@ class ShellcraftMCP:
                 return _error("`args` must be an array of strings")
             args = [str(a) for a in raw_args]
         return await _call(lambda: to_text(spec.run(args, stdin)), self.timeout)
+
+    # ── the co-pilot: questions to the interactive shell (shellcraft.mainlink) ─
+
+    async def _shell_tool(self, name: str, arguments: dict[str, Any], client: str) -> types.CallToolResult:
+        from shellcraft import mainlink
+
+        try:
+            request = link_request(name, arguments, f"mcp · {client}")
+        except ValueError as exc:
+            return _error(f"{name}: {exc}")
+        answer = await anyio.to_thread.run_sync(lambda: mainlink.ask(request, _NO_MAIN, timeout=LINK_TIMEOUT))
+        if answer is _NO_MAIN:
+            return _error(NO_MAIN_MESSAGE)
+        if isinstance(answer, tuple) and answer[:1] == ("error",):
+            return _error(f"{name}: {answer[1]}")
+        if name == SET_CLIP_TOOL:
+            return _json_result({"set": True, "characters": len(request[1])})
+        if name == GET_CLIP_TOOL:
+            return _json_result({"text": answer})
+        return _json_result(answer)
 
     # ── the review loop (shellcraft.review_spool) ─────────────────────────────
 
@@ -521,6 +605,38 @@ def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
     except OSError as exc:
         raise CommandError(f"send_tui_alert: {exc}") from None
     return f"alert shown ({severity}): {message}" + (" (with content)" if content else "")
+
+
+def link_request(name: str, arguments: dict[str, Any], by: str) -> tuple:
+    """The request tuple a co-pilot tool sends over the link (shellcraft.mainlink); ValueError
+    for arguments that don't fit."""
+    def integer(key: str, default: int, low: int, high: int) -> int:
+        value = arguments.get(key, default)
+        if value is None:
+            value = default
+        if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+            raise ValueError(f"`{key}` must be an integer from {low} to {high}")
+        return value
+
+    strip = bool(arguments.get("strip_ansi", True))
+    if name == RECENT_OUTPUT_TOOL:
+        return ("scrollback", integer("lines", 200, 1, 2000), strip)
+    if name == JOBS_TOOL:
+        return ("jobs",)
+    if name == JOB_OUTPUT_TOOL:
+        return ("job-output", integer("number", 0, 1, 10**9), integer("lines", 200, 1, 5000), strip)
+    if name == HISTORY_TOOL:
+        return ("history", integer("n", 50, 1, 500))
+    if name == GET_CLIP_TOOL:
+        return ("clip-get", 0)
+    if name == SET_CLIP_TOOL:
+        text = arguments.get("text")
+        if not isinstance(text, str) or not text:
+            raise ValueError("`text` is required")
+        if len(text) > 65536:
+            raise ValueError("`text` is over 64 KB")
+        return ("clip-set", text)
+    raise ValueError(f"unknown tool {name}")
 
 
 def _status_of(item: dict[str, Any]) -> dict[str, Any]:

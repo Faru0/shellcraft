@@ -5,8 +5,10 @@ from __future__ import annotations
 import contextlib
 import getpass
 import os
+import re
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -62,6 +64,30 @@ SEGMENTS: dict[str, str] = {
 DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
 SLOW_SECONDS = 2.0  # show the duration of commands that took longer than this
+
+
+# What the link hands an AI co-pilot at most (shellcraft.mainlink; the MCP tools ask for less).
+LINK_SCROLLBACK_LINES = 2000
+LINK_SCROLLBACK_CHARS = 512 * 1024
+LINK_JOB_LINES = 200
+LINK_JOB_MAX_LINES = 5000
+LINK_JOB_CHARS = 256 * 1024
+LINK_HISTORY_LINES = 500
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _clamp(value: Any, low: int, high: int) -> int:
+    try:
+        return max(low, min(int(value), high))
+    except (TypeError, ValueError):
+        return low if low == high else min(high, max(low, 200))
+
+
+def _tail(head: dict[str, Any], text: str, limit: int) -> dict[str, Any]:
+    """`head` plus `text`, cut to its last `limit` characters (what matters is at the end)."""
+    truncated = len(text) > limit
+    head.update({"text": text[-limit:] if truncated else text, "truncated": truncated})
+    return head
 
 
 def _pretty_cwd(cwd: str | None = None, home: str | None = None) -> str:
@@ -213,7 +239,8 @@ class Shell:
                 from shellcraft.jobs import MAIN_LINK_ENV
 
                 link = mainlink.MainLink(ctx.alerts)
-                MAIN_LINK_ENV.update(link.env)  # handed to every `sub shellcraft`, and only to them
+                MAIN_LINK_ENV.update(link.env)  # handed to every `sub shellcraft` and the `mcp start` child
+                self._install_link_handlers(link)  # what an AI co-pilot may ask (shellcraft.mainlink)
                 self._cleanup.callback(link.close)
                 self._cleanup.callback(MAIN_LINK_ENV.clear)
             except OSError:
@@ -244,6 +271,7 @@ class Shell:
         # The wheel at the prompt hands the mouse back to the terminal (its own scrolling) until
         # the next key press or prompt (_footer_mouse, _mouse_wanted).
         self._mouse_released = False
+        self._requests_lock = threading.Lock()  # _open_requests: from a wake and from the loop top
         self._yank: tuple[int, int, str] | None = None  # the last Alt-v: (copy number, where, the text)
         ctx.runner = make_spinner_runner(ctx)
         ctx.interactive = True
@@ -426,18 +454,88 @@ class Shell:
             self._jobs_changed()
 
     def _sub_requested(self, data: dict[str, Any]) -> None:
-        """`sub …` typed inside a subshell (from the watcher thread): queued; the attach loop or
-        the prompt loop opens it under main, in the background."""
+        """`sub …` typed inside a subshell (from the watcher thread): queued, then opened under
+        main in the background: right away above the prompt when the prompt is up, else by the
+        attach loop or the next prompt."""
         if self.ctx.jobs is not None:
             self.ctx.jobs.requests.append(data)
         self._jobs_changed()
+        self._wake(self._open_requests)
+
+    def _wake(self, fn: Callable[[], None]) -> bool:
+        """From another thread: run `fn` above the prompt now, if the prompt is up (the way a
+        click on the footer runs a command there). False when it isn't: a command is running or
+        a subshell is attached, and the loop top or the attach loop does what `fn` would have."""
+        app = getattr(self.session, "app", None)
+        loop = getattr(app, "loop", None)
+        if app is None or not app.is_running or loop is None or loop.is_closed():
+            return False
+        try:
+            loop.call_soon_threadsafe(lambda: run_in_terminal(fn))
+        except RuntimeError:
+            return False
+        return True
 
     def _open_requests(self) -> None:
         """At the prompt: open the requested subshells in the background and say so."""
         from shellcraft.builtins import open_requested
 
-        for note in open_requested(self.ctx):
-            self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
+        with self._requests_lock:  # a wake and the loop top may both get here
+            for note in open_requested(self.ctx):
+                self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
+
+    # ── what an AI co-pilot may ask over the link (shellcraft.mainlink) ───────
+
+    def _install_link_handlers(self, link: Any) -> None:
+        link.handle("ping", self._link_ping)
+        link.handle("scrollback", self._link_scrollback)
+        link.handle("jobs", self._link_jobs)
+        link.handle("job-output", self._link_job_output)
+        link.handle("history", self._link_history)
+
+    def _link_ping(self) -> dict[str, Any]:
+        from shellcraft import __version__
+
+        return {"pid": os.getpid(), "version": __version__, "cwd": os.getcwd()}
+
+    def _link_scrollback(self, lines: Any = LINK_SCROLLBACK_LINES, strip_ansi: Any = True) -> dict[str, Any]:
+        """The last `lines` of what this shell printed (commands as `❯ cmd`, then their output)."""
+        lines = _clamp(lines, 1, LINK_SCROLLBACK_LINES)
+        text = self.scrollback.text()
+        if strip_ansi:
+            text = _SGR.sub("", text)
+        kept = text.split("\n")[-lines:]
+        return _tail({"lines": len(kept)}, "\n".join(kept), LINK_SCROLLBACK_CHARS)
+
+    def _link_jobs(self) -> list[dict[str, Any]]:
+        jobs = self.ctx.jobs
+        return [] if jobs is None else [
+            {"number": j.number, "title": j.title, "name": j.name, "command": j.command, "kind": j.kind,
+             "label": j.label, "running": j.running, "elapsed": round(j.elapsed), "origin": j.origin}
+            for j in jobs]
+
+    def _link_job_output(self, number: Any = 0, lines: Any = LINK_JOB_LINES, strip_ansi: Any = True) -> Any:
+        """The last `lines` a subshell printed (its log): raw terminal output, so every escape
+        sequence goes with `strip_ansi`, not only the colors."""
+        job = self.ctx.jobs.get(number) if self.ctx.jobs is not None and isinstance(number, int) else None
+        if job is None:
+            return ("error", f"no subshell {number} (get_jobs lists them)")
+        lines = _clamp(lines, 1, LINK_JOB_MAX_LINES)
+        text = job.output
+        if strip_ansi:
+            from shellcraft.scrollback import _NOT_SGR
+
+            text = _SGR.sub("", _NOT_SGR.sub("", text)).replace("\r\n", "\n")
+        kept = text.split("\n")[-lines:]
+        head = {"number": job.number, "title": job.title, "label": job.label, "running": job.running}
+        return _tail(head, "\n".join(kept), LINK_JOB_CHARS)
+
+    def _link_history(self, n: Any = LINK_HISTORY_LINES) -> dict[str, Any]:
+        """The last `n` commands typed, API keys redacted once more (the history file redacts on
+        save; older files may predate that)."""
+        n = _clamp(n, 1, LINK_HISTORY_LINES)
+        names = aliases.get_all(self.ctx.config)
+        return {"lines": [settings.redact_line(line, names) for line in self._history_lines()[-n:]]}
 
     def _open_requests_attached(self) -> None:
         """Inside a subshell (the attach loop): the same, with the notes kept for the next prompt."""

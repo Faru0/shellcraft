@@ -180,6 +180,7 @@ class Job:
         self.reported = False  # its end has been shown (a note at the prompt, `jobs N`, the attach loop)
         self.recording = False  # a `sub shellcraft` that runs `record`: 🔴 / ⭕ on its line in the footer
         self.clear_on_done = False  # it leaves the table as soon as it ends (exited while attached)
+        self.origin = ""  # "ai": opened by an AI over MCP (✦ in the footer and the jobs table)
 
     # ── state ────────────────────────────────────────────────────────────────
 
@@ -381,11 +382,12 @@ class JobTable:
     def running(self) -> list[Job]:
         return [j for j in self if j.running]
 
-    def _add(self, command: str, kind: str) -> Job:
+    def _add(self, command: str, kind: str, name: str | None = None, origin: str = "") -> Job:
         with self._lock:
             number = self._next
             self._next += 1
             job = Job(number, command, kind, self.log_dir / f"{number}.log")
+            job.name, job.origin = name, origin
             self.jobs[number] = job
             finished = [j for j in self if not j.running]  # keep the table short; the logs stay
             for old in finished[: max(0, len(finished) - MAX_FINISHED)]:
@@ -456,11 +458,13 @@ class JobTable:
     # ── programs on a pseudo-terminal ────────────────────────────────────────
 
     def start_program(self, argv: list[str], command: str, env: dict[str, str] | None = None,
-                      cwd: str | None = None, size: tuple[int, int] | None = None) -> Job:
+                      cwd: str | None = None, size: tuple[int, int] | None = None,
+                      name: str | None = None, origin: str = "") -> Job:
         """Spawn `argv` on a new pseudo-terminal, with an emulator keeping its screen. The reader
         thread copies its output to the log, the emulator and (while attached) the terminal.
-        Raises JobsUnsupported when there is no pseudo-terminal (Windows without pywinpty) and
-        FileNotFoundError when the program is not on PATH."""
+        `name` is shown instead of `command` (as `jobs -r` would set); `origin` "ai" marks a
+        subshell an AI opened. Raises JobsUnsupported when there is no pseudo-terminal (Windows
+        without pywinpty) and FileNotFoundError when the program is not on PATH."""
         exe = shutil.which(argv[0]) if not os.path.dirname(argv[0]) else argv[0]
         if not exe or not os.path.exists(exe):
             raise FileNotFoundError(argv[0])
@@ -470,14 +474,14 @@ class JobTable:
                 from winpty import PtyProcess
             except ImportError:
                 raise JobsUnsupported("pywinpty is not installed: pip install pywinpty") from None
-            job = self._add(command, "program")
+            job = self._add(command, "program", name, origin)
             job.winpty = PtyProcess.spawn([exe, *argv[1:]], cwd=cwd or os.getcwd(),
                                           env=env if env is not None else dict(os.environ), dimensions=(rows, cols))
             job.pid = job.winpty.pid
         else:
             import pty
 
-            job = self._add(command, "program")
+            job = self._add(command, "program", name, origin)
             import warnings
 
             with warnings.catch_warnings():
