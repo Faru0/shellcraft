@@ -843,7 +843,7 @@ def test_sc_is_shellcraft_and_ampersand_inside_a_subshell_goes_to_main(ictx, mon
 
     started: list = []
 
-    def fake_start(self, argv, command, env=None, cwd=None, size=None):
+    def fake_start(self, argv, command, env=None, cwd=None, size=None, **kw):
         started.append((argv, command))
         return self.start_command(command, lambda: (0, ""))
 

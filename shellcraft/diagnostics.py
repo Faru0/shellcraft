@@ -63,7 +63,7 @@ def _section(title: str, lines: list[str]) -> list[str]:
     return [f"[{title}]", *(f"  {line}" for line in lines)]
 
 
-FOOTER_STATES = ("main", "running", "done", "failed", "current", "hover", "rec",
+FOOTER_STATES = ("main", "running", "done", "failed", "current", "hover", "rec", "ai",
                  "alert.info.mark", "alert.warn.mark", "alert.crit.mark")
 
 

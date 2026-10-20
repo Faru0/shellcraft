@@ -135,7 +135,10 @@ JOB_OUTPUT_TOOL = "get_job_output"
 HISTORY_TOOL = "get_history"
 GET_CLIP_TOOL = "get_clip"
 SET_CLIP_TOOL = "set_clip"
-SHELL_TOOLS = (RECENT_OUTPUT_TOOL, JOBS_TOOL, JOB_OUTPUT_TOOL, HISTORY_TOOL, GET_CLIP_TOOL, SET_CLIP_TOOL)
+OPEN_SUBSHELL_TOOL = "open_subshell"
+SHELL_TOOLS = (RECENT_OUTPUT_TOOL, JOBS_TOOL, JOB_OUTPUT_TOOL, HISTORY_TOOL, GET_CLIP_TOOL, SET_CLIP_TOOL,
+               OPEN_SUBSHELL_TOOL)
+MAX_BRIEF = 64 * 1024
 LINK_TIMEOUT = 5.0  # seconds to wait for the shell's answer
 NO_MAIN_MESSAGE = ("no interactive ShellCraft is running on this machine (start `shellcraft`; it publishes "
                    "~/.shellcraft/mainlink.json for this server to find)")
@@ -174,6 +177,23 @@ SHELL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["text"],
         "additionalProperties": False,
     },
+    OPEN_SUBSHELL_TOOL: {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "maxLength": 40,
+                     "description": "A short label for the footer, e.g. \"auth.log malware\"."},
+            "title": {"type": "string", "maxLength": 120, "description": "The headline printed first (default: name)."},
+            "text": {"type": "string", "maxLength": 65536,
+                     "description": "What the subshell prints at start: your findings, the evidence, suggested next "
+                                    "commands. Plain text or ANSI. Keep it under ~60 lines."},
+            "alert_level": {"type": "string", "enum": ["info", "warn", "crit"], "default": "info",
+                            "description": "The alert that points to it: info (good to know), warn (look soon), "
+                                           "crit (act now; stays until dismissed)."},
+            "cwd": {"type": "string", "description": "The folder the subshell starts in (default: the user's)."},
+        },
+        "required": ["name", "text"],
+        "additionalProperties": False,
+    },
 }
 SHELL_DESCRIPTIONS = {
     RECENT_OUTPUT_TOOL: "The last lines of the user's ShellCraft screen: the commands they ran (as `❯ cmd`) and "
@@ -186,6 +206,10 @@ SHELL_DESCRIPTIONS = {
     GET_CLIP_TOOL: "The user's clip register: what they last copied in ShellCraft ($CLIP).",
     SET_CLIP_TOOL: "Put text in the user's clip register, so Alt-v pastes it at their prompt: the safest way "
                    "to hand them a command. Say so in an alert.",
+    OPEN_SUBSHELL_TOOL: "Open a named ShellCraft subshell in the user's terminal that prints your `text` at "
+                        "start, and post an alert pointing to it. For findings that deserve their own screen: "
+                        "evidence, analysis, next steps. Returns the subshell's number (the user switches with "
+                        "a click or Ctrl-] N). Check get_jobs first: don't open a second one for the same finding.",
 }
 
 # Limits on every tool call, so a hung module or a huge result can't take the server down.
@@ -636,6 +660,22 @@ def link_request(name: str, arguments: dict[str, Any], by: str) -> tuple:
         if len(text) > 65536:
             raise ValueError("`text` is over 64 KB")
         return ("clip-set", text)
+    if name == OPEN_SUBSHELL_TOOL:
+        subname, text = str(arguments.get("name") or "").strip(), arguments.get("text")
+        if not subname:
+            raise ValueError("`name` is required")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("`text` is required")
+        if len(text) > MAX_BRIEF:
+            raise ValueError("`text` is over 64 KB")
+        level = str(arguments.get("alert_level") or "info")
+        if level not in ("info", "warn", "crit"):
+            raise ValueError("`alert_level` must be info, warn or crit")
+        spec = {"name": subname[:40], "title": str(arguments.get("title") or subname)[:120], "text": text,
+                "source": by, "level": level}
+        if isinstance(arguments.get("cwd"), str):
+            spec["cwd"] = arguments["cwd"]
+        return ("open-sub", spec)
     raise ValueError(f"unknown tool {name}")
 
 

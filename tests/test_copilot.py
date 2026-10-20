@@ -134,3 +134,81 @@ def test_the_mcp_child_gets_the_link_in_its_environment(home, monkeypatch):
         assert captured["env"][mainlink.ADDRESS_ENV] == "/tmp/x" and captured["env"][mainlink.KEY_ENV] == "ab"
     finally:
         jobmod.MAIN_LINK_ENV.clear()
+
+
+def _wait(pred, timeout=8.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.05)
+    return pred()
+
+
+@posix_only
+def test_open_subshell_opens_a_named_lite_shell_that_prints_the_brief(registry, real_shell):
+    sh, ctx = real_shell
+    server = build_server(registry)
+    out = _json(_call(server, lambda c: c.call_tool(
+        "open_subshell", {"name": "auth.log malware", "title": "Possible malware in auth.log",
+                          "text": "3 root logins from 203.0.113.9\nnext: grep 203.0.113.9 auth.log",
+                          "alert_level": "warn"})))
+    assert out["number"] == 1 and out["title"] == "AI · auth.log malware"
+    job = ctx.jobs.get(1)
+    try:
+        assert job.origin == "ai" and job.name == "AI · auth.log malware" and job.kind == "program"
+        assert "--brief" in job.command and "--no-banner" in job.command
+        alert = ctx.alerts.current()[0]
+        assert alert.message == "Possible malware in auth.log" and alert.level == "warn"
+        assert alert.content == "jobs 1" and alert.source.startswith("mcp · ")
+        assert ctx.jobs.notifications[-1].startswith("[1] ✦ AI · auth.log malware opened by mcp · ")
+        # the lite shell printed the brief and consumed the file
+        assert _wait(lambda: "203.0.113.9" in job.output)
+        assert "Possible malware in auth.log" in job.output  # the header (colored, so not one string)
+        brief = next(w for w in job.command.split() if w.endswith(".json"))
+        assert _wait(lambda: not __import__("os").path.exists(brief))
+        jobs = _json(_call(server, lambda c: c.call_tool("get_jobs", {})))
+        assert jobs[0]["origin"] == "ai" and jobs[0]["title"] == "AI · auth.log malware"
+        from shellcraft.footer import panel_lines
+
+        row = panel_lines(list(ctx.jobs), 0, width=100, stack=True)[-1]
+        assert "✦ AI · auth.log malware" in row.text and any(s[2] == "ai" for s in row.spans)
+    finally:
+        ctx.jobs.kill(job)
+    bad = _call(server, lambda c: c.call_tool("open_subshell", {"name": "x", "text": "   "}))
+    assert bad.is_error and "`text` is required" in bad.content[0].text
+
+
+def test_show_brief_prints_the_brief_and_deletes_the_file(real_shell, home):
+    from shellcraft import briefs
+
+    sh, ctx = real_shell
+    path = briefs.write("Possible malware", "malware", "line one\nline two", "mcp · claude-code", str(home), home)
+    assert path.is_file() and (path.stat().st_mode & 0o777) == 0o600
+    sh.show_brief(path)
+    text = sh.ui.console.export_text()
+    assert "✦ AI · Possible malware" in text and "from mcp · claude-code" in text and "line two" in text
+    assert "`exit` returns to main" in text and not path.exists()
+    sh.show_brief(path)  # gone: says so, no crash
+    assert "missing or" in sh.ui.console.export_text()
+    long = briefs.write("t", "n", "x" * 70000, "s", str(home), home)
+    data = briefs.read(long)
+    assert data["text"].startswith("x" * 100) and "[cut:" in data["text"] and len(data["text"]) < 66000
+    old = briefs.write("t", "n", "old", "s", str(home), home)
+    import os
+
+    os.utime(old, (1, 1))
+    assert briefs.sweep(home) == 1 and not old.exists()
+
+
+def test_the_lite_shell_takes_a_brief_on_the_command_line(tmp_path, started):
+    (tmp_path / "m.py").write_text("def run(args, stdin):\n    return ''\n")
+    from shellcraft import cli
+
+    brief = tmp_path / "b.json"
+    assert cli.main(["--lite", "--brief", str(brief), "--modules", str(tmp_path)]) == 0
+    assert started[-1].brief == brief and started.briefs[-1] == brief
+    assert cli.main(["--no-banner", "--brief", str(brief), "--modules", str(tmp_path)]) == 0
+    assert started[-1].brief is None  # only a lite shell prints one

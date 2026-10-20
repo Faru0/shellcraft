@@ -29,6 +29,7 @@ from prompt_toolkit.lexers import DynamicLexer
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.search import SearchDirection, do_incremental_search
 from prompt_toolkit.styles import DynamicStyle
+from rich.rule import Rule
 from rich.text import Text
 
 from shellcraft import aliases, gitinfo, histexpand, script, settings
@@ -492,6 +493,66 @@ class Shell:
         link.handle("jobs", self._link_jobs)
         link.handle("job-output", self._link_job_output)
         link.handle("history", self._link_history)
+        link.handle("open-sub", self._link_open_ai_sub)
+        from shellcraft import briefs
+
+        briefs.sweep()  # briefs no subshell ever read
+
+    def _link_open_ai_sub(self, spec: Any) -> Any:
+        """`open_subshell` (from the link thread): a lite ShellCraft named after the AI's finding,
+        started in the background, that prints the AI's brief first; an alert points to it, and
+        the note is printed above the prompt right away. Answers {"number", "title"}."""
+        from shellcraft import briefs
+        from shellcraft.builtins import _start_sub
+        from shellcraft.context import CommandError
+
+        if not isinstance(spec, dict):
+            return ("error", "open-sub needs a mapping")
+        if self.ctx.jobs is None:
+            return ("error", "this shell has no job table")
+        name = " ".join(str(spec.get("name") or "").split())[:40] or "AI"
+        title = " ".join(str(spec.get("title") or name).split())[:120]
+        text = str(spec.get("text") or "")
+        source = str(spec.get("source") or "mcp")
+        cwd = spec.get("cwd")
+        cwd = cwd if isinstance(cwd, str) and os.path.isdir(cwd) else os.getcwd()
+        path = briefs.write(title, name, text, source, cwd)
+        try:
+            kind, started = _start_sub(self.ctx, self.ctx.jobs, ["shellcraft", "--no-banner", "--brief", str(path)],
+                                       cwd, name=f"AI · {name}", origin="ai")
+        except CommandError as exc:
+            briefs.remove(path)
+            return ("error", str(exc))
+        if kind != "program":
+            briefs.remove(path)
+            return ("error", "subshells need a pseudo-terminal here (pip install pywinpty on Windows)")
+        job = started
+        self.ctx.jobs.notifications.append(
+            f"[{job.number}] ✦ {job.title} opened by {source} (Ctrl-] {job.number} switches to it)")
+        if self.ctx.alerts is not None:
+            self.ctx.alerts.post(title, spec.get("level") or "info", source=source, content=f"jobs {job.number}")
+        self._wake(self._report_finished)
+        return {"number": job.number, "title": job.title}
+
+    def show_brief(self, path: Any) -> None:
+        """A lite shell opened by an AI (`--brief FILE`): print what it left, then delete the file."""
+        from shellcraft import briefs
+        from shellcraft.context import Paged
+
+        data = briefs.read(path)
+        console = self.ui.console
+        if data is None:
+            console.print(Text(f"brief {path}: missing or unreadable", style="sc.muted"))
+            return
+        stamp = time.strftime("%H:%M", time.localtime(float(data.get("created") or time.time())))
+        console.print(Text.assemble(("✦ AI · ", "sc.accent"), (str(data.get("title", "")), "bold"),
+                                    (f"   from {data.get('source', '')} · {stamp}", "sc.muted")))
+        console.print(Rule(style="sc.border"))
+        text = data["text"].rstrip("\n")
+        if text:
+            value: Any = Paged(text, page=True) if text.count("\n") > 40 else text
+            show(self.ui, value, pager=settings.get(self.ctx.config, "pager"), title=f"AI · {data.get('title', '')}")
+        console.print(Text("(opened by the AI: `exit` returns to main, Ctrl-] switches)", style="sc.muted"))
 
     def _link_ping(self) -> dict[str, Any]:
         from shellcraft import __version__

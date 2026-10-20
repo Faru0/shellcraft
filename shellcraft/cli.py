@@ -45,6 +45,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="with --mcp / --mcp-http: offer only these modules as tools (a .skill with "
                         "`expose = false` is never offered)")
     p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
+    p.add_argument("--brief", type=Path, metavar="FILE", help=argparse.SUPPRESS)  # an AI-opened subshell's brief
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p.parse_args(argv)
 
@@ -161,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     # UI's Rich console on CONOUT$, whatever stdin and stdout are redirected to. Rich takes the
     # terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
     ui = UI(themes[theme_name], build_console())
-    ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite)
+    ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite,
+                       brief=args.brief if args.lite else None)
     with Shell(ctx) as shell:
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
@@ -184,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
                 shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
             if startup.background_scripts():
                 shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
+        if ctx.brief is not None and hasattr(shell, "show_brief"):
+            shell.show_brief(ctx.brief)  # what the AI that opened this subshell wants read first
         return shell.loop()
 
 

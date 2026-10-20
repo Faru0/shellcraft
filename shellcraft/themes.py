@@ -88,6 +88,7 @@ class ThemeDef:
                 "sc.footer.alert.warn": f"bold #000000 on {self.warning}",
                 "sc.footer.alert.crit": f"bold #ffffff on {self.error}",
                 "sc.footer.rec": f"bold {rec_color(self.error)} on {self._surface()}",  # a shell that records
+                "sc.footer.ai": f"bold {self.accent} on {self._surface()}",  # ✦: a subshell an AI opened
                 "sc.footer.alert.info.mark": f"bold {self.success} on {self._surface()}",
                 "sc.footer.alert.warn.mark": f"bold {self.warning} on {self._surface()}",
                 "sc.footer.alert.crit.mark": f"bold {self.error} on {self._surface()}",
@@ -150,6 +151,7 @@ class ThemeDef:
                 "toolbar.alert.warn": f"bg:{self.warning} #000000 bold noreverse",
                 "toolbar.alert.crit": f"bg:{self.error} #ffffff bold noreverse",
                 "toolbar.rec": f"bg:{surface} {self.error} bold noreverse",
+                "toolbar.ai": f"bg:{surface} {self.accent} bold noreverse",
                 "toolbar.alert.info.mark": f"bg:{surface} {self.success} bold noreverse",
                 "toolbar.alert.warn.mark": f"bg:{surface} {self.warning} bold noreverse",
                 "toolbar.alert.crit.mark": f"bg:{surface} {self.error} bold noreverse",

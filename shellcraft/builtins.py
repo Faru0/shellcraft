@@ -1633,10 +1633,11 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return _attach(ctx, started) if kind == "program" else started
 
 
-def _start_sub(ctx: ShellContext, table: Any, args: list[str], cwd: str) -> tuple[str, Any]:
+def _start_sub(ctx: ShellContext, table: Any, args: list[str], cwd: str, name: str | None = None,
+               origin: str = "") -> tuple[str, Any]:
     """Start what `sub ARGS` names: ("program", job) for a program, the login shell or a nested
     ShellCraft; ("note", text) for a builtin or module started as a command job, or a program
-    run in the foreground (no pseudo-terminal)."""
+    run in the foreground (no pseudo-terminal). `name` and `origin` ("ai") label the job."""
     from shellcraft import jobs as jobmod
 
     command = " ".join(args) if args else os.path.basename(jobmod.login_shell()[0])
@@ -1655,7 +1656,7 @@ def _start_sub(ctx: ShellContext, table: Any, args: list[str], cwd: str) -> tupl
     env = with_shim(env if env is not None else dict(os.environ), config_dir())  # `alert` on the PATH
     env[SUB_ENV] = f"{table.next_number}:{command}"  # so an alert from inside says which subshell sent it
     try:
-        job = table.start_program(argv, command, env=env, cwd=cwd)
+        job = table.start_program(argv, command, env=env, cwd=cwd, name=name, origin=origin)
     except jobmod.JobsUnsupported:
         if ctx.ui is not None:
             ctx.ui.console.file.flush()
@@ -1973,12 +1974,13 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     plain = []
     for job in table:
         style = "sc.warning" if job.running else "sc.success" if job.status == 0 else "sc.error"
-        shown = Text(job.title, style="sc.accent")
-        if job.name:
+        ai = getattr(job, "origin", "") == "ai"
+        shown = Text(("✦ " if ai else "") + job.title, style="sc.accent")
+        if job.name and not ai:
             shown.append(f"  ({job.command})", style="sc.muted")
         tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind, shown)
         plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.title}"
-                     + (f"\t{job.command}" if job.name else ""))
+                     + (f"\t{job.command}" if job.name and not ai else ""))
     hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -r N NAME renames · jobs -k N stops · "
                 "jobs -c clears", style="sc.muted")
     return Styled(Group(tbl, hint), "\n".join(plain) + "\n")

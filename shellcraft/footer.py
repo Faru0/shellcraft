@@ -455,11 +455,15 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     numbers = {job.number for job in jobs}
     for index, job in enumerate(shown):
         chosen = hover == job.number or cursor == index
-        left = _marker(current == job.number or chosen) + f"{job.number}  {job.short(width // 3)}"
+        left = _marker(current == job.number or chosen) + f"{job.number}  "
+        spans = ((0, MARK, "rec", "rec"),) if getattr(job, "recording", False) else ()
+        if getattr(job, "origin", "") == "ai":  # opened by an AI over MCP: ✦ before its name
+            spans += ((len(left), len(left) + 1, "ai", None),)
+            left += "✦ "
+        left += job.short(width // 3)
         killed = getattr(job, "killed", False)
         state = "running" if job.running else "failed" if killed or job.status != 0 else "done"
         right = "" if job.running else f"{job.label} × "  # a finished line: × removes it (as jobs -c would)
-        spans = ((0, MARK, "rec", "rec"),) if getattr(job, "recording", False) else ()
         own = [a for a in alerts if a.job == job.number and a.job in numbers]
         if own:
             first = own[0]  # the most severe (alerts are sorted)
