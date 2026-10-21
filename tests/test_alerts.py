@@ -253,7 +253,7 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
 
 
 def test_content_travels_through_the_spool_and_the_clip(bus, home, ictx, capsys):
-    """-C keeps a payload with the alert; a right-click copies it; Alt-v, Ctrl-S v, clip and
+    """-C keeps a payload with the alert; a right-click copies it; Alt-v, Ctrl-] v, clip and
     $CLIP give it back."""
     written = alertmod.send("errors in the log", "warn", 30, source="sub 1 (bash)", content="/var/log/app.log")
     assert json.loads(written.read_text())["content"] == "/var/log/app.log"
@@ -352,7 +352,7 @@ def test_a_nested_shell_asks_main_for_a_subshell(bus, home, ictx, monkeypatch, t
     ictx.jobs.requests.append({"args": ["no-such-program-xyz"], "cwd": str(tmp_path)})
     notes = bmod.open_requested(ictx)
     assert notes[0].startswith("sub echo from a subshell (asked by sub 2 (shellcraft)): ") and "background" in notes[0]
-    assert notes[1].startswith("[2] sub /bin/sleep 5 (asked by a subshell) started in the background (Ctrl-S 2 switches")
+    assert notes[1].startswith("[2] sub /bin/sleep 5 (asked by a subshell) started in the background (Ctrl-] 2 switches")
     assert "not a command" in notes[2] and len(ictx.jobs) == 2 and ictx.jobs.get(2).running  # nothing attached
     monkeypatch.setattr(bmod, "_attach", lambda ctx, job: pytest.fail("a requested subshell must not be attached"))
     assert bmod.open_requested(ictx) == [] and not ictx.jobs.requests

@@ -31,7 +31,7 @@
 | ⌨️ **Smart input** | Syntax highlighting as you type, a toolbar with the usage of the command you are typing, ghost-text suggestions from history, Ctrl-R, and Tab completion for commands, switches (with descriptions), switch values, positional values and paths (quoted when they need it). |
 | 📖 **Man pages & pager** | `man <command>` for everything, in a built-in scrollable viewer with search, wrapping, sideways scrolling and mouse support; `cmd \| less` pages anything else; `help NAME` for the short version. |
 | 🎨 **Themes** | Cyberpunk, Matrix, Nord, Solarized, Dracula, Gruvbox, Catppuccin, Tokyo Night, two light variants, or your own; `theme preview` tries one. |
-| 🪟 **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. A footer on the last row shows every shell as a tab: click one, or press Ctrl-S N, to switch; Ctrl-S alone comes back. |
+| 🪟 **Subshells** | `sub` opens your own shell, `sub vim`, `sub htop` or `sub ssh host` hands the terminal to a program, `sub shellcraft` nests a ShellCraft, and `sub grep -r TODO .` runs a command in the background. A footer on the last row shows every shell as a tab: click one, or press Ctrl-] N, to switch; Ctrl-] alone comes back. |
 | 🤖 **Built-in MCP server** | Claude Desktop, Claude Code and other AI clients can use your modules as typed tools, safely sandboxed from writes. |
 | 🔑 **Settings & API keys** | On/off settings and masked API keys for modules, saved in one config file. |
 
@@ -269,7 +269,7 @@ search on from there. Turn the viewer off with `settings pager off`.
 ```
 sub                          # your own shell (bash, zsh, pwsh…); exit brings you back to ShellCraft
 sub vim notes.md             # any program, with the keyboard and the screen handed to it
-sub htop                     # Ctrl-S detaches: it keeps running, you are back at the prompt
+sub htop                     # Ctrl-] detaches: it keeps running, you are back at the prompt
 sub shellcraft --theme nord  # a lite ShellCraft in a subshell (its prompt shows ⚡shellcraft [1])
 sub find / -name "*.log"     # a builtin or a module, run in the background with its output collected
 find / -name "*.log" &       # the same, bash style: a trailing & backgrounds any line (a program isn't attached)
@@ -291,13 +291,13 @@ newest at the bottom, growing as you open more (up to half the screen, then "…
 
 The ● is the shell you are in. A running line is plain; a finished one is green (`done`) or
 red (`exit 2`, `killed`), with an **×** on the right that removes it when you are done with it. The `▾` after `main`
-(a click, or **Ctrl-S c**) folds the subshell lines into `main  2 subshells ▸` when you need
+(a click, or **Ctrl-] c**) folds the subshell lines into `main  2 subshells ▸` when you need
 the room; the same again unfolds them. Alerts are part of the stack: see below. With no
 subshell the footer is the `main` line alone; `settings footer off` goes back to a panel under
 the prompt that appears only while something is running.
 
 **↓** on an empty line moves into the footer (↑ / ↓ walk it, **Enter** switches, **x** or Delete
-stops the chosen one, Esc leaves); **Ctrl-S N** switches from anywhere. The footer's lines, an
+stops the chosen one, Esc leaves); **Ctrl-] N** switches from anywhere. The footer's lines, an
 alert's ✖ and the badge are clickable at the prompt and inside a subshell. While the shell has
 the mouse that way, select text with **Shift** and a drag. The **wheel** inside a subshell scrolls
 the subshell's own scrollback; at the prompt, a turn of the wheel hands the mouse back to the
@@ -311,8 +311,8 @@ Subshells are shown like the pages of a book. Each program has its own terminal 
 switching to it redraws its screen exactly as it was, scrollback included, and switching away
 and back never garbles anything. They are shown on the terminal's alternate screen, so coming
 back to the prompt restores it untouched. Inside a subshell the same footer sits at the bottom of the terminal, with the
-● on the shell you are in: click a line or press Ctrl-S N to turn the page; **Ctrl-S** alone, or
-the `main` line, brings you back to the prompt, and **Ctrl-S Ctrl-S** sends a Ctrl-S to the
+● on the shell you are in: click a line or press Ctrl-] N to turn the page; **Ctrl-]** alone, or
+the `main` line, brings you back to the prompt, and **Ctrl-] Ctrl-]** sends a Ctrl-] to the
 program. The **mouse wheel** scrolls through the subshell's own scrollback (any key returns
 to the live page), unless the program uses the mouse itself, as `htop` does. (Alt-N is not used:
 terminals need it for their own tabs.) Switching to a command that is still running follows its output as it grows (Ctrl-C goes back to the prompt and leaves it running); a finished one shows everything it printed. A finished
@@ -325,12 +325,12 @@ to the panel that lists these keys. `man sub` has the details.
 without the banner, the startup scripts, hot reload, the alert watcher or the MCP server. Every
 subshell belongs to the main shell; there is no subshell inside a subshell. `sub pwsh` or
 `make &` typed inside one hands the request to the main shell, which runs it in the background:
-it appears in the footer under `main`, you stay where you are, and Ctrl-S N switches to it.
+it appears in the footer under `main`, you stay where you are, and Ctrl-] N switches to it.
 `sub sc` is short for `sub shellcraft`, and `sc &` starts a lite ShellCraft in the background.
 
 An AI client can open one too (its `open_subshell` tool): a lite ShellCraft named `✦ AI · finding`
 in the footer, started in the background, that prints the AI's brief first (its findings, the
-evidence, what to do next), with an alert pointing to it; Ctrl-S N or a click shows it, `exit`
+evidence, what to do next), with an alert pointing to it; Ctrl-] N or a click shows it, `exit`
 returns. See **Use it from an AI client** below and [ai/README.md](ai/README.md).
 
 Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY through the
@@ -400,7 +400,7 @@ background instead, with a header line, so the shell never waits for it:
 # shellcraft: background, restart
 ```
 
-It becomes a subshell (`startup: 30-watcher.py` in the panel; Ctrl-S N attaches, **Ctrl-S x** ends
+It becomes a subshell (`startup: 30-watcher.py` in the panel; Ctrl-] N attaches, **Ctrl-] x** ends
 it), `restart` starts it again after a crash (giving up after 5 crashes in 10 minutes, with an
 alert), and `startup stop / start / restart NAME` control it. `# shellcraft: timeout=120` gives a
 normal script more than 30 s. `templates/startup/30-watcher.example.py` is an example. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
@@ -427,7 +427,7 @@ An alert can carry **data**: `alert -d /var/log/app.log "errors in the log"` or
 (or the message) into the shell's own clip register, which keeps the last ten copies: `$CLIP`
 is the newest, `$CLIP1` the one before, up to `$CLIP9` (`clip -l` lists them). **Alt-v** pastes
 `$CLIP` at the prompt, in the main shell and in a `sub shellcraft`; pressed again right away it
-swaps in `$CLIP1`, then `$CLIP2`… (**Ctrl-S v** types the newest into another program in a
+swaps in `$CLIP1`, then `$CLIP2`… (**Ctrl-] v** types the newest into another program in a
 subshell). `clip -i N` starts the next prompt with copy N, `clip N` prints it, `clip | jq` pipes
 the newest on. (**Alt-c** copies the top alert from the keyboard, `clip -a N` alert N. The left
 Alt, the right Alt and AltGr all work, on Windows too; `diag keys` shows what a key arrives as. Konsole uses Alt-v for its View menu while its menu
@@ -504,12 +504,12 @@ between Linux and Windows. In the shell, `hotkeys` prints this list and `man hot
 
 | Keys or mouse | Where | What they do |
 | --- | --- | --- |
-| `Ctrl-S` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
-| `Ctrl-S` alone | in a subshell | Back to the prompt; the subshell keeps running |
-| `Ctrl-S` then `x` | in a subshell | End the subshell you are in |
-| `Ctrl-S` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
-| `Ctrl-S` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
-| `Ctrl-S` twice | in a subshell | Send one `Ctrl-S` to the program (to save in nano or micro, for example) |
+| `Ctrl-]` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
+| `Ctrl-]` alone | in a subshell | Back to the prompt; the subshell keeps running |
+| `Ctrl-]` then `x` | in a subshell | End the subshell you are in |
+| `Ctrl-]` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
+| `Ctrl-]` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
+| `Ctrl-]` twice | in a subshell | Send one `Ctrl-]` to the program |
 | `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
 | Click a line | anywhere | Switch to that shell |
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
@@ -641,9 +641,9 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
 | `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
 | `ai_run` | off | This session only, never saved: an AI client may run any command here at once (`run_in_shell`); `✦ run` shows in the prompt. Off: read-only commands run at once, the rest asks in the review queue. |
-| `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-S N, to switch; Ctrl-S c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
+| `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
-| `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-S N switches, Ctrl-S alone returns, Ctrl-S x ends it). |
+| `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
 
 ### API keys
 

@@ -188,7 +188,7 @@ class AlertBus:
 
     def copy(self, alert: Alert) -> str:
         """A right-click on an alert: its content (or its message) goes into the clip register,
-        for Alt-v at the prompt, Ctrl-S v in a subshell, `clip` and `$CLIP`. Returns the text."""
+        for Alt-v at the prompt, Ctrl-] v in a subshell, `clip` and `$CLIP`. Returns the text."""
         self.clip = alert.content or alert.message
         self.copied = alert
         self._changed()

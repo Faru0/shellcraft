@@ -87,7 +87,7 @@ def test_attach_forwards_keys_and_detaches_on_ctrl_bracket(tmp_path):
     os.write(term_master, b"x" + jobmod.DETACH_KEY)
     thread.join(3)
     assert result["how"] == ("detached", 0) and job.running and job.sink is None
-    # Ctrl-S then a digit: switch to that tab
+    # Ctrl-] then a digit: switch to that tab
     thread = threading.Thread(target=attach, daemon=True)
     thread.start()
     assert _wait(lambda: job.sink is not None)
@@ -231,7 +231,7 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     attached = panel_lines([job], 1, None, 80, attached=True)
     assert attached[0][2].rstrip() == " ○ main ▾" and attached[1][2].startswith(" ● 1 ") and attached[1][1] == "current"
     hinted = panel_lines([job], 1, None, 80, attached=True, hint=True)  # settings panel_hint on
-    assert hinted[0][0] is None and "Ctrl-S alone returns" in hinted[0][2] and hinted[1:] == attached
+    assert hinted[0][0] is None and "Ctrl-] alone returns" in hinted[0][2] and hinted[1:] == attached
     seq = footer.sequence()  # the scroll region above the stack (2 rows), the rows painted at the bottom
     assert footer.height() == 2 and "\x1b[1;22r" in seq and "\x1b[23;1H" in seq and "\x1b[24;1H" in seq
     assert "seq 2" in seq and footer.row_tabs == [0, 1]
@@ -268,12 +268,11 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert sh._footer_mouse(move) is None and footer.hover == job.number
     assert parse_mouse("\x1b[<64;5;5M") == ("scroll", 5, 5, "left") and parse_mouse("LEFT;MOUSE_UP;3;4") == ("up", 4, 5, "left")
     assert parse_mouse("junk") is None
-    # Ctrl-S N at the prompt
-    binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-s", str(job.number)])
+    # Ctrl-] N at the prompt
+    binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-]", str(job.number)])
     binding.handler(None)
     assert ran[-1] == f"jobs {job.number}"
     assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["escape", "1"]]  # no Alt-N
-    assert [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-s"]]  # Ctrl-S alone: no search
     # the panel under the prompt: ↓ walks it, Enter picks
     footer.enabled = False
     sh._update_toolbar()
@@ -532,7 +531,7 @@ def test_windows_arrow_keys_reach_the_subshell():
 
 @posix_only
 def test_ctrl_bracket_x_ends_the_attached_subshell(tmp_path, ictx, monkeypatch):
-    """Ctrl-S then x in an attached program: attach returns ("kill", N) and `sub` stops it."""
+    """Ctrl-] then x in an attached program: attach returns ("kill", N) and `sub` stops it."""
     import tty
 
     from rich.console import Console
@@ -557,9 +556,9 @@ def test_ctrl_bracket_x_ends_the_attached_subshell(tmp_path, ictx, monkeypatch):
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     assert _wait(lambda: job.sink is not None)
-    os.write(term_master, jobmod.DETACH_KEY + b"v")  # Ctrl-S v: the clip goes to the program (cat echoes it)
+    os.write(term_master, jobmod.DETACH_KEY + b"v")  # Ctrl-] v: the clip goes to the program (cat echoes it)
     assert _wait(lambda: "pasted text" in job.output) and not job.output.endswith("\n\n")
-    os.write(term_master, jobmod.DETACH_KEY + b"c")  # Ctrl-S c: fold the stack
+    os.write(term_master, jobmod.DETACH_KEY + b"c")  # Ctrl-] c: fold the stack
     assert _wait(lambda: footer.collapsed)
     opened: list = []
     table.on_request = lambda: opened.append(table.requests.pop(0))  # the shell's handler: open it, stay here

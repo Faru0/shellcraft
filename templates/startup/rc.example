@@ -13,7 +13,7 @@ cd ~
 export PROJECT_ROOT=~/projects
 export DEPLOY_ENV=staging
 
-# Kick things off in the background: they show in the subshell panel (Ctrl-S N to look)
+# Kick things off in the background: they show in the subshell panel (Ctrl-] N to look)
 # sub find ~/projects -name "*.log" -mtime -1
 # sub queryDns example.com
 

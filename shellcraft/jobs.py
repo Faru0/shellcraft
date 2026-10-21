@@ -7,7 +7,7 @@ Two kinds of job:
   interactive. Its output is fed to a terminal emulator (`pyte`) that keeps the program's screen
   and a scrollback, so switching to it redraws its page exactly, like tmux, instead of replaying
   raw output. `attach()` hands it the real keyboard and screen until it exits or the user leaves
-  (Ctrl-S alone detaches, Ctrl-S N switches to tab N, a click on the footer too); it keeps
+  (Ctrl-] alone detaches, Ctrl-] N switches to tab N, a click on the footer too); it keeps
   running in between. Subshells are shown on the terminal's alternate screen (`Pages`), so coming
   back to the prompt restores it untouched.
 - a **command** (`sub grep -r TODO .`, `sub queryDns example.com`): a ShellCraft command line run
@@ -35,8 +35,8 @@ from collections import deque
 from pathlib import Path
 from typing import IO, Any, Callable
 
-DETACH_KEY = b"\x13"  # Ctrl-S: alone it detaches; followed by a digit it switches to that tab
-PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-S
+DETACH_KEY = b"\x1d"  # Ctrl-]: alone it detaches; followed by a digit it switches to that tab
+PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
 TAIL_BYTES = 64 * 1024  # kept in memory per job
 HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
@@ -130,7 +130,7 @@ PARTIAL_MOUSE_RE = re.compile(rb"\x1b\[<[\d;]*$")  # a mouse report cut off at t
 
 
 def _clip_bytes(footer: Any) -> bytes:
-    """What Ctrl-S v types into the attached program: the clip register (a right-clicked alert),
+    """What Ctrl-] v types into the attached program: the clip register (a right-clicked alert),
     without its final newline so a pasted command is not run before you look at it."""
     clip = footer.alerts.clip if footer is not None and footer.alerts is not None else ""
     return clip.rstrip("\n").encode("utf-8") if clip else b""
@@ -571,8 +571,8 @@ class JobTable:
                raw: bool = True) -> tuple[str, int]:
         """Hand the terminal to a program job until it exits, or the user leaves it.
 
-        Returns ("exited", status), ("detached", 0) after Ctrl-S alone, or ("switch", tab) after
-        Ctrl-S followed by a digit, or a click on a footer tab (0 is the shell itself). The
+        Returns ("exited", status), ("detached", 0) after Ctrl-] alone, or ("switch", tab) after
+        Ctrl-] followed by a digit, or a click on a footer tab (0 is the shell itself). The
         program's page is drawn from its emulator, the pseudo-terminal is resized to the terminal
         (minus the footer row, with a `footer`), the mouse wheel scrolls through its scrollback
         (unless the program uses the mouse itself), and the footer is redrawn after its output.
@@ -646,7 +646,7 @@ class JobTable:
             elif mouse_wanted():
                 term.mouse(True)
                 our_mouse = True
-            prefix_at: float | None = None  # when Ctrl-S was pressed and no digit has followed
+            prefix_at: float | None = None  # when Ctrl-] was pressed and no digit has followed
             while job.running:
                 if footer is None:  # no footer: the program's own mouse modes reach the terminal
                     if our_mouse and job.mouse_on:  # the program took the mouse itself
@@ -690,15 +690,15 @@ class JobTable:
                     prefix_at = None
                     if data[:1].isdigit():
                         return "switch", int(data[:1])
-                    if data[:1] in (b"x", b"X"):  # Ctrl-S x: end this subshell
+                    if data[:1] in (b"x", b"X"):  # Ctrl-] x: end this subshell
                         return "kill", job.number
-                    if data[:1] in (b"v", b"V"):  # Ctrl-S v: paste the clip register (a copied alert)
+                    if data[:1] in (b"v", b"V"):  # Ctrl-] v: paste the clip register (a copied alert)
                         data = _clip_bytes(footer) + data[1:]
-                    elif data[:1] in (b"c", b"C"):  # Ctrl-S c: fold / unfold the subshell rows
+                    elif data[:1] in (b"c", b"C"):  # Ctrl-] c: fold / unfold the subshell rows
                         if footer is not None:
                             footer.toggle_collapsed()
                         data = data[1:]
-                    elif data[:1] == DETACH_KEY:  # Ctrl-S twice: the program gets one
+                    elif data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
                         data = data[1:]
                         _send(job, DETACH_KEY)
                     else:
@@ -747,7 +747,7 @@ class JobTable:
                         if data:
                             _send(job, data)
                         return ("switch", int(rest[:1])) if rest[:1].isdigit() else ("kill", job.number)
-                    if rest[:1] in (b"v", b"V"):  # Ctrl-S v in the same read: paste the clip register
+                    if rest[:1] in (b"v", b"V"):  # Ctrl-] v in the same read: paste the clip register
                         data += _clip_bytes(footer) + rest[1:]
                     elif rest[:1] in (b"c", b"C"):
                         if footer is not None:

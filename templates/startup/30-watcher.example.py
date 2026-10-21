@@ -2,7 +2,7 @@
 """Example background startup script: copy it to ~/.shellcraft/startup/ (and drop `.example`).
 
 `# shellcraft: background` starts it as a subshell the moment the prompt appears, so it never
-slows the start down; it shows in the subshell panel (Ctrl-S N or a click attaches to it, Ctrl-S x
+slows the start down; it shows in the subshell panel (Ctrl-] N or a click attaches to it, Ctrl-] x
 ends it). `restart` starts it again if it exits with an error: after 2, 4, 8… up to 60 s, giving
 up with a red alert after 5 crashes in 10 minutes. `startup stop / start / restart NAME` control it.
 

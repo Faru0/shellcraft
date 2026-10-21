@@ -34,7 +34,7 @@ and named exactly as here. The interactive shell must be running for the ones th
 `open_subshell`: a **name** of at most 40 characters for the footer (`auth.log brute force`), a
 **title** as the headline, and a **text** of at most ~60 lines: what, where (file, line, host,
 time), the exact lines that show it, how sure you are, what to do next (commands they can copy).
-The user opens it with a click or Ctrl-S N and leaves with `exit`. Open **one per finding**; check
+The user opens it with a click or Ctrl-] N and leaves with `exit`. Open **one per finding**; check
 `get_jobs` for one you already opened (origin `ai`).
 
 ## Running commands: three tiers
