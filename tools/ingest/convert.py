@@ -181,11 +181,11 @@ def convert(analysis: Analysis, name: str) -> Conversion:
     except SyntaxError as exc:
         raise ConvertError(f"the rewritten code doesn't parse ({exc.msg}, line {exc.lineno}); "
                            "convert this script by hand") from None
-    return Conversion(new_source, _steps(analysis, name, plan, segments, guard, import_after, body_indent,
+    return Conversion(new_source, _steps(analysis, plan, segments, guard, import_after, body_indent,
                                          import_line, run_header, run_at))
 
 
-def _steps(analysis: Analysis, name: str, plan, segments, guard, import_after, body_indent, import_line,
+def _steps(analysis: Analysis, plan, segments, guard, import_after, body_indent, import_line,
            run_header, run_at) -> list[str]:
     """The same changes, written as instructions for doing them by hand."""
     steps = []

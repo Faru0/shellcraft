@@ -381,7 +381,7 @@ def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None)
     return lines
 
 
-def alert_badge(alerts: list, foldable: bool) -> tuple[str, list[tuple[int, int, str]]]:
+def alert_badge(alerts: list) -> tuple[str, list[tuple[int, int, str]]]:
     """`● 1  ● 2  ● 1 ▸`: how many alerts of each level, in their colors, and ▸ / ▾ when a click
     folds or unfolds rows. Returns the text and (start, end, style) for each count."""
     from shellcraft.alerts import LEVELS
@@ -442,7 +442,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         main += fold
     if alerts:
         foldable = any(a.level != "crit" for a in alerts)
-        badge, marks = alert_badge(alerts, foldable)
+        badge, marks = alert_badge(alerts)
         badge += (" ▾" if expanded else " ▸") if foldable else ""
         pad = max(2, width - get_cwidth(main) - get_cwidth(badge) - 1)
         badge_at = len(main) + pad

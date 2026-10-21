@@ -24,7 +24,7 @@ from __future__ import annotations
 import glob as globmod
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Mapping
 
 from shellcraft import arith
@@ -83,7 +83,6 @@ class Pipeline:
     segments: list[Command]
     redirect: Redirect | None = None
     stdin_path: str | None = None  # `< file`
-    extra: list[Token] = field(default_factory=list)  # unused; kept for compatibility
 
 
 _DEFAULT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?])(:?)-(.*)", re.S)
@@ -232,7 +231,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
 
         def flush() -> None:
             nonlocal buf, quoted, globbable
-            _emit(tokens, "".join(buf), start, quoted, globbable, glob and _segment_command(tokens) not in NO_GLOB)
+            _emit(tokens, "".join(buf), start, globbable, glob and _segment_command(tokens) not in NO_GLOB)
             buf, quoted, globbable = [], False, []
 
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
@@ -295,11 +294,11 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             if expanded_word != word:
                 globbable = [False] * (len(expanded_word) - len(word) + 1) + globbable[1:]
                 word = expanded_word
-        _emit(tokens, word, start, quoted, globbable, glob and _segment_command(tokens) not in NO_GLOB)
+        _emit(tokens, word, start, globbable, glob and _segment_command(tokens) not in NO_GLOB)
     return tokens
 
 
-def _emit(tokens: list[Token], word: str, start: int, quoted: bool, globbable: list[bool], glob: bool) -> None:
+def _emit(tokens: list[Token], word: str, start: int, globbable: list[bool], glob: bool) -> None:
     """Append a word, expanded into file names when it is an unquoted glob pattern."""
     if glob and any(c in "*?[" and g for c, g in zip(word, globbable)):
         pattern = "".join(c if g else globmod.escape(c) for c, g in zip(word, globbable))

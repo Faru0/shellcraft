@@ -221,7 +221,7 @@ def analyze(path: Path, source: str | None = None) -> Analysis:
             result.plan = [(n, KEEP) for n in body]
             params = run_def.args.posonlyargs + run_def.args.args
             result.uses_stdin = len(params) > 1 and params[1].arg in loaded_names(run_def)
-            _check_unsafe(result, moved=set())
+            _check_unsafe(result)
             return result
         result.conflict(run_def, "the script already defines run() with a different signature. ShellCraft calls "
                                  "run(args, stdin); rename your function (e.g. to run_job) first")
@@ -233,9 +233,8 @@ def analyze(path: Path, source: str | None = None) -> Analysis:
         result.import_name = "shellcraft_script"
 
     _plan(result)
-    moved = {id(n) for n, what in result.plan if what != KEEP}
-    _check_unsafe(result, moved)
-    _plan_edits(result, moved)
+    _check_unsafe(result)
+    _plan_edits(result)
     if not any(what != KEEP for _, what in result.plan) and not result.conflicts:
         result.conflict(1, "the script defines things but never runs anything at the top level (no code and no "
                            "`if __name__ == \"__main__\":` block), so there is nothing to put in run()")
@@ -352,7 +351,7 @@ def _reads_input(node: ast.AST | None) -> bool:
 _CONSTANT_NAMES = {"True", "False", "None", "__file__", "__name__"}
 
 
-def _check_unsafe(result: Analysis, moved: set[int]) -> None:
+def _check_unsafe(result: Analysis) -> None:
     """Things that can't work inside a module, wherever they are."""
     for node in ast.walk(result.tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -393,7 +392,7 @@ def _check_unsafe(result: Analysis, moved: set[int]) -> None:
                                          "return its output. Give the loop an end")
 
 
-def _plan_edits(result: Analysis, moved: set[int]) -> None:
+def _plan_edits(result: Analysis) -> None:
     """sys.argv / sys.stdin / parse_args() inside moved code → args / stdin."""
     lines = result.source.splitlines()
     func_defs = {n.name: n for n, what in result.plan
