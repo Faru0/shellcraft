@@ -107,6 +107,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **A new demo recording** (`docs/demo.gif`, `docs/demo.cast`) of the shell as it is now: the
+  usage-guided completion, a subshell in the footer, an alert whose data Alt-v pastes, the man viewer.
+  `python tools/demo.py` records it again from a script, in a throwaway home with sample files.
+
 - **The README is an overview now** (features, install, quick start, a short tour, the command
   and module lists); the full guide moved, unchanged in substance, to `docs/`: scripting, subshells,
   keyboard and mouse, settings and themes, MCP and the AI co-pilot. The command list names every

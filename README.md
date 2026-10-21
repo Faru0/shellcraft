@@ -11,7 +11,7 @@
 [![MCP server](https://img.shields.io/badge/MCP-server-ff2a6d)](docs/mcp-and-ai.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-05d9e8)](LICENSE)
 
-<img src="docs/demo.gif" alt="ShellCraft demo: pipes, redirection, Tab completion, aliases, man pages, settings and history in the cyberpunk theme" width="880">
+<img src="docs/demo.gif" alt="ShellCraft demo: a pipeline, jq, Tab completion from the usage line, a loop, a bash subshell in the footer, an alert whose data Alt-v pastes and runs, the man viewer and a theme switch" width="880">
 
 [Install](#installation) · [Quick start](#quick-start) · [Features](#features) · [Guide](docs/README.md) · [Modules](#bundled-modules) · [MCP](docs/mcp-and-ai.md) · [Write a module](#write-your-own-module)
 
