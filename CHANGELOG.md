@@ -98,6 +98,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The subshell key is Ctrl-S, not Ctrl-]** (Ctrl-] is awkward or missing on many keyboard
+  layouts). Ctrl-S N switches, Ctrl-S alone returns to the prompt, Ctrl-S x / c / v as before, and
+  Ctrl-S twice sends one Ctrl-S to the program (to save in nano). Ctrl-S alone at the prompt does
+  nothing (it no longer starts prompt_toolkit's forward history search).
+
 - **`diag` is hidden** from `help`, Tab completion and the command line until the
   `diagnostics` setting is on. `shellcraft --diag` (`python main.py --diag`) turns the setting on,
   saves it and prints the report at startup; `settings diagnostics off` hides `diag` again. The

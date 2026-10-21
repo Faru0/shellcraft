@@ -99,7 +99,7 @@ SETTINGS: dict[str, Setting] = {
                 "the footer's lines, an alert's ✖ and the badge can be clicked, and text is selected "
                 "with Shift and a drag. The wheel hands the mouse back to the terminal, so its turns "
                 "scroll the terminal's own history until the next key press. Off: the terminal keeps "
-                "the mouse at the prompt and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, "
+                "the mouse at the prompt and the footer answers the keys (Ctrl-S N, ↓, Ctrl-S c, "
                 "alert -c, Alt-c). With nothing to click the terminal always keeps the mouse."),
         Setting("scroll_view", "Wheel opens the scroll view", False,
                 "While the shell has the mouse at the prompt (footer_mouse), a turn of the wheel up "
@@ -108,7 +108,7 @@ SETTINGS: dict[str, Setting] = {
                 "instead, so its turns scroll the terminal's own history."),
         Setting("footer", "Shell footer", True,
                 "The shell stack (main, then one line per subshell) on the last rows of the terminal, "
-                "at the prompt and inside every subshell: click a line, or Ctrl-] N, to switch; Ctrl-] c "
+                "at the prompt and inside every subshell: click a line, or Ctrl-S N, to switch; Ctrl-S c "
                 "folds it. Off: a panel under the prompt only while something is running, and nothing "
                 "inside subshells."),
         Setting("jobs_autoclear", "Finished jobs clear themselves", True,
@@ -117,7 +117,7 @@ SETTINGS: dict[str, Setting] = {
                 "`jobs -c`, and `jobs N` shows its output."),
         Setting("panel_hint", "Subshell panel key hints", False,
                 "Show a header line at the top of the subshell panel with the keys that work there "
-                "(click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). Off by default "
+                "(click or Ctrl-S N switches, Ctrl-S alone returns, Ctrl-S x ends it). Off by default "
                 "to keep the panel short."),
         Setting("links", "Clickable paths", False,
                 "File names from ls, tree, find, du and grep are terminal hyperlinks: Ctrl-click "

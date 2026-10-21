@@ -785,8 +785,8 @@ or a ShellCraft command running in the background. Every subshell is a numbered 
 **footer** on the last rows of the terminal lists them as a stack (`● main`, then `○ 1  bash …`,
 newest at the bottom, growing as you open more), at the prompt and inside every subshell, with
 the ● on the shell you are in. Hover or ↓ to pick, click or Enter to switch; `jobs` lists them
-too, and **Ctrl-] N** or a click selects job N from the prompt or from inside another subshell.
-**Ctrl-] c**, or the `▾` after `main`, folds the subshell lines into `main  3 subshells ▸`
+too, and **Ctrl-S N** or a click selects job N from the prompt or from inside another subshell.
+**Ctrl-S c**, or the `▾` after `main`, folds the subshell lines into `main  3 subshells ▸`
 when you need the room, and unfolds them again.
 
 ## Usage
@@ -802,28 +802,28 @@ COMMAND [ARGS...] &        # the same, bash style: grep -r TODO . &   make &   t
 
 An AI client can open a subshell too (the `open_subshell` MCP tool, `man mcp`): a lite ShellCraft
 named `✦ AI · finding` in the footer, started in the background, that prints the AI's brief first
-(its findings, the evidence, what to do next); an alert points to it. Ctrl-] N or a click shows
+(its findings, the evidence, what to do next); an alert points to it. Ctrl-S N or a click shows
 it, `exit` returns. A command the AI runs for you (`run_in_shell`) is a background job named
 `✦ AI: command`, reported above your prompt like any `cmd &`.
 
 A trailing `&` (after a space, outside quotes) runs the whole line as a background job: a
 builtin, a module, a pipeline or a loop becomes a command job (quotes and pipes kept as typed); a
-single OS program starts as a program job **without** attaching (switch to it with Ctrl-] N).
+single OS program starts as a program job **without** attaching (switch to it with Ctrl-S N).
 An `&` anywhere else is still an error.
 
 ## How it works
 
 - A **program** runs on its own pseudo-terminal and you are attached to it at once: what you
-  type goes to it, what it prints you see. Press **Ctrl-]** to detach (or **Ctrl-] 0**): the
-  program keeps running in the background, and `jobs N`, **Ctrl-] N** or a click on its tab
-  attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-] N** inside
-  one program switches straight to another; **Ctrl-] Ctrl-]** sends a Ctrl-] to the program,
-  **Ctrl-] v** pastes the clip register (a right-clicked alert, `man clip`) into it, and
-  **Ctrl-] x** ends the program you are in and returns to the prompt.
+  type goes to it, what it prints you see. Press **Ctrl-S** to detach (or **Ctrl-S 0**): the
+  program keeps running in the background, and `jobs N`, **Ctrl-S N** or a click on its tab
+  attaches again (its last lines are shown, and full-screen programs redraw). **Ctrl-S N** inside
+  one program switches straight to another; **Ctrl-S Ctrl-S** sends a Ctrl-S to the program,
+  **Ctrl-S v** pastes the clip register (a right-clicked alert, `man clip`) into it, and
+  **Ctrl-S x** ends the program you are in and returns to the prompt.
   When it exits you are back at the prompt with its status in `$?`. Jobs still running when you
   leave ShellCraft are stopped.
 - A **command** (a builtin or a module) runs in a worker thread with its output collected.
-  `jobs N`, **Ctrl-] N** or its tab shows the output so far (`jobs N | less` pages it); a finished
+  `jobs N`, **Ctrl-S N** or its tab shows the output so far (`jobs N | less` pages it); a finished
   job prints `[N] done: …` and its output at the next prompt, then leaves the stack (`settings
   jobs_autoclear off` keeps it until `jobs -c`). Background commands cannot change the shell's state
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
@@ -833,7 +833,7 @@ An `&` anywhere else is still an error.
   times). It takes up to half the screen, then says how many more there are. An alert sent from
   a subshell shows inline on its line; the badge on the `main` line counts them all (`man alert`).
   `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` goes back to a
-  panel under the prompt only while something runs, and nothing inside subshells (Ctrl-] N
+  panel under the prompt only while something runs, and nothing inside subshells (Ctrl-S N
   still works).
 
 Each program has its own terminal emulator: switching to it redraws its screen exactly as it
@@ -847,7 +847,7 @@ settings, aliases and history, without the banner, the startup scripts, hot relo
 watcher or the MCP server (`mcp` says so). Every subshell belongs to the main ShellCraft; there
 is no subshell inside a subshell. `sub …` or `cmd &` typed inside one hands the request to the
 main shell, which runs it in the background: it appears in the footer under `main`, you stay
-where you are, and Ctrl-] N switches to it when you want. `jobs` is for the main shell.
+where you are, and Ctrl-S N switches to it when you want. `jobs` is for the main shell.
 
 ## Examples
 
@@ -857,7 +857,7 @@ sub shellcraft --theme nord # try a theme in a nested shell
 sub find / -name "*.log"    # slow search in the background, keep working
 find / -name "*.log" &      # the same, bash style
 jobs                        # what is running, and what finished
-jobs 1                      # attach to job 1 (Ctrl-] leaves it running, Ctrl-] 2 jumps to job 2)
+jobs 1                      # attach to job 1 (Ctrl-S leaves it running, Ctrl-S 2 jumps to job 2)
 ```
 """
 
@@ -904,7 +904,7 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   Every level has the same mark, in its color: green info, amber warn, red crit.
 - A **right-click** on a row copies the alert's data (`-d`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt
-  (**Ctrl-] v** into another program inside a subshell); `clip` prints it and `$CLIP` holds it
+  (**Ctrl-S v** into another program inside a subshell); `clip` prints it and `$CLIP` holds it
   (`man clip`). From the keyboard: **Alt-c** copies the top alert, `clip -a
   N` alert N. While the footer lists a subshell or an alert the shell has the mouse: select text
   with Shift and a drag; the wheel hands the mouse back to the terminal, so it scrolls as usual.
@@ -986,7 +986,7 @@ moves it to the front). **Alt-v** (or Esc then v) pastes `$CLIP` at the prompt, 
 and in a `sub shellcraft` alike; **press Alt-v again right away** and the paste becomes `$CLIP1`,
 again `$CLIP2`, and so on round (typing anything in between starts over at the newest). In
 another program inside a subshell (bash, pwsh, vim), where Alt-v is the program's key,
-**Ctrl-] v** types it in. `clip -i` does it without a key chord: the next prompt starts with
+**Ctrl-S v** types it in. `clip -i` does it without a key chord: the next prompt starts with
 the text on the line.
 
 It is also the `$CLIP` variable (`echo $CLIP`, `grep "$CLIP" file`). An AI client can stage a
@@ -1119,12 +1119,12 @@ between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in
 
 | Keys or mouse | Where | What they do |
 | --- | --- | --- |
-| `Ctrl-]` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
-| `Ctrl-]` alone | in a subshell | Back to the prompt; the subshell keeps running |
-| `Ctrl-]` then `x` | in a subshell | End the subshell you are in |
-| `Ctrl-]` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
-| `Ctrl-]` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
-| `Ctrl-]` twice | in a subshell | Send one `Ctrl-]` to the program |
+| `Ctrl-S` then a digit | anywhere | Switch to subshell N (`0`: back to the prompt) |
+| `Ctrl-S` alone | in a subshell | Back to the prompt; the subshell keeps running |
+| `Ctrl-S` then `x` | in a subshell | End the subshell you are in |
+| `Ctrl-S` then `c` | anywhere | Fold the subshell lines into `main`, or unfold them |
+| `Ctrl-S` then `v` | in a subshell | Type the newest copy into the program (bash, pwsh, vim) |
+| `Ctrl-S` twice | in a subshell | Send one `Ctrl-S` to the program |
 | `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
 | Click a line | anywhere | Switch to that shell |
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
@@ -1474,7 +1474,7 @@ Lines at the top of a script, before its first line of code, change how it runs:
 
 A **background** script (a watcher, a tunnel, a periodic check) starts the moment the prompt is
 ready, so the shell starts as fast as without it. It is a subshell like `sub python FILE`: listed
-in the panel as `startup: NAME.py`, Ctrl-] N or a click attaches to it, **Ctrl-] x** ends it,
+in the panel as `startup: NAME.py`, Ctrl-S N or a click attaches to it, **Ctrl-S x** ends it,
 `jobs -k N` stops it, and it is stopped when you leave ShellCraft. `alert` is on its PATH, and its
 alerts say which script sent them. It can't set variables for the shell (it starts after the
 shell is ready): put those in a normal script, which runs first.
@@ -1604,7 +1604,7 @@ ones.
 
 ```
 jobs                 # the table: number, state, elapsed time, command
-jobs N               # select job N: attach to a program (Ctrl-] detaches), or show a command's output
+jobs N               # select job N: attach to a program (Ctrl-S detaches), or show a command's output
 jobs -f N            # follow a command job's output as it grows, like tail -f (Ctrl-C stops following)
 jobs -r N NAME...    # rename job N: the footer and this table show NAME instead of the command
 jobs -r N            # back to its command
@@ -1612,7 +1612,7 @@ jobs -k N            # stop job N
 jobs -c              # forget the finished jobs now (their logs stay in ~/.shellcraft/jobs/)
 ```
 
-**Ctrl-] N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
+**Ctrl-S N** does the same as `jobs N`, at the prompt and inside an attached program, and so does
 a click on the job's tab in the footer. `man sub` explains the two kinds of job. A `✦` before a
 job's name means an AI opened it, or runs that command for you (`man mcp`).
 
@@ -1635,7 +1635,7 @@ def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
         raise CommandError(f"{name}: only in the interactive shell")
     if depth():
         raise CommandError(f"{name}: only the main ShellCraft starts subshells (this one is [{depth()}]: "
-                           "press Ctrl-] to go back to it)")
+                           "press Ctrl-S to go back to it)")
     return ctx.jobs
 
 
@@ -1653,7 +1653,7 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError(f"sub: cannot reach the main shell: {exc}") from None
         return Text.assemble(("asked the main shell to open ", "sc.muted"),
                              ("sub " + " ".join(args) if args else "sub", "sc.accent"),
-                             (" in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
+                             (" in the background (it appears in the footer; Ctrl-S N switches to it)", "sc.muted"))
     table = _jobs_or_refuse(ctx, "sub")
     kind, started = _start_sub(ctx, table, args, os.getcwd())
     return _attach(ctx, started) if kind == "program" else started
@@ -1718,7 +1718,7 @@ def open_requested(ctx: ShellContext) -> list[str]:
             continue
         if kind == "program":
             n = started.number
-            notes.append(f"[{n}] {asked} started in the background (Ctrl-] {n} switches to it)")
+            notes.append(f"[{n}] {asked} started in the background (Ctrl-S {n} switches to it)")
         else:
             notes.append(f"{asked}: {to_text(started).strip()}" if started else asked)
     return notes
@@ -1728,7 +1728,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
     """`LINE &`: a background job, like `sub LINE`. A builtin, module, alias or anything more
     than one simple command (a pipe, `;`, a loop) runs as a command job, from the line as typed
     (quotes kept); a single OS program starts as a program job and is not attached (switch to
-    it with Ctrl-] N). Only in the interactive shell."""
+    it with Ctrl-S N). Only in the interactive shell."""
     import shlex
 
     from shellcraft import jobs as jobmod
@@ -1743,7 +1743,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
         except OSError as exc:
             raise CommandError(f"&: cannot reach the main shell: {exc}") from None
         return Text.assemble(("asked the main shell to run ", "sc.muted"), (line, "sc.accent"),
-                             (" & in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
+                             (" & in the background (it appears in the footer; Ctrl-S N switches to it)", "sc.muted"))
     table = _jobs_or_refuse(ctx, "&")
     try:
         words = shlex.split(line, posix=True)
@@ -1766,7 +1766,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
     except FileNotFoundError:
         raise CommandError(f"{words[0]}: not a command, a module or a program on PATH", 127) from None
     return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  started in the background (Ctrl-] {job.number} switches to it)", "sc.muted"))
+                         (f"  started in the background (Ctrl-S {job.number} switches to it)", "sc.muted"))
 
 
 def _is_shell_command(ctx: ShellContext, name: str) -> bool:
@@ -1786,7 +1786,7 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
     output collected), run through the normal pipeline in a worker thread."""
     job = command_job(ctx, table, line)
     return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
+                         (f"  running in the background (jobs {job.number} or Ctrl-S {job.number} shows it)",
                           "sc.muted"))
 
 
@@ -1829,7 +1829,7 @@ def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = Non
 
 def _attach(ctx: ShellContext, job: Any) -> Any:
     """Hand the terminal to a program job; back with its status, detached, or switched to
-    another tab (Ctrl-] N, or a click on the footer)."""
+    another tab (Ctrl-S N, or a click on the footer)."""
     assert ctx.jobs is not None
     from shellcraft.jobs import Pages, Terminal
 
@@ -1870,7 +1870,7 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
                     return select_job(ctx, target)
                 job = nxt
                 continue
-        if how == "kill":  # Ctrl-] x: end the subshell we are in, back to the prompt
+        if how == "kill":  # Ctrl-S x: end the subshell we are in, back to the prompt
             ctx.jobs.kill(job)
             ctx.jobs.pop_notifications()
             return Text.assemble(("\n", ""), (f"[{job.number}] killed: ", "sc.muted"),
@@ -1878,7 +1878,7 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
         if how == "detached":
             return Text.assemble(("\n", ""), (f"[{job.number}] detached: ", "sc.muted"),
                                  (job.command, "sc.accent"),
-                                 (f" keeps running (jobs {job.number} or Ctrl-] {job.number} to return)", "sc.muted"))
+                                 (f" keeps running (jobs {job.number} or Ctrl-S {job.number} to return)", "sc.muted"))
         # `exit` inside it: the pty closed, and the reader marks the job finished a moment later
         finished = ctx.jobs.wait_finished(job)
         ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
@@ -1894,7 +1894,7 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
 
 
 def select_job(ctx: ShellContext, number: int, follow: bool | None = None) -> Any:
-    """`jobs N` / Ctrl-] N: attach to a program; for a command, follow its output while it runs
+    """`jobs N` / Ctrl-S N: attach to a program; for a command, follow its output while it runs
     (or with `follow`), else show what it printed."""
     table = _jobs_or_refuse(ctx, "jobs")
     job = table.get(number)
@@ -1938,7 +1938,7 @@ def follow_job(ctx: ShellContext, job: Any, poll: float = 0.2) -> Any:
                           markup=False, highlight=False)
             console.file.flush()
 
-    # Ctrl-] N runs this inside prompt_toolkit's run_in_terminal, whose event loop owns SIGINT
+    # Ctrl-S N runs this inside prompt_toolkit's run_in_terminal, whose event loop owns SIGINT
     # (its handler can't run while this loop blocks it): Python's own handler, while following,
     # turns Ctrl-C into KeyboardInterrupt here, as at the prompt.
     import signal
@@ -2012,7 +2012,7 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind, shown)
         plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.title}"
                      + (f"\t{job.command}" if job.name and not ai else ""))
-    hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -r N NAME renames · jobs -k N stops · "
+    hint = Text("jobs N or Ctrl-S N selects · Ctrl-S detaches · jobs -r N NAME renames · jobs -k N stops · "
                 "jobs -c clears", style="sc.muted")
     return Styled(Group(tbl, hint), "\n".join(plain) + "\n")
 
@@ -2792,7 +2792,7 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
     if ctx.lite:
         raise CommandError("mcp: not in a lite shell (sub shellcraft); run it in the main ShellCraft "
-                           "(Ctrl-] goes back to it)")
+                           "(Ctrl-S goes back to it)")
     action, rest = (args[0], args[1:]) if args else ("status", [])
     child = _mcp_running(ctx)
 

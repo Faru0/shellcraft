@@ -239,7 +239,7 @@ SHELL_DESCRIPTIONS = {
     OPEN_SUBSHELL_TOOL: "Open a named ShellCraft subshell in the user's terminal that prints your `text` at "
                         "start, and post an alert pointing to it. For findings that deserve their own screen: "
                         "evidence, analysis, next steps. Returns the subshell's number (the user switches with "
-                        "a click or Ctrl-] N). Check get_jobs first: don't open a second one for the same finding.",
+                        "a click or Ctrl-S N). Check get_jobs first: don't open a second one for the same finding.",
     RUN_TOOL: "Run a command in the user's interactive ShellCraft, with its trace shown to them. A read-only "
               "command (grep, cat, jq, sort, the query modules; no redirection, no file changes) runs at once; "
               "so does anything while the session grant is on. Otherwise the command waits in the review "

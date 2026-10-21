@@ -64,7 +64,7 @@ def test_trailing_ampersand_starts_a_program_without_attaching(ictx, monkeypatch
     monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: attached.append(job) or ("detached", 0))
     out = to_text(run_line("sh -c 'sleep 5' &", ictx).output)
     job = ictx.jobs.get(1)
-    assert job.kind == "program" and job.running and attached == [] and "Ctrl-] 1" in out
+    assert job.kind == "program" and job.running and attached == [] and "Ctrl-S 1" in out
     ictx.jobs.kill(job)
     with pytest.raises(PipelineError, match="not a command"):
         run_line("no-such-program-xyz &", ictx)

@@ -532,7 +532,7 @@ class Shell:
             return ("error", "subshells need a pseudo-terminal here (pip install pywinpty on Windows)")
         job = started
         self.ctx.jobs.notifications.append(
-            f"[{job.number}] ✦ {job.title} opened by {source} (Ctrl-] {job.number} switches to it)")
+            f"[{job.number}] ✦ {job.title} opened by {source} (Ctrl-S {job.number} switches to it)")
         if self.ctx.alerts is not None:
             self.ctx.alerts.post(title, spec.get("level") or "info", source=source, content=f"jobs {job.number}")
         self._wake(self._report_finished)
@@ -584,7 +584,7 @@ class Shell:
         if text:
             value: Any = Paged(text, page=True) if text.count("\n") > 40 else text
             show(self.ui, value, pager=settings.get(self.ctx.config, "pager"), title=f"AI · {data.get('title', '')}")
-        console.print(Text("(opened by the AI: `exit` returns to main, Ctrl-] switches)", style="sc.muted"))
+        console.print(Text("(opened by the AI: `exit` returns to main, Ctrl-S switches)", style="sc.muted"))
 
     def _link_ping(self) -> dict[str, Any]:
         from shellcraft import __version__
@@ -685,12 +685,12 @@ class Shell:
             self.footer.disable()
 
     def _key_bindings(self) -> KeyBindings:
-        """Ctrl-] then a digit selects a tab (attach to a subshell, or show its output), the same
+        """Ctrl-S then a digit selects a tab (attach to a subshell, or show its output), the same
         key as inside an attached program. (Alt-N is left alone: terminals use it for their own
         tabs.) Mouse events are looked at first for a click on the footer's tabs."""
         kb = KeyBindings()
         for digit in "0123456789":
-            @kb.add("c-]", digit)
+            @kb.add("c-s", digit)
             def _(event: Any, number: int = int(digit)) -> None:
                 if number:
                     run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
@@ -700,7 +700,11 @@ class Shell:
         def _mouse(event: Any) -> Any:
             return self._footer_mouse(event)
 
-        @kb.add("c-]", "c")  # Ctrl-] c: fold the subshell rows into the main row, or unfold them
+        @kb.add("c-s")  # Ctrl-S alone at the prompt: nothing (not prompt_toolkit's forward search)
+        def _prefix_alone(event: Any) -> None:
+            pass
+
+        @kb.add("c-s", "c")  # Ctrl-S c: fold the subshell rows into the main row, or unfold them
         def _fold(event: Any) -> None:
             self.footer.toggle_collapsed()
 

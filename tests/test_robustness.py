@@ -352,7 +352,7 @@ def test_hotkeys_lists_keys_and_mouse_for_linux_and_windows(ctx):
     for heading in ("At the prompt: editing", "The clip register and alerts", "The footer and subshells",
                     "Mouse: scrolling and selecting", "The viewer", "Linux and Windows"):
         assert f"## {heading}" in page, heading
-    for key in ("Alt-v", "Ctrl-]", "Ctrl-R", "Right-click an alert", "scroll view", "AltGr", "diag keys"):
+    for key in ("Alt-v", "Ctrl-S", "Ctrl-R", "Right-click an alert", "scroll view", "AltGr", "diag keys"):
         assert key in page, key
     assert to_text(run_line("man -p hotkeys", ctx).output).startswith("# hotkeys")
     listed = [line.split()[0] for line in to_text(run_line("help", ctx).output).splitlines() if line.strip()]

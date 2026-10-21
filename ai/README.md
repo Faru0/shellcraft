@@ -66,7 +66,7 @@ skills name the real tools, so they work as written.
 1. In ShellCraft: `mcp start`, then `mark --file /var/log/auth.log -m "last night's logins" -p medium`.
 2. In Claude Code (with the server added): "Use the shellcraft-copilot agent. Look at what I flagged."
 3. The AI reads the flag, triages, and opens `✦ AI · auth.log logins` in your footer with its findings;
-   `Ctrl-] 1` (or a click) shows it, `exit` returns.
+   `Ctrl-S 1` (or a click) shows it, `exit` returns.
 4. It stages `grep 203.0.113.9 /var/log/auth.log` with `set_clip`; Alt-v pastes it.
 5. If it needs to run things itself: `request_session_grant` → `review approve ID` once, or let it
    run read-only commands as it goes and answer `review approve` for the rest.

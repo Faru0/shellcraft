@@ -1,6 +1,6 @@
 """The footer: one line at the bottom of the terminal with a tab per shell, always visible.
 
-    ⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓ │ 3:shellcraft ⤷1 ●     Ctrl-] N switches
+    ⤷ 0:⚡shellcraft │ 1:bash ● │ 2:seq 3 ✓ │ 3:shellcraft ⤷1 ●     Ctrl-S N switches
 
 The last terminal row is reserved with a scroll region (DECSTBM, rows 1..N-1), so the prompt,
 command output and attached programs scroll above it and never push it away. The footer is drawn
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from shellcraft.jobs import JobTable
     from shellcraft.themes import UI
 
-PREFIX = "Ctrl-]"
+PREFIX = "Ctrl-S"
 HOVER_TIMEOUT = 1.0  # seconds a highlighted line stays highlighted without the mouse moving
 MIN_STACK = 3  # subshell rows the stack may always take; beyond that, up to half the screen
 # A scroll-region command from an attached program (`ESC[r`, `ESC[a;br`): rewritten to stay
@@ -47,7 +47,7 @@ class Footer:
         self.enabled = False
         self.rows: list[Row] = []  # the footer's rows, after the last draw
         self._pressed = "none"  # the button of the last press: Windows reports every release as NONE
-        self.collapsed = False  # the subshell rows folded into `main  N subshells ▸` (Ctrl-] c, a click)
+        self.collapsed = False  # the subshell rows folded into `main  N subshells ▸` (Ctrl-S c, a click)
         self.cursor: int | None = None  # the subshell row chosen with ↓ / ↑ at the prompt
         self.at_prompt = False  # drawn at the prompt too (the `footer` setting), not only in subshells
         self.on_change: Callable[[], None] | None = None  # the shell: redraw the prompt after a fold
@@ -434,7 +434,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     main = _marker(current == 0 or main_hover) + "main" + (f" [{depth}]" if depth else "")
     spans: tuple = ((0, MARK, "rec", "rec"),) if recording else ()
     badge_at = -1
-    if jobs:  # the fold control: a click (or Ctrl-] c) hides the subshell rows, or brings them back
+    if jobs:  # the fold control: a click (or Ctrl-S c) hides the subshell rows, or brings them back
         fold = f"  {len(jobs)} subshell{'s' if len(jobs) != 1 else ''} ▸" if collapsed else " ▾"
         spans += ((len(main), len(main) + len(fold), None, "fold"),)
         main += fold

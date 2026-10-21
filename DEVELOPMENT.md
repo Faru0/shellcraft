@@ -36,7 +36,7 @@ shellcraft/
 │   ├── highlight.py        # syntax highlighting of the input line (a prompt_toolkit Lexer)
 │   ├── gitinfo.py          # the git branch for the prompt, read from .git/HEAD
 │   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
-│   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-] N
+│   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-S N
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
 │   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
@@ -255,7 +255,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_commands_more.py` | the new switches (`grep -r/-A/-B/-C/-w/-x/-o`, `ls -t/-S/-R/-d`, `find -size/-mtime/-newer/-empty/-not`, `sort -h/-V/-s`, `cat -s/-A`, `head/tail -c`, `tail -f`, `tree -I/--du`) and builtins (`printf`, `seq`, `xargs`, `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`, `type`) |
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
 | `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
-| `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
+| `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-S N, margin clamping), the completion menu following the mouse |
 | `test_cancel.py` | cooperative cancellation: the modkit API, a real Ctrl-C during the spinner wait reaching the module, an MCP timeout cancelling the abandoned thread |
 | `test_keyring.py` | API keys in the OS keyring (fake backend): set / get / export / reset, the setting off, an unreachable keyring, `settings migrate-keys`, a refusing backend |
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
