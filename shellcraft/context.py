@@ -56,7 +56,7 @@ class ShellContext:
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.
     variables: dict[str, str] = field(default_factory=dict)
     exported: dict[str, str] = field(default_factory=dict)
-    # Shell functions (`name() { …; }`, core.script.Function) and the arguments of the calls in
+    # Shell functions (`name() { …; }`, shellcraft.script.Function) and the arguments of the calls in
     # progress (`$1`, `$@`, `$#` read the innermost). Never used over MCP.
     functions: dict[str, Any] = field(default_factory=dict)
     positional: list[list[str]] = field(default_factory=list)
@@ -64,7 +64,7 @@ class ShellContext:
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
     # collected and returned as one text.
     emit: Callable[[Any], None] | None = None
-    # Where a pipeline's output goes as it is produced, once it keeps coming (core.streams): the
+    # Where a pipeline's output goes as it is produced, once it keeps coming (shellcraft.streams): the
     # REPL prints each item, a background job appends it. None: the output is collected.
     live: Callable[[Any], None] | None = None
     emit_error: Callable[[Exception, str], None] | None = None

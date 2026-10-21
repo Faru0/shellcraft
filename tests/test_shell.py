@@ -255,7 +255,7 @@ def test_diagnostics_report_never_raises():
 
 
 @pytest.mark.parametrize("argv, setting, printed", [
-    (["--diag"], False, True), ([], True, True), ([], False, False),
+    (["--diag"], False, True), (["--diag"], True, True), ([], True, False), ([], False, False),
 ])
 def test_cli_prints_diagnostics_first_when_asked(monkeypatch, tmp_path, argv, setting, printed):
     import json
@@ -288,6 +288,34 @@ def test_cli_prints_diagnostics_first_when_asked(monkeypatch, tmp_path, argv, se
     monkeypatch.setattr(shell, "Shell", FakeShell)
     assert cli.main([*argv, "--modules", str(tmp_path)]) == 0
     assert events == (["diagnostics", "banner"] if printed else ["banner"])
+    saved = json.loads((tmp_path / "config.json").read_text())["settings"]["diagnostics"]
+    assert saved is (setting or "--diag" in argv)  # --diag turns the setting on, and it stays on
+
+
+def test_diag_is_hidden_until_the_diagnostics_setting_is_on(tmp_path):
+    from prompt_toolkit.document import Document
+
+    from shellcraft import settings
+    from shellcraft.builtins import _help_entries
+    from shellcraft.completer import ShellCompleter
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import PipelineError, run_line
+
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), config={})
+
+    def offered():
+        names = {c.text for c in ShellCompleter(ctx).get_completions(Document("dia"), None)}
+        return "diag" in names, "diag" in {row[1] for row in _help_entries(ctx)}
+
+    assert offered() == (False, False)
+    with pytest.raises(PipelineError) as err:
+        run_line("diag", ctx)
+    assert err.value.status == 127 and "command not found: diag" in str(err.value)
+    settings.set_value(ctx.config, "diagnostics", True)
+    assert offered() == (True, True)
+    with pytest.raises(PipelineError, match="only in the interactive shell"):
+        run_line("diag", ctx)  # found now; it needs the interactive shell
 
 
 # ── Truecolor prompt on Linux ────────────────────────────────────────────────

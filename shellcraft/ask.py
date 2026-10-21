@@ -31,13 +31,6 @@ class AskError(Exception):
         self.status = status
 
 
-def parse_input_line(line: str) -> tuple[str, str] | None:
-    """(NAME, prompt) for `NAME = input("prompt")`, None for any other line. Raises AskError when
-    it is an input() line whose prompt is not a plain string."""
-    parsed = parse_ask_line(line)
-    return None if parsed is None else parsed[:2]
-
-
 def parse_ask_line(line: str) -> tuple[str, str, str] | None:
     """(NAME, prompt, kind) for `NAME = input(…)`, `NAME = int(input(…))` or
     `NAME = float(input(…))`, where kind is str, int or float; None for any other line."""

@@ -98,6 +98,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **`diag` is hidden** from `help`, Tab completion and the command line until the
+  `diagnostics` setting is on. `shellcraft --diag` (`python main.py --diag`) turns the setting on,
+  saves it and prints the report at startup; `settings diagnostics off` hides `diag` again. The
+  setting no longer prints the report at every start.
+
+- CI lints and type-checks `shellcraft` (it was still pointed at the old `core` folder), and
+  DEVELOPMENT.md lists every module and test file again.
+
 - **The wheel at the prompt scrolls the terminal again.** While the footer had something to
   click, the shell held the mouse, so the wheel could not reach the terminal and opened the
   scroll view instead: a page to be in, where a terminal just scrolls. Now the first turn of the
@@ -179,6 +187,12 @@ and the project uses [semantic versioning](https://semver.org/).
   terminals) pastes too.
 
 ### Removed
+
+- **The `core` compatibility shim** (the package's name before 0.3.0, promised to go in 0.4):
+  write `from shellcraft.modkit import …`; `python -m core.cli` is `python -m shellcraft.cli`.
+- `tools/winconsole_probe.py`, the Windows console probe: `diag keys` and `diag keys --raw` cover
+  it, and Windows 11 support is verified end to end.
+- Two functions nothing called (`arith.assignment_value`, `ask.parse_input_line`).
 
 - The copy additions of 2.0.0: the drag highlight and right-click copy of text inside a subshell,
   copying to the host's clipboard (OSC 52 and the Win32 clipboard, `clip -H`), and Ctrl-] v at the

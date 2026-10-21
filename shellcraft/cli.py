@@ -33,7 +33,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         "settings, without the banner, the startup scripts, the alert watcher, hot reload or "
                         "the MCP server")
     p.add_argument("--diag", action="store_true",
-                   help="print the console diagnostics report at startup (like the diagnostics setting)")
+                   help="turn the diagnostics setting on (the `diag` command) and print its report at startup")
     p.add_argument("--allow-system", action="store_true",
                    help="allow OS commands for this session (overrides the system_commands setting)")
     p.add_argument("--token", metavar="TOKEN",
@@ -62,6 +62,21 @@ def _mcp_installed() -> bool:
               f"  Install ShellCraft's requirements into it:  {sys.executable} -m pip install -r requirements.txt\n"
               f"  (or into a virtual environment)", file=sys.stderr)
     return not missing
+
+
+def _enable_diagnostics(config: dict) -> None:
+    """`--diag`: the diagnostics setting goes on and stays on (the `diag` command); `settings diagnostics off`
+    hides it again."""
+    from shellcraft import settings
+    from shellcraft.config import save_config
+
+    if settings.get(config, "diagnostics"):
+        return
+    settings.set_value(config, "diagnostics", True)
+    try:
+        save_config(config)
+    except OSError:
+        pass  # on for this session all the same
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,7 +188,8 @@ def main(argv: list[str] | None = None) -> int:
             from shellcraft.output import clear_screen
 
             clear_screen(ui)
-        if args.diag or settings.get(config, "diagnostics"):
+        if args.diag:
+            _enable_diagnostics(config)
             shell.diagnostics()  # first, so it is there even if the banner is what breaks
         if show_banner:
             shell.banner(theme_warnings)

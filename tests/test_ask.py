@@ -40,15 +40,15 @@ def answers(monkeypatch):
     return queue, asked
 
 
-def test_parse_input_lines():
-    assert ask.parse_input_line('name = input("What is your name? ")') == ("name", "What is your name? ")
-    assert ask.parse_input_line("x=input('a\\tb')") == ("x", "a\tb")
-    assert ask.parse_input_line("x = input()") == ("x", "")
-    assert ask.parse_input_line("echo input(1)") is None and ask.parse_input_line("x=1") is None
+def test_parse_ask_lines():
+    assert ask.parse_ask_line('name = input("What is your name? ")') == ("name", "What is your name? ", "str")
+    assert ask.parse_ask_line("x=input('a\\tb')") == ("x", "a\tb", "str")
+    assert ask.parse_ask_line("x = input()") == ("x", "", "str")
+    assert ask.parse_ask_line("echo input(1)") is None and ask.parse_ask_line("x=1") is None
     with pytest.raises(ask.AskError, match="must be a string"):
-        ask.parse_input_line("x = input(prompt_var)")
+        ask.parse_ask_line("x = input(prompt_var)")
     with pytest.raises(ask.AskError, match="must be a string"):
-        ask.parse_input_line("x = input(42)")
+        ask.parse_ask_line("x = input(42)")
 
 
 def test_input_line_sets_a_shell_variable(ictx, answers):

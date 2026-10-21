@@ -126,15 +126,6 @@ def is_assignment(text: str) -> re.Match[str] | None:
 _ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 
 
-def assignment_value(raw: str, expand: Callable[[str], list[str]]) -> str:
-    """The value of an assignment's right-hand side, expanded as one word (`expand` tokenizes)."""
-    raw = raw.strip()
-    if not raw:
-        return ""
-    words = expand(raw)
-    return " ".join(words)
-
-
 def quote(value: Any) -> str:
     text = str(value)
     if text and re.fullmatch(r"[A-Za-z0-9_./:=@+,%-]+", text):

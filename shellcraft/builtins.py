@@ -38,7 +38,17 @@ class Builtin:
     sensitive: bool = False  # may reveal secrets (e.g. env vars); disabled for MCP pipelines
     hidden: bool = False  # left out of `help` (still runs and has a man page)
     direct: bool = False  # runs on the main thread, without a spinner (it prints as it goes)
-    streams: bool = False  # gets stdin as core.streams.Lines (lines as they arrive), not a str
+    streams: bool = False  # gets stdin as shellcraft.streams.Lines (lines as they arrive), not a str
+    requires: str | None = None  # a setting that must be on: until then the command is hidden and not found
+
+
+def available(b: Builtin, config: dict[str, Any]) -> bool:
+    """Whether `b` is offered now: a command behind a setting (`diag`) only while that setting is on."""
+    if b.requires is None:
+        return True
+    from shellcraft import settings
+
+    return settings.get(config, b.requires)
 
 
 BUILTINS: dict[str, Builtin] = {}
@@ -46,10 +56,10 @@ BUILTINS: dict[str, Builtin] = {}
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
             category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False,
-            direct: bool = False, streams: bool = False):
+            direct: bool = False, streams: bool = False, requires: str | None = None):
     def register(fn):
         BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden, direct,
-                                 streams)
+                                 streams, requires)
         return fn
     return register
 
@@ -99,6 +109,10 @@ def _exit(ctx: ShellContext, args: list[str], stdin: str) -> str:
 
 DIAG_DOC = """# diag
 
+`diag` is hidden until the `diagnostics` setting is on: start ShellCraft once with `--diag`
+(`python main.py --diag`, which turns it on and prints the report at startup) or run
+`settings diagnostics on`. `settings diagnostics off` hides it again.
+
 Print what ShellCraft detected about this terminal, as plain text to copy into a bug report: the
 Rich and prompt_toolkit color depth and size sources, on Windows the CONOUT$ modes, and a
 **footer colors** section: the escape sequence the footer writes for each state (running, done,
@@ -137,8 +151,10 @@ as SGR reports, as Windows Terminal sends them to the direct key reader. Plain m
 
 @builtin("diag", "Console, color and footer diagnostics, to paste into a bug report",
          "diag [keys [--raw [--vt] [--mouse]]]",
-         category="shell", stateful=True, doc=DIAG_DOC)
+         category="shell", stateful=True, doc=DIAG_DOC, requires="diagnostics")
 def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not available(BUILTINS["diag"], ctx.config):  # hidden until `--diag` (or `settings diagnostics on`)
+        raise CommandError("command not found: diag", 127)
     if args == ["keys"]:  # the key test: what each key press reaches the shell as
         if ctx.ui is None or not ctx.interactive:
             raise CommandError("diag keys: only in the interactive shell")
@@ -248,7 +264,8 @@ HELP_WIDTH = 100  # the help screen never grows wider than this, however wide th
 
 def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
     """(group, name, summary, usage) for every command shown by `help`, in display order."""
-    shown = {n for n, b in BUILTINS.items() if not b.hidden and n not in KEYWORDS_HELP and n not in FUNCTION_HELPERS}
+    shown = {n for n, b in BUILTINS.items() if not b.hidden and available(b, ctx.config)
+             and n not in KEYWORDS_HELP and n not in FUNCTION_HELPERS}
     groups: dict[str, list[str]] = {title: [n for n in names.split() if n in shown] for title, names in HELP_GROUPS}
     placed = {n for names in groups.values() for n in names}
     for name in sorted(shown - placed):

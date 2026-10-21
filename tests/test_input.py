@@ -467,7 +467,7 @@ def test_diag_keys_raw_usage(tmp_path):
     from shellcraft.loader import ModuleRegistry
     from shellcraft.pipeline import PipelineError, run_line
 
-    ctx = ShellContext(registry=ModuleRegistry(tmp_path))
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), config={"settings": {"diagnostics": True}})
     with pytest.raises(PipelineError, match="only in the interactive shell"):
         run_line("diag keys --raw", ctx)
     with pytest.raises(PipelineError, match=r"usage: diag \[keys \[--raw"):

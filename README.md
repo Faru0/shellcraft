@@ -338,7 +338,7 @@ Programs run on their own pseudo-terminal: `pty` on Linux and macOS, ConPTY thro
 `sub PROGRAM` on Windows runs the program in the foreground instead (you are back when it
 exits) and it is not listed as a job. If a footer line does not change color as its job runs and
 ends, `diag` prints what the footer writes for each state and the live state of every job, to
-paste into a bug report.
+paste into a bug report (start once with `--diag` to get the `diag` command).
 
 ### Startup: the rc file and scripts
 
@@ -448,6 +448,7 @@ port and no token. `man alert` has the details.
 | `--mcp-http HOST:PORT` | Run as an MCP server over streamable HTTP at `http://HOST:PORT/mcp`. Only addresses on this machine are allowed (`127.0.0.1`, `localhost`, `::1`). |
 | `--theme NAME` | Use a theme for this session only. |
 | `--no-banner` | Skip the startup banner. |
+| `--diag` | Turn the `diagnostics` setting on (the hidden `diag` command) and print the diagnostics report at startup. |
 | `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
 | `--modules DIR` | Load modules from DIR instead of the bundled ones. |
 | `--expose NAME,...` | With `--mcp` / `--mcp-http`: offer only these modules as tools. |
@@ -552,9 +553,11 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 | Alt does not arrive | Press `Esc` then the key (Konsole's menu bar takes Alt-v) | Press `Esc` then the key |
 | Subshells (`sub`) | Always | Need the `pywinpty` package (the banner says when it is missing) |
 | Terminal | Any modern terminal | Windows Terminal or the classic console; keys and the mouse are read the way prompt_toolkit's own Windows support does it (VT input when the console takes it) |
-| What is missing | The banner and `diag` name a missing package (`pyte`, `keyring`) | The same, plus `pywinpty`: without it there are no subshells, no footer and no mouse there |
+| What is missing | The banner (and `diag`) name a missing package (`pyte`, `keyring`) | The same, plus `pywinpty`: without it there are no subshells, no footer and no mouse there |
 
-`diag keys` shows what each key press reaches the shell as: Alt-v must show `escape v`. On
+`diag` is hidden until you start ShellCraft once with `python main.py --diag` (or run
+`settings diagnostics on`); `settings diagnostics off` hides it again. `diag keys` shows what
+each key press reaches the shell as: Alt-v must show `escape v`. On
 Windows it also shows the console's Alt flags, to paste into a bug report. When a key does not
 show there at all, `diag keys --raw` prints what the console itself delivers, below the key
 reader (`--vt` with the console's VT input on), and `diag keys --raw --mouse` the same for
@@ -569,7 +572,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `diag` `hotkeys` `mark` `review` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `mcp` `sub` `jobs` `ingest` `export` `unset` `xargs` `sleep` `time` `test` `[` `[[` `true` `false`, and the keywords `for` `while` `until` `if` `case` `record` `script` `hotkeys` `mark` `tell` `review`, and `diag` once diagnostics are on |
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `jq` `clip` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
@@ -623,7 +626,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `pager` | on | Open man pages, and output taller than the window, in the scrollable viewer. |
 | `spinner` | on | Show a spinner while slow commands run (with the elapsed time after 3 s). |
 | `banner` | on | Show the startup banner. |
-| `diagnostics` | off | Print the console diagnostics report at startup. |
+| `diagnostics` | off | Offer the `diag` command. `shellcraft --diag` turns it on; off hides `diag` again. |
 | `hot_reload` | on | Reload modules when their `.py`, `.md` or `.skill` files change, in the shell and in the MCP server. |
 | `lazy_modules` | on | Import a module's code the first time it runs, not at startup. |
 | `clear_on_start` | on | Start on a fresh screen (the scrollback is cleared too, as `clear` does). |

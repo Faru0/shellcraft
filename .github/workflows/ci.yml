@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -e ".[dev]"
-      - run: ruff check core tools tests main.py
-      - run: mypy core tools || true  # informational until the annotation debt is paid (see TODO.md)
+      - run: ruff check shellcraft tools tests main.py
+      - run: mypy shellcraft tools || true  # informational until the annotation debt is paid
       - run: python tools/ingest check --all --strict
 
   test:
@@ -47,7 +47,7 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --quiet dist/*.whl
           /tmp/smoke/bin/shellcraft --version
-          /tmp/smoke/bin/python -c "import importlib.util as u; assert u.find_spec('core.commands') and u.find_spec('core.bundled_modules')"
+          /tmp/smoke/bin/python -c "import importlib.util as u; assert u.find_spec('shellcraft.commands') and u.find_spec('shellcraft.bundled_modules')"
       - uses: actions/upload-artifact@v4
         with:
           name: wheel

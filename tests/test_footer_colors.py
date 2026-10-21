@@ -286,6 +286,7 @@ def test_the_report_shows_the_footer_colors_and_the_jobs(tmp_path):
 def test_diag_prints_the_report_in_the_shell(shell_ctx):
     sh, ctx = shell_ctx
     ctx.interactive = True
+    ctx.config.setdefault("settings", {})["diagnostics"] = True  # `diag` is hidden until this (or --diag)
     out = to_text(run_line("diag", ctx).output)
     assert "[footer colors]" in out and "sc.footer.done" in out and "0 jobs" in out
     assert "[packages]" in out and "pyte " in out  # the optional packages, with their versions

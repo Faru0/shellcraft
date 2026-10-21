@@ -221,7 +221,7 @@ POLL_MIN = 0.01
 
 def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: bool = False) -> PipelineResult:
     """Run the segments at the same time, each reading the previous one's output as it is
-    produced (core.streams); `stdin` feeds the first (the collected output of a loop for
+    produced (shellcraft.streams); `stdin` feeds the first (the collected output of a loop for
     `done | sort`, or nothing). With `live` and ctx.live set, output that keeps coming is handed
     to ctx.live item by item (the REPL prints it, a background job records it) instead of being
     collected; a pipeline that finishes within LIVE_AFTER of its first output returns it whole,

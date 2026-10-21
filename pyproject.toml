@@ -32,7 +32,7 @@ version = {attr = "shellcraft.__version__"}
 [tool.setuptools]
 # The bundled modules/ folder is installed as shellcraft/bundled_modules (with its .md and .skill files),
 # so a plain `pip install .` works as well as an editable install.
-packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "core", "tools", "tools.ingest"]
+packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "tools", "tools.ingest"]
 
 [tool.setuptools.package-dir]
 "shellcraft.bundled_modules" = "modules"
@@ -61,7 +61,7 @@ ignore = ["E741", "SIM108", "SIM102", "SIM105", "SIM114", "B007", "B023", "B905"
 "shellcraft/commands/*.py" = ["E501"]  # man pages hold Markdown tables, whose rows can't wrap
 
 [tool.ruff.lint.isort]
-known-first-party = ["shellcraft", "core", "tools", "tests"]
+known-first-party = ["shellcraft", "tools", "tests"]
 
 [tool.mypy]
 python_version = "3.11"

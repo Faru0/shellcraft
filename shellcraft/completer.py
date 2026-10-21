@@ -14,7 +14,7 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion, Path
 from prompt_toolkit.document import Document
 
 from shellcraft import aliases
-from shellcraft.builtins import BUILTINS
+from shellcraft.builtins import BUILTINS, available
 from shellcraft.context import ShellContext
 from shellcraft.options import OptionSpec, builtin_options, positional_values
 from shellcraft.parser import Command
@@ -236,7 +236,8 @@ class ShellCompleter(Completer):
                 yield Completion(flag, start_position=-len(word), display=option.label, display_meta=option.help)
 
     def _commands(self, word: str) -> Iterable[Completion]:
-        entries = {name: b.summary or "builtin" for name, b in BUILTINS.items() if not b.hidden}
+        entries = {name: b.summary or "builtin" for name, b in BUILTINS.items()
+                   if not b.hidden and available(b, self.ctx.config)}
         for name in self.ctx.registry.names():
             spec = self.ctx.registry.get(name)
             entries[name] = (spec.summary if spec else "") or "module"
