@@ -60,6 +60,7 @@ and the project uses [semantic versioning](https://semver.org/).
   restarts a running server with it, and prints what to run in the client:
   `claude mcp remove shellcraft`, then the new `claude mcp add` line. The `claude mcp add` line is
   no longer broken in two by the shell's line wrapping, so it copies as one line.
+
 - **A review loop with an AI** (`mark`, `review`, and four MCP tools). You flag output for the AI
   with `mark` (`pytest | mark --type test-failure`, `mark --file F`, `mark --diff A B`); it reads
   them with `get_flagged_items` or the `shellcraft://review/queue` resource and closes them with
@@ -72,24 +73,27 @@ and the project uses [semantic versioning](https://semver.org/).
   share them; connected clients are notified when the queue changes. Each piece keeps its last
   256 KB; done items are deleted after 7 days. Advisory: the server instructions tell the AI to
   ask, nothing stops its own tools.
+
 - **`hotkeys`:** every keyboard shortcut and mouse action, by where it works (the prompt, the
   clip and alerts, the footer and subshells, scrolling and selecting, the viewer), with what
   differs between Linux and Windows. `man hotkeys` opens it in the viewer, `help` lists it among
   ShellCraft's own commands and its footer points to it, and the README has the same tables
   under "Keyboard and mouse".
+
 - **Clip history:** the clip register keeps the last ten copies, newest first: a right-click on
   a second alert no longer loses the first. `$CLIP` is the newest, `$CLIP1` the one before, up to
   `$CLIP9`; **Alt-v** pastes the newest and, pressed again right away, swaps in the next older one
   (like Emacs's yank-pop). `clip -l` lists them, `clip N` prints one, `clip -i N` starts the next
   prompt with it, `clip -c` clears them all. Shared with `sub shellcraft` over the main link, in
   memory only.
-- **The scroll view:** while the shell has the mouse at the prompt (the footer lists a subshell or
-  an alert, so its lines, an alert's ✖ and the badge can be clicked), the terminal cannot scroll
-  its own history with the wheel. The wheel now opens the scroll view instead: the session's
+
+- **The scroll view** (`settings scroll_view on`): the wheel at the prompt opens the session's
   recent output (the last 5,000 lines, colors kept, with the commands that produced them) in the
-  viewer, at its end. The wheel scrolls it; wheel down past the end, or q, closes it. It lives in
-  memory only, and `clear` empties it. With nothing to click, the terminal keeps the mouse and its
-  own wheel.
+  viewer, at its end; wheel down past the end, or q, closes it. It lives in memory only, and
+  `clear` empties it. Off by default: the first turn of the wheel hands the mouse back to the
+  terminal, which scrolls its own history as any terminal does, and the next key press takes the
+  mouse again for the footer.
+
 - **`diag`** also shows each job's recording flag and the `record` signals received from
   subshells, for a recording bubble that does not turn red.
 
@@ -111,13 +115,6 @@ and the project uses [semantic versioning](https://semver.org/).
 - CI lints and type-checks `shellcraft` (it was still pointed at the old `core` folder), and
   DEVELOPMENT.md lists every module and test file again.
 
-- **The wheel at the prompt scrolls the terminal again.** While the footer had something to
-  click, the shell held the mouse, so the wheel could not reach the terminal and opened the
-  scroll view instead: a page to be in, where a terminal just scrolls. Now the first turn of the
-  wheel hands the mouse back to the terminal and the turns that follow scroll its own history,
-  as in any terminal; the next key press (or the next prompt) takes the mouse again for the
-  footer. `settings scroll_view on` brings the scroll view back.
-
 - **`theme NAME` in a subshell changes that subshell only:** it used to save the theme, so the
   main shell opened with it next time. The message says so and points at `theme --sub NAME`.
   `theme reset` in a subshell is not saved either. In the main shell nothing changes.
@@ -129,6 +126,7 @@ and the project uses [semantic versioning](https://semver.org/).
   `alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE... | --list | -c [N]`.
   Alert rows end with `crit` and `warn · 57s`; `alert --list` shows `[warn]` and `[crit]`. The
   `send_tui_alert` MCP tool takes `warn` and `crit` too.
+
 - **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
   lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
@@ -171,11 +169,10 @@ and the project uses [semantic versioning](https://semver.org/).
 - **The recording bubble was a dim red on Windows:** it is a bright red there now; Linux keeps
   the theme's red.
 
-- **The completion menu took no clicks and no wheel on Windows:** with the classic key reader
-  (what Windows Terminal uses) the mouse arrives as Windows mouse events, and prompt_toolkit maps
-  those onto the screen only for its own Windows outputs, so with ShellCraft's console output it
-  dropped every one. The shell now maps them itself: a click picks a completion and the wheel
-  scrolls the menu, as on Linux.
+- **The completion menu took no clicks and no wheel on Windows:** with the classic key reader the
+  mouse arrives as Windows mouse events, and prompt_toolkit maps those onto the screen only for
+  its own Windows outputs, so with ShellCraft's console output it dropped every one. The shell now
+  maps them itself: a click picks a completion and the wheel scrolls the menu, as on Linux.
 
 - **The wheel did nothing in the viewer on Windows 11** (the scroll view, `man`, `less`), with the
   legacy and the direct key reader alike: the Windows console reports wheel events at screen
@@ -183,24 +180,27 @@ and the project uses [semantic versioning](https://semver.org/).
   itself, wherever the mouse is. The scroll view is also bottom-aligned, like the terminal: output
   shorter than the screen sits at its bottom, so opening it looks like scrolling up from the
   prompt.
+
 - **A footer bubble stayed highlighted:** the line under the mouse lights up (its bubble filled,
   in the accent color) to show what a click picks, but it stayed lit after the click and after
   the mouse left the footer. It now goes back to its normal color when the mouse moves off the
   footer, after a click that acts, and after one second without the mouse moving over it.
+
 - **Alt-v with the right Alt or AltGr on Windows:** prompt_toolkit's classic Windows key reader
-  (the one ShellCraft uses in Windows Terminal) turns only the left Alt into the Escape prefix
-  that means Alt, so right-Alt+v typed a plain `v`, and AltGr+v (right Alt + Ctrl to Windows)
-  became Ctrl-V. ShellCraft's reader now counts the right Alt and AltGr with a letter or a digit
-  as Alt, unless AltGr types a real character of the keyboard layout (`@`, `€`), which still
-  types. Esc then Ctrl-V (Ctrl+Alt+v, how AltGr+v arrives through the VT key reader and Linux
-  terminals) pastes too.
+  turns only the left Alt into the Escape prefix that means Alt, so right-Alt+v typed a plain `v`,
+  and AltGr+v (right Alt + Ctrl to Windows) became Ctrl-V. ShellCraft's reader now counts the
+  right Alt and AltGr with a letter or a digit as Alt, unless AltGr types a real character of the
+  keyboard layout (`@`, `€`), which still types. Esc then Ctrl-V (Ctrl+Alt+v, how AltGr+v arrives
+  through the VT key reader and Linux terminals) pastes too.
 
 ### Removed
 
 - **The `core` compatibility shim** (the package's name before 0.3.0, promised to go in 0.4):
   write `from shellcraft.modkit import …`; `python -m core.cli` is `python -m shellcraft.cli`.
+
 - `tools/winconsole_probe.py`, the Windows console probe: `diag keys` and `diag keys --raw` cover
   it, and Windows 11 support is verified end to end.
+
 - Two functions nothing called (`arith.assignment_value`, `ask.parse_input_line`).
 
 - The copy additions of 2.0.0: the drag highlight and right-click copy of text inside a subshell,
