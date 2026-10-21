@@ -2,7 +2,7 @@
 # Needs Python 3.11+ installed first (Install\windows\python-3.14.7-amd64.exe). No internet needed.
 #
 #   .\Install\setup.ps1                 set up (first run) and start the interactive shell
-#   .\Install\setup.ps1 -c "a | b"      any arguments are passed through to main.py
+#   .\Install\setup.ps1 --no-banner      any arguments are passed through to main.py
 #   $env:PYTHON="C:\Python312\python.exe"; .\Install\setup.ps1   use a specific interpreter
 #
 # If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\Install\setup.ps1

@@ -3,7 +3,7 @@
 # Needs Python 3.11+ installed first (see Install/README.md). No internet needed.
 #
 #   ./Install/setup.sh                 set up (first run) and start the interactive shell
-#   ./Install/setup.sh -c "a | b"      any arguments are passed through to main.py
+#   ./Install/setup.sh --no-banner      any arguments are passed through to main.py
 #   PYTHON=python3.12 ./Install/setup.sh   use a specific interpreter
 set -euo pipefail
 
