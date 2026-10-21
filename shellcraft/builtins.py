@@ -533,7 +533,7 @@ theme --sub --clear    # subshells start with the main theme again (also: theme 
 ```
 
 Themes made for a **light** terminal background: `solarized-light`, `catppuccin-latte`. Your own
-themes go in `~/.shellcraft/config.json` (see the README): any color left out comes from `base`,
+themes go in `~/.shellcraft/config.json` (see docs/settings.md): any color left out comes from `base`,
 and `light = true` picks light menu surfaces.
 """
 

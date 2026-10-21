@@ -107,6 +107,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The README is an overview now** (features, install, quick start, a short tour, the command
+  and module lists); the full guide moved, unchanged in substance, to `docs/`: scripting, subshells,
+  keyboard and mouse, settings and themes, MCP and the AI co-pilot. The command list names every
+  builtin again, and the count is 80+.
+
 - **`diag` is hidden** from `help`, Tab completion and the command line until the
   `diagnostics` setting is on. `shellcraft --diag` (`python main.py --diag`) turns the setting on,
   saves it and prints the report at startup; `settings diagnostics off` hides `diag` again. The

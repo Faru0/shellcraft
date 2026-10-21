@@ -1,6 +1,6 @@
 # Developing ShellCraft
 
-This guide is for working on ShellCraft itself. To *use* the shell, see [README.md](README.md). To
+This guide is for working on ShellCraft itself. To *use* the shell, see [README.md](README.md) and the guide in [docs/](docs/README.md). To
 write a module, see [templates/README.md](templates/README.md).
 
 ## Setup
@@ -87,6 +87,7 @@ shellcraft/
 │       ├── docs.py         # offline .md / .skill drafts
 │       ├── ai.py           # Claude / OpenAI over requests; prompts/ holds the prompt texts
 │       └── check.py        # the module checker
+├── docs/                   # the user guide, one page per topic (index: docs/README.md), and the demo recording
 ├── ai/                     # agents and skills for an AI co-pilot (Claude Code), not part of the package
 ├── tests/                  # pytest suite
 ├── .gitlab-ci.yml          # CI: lint, module checker, pytest (Linux + Windows, 3.11–3.14), packaging smoke test

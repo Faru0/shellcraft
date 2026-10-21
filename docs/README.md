@@ -1,0 +1,20 @@
+# ShellCraft documentation
+
+← [README](../README.md)
+
+| Page | What it covers |
+| --- | --- |
+| [Pipes, scripting and startup](scripting.md) | Pipes and redirection, variables, loops and conditions, functions, exit status and history, aliases, the rc file and startup scripts |
+| [Subshells, alerts and the clip](subshells.md) | `sub`, `jobs`, the footer, `&`, alerts, the clip register |
+| [Keyboard and mouse](keyboard-and-mouse.md) | Typing helpers, the viewer, every shortcut and mouse action, Linux vs Windows, `diag` |
+| [Settings, API keys and themes](settings.md) | Every setting, API keys, OS commands, themes, command-line options |
+| [MCP server and the AI co-pilot](mcp-and-ai.md) | The MCP server, its tools, the review loop, `mark` / `tell` / `review`, the co-pilot |
+
+Every command also has a manual in the shell: `man NAME` (`man -p NAME` prints it).
+
+| Elsewhere | For |
+| --- | --- |
+| [templates/README.md](../templates/README.md) | Writing and testing your own modules |
+| [ai/README.md](../ai/README.md) | Agents and skills for an AI client |
+| [DEVELOPMENT.md](../DEVELOPMENT.md) | Working on ShellCraft itself |
+| [CHANGELOG.md](../CHANGELOG.md) | What changed in each release |
