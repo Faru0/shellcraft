@@ -14,7 +14,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import aliases, settings
+from shellcraft import aliases, prefix, settings
 from shellcraft.config import history_path, save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
 from shellcraft.themes import all_themes
@@ -1130,6 +1130,10 @@ between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
 | Click the `×` of a finished line | anywhere | Remove it from the footer |
 
+`Ctrl-]` is the default prefix key. `settings prefix_key` lists the others (`ctrl-b`, `ctrl-a`,
+`ctrl-t`, `ctrl-g`, `ctrl-s`) and what each one shadows; `settings prefix_key ctrl-b` switches
+to Ctrl-B everywhere at once, and `settings reset prefix_key` goes back to Ctrl-].
+
 ## Mouse: scrolling and selecting
 
 | Mouse | When | What it does |
@@ -1635,7 +1639,7 @@ def _jobs_or_refuse(ctx: ShellContext, name: str) -> Any:
         raise CommandError(f"{name}: only in the interactive shell")
     if depth():
         raise CommandError(f"{name}: only the main ShellCraft starts subshells (this one is [{depth()}]: "
-                           "press Ctrl-] to go back to it)")
+                           f"press {prefix.label()} to go back to it)")
     return ctx.jobs
 
 
@@ -1653,7 +1657,8 @@ def _sub(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError(f"sub: cannot reach the main shell: {exc}") from None
         return Text.assemble(("asked the main shell to open ", "sc.muted"),
                              ("sub " + " ".join(args) if args else "sub", "sc.accent"),
-                             (" in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
+                             (f" in the background (it appears in the footer; {prefix.label()} N switches to it)",
+                              "sc.muted"))
     table = _jobs_or_refuse(ctx, "sub")
     kind, started = _start_sub(ctx, table, args, os.getcwd())
     return _attach(ctx, started) if kind == "program" else started
@@ -1718,7 +1723,7 @@ def open_requested(ctx: ShellContext) -> list[str]:
             continue
         if kind == "program":
             n = started.number
-            notes.append(f"[{n}] {asked} started in the background (Ctrl-] {n} switches to it)")
+            notes.append(f"[{n}] {asked} started in the background ({prefix.label()} {n} switches to it)")
         else:
             notes.append(f"{asked}: {to_text(started).strip()}" if started else asked)
     return notes
@@ -1743,7 +1748,8 @@ def start_background(ctx: ShellContext, line: str) -> Any:
         except OSError as exc:
             raise CommandError(f"&: cannot reach the main shell: {exc}") from None
         return Text.assemble(("asked the main shell to run ", "sc.muted"), (line, "sc.accent"),
-                             (" & in the background (it appears in the footer; Ctrl-] N switches to it)", "sc.muted"))
+                             (f" & in the background (it appears in the footer; {prefix.label()} N switches to it)",
+                              "sc.muted"))
     table = _jobs_or_refuse(ctx, "&")
     try:
         words = shlex.split(line, posix=True)
@@ -1766,7 +1772,7 @@ def start_background(ctx: ShellContext, line: str) -> Any:
     except FileNotFoundError:
         raise CommandError(f"{words[0]}: not a command, a module or a program on PATH", 127) from None
     return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  started in the background (Ctrl-] {job.number} switches to it)", "sc.muted"))
+                         (f"  started in the background ({prefix.label()} {job.number} switches to it)", "sc.muted"))
 
 
 def _is_shell_command(ctx: ShellContext, name: str) -> bool:
@@ -1786,7 +1792,7 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
     output collected), run through the normal pipeline in a worker thread."""
     job = command_job(ctx, table, line)
     return Text.assemble((f"[{job.number}] ", "sc.muted"), (line, "sc.accent"),
-                         (f"  running in the background (jobs {job.number} or Ctrl-] {job.number} shows it)",
+                         (f"  running in the background (jobs {job.number} or {prefix.label()} {job.number} shows it)",
                           "sc.muted"))
 
 
@@ -1878,7 +1884,8 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
         if how == "detached":
             return Text.assemble(("\n", ""), (f"[{job.number}] detached: ", "sc.muted"),
                                  (job.command, "sc.accent"),
-                                 (f" keeps running (jobs {job.number} or Ctrl-] {job.number} to return)", "sc.muted"))
+                                 (f" keeps running (jobs {job.number} or {prefix.label()} {job.number} to return)",
+                                  "sc.muted"))
         # `exit` inside it: the pty closed, and the reader marks the job finished a moment later
         finished = ctx.jobs.wait_finished(job)
         ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
@@ -2012,7 +2019,8 @@ def _jobs(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         tbl.add_row(str(job.number), Text(job.label, style=style), f"{job.elapsed:.0f}s", job.kind, shown)
         plain.append(f"{job.number}\t{job.label}\t{job.elapsed:.0f}s\t{job.kind}\t{job.title}"
                      + (f"\t{job.command}" if job.name and not ai else ""))
-    hint = Text("jobs N or Ctrl-] N selects · Ctrl-] detaches · jobs -r N NAME renames · jobs -k N stops · "
+    key = prefix.label()
+    hint = Text(f"jobs N or {key} N selects · {key} detaches · jobs -r N NAME renames · jobs -k N stops · "
                 "jobs -c clears", style="sc.muted")
     return Styled(Group(tbl, hint), "\n".join(plain) + "\n")
 
@@ -2792,7 +2800,7 @@ def _mcp(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
     if ctx.lite:
         raise CommandError("mcp: not in a lite shell (sub shellcraft); run it in the main ShellCraft "
-                           "(Ctrl-] goes back to it)")
+                           f"({prefix.label()} goes back to it)")
     action, rest = (args[0], args[1:]) if args else ("status", [])
     child = _mcp_running(ctx)
 
@@ -2913,6 +2921,7 @@ settings NAME                 # enter an API key (typing is hidden)
 settings NAME VALUE           # set an API key in one go
 settings reset NAME           # forget a stored API key
 settings migrate-keys         # move keys kept in plain text into the OS keyring
+settings prefix_key [KEY]     # the subshell prefix key (Ctrl-] by default); alone: the choices
 ```
 
 ## Settings
@@ -2952,7 +2961,7 @@ settings reset CENSYS_ORG_ID
 
 
 @builtin("settings", "Show or change settings and API keys",
-         "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings reset KEY",
+         "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings prefix_key [KEY] | settings reset KEY",
          stateful=True, doc=SETTINGS_DOC)
 def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     keys = settings.env_settings(ctx.registry)
@@ -2972,6 +2981,9 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         except OSError as exc:
             msg.append(f"  (not saved: {exc})", style="sc.warning")
         return msg
+
+    if args[0] == prefix.CONFIG_KEY or args[:2] == ["reset", prefix.CONFIG_KEY]:
+        return _prefix_key(ctx, args)
 
     if args[0] == "reset":
         if len(args) != 2:
@@ -3022,6 +3034,48 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return _store_setting(ctx, key, value, "set to")
 
 
+PREFIX_LABEL = "Subshell prefix key"
+PREFIX_DESCRIPTION = ("The key before a digit (switch), x (end), c (fold), v (paste) or alone (back to the prompt), "
+                      "at the prompt and inside subshells; pressed twice it reaches the program. Choices: "
+                      + ", ".join(prefix.KEYS) + ".")
+
+
+def _prefix_key(ctx: ShellContext, args: list[str]) -> Any:
+    """`settings prefix_key` (show it and the choices), `settings prefix_key KEY`, `settings reset prefix_key`."""
+    if args == [prefix.CONFIG_KEY]:
+        table = Table(title=f"{PREFIX_LABEL}: {prefix.label()}", title_style="sc.prompt", border_style="sc.border",
+                      header_style="sc.accent")
+        table.add_column("key", style="sc.path", no_wrap=True)
+        table.add_column("")
+        table.add_column("what it shadows", style="sc.muted")
+        for name, spec in prefix.KEYS.items():
+            table.add_row(name, Text("● in use", style="sc.success") if name == prefix.name() else "", spec.note)
+        plain = "".join(f"{name}\t{'*' if name == prefix.name() else ''}\t{spec.note}\n"
+                        for name, spec in prefix.KEYS.items())
+        return Styled(table, plain)
+    if args[0] == "reset":
+        ctx.config.pop(prefix.CONFIG_KEY, None)
+        chosen = prefix.set_key(prefix.DEFAULT)
+    elif len(args) == 2:
+        try:
+            chosen = prefix.set_key(args[1])
+        except ValueError as exc:
+            raise CommandError(f"settings: {exc}") from None
+        if chosen == prefix.DEFAULT:
+            ctx.config.pop(prefix.CONFIG_KEY, None)
+        else:
+            ctx.config[prefix.CONFIG_KEY] = chosen
+    else:
+        raise CommandError(f"usage: settings {prefix.CONFIG_KEY} [{'|'.join(prefix.KEYS)}]")
+    msg = Text.assemble(("✓ ", "sc.success"), f"{PREFIX_LABEL} set to ", (prefix.label(), "sc.accent"),
+                        (f"  ({prefix.KEYS[chosen].note}; pressed twice it reaches the program)", "sc.muted"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f"  (not saved: {exc})", style="sc.warning")
+    return msg
+
+
 AI_RUN_KEY = "ai_run"
 AI_RUN_LABEL = "AI runs any command"
 AI_RUN_DESCRIPTION = ("An AI client may run any command here at once (its trace shows above the prompt). "
@@ -3040,6 +3094,7 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
         on = settings.get(ctx.config, s.key)
         value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
         table.add_row(s.key, s.label, value, s.description)
+    table.add_row(prefix.CONFIG_KEY, PREFIX_LABEL, Text(prefix.label(), style="sc.accent"), PREFIX_DESCRIPTION)
     on = bool(getattr(ctx, "ai_run", False))
     table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on
                   else Text("Off", style="sc.error"), AI_RUN_DESCRIPTION, end_section=bool(keys))

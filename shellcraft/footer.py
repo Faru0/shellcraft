@@ -23,11 +23,12 @@ from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from prompt_toolkit.utils import get_cwidth
 from rich.text import Text
 
+from shellcraft import prefix
+
 if TYPE_CHECKING:
     from shellcraft.jobs import JobTable
     from shellcraft.themes import UI
 
-PREFIX = "Ctrl-]"
 HOVER_TIMEOUT = 1.0  # seconds a highlighted line stays highlighted without the mouse moving
 MIN_STACK = 3  # subshell rows the stack may always take; beyond that, up to half the screen
 # A scroll-region command from an attached program (`ESC[r`, `ESC[a;br`): rewritten to stay
@@ -426,7 +427,8 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     running = sum(1 for j in jobs if j.running)
     head = f" {len(jobs)} subshell{'s' if len(jobs) != 1 else ''}"
     head += f" ({running} running)" if running != len(jobs) else ""
-    head += f" · click or {PREFIX} N switches · " + (f"{PREFIX} alone returns · {PREFIX} x ends it" if attached
+    key = prefix.label()  # Ctrl-] unless `settings prefix_key` chose another
+    head += f" · click or {key} N switches · " + (f"{key} alone returns · {key} x ends it" if attached
                                                        else "↓ to manage · x stops")
     if hint and jobs:
         lines.append(Row(None, "header", head + " " * max(0, width - get_cwidth(head)), False))

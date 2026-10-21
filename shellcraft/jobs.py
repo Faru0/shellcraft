@@ -35,7 +35,9 @@ from collections import deque
 from pathlib import Path
 from typing import IO, Any, Callable
 
-DETACH_KEY = b"\x1d"  # Ctrl-]: alone it detaches; followed by a digit it switches to that tab
+from shellcraft import prefix
+
+DETACH_KEY = b"\x1d"  # Ctrl-], the default prefix (shellcraft.prefix holds the one in use)
 PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
 TAIL_BYTES = 64 * 1024  # kept in memory per job
 HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
@@ -646,7 +648,8 @@ class JobTable:
             elif mouse_wanted():
                 term.mouse(True)
                 our_mouse = True
-            prefix_at: float | None = None  # when Ctrl-] was pressed and no digit has followed
+            prefix_at: float | None = None  # when the prefix was pressed and no digit has followed
+            detach = prefix.byte()  # Ctrl-] unless `settings prefix_key` chose another
             while job.running:
                 if footer is None:  # no footer: the program's own mouse modes reach the terminal
                     if our_mouse and job.mouse_on:  # the program took the mouse itself
@@ -698,9 +701,9 @@ class JobTable:
                         if footer is not None:
                             footer.toggle_collapsed()
                         data = data[1:]
-                    elif data[:1] == DETACH_KEY:  # Ctrl-] twice: the program gets one
+                    elif data[:1] == detach:  # the prefix twice: the program gets one
                         data = data[1:]
-                        _send(job, DETACH_KEY)
+                        _send(job, detach)
                     else:
                         return "detached", 0
                 # Mouse: the wheel scrolls the page's history, a click on a footer tab switches,
@@ -739,7 +742,7 @@ class JobTable:
                 if job.scrolled and data:  # any key: back to the live page
                     job.scroll_bottom()
                     show_page()
-                cut = data.find(DETACH_KEY)
+                cut = data.find(detach)
                 if cut >= 0:
                     rest = data[cut + 1:]
                     data = data[:cut]
@@ -753,6 +756,12 @@ class JobTable:
                         if footer is not None:
                             footer.toggle_collapsed()
                         data += rest[1:]
+                    elif rest[:1] == detach:  # the prefix twice in one read: the program gets one
+                        data += rest
+                    elif rest:  # the prefix, then another key: back to the prompt, as across two reads
+                        if data:
+                            _send(job, data)
+                        return "detached", 0
                     else:
                         prefix_at = time.monotonic()
                 if data:

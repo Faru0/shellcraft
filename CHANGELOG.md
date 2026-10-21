@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`settings prefix_key`:** choose the subshell prefix key. Ctrl-] stays the default; Ctrl-B
+  (tmux's), Ctrl-A (GNU screen's), Ctrl-T, Ctrl-G and Ctrl-S are offered, each listed with what it
+  shadows in bash and nano. The prompt, every subshell, the footer hint and the messages follow the
+  choice at once; it is saved in config.json. An unchosen key keeps its usual meaning at the prompt.
+
 - **An AI co-pilot in the shell.** The interactive shell publishes its private link in
   `~/.shellcraft/mainlink.json` (readable by you only, removed at exit), and every ShellCraft MCP
   server — the `mcp start` one and a client's own `--mcp` one — reaches it through that file.
@@ -129,6 +134,10 @@ and the project uses [semantic versioning](https://semver.org/).
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
 
 ### Fixed
+
+- The prefix key and the next key in one read (a fast double press) lost the second key; the
+  prefix twice now sends one to the program, and the prefix then another key returns to the prompt,
+  as when the two keys arrive apart.
 
 - **Windows: the key reader is chosen by what the console accepts, not by `WT_SESSION`.**
   Since 13 October Windows Terminal got the classic key reader whenever `WT_SESSION` was set.

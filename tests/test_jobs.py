@@ -270,6 +270,8 @@ def test_footer_tabs_hover_click_and_ctrl_bracket_select(repl_shell, monkeypatch
     assert parse_mouse("junk") is None
     # Ctrl-] N at the prompt
     binding = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-]", str(job.number)])
+    other = next(b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["c-b", str(job.number)])
+    assert binding.filter() and not other.filter()  # only the chosen prefix (settings prefix_key) is live
     binding.handler(None)
     assert ran[-1] == f"jobs {job.number}"
     assert not [b for b in sh.session.key_bindings.bindings if [k for k in b.keys] == ["escape", "1"]]  # no Alt-N
@@ -1015,3 +1017,60 @@ def test_conin_raw_mode_gives_an_attached_subshell_the_mouse():
     assert raw & 0x0200 and raw & 0x0008 and raw & 0x0010 and raw & 0x0080  # VT, resize, mouse, extended
     assert not raw & (0x0001 | 0x0002 | 0x0004 | 0x0040)  # processed, line, echo, quick edit
     assert raw & 0x0020  # insert mode untouched
+
+
+# ── The prefix key (settings prefix_key) ─────────────────────────────────────
+
+def test_prefix_key_setting_saves_applies_and_resets(tmp_path, monkeypatch):
+    import json
+
+    from shellcraft import prefix
+    from shellcraft.context import ShellContext
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.pipeline import PipelineError, run_line
+
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
+    monkeypatch.setattr(prefix, "_current", prefix.DEFAULT)
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path), config={})
+    assert prefix.label() == "Ctrl-]" and prefix.byte() == jobmod.DETACH_KEY
+    listing = run_line("settings prefix_key", ctx).output.text
+    assert "ctrl-]\t*\t" in listing and "ctrl-b\t\t" in listing
+    run_line("settings prefix_key Ctrl+B", ctx)
+    assert prefix.name() == "ctrl-b" and prefix.byte() == b"\x02" and prefix.label() == "Ctrl-B"
+    assert json.loads((tmp_path / "config.json").read_text())["prefix_key"] == "ctrl-b"
+    assert prefix.from_config({"prefix_key": "ctrl-b"}) == "ctrl-b"  # what the next start reads
+    assert prefix.from_config({"prefix_key": "ctrl-d"}) == "ctrl-]"  # not offered: the default
+    with pytest.raises(PipelineError, match="unknown prefix key 'ctrl-d'"):
+        run_line("settings prefix_key ctrl-d", ctx)
+    prefix.set_key("^s")
+    assert prefix.name() == "ctrl-s"
+    run_line("settings reset prefix_key", ctx)
+    assert prefix.name() == "ctrl-]" and "prefix_key" not in json.loads((tmp_path / "config.json").read_text())
+
+
+@posix_only
+def test_the_chosen_prefix_detaches_and_switches(tmp_path, monkeypatch):
+    import tty
+
+    from shellcraft import prefix
+
+    monkeypatch.setattr(prefix, "_current", "ctrl-b")
+    table = JobTable(tmp_path / "jobs")
+    job = table.start_program(["cat"], "cat")
+    term_master, term_slave = os.openpty()
+    tty.setraw(term_slave)
+    terminal = jobmod.Terminal.on_fds(term_slave, term_slave, raw=False)
+    result = {}
+    thread = threading.Thread(target=lambda: result.update(how=table.attach(job, terminal=terminal, raw=False)),
+                              daemon=True)
+    thread.start()
+    assert _wait(lambda: job.sink is not None)
+    os.write(term_master, jobmod.DETACH_KEY + b"\x02\x02")  # Ctrl-] is an ordinary key; Ctrl-B twice sends one
+    assert _wait(lambda: b"\x1d" in job.tail() or b"^]" in job.tail())  # cat got Ctrl-] (the pty may echo ^])
+    assert thread.is_alive()
+    os.write(term_master, b"\x022")  # Ctrl-B 2: switch
+    thread.join(3)
+    assert result["how"] == ("switch", 2) and job.running
+    table.kill(job)
+    os.close(term_master)
+    os.close(term_slave)

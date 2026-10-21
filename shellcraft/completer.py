@@ -110,6 +110,10 @@ class ShellCompleter(Completer):
                     yield from self._complete(word, self._setting_names())
                 elif segment[1] in SETTINGS:
                     yield from self._complete(word, {"on": "enable", "off": "disable", "toggle": "flip"})
+                elif segment[1] == "prefix_key":
+                    from shellcraft.prefix import KEYS
+
+                    yield from self._complete(word, {name: spec.note for name, spec in KEYS.items()})
                 return  # after an API-key name comes a secret: offer nothing
             if len(segment) > 2 and segment[0] == "settings":
                 return
@@ -283,9 +287,11 @@ class ShellCompleter(Completer):
 
     def _setting_names(self) -> dict[str, str]:
         keys = {name: entry.label for name, entry in env_settings(self.ctx.registry).items()}
-        from shellcraft.builtins import AI_RUN_KEY, AI_RUN_LABEL
+        from shellcraft.builtins import AI_RUN_KEY, AI_RUN_LABEL, PREFIX_LABEL
+        from shellcraft.prefix import CONFIG_KEY
 
-        return {k: s.label for k, s in SETTINGS.items()} | {AI_RUN_KEY: f"{AI_RUN_LABEL} (this session)"} | keys
+        return ({k: s.label for k, s in SETTINGS.items()} | {AI_RUN_KEY: f"{AI_RUN_LABEL} (this session)"}
+                | {CONFIG_KEY: PREFIX_LABEL} | keys)
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):

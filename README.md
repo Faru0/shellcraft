@@ -515,6 +515,10 @@ between Linux and Windows. In the shell, `hotkeys` prints this list and `man hot
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
 | Click the `×` of a finished line | anywhere | Remove it from the footer |
 
+`Ctrl-]` is the default prefix key. `settings prefix_key` lists the others (`ctrl-b`, `ctrl-a`,
+`ctrl-t`, `ctrl-g`, `ctrl-s`) and what each one shadows; `settings prefix_key ctrl-b` switches
+to Ctrl-B everywhere at once, and `settings reset prefix_key` goes back to Ctrl-].
+
 ### Mouse: scrolling and selecting
 
 | Mouse | When | What it does |
@@ -640,6 +644,7 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
 | `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
+| `prefix_key` | `ctrl-]` | The subshell prefix key: `ctrl-]`, `ctrl-b`, `ctrl-a`, `ctrl-t`, `ctrl-g` or `ctrl-s` (`settings prefix_key ctrl-b`). `settings prefix_key` alone lists them with what each one shadows. |
 | `ai_run` | off | This session only, never saved: an AI client may run any command here at once (`run_in_shell`); `✦ run` shows in the prompt. Off: read-only commands run at once, the rest asks in the review queue. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |

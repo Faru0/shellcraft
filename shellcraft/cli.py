@@ -106,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
     except OSError:
         pass  # they keep working from config.json
     settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
+    from shellcraft import prefix
+
+    prefix.from_config(config)  # the subshell prefix key (`settings prefix_key`)
 
     # Modules turned off with `modules disable` are skipped in every mode, the MCP server included.
     disabled = config.get("disabled_modules")

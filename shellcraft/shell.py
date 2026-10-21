@@ -32,7 +32,7 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.rule import Rule
 from rich.text import Text
 
-from shellcraft import aliases, gitinfo, histexpand, script, settings
+from shellcraft import aliases, gitinfo, histexpand, prefix, script, settings
 from shellcraft.alerts import AlertBus
 from shellcraft.banner import render_banner
 from shellcraft.builtins import BUILTINS
@@ -532,7 +532,7 @@ class Shell:
             return ("error", "subshells need a pseudo-terminal here (pip install pywinpty on Windows)")
         job = started
         self.ctx.jobs.notifications.append(
-            f"[{job.number}] ✦ {job.title} opened by {source} (Ctrl-] {job.number} switches to it)")
+            f"[{job.number}] ✦ {job.title} opened by {source} ({prefix.label()} {job.number} switches to it)")
         if self.ctx.alerts is not None:
             self.ctx.alerts.post(title, spec.get("level") or "info", source=source, content=f"jobs {job.number}")
         self._wake(self._report_finished)
@@ -584,7 +584,7 @@ class Shell:
         if text:
             value: Any = Paged(text, page=True) if text.count("\n") > 40 else text
             show(self.ui, value, pager=settings.get(self.ctx.config, "pager"), title=f"AI · {data.get('title', '')}")
-        console.print(Text("(opened by the AI: `exit` returns to main, Ctrl-] switches)", style="sc.muted"))
+        console.print(Text(f"(opened by the AI: `exit` returns to main, {prefix.label()} switches)", style="sc.muted"))
 
     def _link_ping(self) -> dict[str, Any]:
         from shellcraft import __version__
@@ -685,24 +685,31 @@ class Shell:
             self.footer.disable()
 
     def _key_bindings(self) -> KeyBindings:
-        """Ctrl-] then a digit selects a tab (attach to a subshell, or show its output), the same
-        key as inside an attached program. (Alt-N is left alone: terminals use it for their own
-        tabs.) Mouse events are looked at first for a click on the footer's tabs."""
+        """The prefix key (Ctrl-], or `settings prefix_key`) then a digit selects a tab (attach to
+        a subshell, or show its output), the same key as inside an attached program. (Alt-N is left
+        alone: terminals use it for their own tabs.) Mouse events are looked at first for a click on
+        the footer's tabs."""
         kb = KeyBindings()
-        for digit in "0123456789":
-            @kb.add("c-]", digit)
-            def _(event: Any, number: int = int(digit)) -> None:
-                if number:
-                    run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+        for choice, spec in prefix.KEYS.items():  # every choice bound, only the chosen one live
+            chosen = Condition(lambda choice=choice: prefix.name() == choice)
+            for digit in "0123456789":
+                @kb.add(spec.pt, digit, filter=chosen)
+                def _(event: Any, number: int = int(digit)) -> None:
+                    if number:
+                        run_in_terminal(lambda: self._run_clicked(f"jobs {number}"))
+
+            @kb.add(spec.pt, "c", filter=chosen)  # the prefix, then c: fold the subshell rows, or unfold them
+            def _fold(event: Any) -> None:
+                self.footer.toggle_collapsed()
+
+        @kb.add("c-s", filter=Condition(lambda: prefix.name() == "ctrl-s"))
+        def _prefix_alone(event: Any) -> None:
+            pass  # Ctrl-S as the prefix, alone at the prompt: nothing (not prompt_toolkit's forward search)
 
         @kb.add(Keys.Vt100MouseEvent)
         @kb.add(Keys.WindowsMouseEvent)
         def _mouse(event: Any) -> Any:
             return self._footer_mouse(event)
-
-        @kb.add("c-]", "c")  # Ctrl-] c: fold the subshell rows into the main row, or unfold them
-        def _fold(event: Any) -> None:
-            self.footer.toggle_collapsed()
 
         @kb.add("escape", "c")  # Alt-c (or Esc then c): copy the top alert, as a right-click on it does
         def _copy_alert(event: Any) -> None:
