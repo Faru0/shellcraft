@@ -1,4 +1,5 @@
-"""The builtins and switches added for bash muscle memory (fourth assessment)."""
+"""The bash switches of the text and file builtins (grep -r/-A/-o, ls -t/-R, find -size, sort -h…) and the small
+builtins (printf, seq, xargs, basename, stat, uname, sleep, time, type)."""
 
 import os
 import socket

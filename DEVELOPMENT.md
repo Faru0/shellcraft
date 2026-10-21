@@ -238,7 +238,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | --- | --- |
 | `test_parser.py` | tokenizer, quoting, redirects, parse errors |
 | `test_script.py` | `$?`/`$name` expansion, exit statuses, `;`, `-py` loops (words, ranges, globs, command output), `if -py` with commands and Python conditions, the condition sandbox, break/continue, syntax errors, continuation detection |
-| `test_bash_script.py` | bash-syntax `for`/`if`, word splitting, `$( … )`, brace expansion, `&&`/`||`/`!`, `test`/`[`/`[[`, syntax hints, continuation joining |
+| `test_bash_script.py` | bash-syntax `for`/`if`, word splitting, `$( … )`, brace expansion, `&&`/`||`/`!`, `test`/`[`/`[[` (with `&&`, `\|\|`, `!` and `( )` inside), syntax hints, continuation joining |
 | `test_histexpand.py` | `!!` / `!$` rules, and the REPL loop: printing, saving the expanded line, joined continuation lines, `[✗ N]` |
 | `test_modules_cmd.py` | `modules`, `-a`, `enable`/`disable`: never importing disabled modules, saving to config, startup, MCP tool list, `man`/`which`, completion |
 | `test_pipeline.py` | chaining, failures, redirection, `cd`, restricted contexts |
@@ -249,13 +249,12 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_loader.py` | module discovery, `.skill` parsing |
 | `test_aliases.py` | alias/unalias: expansion, appended args, chains without loops, `\` bypass, persistence, which, completion, off for MCP |
 | `test_diff_du_history.py` | `diff` formats and flags (compared with GNU diff when installed), `du` sizes/depth/sorting (compared with GNU du), `history` |
-| `test_themes.py` | presets and custom themes: every preset color is valid; invalid custom colors fall back to the base preset |
 | `test_shell.py` | the prompt's `~` shortening (POSIX and Windows), pager search stepping and match highlighting, hot reload in the shell, the console session wiring and its restore order, the diagnostics report, `help` printing and `man` paging |
-| `test_robustness.py` | the fourth assessment's crashes: `main.py --version`, the screen clear, `~nosuchuser`, a quoted `~`, missing redirect directories, `&`, `cp -r` into itself, `grep -m 0`, `sort -u -k`, `wc -c/-m`, a deleted cwd, usage lines in switch errors, `help NAME` / `-k`, config validation, merging and atomic writes, history redaction, the loop's last-resort catch |
+| `test_robustness.py` | regression tests for crashes found in review: `main.py --version`, the screen clear, `~nosuchuser`, a quoted `~`, missing redirect directories, `&`, `cp -r` into itself, `grep -m 0`, `sort -u -k`, `wc -c/-m`, a deleted cwd, usage lines in switch errors, `help NAME` / `-k`, config validation, merging and atomic writes, history redaction, the loop's last-resort catch |
 | `test_scripting_more.py` | shell variables, `export` / `unset`, `$(( ))`, `while` / `until` / `case`, piped and redirected blocks, `<` / `2>` / `2>&1` / `&>`, globs on plain lines, `!N` / `!prefix` / `!*` |
-| `test_commands_more.py` | the new switches (`grep -r/-A/-B/-C/-w/-x/-o`, `ls -t/-S/-R/-d`, `find -size/-mtime/-newer/-empty/-not`, `sort -h/-V/-s`, `cat -s/-A`, `head/tail -c`, `tail -f`, `tree -I/--du`) and builtins (`printf`, `seq`, `xargs`, `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`, `type`) |
+| `test_commands_more.py` | the bash switches (`grep -r/-A/-B/-C/-w/-x/-o`, `ls -t/-S/-R/-d`, `find -size/-mtime/-newer/-empty/-not`, `sort -h/-V/-s`, `cat -s/-A`, `head/tail -c`, `tail -f`, `tree -I/--du`) and builtins (`printf`, `seq`, `xargs`, `basename`, `dirname`, `realpath`, `stat`, `whoami`, `hostname`, `uname`, `sleep`, `time`, `type`) |
 | `test_mcp_boundary.py` | `expose = false`, `--expose`, the per-call timeout, stdin/output caps, the bearer token middleware, lazy module loading |
-| `test_tui.py` | the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
+| `test_tui.py` | themes (custom colors, presets), the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
 | `test_cancel.py` | cooperative cancellation: the modkit API, a real Ctrl-C during the spinner wait reaching the module, an MCP timeout cancelling the abandoned thread |
 | `test_keyring.py` | API keys in the OS keyring (fake backend): set / get / export / reset, the setting off, an unreachable keyring, `settings migrate-keys`, a refusing backend |
@@ -269,10 +268,8 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
-| `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script` |
-| `test_ingest_entry.py` | the wizard's two doors: `shellcraft ingest` and the `ingest` builtin |
+| `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script`, `shellcraft ingest` and the `ingest` builtin |
 | `test_background.py` | `cmd &` background jobs and `jobs -f N` |
-| `test_double_bracket.py` | `&&`, `\|\|`, `!` and `( )` inside `[[ ]]`, and the splitter around it |
 | `test_functions.py` | shell functions: definitions, `$1`/`$#`/`$@`, `local`, `return`, recursion, precedence, `declare` / `type` / `unset -f` |
 | `test_select.py` | `select`: the menu, `$PS3`, `$REPLY`, invalid answers, `break`, Ctrl-D / Ctrl-C |
 | `test_stderr_redirect.py` | `>&2` / `1>&2` with `2> file` / `2>&1`, in functions and blocks |

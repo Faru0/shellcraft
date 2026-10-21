@@ -1,4 +1,4 @@
-"""Crashes and wrong output found by the fourth assessment (2026-10-11), and their fixes."""
+"""Regression tests for crashes and wrong output found in review (2026-10-11), one per fix."""
 
 import json
 import os

@@ -996,6 +996,7 @@ def test_exit_in_a_subshell_clears_it_from_the_footer(ictx, monkeypatch):
     result = run_line("sub sh -c 'sleep 0.3'", ictx)
     assert "done" in to_text(result.output) and ictx.jobs.get(1) is None
 
+    wait_finished = JobTable.wait_finished
     monkeypatch.setattr(JobTable, "wait_finished", lambda self, job, timeout=2.0: False)  # still winding down
     result = run_line("sub sh -c 'sleep 0.3'", ictx)
     job = ictx.jobs.get(2)
@@ -1003,8 +1004,7 @@ def test_exit_in_a_subshell_clears_it_from_the_footer(ictx, monkeypatch):
     assert _wait(lambda: ictx.jobs.get(2) is None) and ictx.jobs.notifications == []
 
     ictx.config["settings"] = {"jobs_autoclear": False}  # off: it stays listed as done
-    monkeypatch.undo()
-    monkeypatch.setattr(JobTable, "attach", lambda self, job, **kw: ("exited", 0))
+    monkeypatch.setattr(JobTable, "wait_finished", wait_finished)  # not undo(): that drops SHELLCRAFT_HOME too
     run_line("sub sh -c 'sleep 0.2'", ictx)
     assert ictx.jobs.get(3) is not None and not ictx.jobs.get(3).running
 

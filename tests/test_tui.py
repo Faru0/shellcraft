@@ -1,5 +1,5 @@
-"""The TUI pieces the fourth assessment added or asked tests for: the input-line lexer, the
-toolbar, prompt segments, the pager's keys, `show()`'s threshold, themes, the banner, completion."""
+"""The TUI pieces: the input-line lexer, the toolbar, prompt segments, the pager's keys, `show()`'s
+threshold, themes (persistence, preview, custom colors, presets), the banner, completion."""
 
 import io
 import json
@@ -561,3 +561,32 @@ def test_banner_warns_about_missing_core_packages(tmp_path, monkeypatch):
     console.print(render_banner(ui, ModuleRegistry(tmp_path), ["theme 'x': invalid color"]))
     text = console.export_text()
     assert "⚠ pyte is not installed" in text and "⚠ theme 'x'" in text
+
+
+# ── themes: custom colors and presets ─────────────────────────────────────────
+
+def test_invalid_custom_color_falls_back_to_base():
+    warnings: list[str] = []
+    config = {"themes": {"mine": {"base": "matrix", "prompt": "not-a-color", "accent": "#123456"}}}
+    theme = all_themes(config, warnings)["mine"]
+    assert theme.prompt == PRESETS["matrix"].prompt
+    assert theme.accent == "#123456"
+    assert len(warnings) == 1 and "not-a-color" in warnings[0] and "'prompt'" in warnings[0]
+    UI(theme)  # used to raise ValueError: Wrong color format
+
+
+def test_color_must_work_in_rich_and_prompt_toolkit():
+    config = {"themes": {"mine": {"path": "ansired", "muted": "#fff", "error": "red"}}}
+    theme = all_themes(config)["mine"]  # no warnings list: stays silent
+    assert theme.path == PRESETS["nord"].path  # prompt_toolkit only
+    assert theme.muted == PRESETS["nord"].muted  # prompt_toolkit only
+    assert theme.error == "red"
+
+
+def test_every_preset_color_is_valid_and_renders():
+    from shellcraft.themes import _COLOR_FIELDS, _valid_color
+
+    assert {"dracula", "gruvbox", "catppuccin", "tokyonight"} <= set(PRESETS)
+    for theme in PRESETS.values():
+        assert all(_valid_color(getattr(theme, f)) for f in _COLOR_FIELDS), theme.name
+        UI(theme)
