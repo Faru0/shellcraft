@@ -1351,7 +1351,7 @@ class _Runner:
 
     @property
     def shows_live(self) -> bool:
-        """Whether a statement's output may stream to the screen as it is made (core.streams):
+        """Whether a statement's output may stream to the screen as it is made (shellcraft.streams):
         only where show() prints, never inside `$( … )` or a piped block, which collect."""
         return self.ctx.emit is not None and self.parent is None and not self.collect_only
 
