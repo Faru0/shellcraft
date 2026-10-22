@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Profiles** (`profile`, `docs/profiles.md`): named setups for bug bounty, OSINT or SOC work,
+  switched in the running shell. A profile layers on the default setup and keeps only what it changes:
+  theme, settings, prompt, modules on / off, environment variables, aliases, an rc file and its own
+  command history (API keys, the MCP token and the base aliases and rc are shared). `profile use NAME`
+  / `profile off` switch; `profile new NAME` is a wizard (or `--template bugbounty|osint|soc`,
+  `--from P`); `profile save NAME` keeps the session's setup; `show`, `edit`, `set`, `env`, `diff`,
+  `copy`, `rename`, `delete`, `reload`, `export`, `import` manage them. While one is active, `theme`,
+  `settings`, `prompt`, `alias` and `modules` change it (`alias -g` the shared aliases), the prompt
+  shows `◆ NAME`, and processes ShellCraft starts run in it. `shellcraft --profile NAME` starts in one.
+
 - **`env` manages ShellCraft's environment variables:** `env set NAME=VALUE` (or `NAME VALUE`,
   several at once) sets one for the session, in ShellCraft's own environment, so modules, OS
   programs, `sub` programs and new subshells see it; `env unset NAME` drops it and brings back a

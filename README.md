@@ -121,6 +121,18 @@ follows each command's usage line. `man` and `less` open a viewer with search an
 `hotkeys` lists every shortcut.
 **→ [Keyboard and mouse](docs/keyboard-and-mouse.md)**
 
+### Profiles
+
+```
+profile new recon --template osint     # or `profile new NAME` for a wizard
+profile use recon                      # theme, settings, modules, env vars, aliases, own history
+profile save acme                      # this session's setup as a profile
+```
+
+Named setups for bug bounty, OSINT or SOC work, switched in the running shell. A profile keeps
+only what it changes; API keys and your base aliases are shared.
+**→ [Profiles](docs/profiles.md)**
+
 ### Settings and themes
 
 `settings` lists every on/off setting and the API keys modules need; `settings KEY on|off`
@@ -149,7 +161,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `startup` `source` `.` `export` `unset` `declare` `local` `shift` `read` `sleep` `time` `xargs` `test` `[` `[[` `true` `false`, and `diag` once diagnostics are on |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `startup` `profile` `source` `.` `export` `unset` `declare` `local` `shift` `read` `sleep` `time` `xargs` `test` `[` `[[` `true` `false`, and `diag` once diagnostics are on |
 | Scripting | `for` `while` `until` `if` `case` `select` `function` (`man for`, `man if`…) |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
 | AI and MCP | `mcp` `mark` `tell` `review` `ingest` |
@@ -216,7 +228,7 @@ details, the rules, a reference module and the checker:
 
 | Document | For |
 | --- | --- |
-| [docs/](docs/README.md) | The user guide: scripting, subshells, keyboard and mouse, settings, MCP |
+| [docs/](docs/README.md) | The user guide: scripting, profiles, subshells, keyboard and mouse, settings, MCP |
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [ai/README.md](ai/README.md) | Agents and skills that teach an AI client to work as a co-pilot in ShellCraft |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |

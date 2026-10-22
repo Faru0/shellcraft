@@ -5,6 +5,7 @@
 | Page | What it covers |
 | --- | --- |
 | [Pipes, scripting and startup](scripting.md) | Pipes and redirection, variables, loops and conditions, functions, exit status and history, aliases, the rc file and startup scripts |
+| [Profiles](profiles.md) | Named setups (bug bounty, OSINT, SOC…): `profile` to create, switch, save, edit and share them |
 | [Subshells, alerts and the clip](subshells.md) | `sub`, `jobs`, the footer, `&`, alerts, the clip register |
 | [Keyboard and mouse](keyboard-and-mouse.md) | Typing helpers, the viewer, every shortcut and mouse action, Linux vs Windows, `diag` |
 | [Settings, API keys and themes](settings.md) | Every setting, API keys, OS commands, themes, command-line options |

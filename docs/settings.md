@@ -127,6 +127,7 @@ the banner.
 | `--mcp` | Run as an MCP server over stdio instead of the interactive shell. |
 | `--mcp-http HOST:PORT` | Run as an MCP server over streamable HTTP at `http://HOST:PORT/mcp`. Only addresses on this machine are allowed (`127.0.0.1`, `localhost`, `::1`). |
 | `--theme NAME` | Use a theme for this session only. |
+| `--profile NAME` | Start in a profile ([Profiles](profiles.md)); without it every start is the default setup. |
 | `--no-banner` | Skip the startup banner. |
 | `--diag` | Turn the `diagnostics` setting on (the hidden `diag` command) and print the diagnostics report at startup. |
 | `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
