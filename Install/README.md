@@ -5,7 +5,8 @@ Copy the whole repo (including this `Install/` folder) to the lab machine.
 
 **Quick start:** install Python (below), then run the setup script from anywhere. The first run
 creates `.venv/` in the repo root and installs the wheels offline, then starts shellcraft (`main.py`).
-Later runs reuse the venv. Arguments pass through to `main.py`, e.g. `--no-banner` or `--mcp`.
+Later runs reuse the venv and skip the install (it runs again only when `requirements.txt` changes
+or a package is missing), so they start straight away. Arguments pass through to `main.py`, e.g. `--no-banner` or `--mcp`.
 
 | OS      | Command |
 |---------|---------|

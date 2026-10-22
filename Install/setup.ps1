@@ -42,10 +42,19 @@ if (-not (Test-Path $VenvPy)) {
     if ($LASTEXITCODE -ne 0) { Write-Error "venv creation failed." }
 }
 
-Write-Host ">> Installing dependencies from $Wheels (offline)"
-& $VenvPy -m pip install -q --disable-pip-version-check --no-index --find-links $Wheels `
-    -r (Join-Path $RepoDir "requirements.txt") "censys-platform>=0.16" "pytest>=8"
-if ($LASTEXITCODE -ne 0) { Write-Error "Dependency install failed." }
+# Install only on the first run, or when requirements.txt changed (or a package went missing):
+# pip takes seconds on Windows even when everything is there, and this runs before every start.
+$Stamp = Join-Path $Venv ".shellcraft-installed"
+$Want = Get-Content -Raw (Join-Path $RepoDir "requirements.txt")
+$Have = if (Test-Path $Stamp) { Get-Content -Raw $Stamp } else { "" }
+& $VenvPy -c "import importlib.util as u, sys; sys.exit(not all(u.find_spec(m) for m in ('prompt_toolkit', 'rich', 'mcp', 'requests', 'pyte', 'winpty')))"
+if ($Have -ne $Want -or $LASTEXITCODE -ne 0) {
+    Write-Host ">> Installing dependencies from $Wheels (offline)"
+    & $VenvPy -m pip install -q --disable-pip-version-check --no-index --find-links $Wheels `
+        -r (Join-Path $RepoDir "requirements.txt") "censys-platform>=0.16" "pytest>=8"
+    if ($LASTEXITCODE -ne 0) { Write-Error "Dependency install failed." }
+    Set-Content -NoNewline -Path $Stamp -Value $Want
+}
 
 Write-Host ">> Starting shellcraft"
 Push-Location $RepoDir

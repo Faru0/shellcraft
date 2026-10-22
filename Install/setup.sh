@@ -36,9 +36,17 @@ if [ ! -x "$VENV/bin/python" ]; then
     fi
 fi
 
-echo ">> Installing dependencies from $WHEELS (offline)"
-"$VENV/bin/python" -m pip install -q --disable-pip-version-check --no-index --find-links "$WHEELS" \
-    -r "$REPO_DIR/requirements.txt" "censys-platform>=0.16" "pytest>=8"
+# Install only on the first run, or when requirements.txt changed (or a package went missing):
+# pip takes a while even when everything is there, and this runs before every start.
+STAMP="$VENV/.shellcraft-installed"
+WANT="$(cat "$REPO_DIR/requirements.txt")"
+if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$WANT" ] || \
+   ! "$VENV/bin/python" -c 'import importlib.util as u, sys; sys.exit(not all(u.find_spec(m) for m in ("prompt_toolkit", "rich", "mcp", "requests", "pyte")))'; then
+    echo ">> Installing dependencies from $WHEELS (offline)"
+    "$VENV/bin/python" -m pip install -q --disable-pip-version-check --no-index --find-links "$WHEELS" \
+        -r "$REPO_DIR/requirements.txt" "censys-platform>=0.16" "pytest>=8"
+    printf '%s' "$WANT" > "$STAMP"
+fi
 
 echo ">> Starting shellcraft"
 cd "$REPO_DIR"
