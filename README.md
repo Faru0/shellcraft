@@ -94,6 +94,7 @@ for h in $(cat hosts.txt); do queryDns $h; done          # bash's for, while, if
 backup() { cp -r "$1" "$1.bak" && echo saved; }          # functions, local, return
 grep -q TODO notes.txt && echo found || echo clean       # $?, &&, ||, test, [ ], [[ ]]
 alias errs='grep -i error'                               # aliases, kept in ~/.shellcraft/aliases
+env set API_URL=https://api.example.test                 # env vars for modules and programs; env lists them
 ```
 
 `~/.shellcraft/rc` runs at startup like `~/.bashrc`, and Python scripts in

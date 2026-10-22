@@ -38,6 +38,7 @@ shellcraft/
 │   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
 │   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-] N
 │   ├── prefix.py           # the subshell prefix key (Ctrl-] by default, `settings prefix_key`)
+│   ├── envvars.py          # the session's environment variables (`env set`, `export`, the rc file), keyring secrets
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
 │   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
@@ -284,6 +285,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
+| `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets in the keyring, the rc origin, the `settings` section |
 | `test_copilot.py` | the co-pilot tools: reading the shell, `open_subshell`, `run_in_shell` tiers, the session grant, `tell` |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python

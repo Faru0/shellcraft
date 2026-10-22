@@ -37,6 +37,30 @@ n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons,
 A value with spaces stays one argument on a plain command line (`f="my file"; cat $f`); inside
 bash-style blocks it is split at whitespace unless quoted, as in bash.
 
+## Environment variables
+
+`env` manages the environment variables you set in ShellCraft; the rest of the environment stays
+out of the way until you ask for it:
+
+```
+env set API_URL=https://api.example.test     # set one for this session (several: env set A=1 B=2)
+env set -s GITHUB_TOKEN                      # a secret: hidden typing, masked, kept in the OS keyring
+env                                          # what this session set: name, full value, where from
+env -a                                       # the whole environment (env -a | grep -i proxy)
+env unset API_URL                            # drop it; a value your shell had comes back
+```
+
+A variable set here goes into ShellCraft's own environment at once, so modules see it straight
+away, and OS programs, `sub` programs, lite subshells and `cmd &` see it when they start. A
+server or subshell that is already running keeps its old environment (`mcp restart` passes a
+change on), and an AI client's own `--mcp` server is a separate process that never sees it.
+ShellCraft's value wins over your shell's; `env unset` brings your shell's back, while the bash
+`unset NAME` removes the variable for the session. Variables set with `export` are listed too.
+
+They last for the session. To set them at every start, put the lines in `~/.shellcraft/rc`
+(below): `env` then shows them as coming `from rc`, and `settings` lists them under
+"Environment (this session)". `man env` has the details.
+
 ## Loops and conditions
 
 Two syntaxes. **Bash** is the default, and works the way you'd type it in bash:
@@ -164,7 +188,8 @@ the interactive shell starts, as if you typed them. Anything you can type works 
 
 ```
 theme nord
-export PROJECT_ROOT=~/projects
+env set PROJECT_ROOT=~/projects
+env set -s GITHUB_TOKEN              # asks once; the OS keyring keeps it for the next start
 cd ~/projects
 sub find ~/projects -name "*.log" -mtime -1
 alert -l info "shell ready"

@@ -56,6 +56,9 @@ class ShellContext:
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.
     variables: dict[str, str] = field(default_factory=dict)
     exported: dict[str, str] = field(default_factory=dict)
+    # The environment variables set in this session (`env set`, `export`, the rc file), by name:
+    # shellcraft.envvars.EnvVar, with the host value each one replaced.
+    env_vars: dict[str, Any] = field(default_factory=dict)
     # Shell functions (`name() { …; }`, shellcraft.script.Function) and the arguments of the calls in
     # progress (`$1`, `$@`, `$#` read the innermost). Never used over MCP.
     functions: dict[str, Any] = field(default_factory=dict)

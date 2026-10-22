@@ -13,7 +13,7 @@ from typing import Iterable
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
 
-from shellcraft import aliases
+from shellcraft import aliases, envvars
 from shellcraft.builtins import BUILTINS, available
 from shellcraft.context import ShellContext
 from shellcraft.options import OptionSpec, builtin_options, positional_values
@@ -89,6 +89,9 @@ class ShellCompleter(Completer):
             if segment[0] == "sub" and len(segment) == 1:  # a command to run in the background, or a nested shell
                 yield from self._complete(word, {"shellcraft": "a nested ShellCraft"})
                 yield from self._commands(word)
+                return
+            if segment[0] == "env":
+                yield from self._env(segment, word)
                 return
             if len(segment) == 1 and segment[0] in ("man", "theme", "settings", "prompt"):
                 yield from self._arguments(segment[0], word)
@@ -281,6 +284,25 @@ class ShellCompleter(Completer):
         elif segment[1] == "disable":
             yield from self._complete(word, {n: registry.describe(n) or "module"
                                              for n in registry.names() if n not in segment[2:]})
+
+    def _env(self, segment: list[str], word: str) -> Iterable[Completion]:
+        """`env <Tab>`: its actions, then variable names (all for a lookup, this session's for unset)."""
+        import os
+
+        session = {e.name: "set in this session" for e in envvars.session(self.ctx)}
+        if len(segment) == 1:
+            options = {"set": "set a variable for this session", "unset": "remove one set here",
+                       "-a": "the whole environment"}
+            if word:  # a lookup: `env PATH`
+                options |= {n: "environment variable" for n in os.environ}
+            yield from self._complete(word, options | session)
+        elif segment[1] == "set" and len(segment) == 2:
+            yield from self._complete(word, {"-s": "a secret: masked, hidden typing, kept in the keyring"} | session)
+        elif segment[1] == "unset":
+            yield from self._complete(word, ({"-k": "also forget the keyring's copy"} if len(segment) == 2 else {})
+                                      | {n: d for n, d in session.items() if n not in segment[2:]})
+        elif segment[1] not in ("set", "-a", "--all"):
+            yield from self._complete(word, {n: "environment variable" for n in os.environ if n not in segment})
 
     def _aliases(self) -> dict[str, str]:
         return aliases.get_all(self.ctx.config) if self.ctx.allow_aliases else {}

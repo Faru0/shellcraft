@@ -5,9 +5,11 @@
 # 1. Ask a simple question; the answer is $name from here on
 name = input("What is your name? ")
 
-# 2. Set an environment variable: the shell, subshells and programs all see it
-export GREETING="Welcome back, $name"
+# 2. Set environment variables: modules, subshells and programs all see them, and `env` lists
+#    them (env -a shows the whole environment). -s marks a secret: asked once, kept in the keyring.
+env set GREETING="Welcome back, $name"
 echo $GREETING
+# env set -s GITHUB_TOKEN
 
 # 3. Run a module: your public IP
 myip

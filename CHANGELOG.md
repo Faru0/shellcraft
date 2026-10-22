@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`env` manages ShellCraft's environment variables:** `env set NAME=VALUE` (or `NAME VALUE`,
+  several at once) sets one for the session, in ShellCraft's own environment, so modules, OS
+  programs, `sub` programs and new subshells see it; `env unset NAME` drops it and brings back a
+  value your shell had. `env set -s NAME` is a secret: hidden typing, masked everywhere, kept out of
+  the history and in the OS keyring, so an rc line `env set -s NAME` asks once. Put `env set`
+  lines in `~/.shellcraft/rc` to set them at every start. `settings` lists them under
+  "Environment (this session)" (values in full, never cut), and `settings reset NAME` removes one.
+
 - **`settings prefix_key`:** choose the subshell prefix key. Ctrl-] stays the default; Ctrl-B
   (tmux's), Ctrl-A (GNU screen's), Ctrl-T, Ctrl-G and Ctrl-S are offered, each listed with what it
   shadows in bash and nano. The prompt, every subshell, the footer hint and the messages follow the
@@ -106,6 +114,10 @@ and the project uses [semantic versioning](https://semver.org/).
   the main shell and from a subshell.
 
 ### Changed
+
+- **`env` alone lists only the variables set in this session** (`env set`, `export`, the rc
+  file), with their full values and where they came from. `env -a` (`--all`) prints the whole
+  environment, as `env` did: `env -a | grep -i proxy`.
 
 - **A new demo recording** (`docs/demo.gif`, `docs/demo.cast`) of the shell as it is now: the
   usage-guided completion, a subshell in the footer, an alert whose data Alt-v pastes, the man viewer.

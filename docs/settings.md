@@ -37,6 +37,13 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
 | `panel_hint` | off | Show a header line at the top of the subshell panel listing its keys (click or Ctrl-] N switches, Ctrl-] alone returns, Ctrl-] x ends it). |
 
+### Environment variables
+
+Below the API keys, `settings` lists the environment variables set in this session with
+`env set`, `export` or your rc file, each with its full value (masked for a secret), where it
+came from, and whether it overrides your shell's value. `settings reset NAME` removes one, like
+`env unset NAME`. See [Environment variables](scripting.md#environment-variables).
+
 ### API keys
 
 Some modules call services that need a key. `settings` lists them as *module · label*, and never

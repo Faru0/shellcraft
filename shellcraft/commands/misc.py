@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 
-from shellcraft import aliases
+from shellcraft import aliases, envvars
 from shellcraft.builtins import BUILTINS, builtin
 from shellcraft.commands._io import lines_out, user_path
 from shellcraft.context import CommandError, Styled, WithStatus, to_text
@@ -672,7 +672,8 @@ def export(ctx: ShellContext, args: list[str], stdin: str) -> str:
             else:
                 raise CommandError(f"export: {name} is not set")
         ctx.exported[name] = ctx.variables[name]
-        os.environ[name] = ctx.variables[name]
+        if ctx.variables[name] != os.environ.get(name) or name in ctx.env_vars:
+            envvars.set_var(ctx, name, ctx.variables[name], how="export")  # listed by `env`
     return ""
 
 
@@ -689,8 +690,9 @@ def unset(ctx: ShellContext, args: list[str], stdin: str) -> str:
         raise CommandError("unset: usage: unset NAME... | unset -f NAME...")
     for name in args:
         ctx.variables.pop(name, None)
-        if ctx.exported.pop(name, None) is not None:
-            os.environ.pop(name, None)
+        if ctx.exported.pop(name, None) is not None or name in ctx.env_vars:
+            os.environ.pop(name, None)  # bash: gone for the session (`env unset` restores a host value)
+        envvars.forget(ctx, name)
     return ""
 
 

@@ -230,7 +230,8 @@ def test_which(ctx, monkeypatch, tmp_path):
 def test_env(ctx, monkeypatch):
     monkeypatch.setenv("SHELLCRAFT_TEST_VAR", "hello")
     assert out("env SHELLCRAFT_TEST_VAR MISSING_VAR_XYZ", ctx) == "SHELLCRAFT_TEST_VAR=hello\n"
-    assert "SHELLCRAFT_TEST_VAR=hello" in out("env | grep SHELLCRAFT_TEST", ctx)
+    assert "SHELLCRAFT_TEST_VAR=hello" in out("env -a | grep SHELLCRAFT_TEST", ctx)  # -a: the whole environment
+    assert "SHELLCRAFT_TEST_VAR" not in out("env", ctx)  # plain env: only what this session set
 
 
 def test_env_blocked_when_sensitive_disabled(ctx):

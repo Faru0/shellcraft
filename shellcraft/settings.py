@@ -339,21 +339,27 @@ def mask(value: str) -> str:
 # command word, the key name, then the value (which may run to the end of the statement).
 _SETTINGS_STMT = re.compile(r"^(\s*(?:(?:do|then|else|!)\s+)*\\?)(\S+)(\s+)([A-Z][A-Z0-9_]*)(\s+)(\S.*)$")
 _STATEMENT_SPLIT = re.compile(r"(\s*(?:;|&&|\|\||\|)\s*)")
+# `env set -s NAME VALUE` / `env set -s NAME=VALUE`: a secret environment variable.
+_ENV_SECRET_STMT = re.compile(r"^(\s*(?:(?:do|then|else|!)\s+)*\\?env\s+set\s+-s\s+"
+                              r"[A-Za-z_][A-Za-z0-9_]*)(=|\s+)(\S.*)$")
 
 
 def redact_line(line: str, aliases: Mapping[str, str] | None = None) -> str:
-    """Hide the value in `settings NAME VALUE` so API keys never reach the history file.
+    """Hide the value in `settings NAME VALUE` and `env set -s NAME VALUE` so API keys and secrets
+    never reach the history file.
 
     Every statement of the line is checked (`echo x ; settings KEY abc`, a `for` body), a
     leading `\\` is seen through, and so is an alias of `settings` when `aliases` is given.
     """
-    if "settings" not in line and not aliases:
+    if "settings" not in line and "env" not in line and not aliases:
         return line
     parts = _STATEMENT_SPLIT.split(line)  # statements and the separators between them
     for i in range(0, len(parts), 2):
         match = _SETTINGS_STMT.match(parts[i])
         if match and _is_settings(match.group(2), aliases):
             parts[i] = f"{match.group(1)}{match.group(2)}{match.group(3)}{match.group(4)}{match.group(5)}••••"
+        elif secret := _ENV_SECRET_STMT.match(parts[i]):
+            parts[i] = f"{secret.group(1)}{secret.group(2)}••••"
     return "".join(parts)
 
 

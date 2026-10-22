@@ -14,7 +14,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import aliases, prefix, settings
+from shellcraft import aliases, envvars, prefix, settings
 from shellcraft.config import history_path, save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
 from shellcraft.themes import all_themes
@@ -1498,7 +1498,8 @@ bash's `~/.bashrc`. Each line runs as if you typed it at the prompt, so anything
 ```
 # ~/.shellcraft/rc
 theme nord
-export PROJECT_ROOT=~/projects
+env set PROJECT_ROOT=~/projects   # environment variables for modules and programs (man env)
+env set -s GITHUB_TOKEN           # a secret: asked once, then the OS keyring has it
 cd ~/projects
 alert -l info "welcome back"
 sub find ~/projects -name "*.log" -mtime -1
@@ -2988,6 +2989,10 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args[0] == "reset":
         if len(args) != 2:
             raise CommandError("usage: settings reset KEY")
+        if args[1] in ctx.env_vars and args[1] not in keys:  # a session variable: as `env unset`
+            how = envvars.unset_var(ctx, args[1])
+            return Text.assemble(("✓ ", "sc.success"), (args[1], "sc.path"),
+                                 " restored to your shell's value" if how == "restored" else " removed")
         if args[1] in keys:
             settings.env_reset(ctx.config, args[1])
             return _store_env(ctx, keys[args[1]], "cleared", None)
@@ -3087,7 +3092,7 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
     table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
     table.add_column("key", style="sc.path", no_wrap=True)
     table.add_column("setting")
-    table.add_column("value", justify="center")
+    table.add_column("value", justify="center", overflow="fold")  # long values wrap, never cut
     table.add_column("description", style="sc.muted")
     rows = list(settings.SETTINGS.values())
     for i, s in enumerate(rows):
@@ -3096,13 +3101,22 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
         table.add_row(s.key, s.label, value, s.description)
     table.add_row(prefix.CONFIG_KEY, PREFIX_LABEL, Text(prefix.label(), style="sc.accent"), PREFIX_DESCRIPTION)
     on = bool(getattr(ctx, "ai_run", False))
+    session_vars = envvars.session(ctx)
     table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on
-                  else Text("Off", style="sc.error"), AI_RUN_DESCRIPTION, end_section=bool(keys))
+                  else Text("Off", style="sc.error"), AI_RUN_DESCRIPTION, end_section=bool(keys or session_vars))
     styles = {"set": "sc.success", "environment": "sc.accent", "unset": "sc.muted"}
+    last_key = sorted(keys, key=lambda n: (keys[n].module.lower(), n))[-1] if keys else None
     for name in sorted(keys, key=lambda n: (keys[n].module.lower(), n)):
         entry = keys[name]
         state, text = settings.env_status(ctx.config, name)
-        table.add_row(name, entry.label, Text(text, style=styles[state]), entry.setting.description)
+        table.add_row(name, entry.label, Text(text, style=styles[state]), entry.setting.description,
+                      end_section=bool(session_vars) and name == last_key)
+    for e in session_vars:  # `env set`, `export`, the rc file: this session only
+        where = f"from {e.origin}" + ("; overrides your shell's value" if envvars.overrides(e) else "")
+        table.add_row(e.name, f"Environment (this session) · {where}",
+                      Text(envvars.shown(e), style="sc.accent", overflow="fold", justify="left"),
+                      "Set with env set (or export); gone at exit. Put the env set line in ~/.shellcraft/rc "
+                      "to set it at every start; env unset NAME (or settings reset NAME) removes it.")
     plain = settings.plaintext_keys(ctx.config)
     if plain and settings.use_keyring(ctx.config):
         table.caption = (f"⚠ {len(plain)} key(s) in plain text in config.json: "

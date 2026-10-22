@@ -365,6 +365,7 @@ def logical_lines(text: str) -> list[tuple[int, str]]:
 
 
 _depth = [0]
+sourcing: list[str] = []  # the files being sourced, innermost last (`env set` records where it ran)
 
 
 def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
@@ -392,6 +393,7 @@ def source(path: Path, ctx: Any) -> tuple[int, int]:
     text = Path(path).read_text(encoding="utf-8")
     ran = failed = 0
     _depth[0] += 1
+    sourcing.append(Path(path).name)
     try:
         for number, line in logical_lines(text):
             ran += 1
@@ -408,4 +410,5 @@ def source(path: Path, ctx: Any) -> tuple[int, int]:
                 failed += 1
     finally:
         _depth[0] -= 1
+        sourcing.pop()
     return ran, failed
