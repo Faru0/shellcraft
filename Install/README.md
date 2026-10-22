@@ -61,8 +61,7 @@ as-is; only the `.deb` files are Ubuntu-26.04-specific.
   debs, then the wheels with `--no-index`, then running the tests. The wheel install was checked again
   offline in October 2026 with ShellCraft 2.0.0.
 - Not bundled: the lint and packaging tools of the `dev` extra (`ruff`, `mypy`, `build`), so
-  `pip install -e ".[dev]"` needs the internet; and the optional `keyring` package, so API keys are
-  kept in `config.json` (the banner says so).
+  `pip install -e ".[dev]"` needs the internet.
 - To refresh the wheels (on a machine with internet), re-run `pip download` with `--only-binary=:all:`
   for each `--platform` / `--python-version` combination and add `pywin32` explicitly for Windows
   (pip does not evaluate `sys_platform` markers for the target platform).
