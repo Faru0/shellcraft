@@ -14,8 +14,8 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import aliases, envvars, prefix, settings
-from shellcraft.config import history_path, save_config
+from shellcraft import aliases, envvars, prefix, profiles, settings
+from shellcraft.config import save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
 from shellcraft.themes import all_themes
 
@@ -233,8 +233,8 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 # short description; the commands you know from Linux are a grid of names (`help -a` describes
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
-    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup theme prompt settings "
-                   "banner diag hotkeys mark tell review"),
+    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup profile theme prompt "
+                   "settings banner diag hotkeys mark tell review"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -247,6 +247,7 @@ CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "S
 FUNCTION_HELPERS = ("local", "shift", "declare")
 DESCRIBED = ("ShellCraft", "Modules")  # the groups listed with descriptions by a bare `help`
 HELP_SHORT = {  # one line each, for the ShellCraft group
+    "profile": "Named setups: switch, create, save (bug bounty, OSINT…)",
     "sub": "Open a subshell or a background job", "jobs": "List, switch, rename or stop subshells",
     "alert": "Show an alert in the footer", "clip": "The clip register (Alt-v pastes)",
     "record": "Record the session to a file", "script": "The same as record",
@@ -2479,9 +2480,16 @@ alias                      # list every alias
 alias NAME                 # show one alias
 alias NAME='COMMAND ARGS'  # define (or replace) an alias
 alias --file               # where the aliases file is
+alias -g NAME='COMMAND'    # in a profile: define it in the default setup (shared) instead
 unalias NAME...            # remove aliases
 unalias -a                 # remove every alias
 ```
+
+## In a profile
+
+While a profile is active (`man profile`), `alias NAME=…` and `unalias NAME` change the profile's
+own aliases file, which is added on top of the shared one (a profile alias wins); `alias` marks
+them `# profile NAME`. `alias -g` and `unalias -g` change the shared file instead.
 
 ## The aliases file
 
@@ -2522,14 +2530,22 @@ unalias ll
 """
 
 
-@builtin("alias", "Define or list command aliases", "alias [NAME[=COMMAND]]", stateful=True, doc=ALIAS_DOC)
+@builtin("alias", "Define or list command aliases", "alias [-g] [NAME[=COMMAND]] | alias --file",
+         stateful=True, doc=ALIAS_DOC)
 def _alias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    global_ = args[:1] in (["-g"], ["--global"])  # a profile is active: write the base file instead
+    if global_:
+        args = args[1:]
     defined = aliases.get_all(ctx.config)
     if args in (["--file"], ["-f"]):
-        return f"{aliases.path()}\n"
+        return f"{aliases.target(ctx.config, global_)}\n"
     if not args:
-        listing = "".join(f"alias {n}={_quote(v)}\n" for n, v in sorted(defined.items()))
-        problems = aliases.file_errors()
+        in_profile = getattr(ctx.config, "profile", None)
+        def mark(n: str) -> str:
+            return f"   # profile {in_profile}" if in_profile and aliases.defined_in(ctx.config, n) == "profile" else ""
+
+        listing = "".join(f"alias {n}={_quote(v)}{mark(n)}\n" for n, v in sorted(defined.items()))
+        problems = aliases.file_errors(ctx.config)
         if not problems:
             return listing
         note = "\n".join(f"⚠ {aliases.path().name} {p} (skipped)" for p in problems)
@@ -2546,29 +2562,36 @@ def _alias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     name, value = name.strip(), value.strip()
     if not sep:
         raise CommandError("alias: usage: alias NAME='COMMAND ARGS'")
+    where = aliases.target(ctx.config, global_)
     try:
-        aliases.set_alias(ctx.config, name, value)
+        aliases.set_alias(ctx.config, name, value, global_)
     except aliases.AliasError as exc:
         raise CommandError(str(exc)) from None
     except OSError as exc:
-        raise CommandError(f"alias: cannot write {aliases.path()}: {exc}") from None
+        raise CommandError(f"alias: cannot write {where}: {exc}") from None
     return _saved(ctx, Text.assemble(("✓ ", "sc.success"), ("alias ", ""), (name, "sc.accent"),
-                                     (f" → {value}", ""), (f"  (saved in {aliases.path()})", "sc.muted")))
+                                     (f" → {value}", ""), (f"  (saved in {where})", "sc.muted")))
 
 
-@builtin("unalias", "Remove command aliases", "unalias NAME... | unalias -a", stateful=True, doc=ALIAS_DOC)
+@builtin("unalias", "Remove command aliases", "unalias [-g] NAME... | unalias [-g] -a", stateful=True,
+         doc=ALIAS_DOC)
 def _unalias(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    global_ = args[:1] in (["-g"], ["--global"])
+    if global_:
+        args = args[1:]
     if not args:
-        raise CommandError("unalias: usage: unalias NAME... | unalias -a")
+        raise CommandError("unalias: usage: unalias [-g] NAME... | unalias [-g] -a")
     if args == ["-a"]:
-        count = aliases.remove_all(ctx.config)
+        count = aliases.remove_all(ctx.config, global_)
         return _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"removed {count} alias(es)"))
-    missing = [n for n in args if not aliases.remove(ctx.config, n)]
+    missing = [n for n in args if not aliases.remove(ctx.config, n, global_)]
     removed = [n for n in args if n not in missing]
     if removed:
         msg = _saved(ctx, Text.assemble(("✓ ", "sc.success"), f"removed {', '.join(removed)}"))
     if missing:
-        raise CommandError(f"unalias: {', '.join(missing)}: not found")
+        base = [n for n in missing if not global_ and aliases.defined_in(ctx.config, n) == "base"]
+        hint = f" ({', '.join(base)}: from the default setup; unalias -g removes it there)" if base else ""
+        raise CommandError(f"unalias: {', '.join(missing)}: not found{hint}")
     return msg
 
 
@@ -2620,12 +2643,13 @@ def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args == ["-c"]:
         if ctx.history is not None and hasattr(ctx.history, "_loaded_strings"):
             ctx.history._loaded_strings = []  # prompt_toolkit keeps ↑ entries in memory
+        path = profiles.history_file(ctx.config)  # the active profile's own history, or the base one
         try:
-            history_path().write_text("", encoding="utf-8")
+            path.write_text("", encoding="utf-8")
         except FileNotFoundError:
             pass
         except OSError as exc:
-            raise CommandError(f"history: cannot clear {history_path()}: {exc.strerror or exc}") from None
+            raise CommandError(f"history: cannot clear {path}: {exc.strerror or exc}") from None
         return Text.assemble(("✓ ", "sc.success"), "history cleared")
     if len(args) > 1 or (args and not args[0].isdigit()):
         raise CommandError("history: usage: history [N] | history -c")
@@ -2650,7 +2674,7 @@ def _history_entries(ctx: ShellContext) -> list[str]:
         return list(ctx.history.get_strings())
     from prompt_toolkit.history import FileHistory
 
-    path = history_path()
+    path = profiles.history_file(ctx.config)
     if not path.is_file():
         return []
     return list(reversed(list(FileHistory(str(path)).load_history_strings())))
@@ -3089,7 +3113,9 @@ AI_RUN_DESCRIPTION = ("An AI client may run any command here at once (its trace 
 
 
 def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Table:
-    table = Table(title="Settings", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    current = profiles.active(ctx.config)
+    title = f"Settings · profile {current} (theme, settings and prompt changes go to it)" if current else "Settings"
+    table = Table(title=title, title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
     table.add_column("key", style="sc.path", no_wrap=True)
     table.add_column("setting")
     table.add_column("value", justify="center", overflow="fold")  # long values wrap, never cut

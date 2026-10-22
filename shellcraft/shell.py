@@ -32,12 +32,12 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.rule import Rule
 from rich.text import Text
 
-from shellcraft import aliases, gitinfo, histexpand, prefix, script, settings
+from shellcraft import aliases, gitinfo, histexpand, prefix, profiles, script, settings
 from shellcraft.alerts import AlertBus
 from shellcraft.banner import render_banner
 from shellcraft.builtins import BUILTINS
 from shellcraft.completer import ShellCompleter
-from shellcraft.config import config_dir, history_path
+from shellcraft.config import config_dir
 from shellcraft.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
 from shellcraft.context import ShellContext, ShellExit, set_width_source
 from shellcraft.footer import MARK, Footer, panel_lines, parse_mouse, wheel_up
@@ -52,6 +52,7 @@ from shellcraft.watch import ModuleWatcher
 # (`prompt -r`) are each a list of these names, saved under "prompt" in config.json.
 SEGMENTS: dict[str, str] = {
     "name": "the ⚡shellcraft label (with [N] inside `sub shellcraft`)",
+    "profile": "◆ NAME while a profile is active (`profile use NAME`)",
     "user": "user@host",
     "path": "the working directory (~ for home)",
     "git": "⎇ branch, when the directory is in a git repository",
@@ -62,7 +63,7 @@ SEGMENTS: dict[str, str] = {
     "python": "the Python version",
     "jobs": "N sub while subshells started with `sub` are running",
 }
-DEFAULT_LEFT = ["name", "user", "path", "git", "mcp", "status", "duration"]
+DEFAULT_LEFT = ["name", "profile", "user", "path", "git", "mcp", "status", "duration"]
 DEFAULT_RIGHT: list[str] = []
 SLOW_SECONDS = 2.0  # show the duration of commands that took longer than this
 
@@ -289,15 +290,9 @@ class Shell:
                                                              markup=False, highlight=False)
         self.watcher = ModuleWatcher(*ctx.registry.directories)
 
-        try:
-            path = history_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            history: Any = RedactingFileHistory(str(path))
-        except OSError:
-            history = RedactingInMemoryHistory()
-        history.aliases = lambda: aliases.get_all(ctx.config)
-
+        history = self._open_history()
         ctx.history = history
+        ctx.profile_hook = self._profile_switched
         self._lexer = ShellLexer(self._is_known_command)
         self.session: PromptSession = PromptSession(
             # Windows: bound to CONIN$ / CONOUT$ explicitly (the app session does the same, but an
@@ -589,7 +584,8 @@ class Shell:
     def _link_ping(self) -> dict[str, Any]:
         from shellcraft import __version__
 
-        return {"pid": os.getpid(), "version": __version__, "cwd": os.getcwd()}
+        return {"pid": os.getpid(), "version": __version__, "cwd": os.getcwd(),
+                "profile": profiles.active(self.ctx.config) or profiles.DEFAULT}
 
     def _link_scrollback(self, lines: Any = LINK_SCROLLBACK_LINES, strip_ansi: Any = True) -> dict[str, Any]:
         """The last `lines` of what this shell printed (commands as `❯ cmd`, then their output)."""
@@ -854,6 +850,30 @@ class Shell:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
+    def _open_history(self) -> Any:
+        """The command history of the active profile (its own file), or the base one."""
+        try:
+            path = profiles.history_file(self.ctx.config)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            history: Any = RedactingFileHistory(str(path))
+        except OSError:
+            history = RedactingInMemoryHistory()
+        history.aliases = lambda: aliases.get_all(self.ctx.config)
+        return history
+
+    def _profile_switched(self, name: str | None) -> None:
+        """`profile use`: the profile's own history from the next prompt on, and a fresh prompt."""
+        history = self._open_history()
+        self.ctx.history = history
+        session = getattr(self, "session", None)
+        if session is not None:
+            session.history = history
+            buffer = session.default_buffer
+            buffer.history = history
+            buffer._load_history_task = None  # loaded again, from the new file, at the next prompt
+            buffer.reset()
+        self._profile_color = None
+
     # ── the prompt ───────────────────────────────────────────────────────────
 
     def _segment(self, name: str) -> StyleAndTextTuples:
@@ -862,6 +882,11 @@ class Shell:
         if name == "name":
             label = f" ⚡shellcraft [{depth()}] " if depth() else " ⚡shellcraft "
             return [("class:name", label, self._click("help"))]
+        if name == "profile":
+            current = profiles.active(self.ctx.config)
+            if not current:
+                return []
+            return [(f"bold {self._profile_style(current)}", f"◆ {current}", self._click("profile show"))]
         if name == "jobs":
             running = len(self.ctx.jobs.running) if self.ctx.jobs is not None else 0
             return [("class:mcp", f"{running} sub", self._click("jobs"))] if running else []
@@ -890,6 +915,19 @@ class Shell:
         if name == "python":
             return [("class:sep", f"py{sys.version_info[0]}.{sys.version_info[1]}")]
         return []
+
+    def _profile_style(self, name: str) -> str:
+        """The profile's color (from its profile.json, read once per switch)."""
+        cached = getattr(self, "_profile_color", None)
+        if cached is None or cached[0] != name:
+            try:
+                color = str(profiles.load(name).get("color") or profiles.DEFAULT_COLOR)
+            except profiles.ProfileError:
+                color = profiles.DEFAULT_COLOR
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                color = profiles.DEFAULT_COLOR
+            cached = self._profile_color = (name, color)
+        return cached[1]
 
     def _prompt(self) -> FormattedText:
         """`╭─ ⚡shellcraft ─ user@host ─ ~/path ─ ⎇ main [✗ 1] ⏱ 4.2s` over `╰─❯ `: the segments
@@ -1331,7 +1369,7 @@ class Shell:
     # ── output ───────────────────────────────────────────────────────────────
 
     def banner(self, warnings: Iterable[str] = ()) -> None:
-        self.ui.console.print(render_banner(self.ui, self.ctx.registry, warnings))
+        self.ui.console.print(render_banner(self.ui, self.ctx.registry, warnings, profiles.active(self.ctx.config)))
 
     def report(self) -> str:
         """The console diagnostics report as plain text, with the live footer and jobs in it."""

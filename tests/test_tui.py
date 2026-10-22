@@ -103,7 +103,7 @@ def test_prompt_builtin(repl, tmp_path):
     from shellcraft.pipeline import PipelineError, run_line
 
     sh, ctx = repl
-    assert "prompt name user path git mcp status duration" in to_text(run_line("prompt", ctx).output)
+    assert "prompt name profile user path git mcp status duration" in to_text(run_line("prompt", ctx).output)
     run_line("prompt name path", ctx)
     assert ctx.config["prompt"] == {"left": ["name", "path"]}
     run_line("prompt -r clock", ctx)

@@ -382,10 +382,11 @@ def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
         ctx.emit_error(exc, line)
 
 
-def source(path: Path, ctx: Any) -> tuple[int, int]:
+def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
     """Run every command of a file in `ctx` as if typed at the prompt: output and errors go to
     ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest. Returns
-    (commands run, commands that failed). Raises OSError when the file can't be read."""
+    (commands run, commands that failed). Raises OSError when the file can't be read. `label` names
+    the file for `env` (a profile's rc: `profile:osint`); by default its file name."""
     from shellcraft.pipeline import run_line
 
     if _depth[0] >= MAX_SOURCE_DEPTH:
@@ -393,7 +394,7 @@ def source(path: Path, ctx: Any) -> tuple[int, int]:
     text = Path(path).read_text(encoding="utf-8")
     ran = failed = 0
     _depth[0] += 1
-    sourcing.append(Path(path).name)
+    sourcing.append(label or Path(path).name)
     try:
         for number, line in logical_lines(text):
             ran += 1

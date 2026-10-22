@@ -80,7 +80,7 @@ def _gradient(lines: list[str], start: str, end: str) -> Text:
     return text
 
 
-def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = ()) -> Panel:
+def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = (), profile: str | None = None) -> Panel:
     """The welcome panel. The module warnings (a missing import, a bad name), then the core's
     (core_warnings: an optional package missing), then `warnings` (theme problems, a bad config
     section) are shown in it, so nothing printed before the screen was cleared is lost."""
@@ -98,6 +98,8 @@ def render_banner(ui: UI, registry: ModuleRegistry, warnings: Iterable[str] = ()
         ("   python ", "sc.muted"), (platform.python_version(), "sc.accent"),
         ("   ", ""), (sys.platform, "sc.muted"),
     )
+    if profile:
+        stats.append_text(Text.assemble(("   profile ", "sc.muted"), (f"◆ {profile}", "sc.prompt")))
     hint = Text.assemble(
         ("type ", "sc.muted"), ("help", "sc.accent"), (" · ", "sc.muted"), ("man <tool>", "sc.accent"),
         (" · ", "sc.muted"), ("theme <name>", "sc.accent"), (" · ", "sc.muted"), ("Tab", "sc.accent"),

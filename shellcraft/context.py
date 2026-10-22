@@ -59,6 +59,8 @@ class ShellContext:
     # The environment variables set in this session (`env set`, `export`, the rc file), by name:
     # shellcraft.envvars.EnvVar, with the host value each one replaced.
     env_vars: dict[str, Any] = field(default_factory=dict)
+    # `profile use`: the interactive shell swaps the history and redraws the prompt (shellcraft.profiles).
+    profile_hook: Callable[[str | None], None] | None = None
     # Shell functions (`name() { …; }`, shellcraft.script.Function) and the arguments of the calls in
     # progress (`$1`, `$@`, `$#` read the innermost). Never used over MCP.
     functions: dict[str, Any] = field(default_factory=dict)

@@ -32,19 +32,40 @@ class AliasError(ValueError):
     pass
 
 
+PROFILE_HEADER = """\
+# This profile's aliases, added on top of ~/.shellcraft/aliases (an alias here wins).
+# `alias NAME='COMMAND'` in the shell writes here while the profile is active; `alias -g` writes the shared file.
+"""
 FILE_HEADER = """# ShellCraft aliases, like ~/.bash_aliases: one alias per line, read when the file changes.
 #   alias ll='ls -l'
 #   alias errors='grep -i error'
 # `alias NAME='COMMAND'` and `unalias NAME` in the shell edit this file too; comments stay.
 """
 
-_cache: dict[str, Any] = {"key": None, "aliases": {}, "errors": []}
+_cache: dict[str, dict[str, Any]] = {}  # per file: {"key": (path, mtime, size), "aliases", "errors"}
 
 
 def path() -> Path:
+    """The base aliases file, shared by every profile."""
     from shellcraft.config import config_dir
 
     return config_dir() / "aliases"
+
+
+def profile_path(config: dict[str, Any]) -> Path | None:
+    """The active profile's aliases file (shellcraft.profiles), or None in the default setup."""
+    name = getattr(config, "profile", None)
+    if not name:
+        return None
+    from shellcraft import profiles
+
+    return profiles.text_file(name, "aliases")
+
+
+def target(config: dict[str, Any], global_: bool = False) -> Path:
+    """Where `alias` writes: the active profile's file, or the base one (`alias -g`, the default setup)."""
+    own = None if global_ else profile_path(config)
+    return own if own is not None else path()
 
 
 def parse_file(text: str) -> tuple[dict[str, str], list[str]]:
@@ -77,27 +98,30 @@ def parse_file(text: str) -> tuple[dict[str, str], list[str]]:
     return found, errors
 
 
-def _file_aliases() -> tuple[dict[str, str], list[str]]:
-    """The file's aliases, re-read only when the file changed (mtime and size)."""
-    file = path()
+def _file_aliases(file: Path | None = None) -> tuple[dict[str, str], list[str]]:
+    """A file's aliases (the base file by default), re-read only when it changed (mtime and size)."""
+    file = file or path()
     try:
         st = file.stat()
     except OSError:
         return {}, []
     key = (str(file), st.st_mtime_ns, st.st_size)
-    if _cache["key"] != key:
+    entry = _cache.get(str(file))
+    if entry is None or entry["key"] != key:
         try:
             text = file.read_text(encoding="utf-8")
         except OSError:
             return {}, []
-        _cache["aliases"], _cache["errors"] = parse_file(text)
-        _cache["key"] = key
-    return dict(_cache["aliases"]), list(_cache["errors"])
+        found, errors = parse_file(text)
+        entry = _cache[str(file)] = {"key": key, "aliases": found, "errors": errors}
+    return dict(entry["aliases"]), list(entry["errors"])
 
 
-def file_errors() -> list[str]:
-    """The lines of the aliases file that could not be used (for `alias` to report)."""
-    return _file_aliases()[1]
+def file_errors(config: dict[str, Any] | None = None) -> list[str]:
+    """The lines of the aliases files that could not be used (for `alias` to report)."""
+    errors = _file_aliases()[1]
+    own = profile_path(config) if config is not None else None
+    return errors + ([f"(profile) {e}" for e in _file_aliases(own)[1]] if own is not None else [])
 
 
 def _config_aliases(config: dict[str, Any]) -> dict[str, str]:
@@ -108,8 +132,18 @@ def _config_aliases(config: dict[str, Any]) -> dict[str, str]:
 
 
 def get_all(config: dict[str, Any]) -> dict[str, str]:
-    """Every alias: the aliases file, plus any still in config.json (from before the file)."""
-    return {**_file_aliases()[0], **_config_aliases(config)}
+    """Every alias: the aliases file, any still in config.json (from before the file), and the
+    active profile's aliases on top."""
+    own = profile_path(config)
+    return {**_file_aliases()[0], **_config_aliases(config), **(_file_aliases(own)[0] if own is not None else {})}
+
+
+def defined_in(config: dict[str, Any], name: str) -> str | None:
+    """"profile" or "base" (or None): where an alias comes from."""
+    own = profile_path(config)
+    if own is not None and name in _file_aliases(own)[0]:
+        return "profile"
+    return "base" if name in _file_aliases()[0] or name in _config_aliases(config) else None
 
 
 def quote(value: str) -> str:
@@ -124,13 +158,14 @@ def _defines(line: str) -> set[str]:
     return set(parse_file(line)[0])
 
 
-def _rewrite(edit: Any) -> None:
-    """Apply `edit(lines) -> lines` to the aliases file and write it back atomically."""
-    file = path()
+def _rewrite(edit: Any, file: Path | None = None) -> None:
+    """Apply `edit(lines) -> lines` to an aliases file (the base one by default), atomically."""
+    file = file or path()
     try:
         lines = file.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
-        lines = FILE_HEADER.rstrip("\n").splitlines()
+        header = FILE_HEADER if file == path() else PROFILE_HEADER
+        lines = header.rstrip("\n").splitlines()
     lines = edit(lines)
     file.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=file.parent, prefix=".aliases-", text=True)
@@ -144,7 +179,7 @@ def _rewrite(edit: Any) -> None:
         except OSError:
             pass
         raise
-    _cache["key"] = None
+    _cache.pop(str(file), None)
 
 
 def validate(name: str, value: str) -> Command:
@@ -162,8 +197,9 @@ def validate(name: str, value: str) -> Command:
     return pipeline.segments[0]
 
 
-def set_alias(config: dict[str, Any], name: str, value: str) -> None:
-    """Define or replace an alias in the aliases file (the line is replaced where it was)."""
+def set_alias(config: dict[str, Any], name: str, value: str, global_: bool = False) -> None:
+    """Define or replace an alias in the aliases file (the line is replaced where it was): the
+    active profile's file, or the base one with `global_` (and in the default setup)."""
     validate(name, value)
     entry = f"alias {name}={quote(value.strip())}"
 
@@ -180,24 +216,32 @@ def set_alias(config: dict[str, Any], name: str, value: str) -> None:
             out.append(entry)
         return out
 
-    _rewrite(edit)
-    _config_section(config).pop(name, None)
+    _rewrite(edit, target(config, global_))
+    if target(config, global_) == path():
+        _config_section(config).pop(name, None)
 
 
-def remove(config: dict[str, Any], name: str) -> bool:
-    """Remove an alias from the file (and from config.json); returns whether it existed."""
-    found = name in _file_aliases()[0]
+def remove(config: dict[str, Any], name: str, global_: bool = False) -> bool:
+    """Remove an alias from the file it is written to (the active profile's, or the base one with
+    `global_`; config.json's old section too); returns whether it existed there."""
+    file = target(config, global_)
+    found = name in _file_aliases(file)[0]
     if found:
-        _rewrite(lambda lines: [line for line in lines if name not in _defines(line)])
+        _rewrite(lambda lines: [line for line in lines if name not in _defines(line)], file)
+    if file != path():
+        return found
     return (_config_section(config).pop(name, None) is not None) or found
 
 
-def remove_all(config: dict[str, Any]) -> int:
-    """Remove every alias; the file's comments stay. Returns how many there were."""
-    count = len(get_all(config))
-    if _file_aliases()[0]:
-        _rewrite(lambda lines: [line for line in lines if not _defines(line)])
-    config["aliases"] = {}
+def remove_all(config: dict[str, Any], global_: bool = False) -> int:
+    """Remove every alias of the target file; its comments stay. Returns how many there were."""
+    file = target(config, global_)
+    count = len(_file_aliases(file)[0])
+    if count:
+        _rewrite(lambda lines: [line for line in lines if not _defines(line)], file)
+    if file == path():
+        count += len(_config_aliases(config))
+        config["aliases"] = {}
     return count
 
 

@@ -30,9 +30,11 @@ MERGED_SECTIONS = ("themes", "settings", "env", "aliases", "prompt")
 class Config(dict):
     """The config as a dict, remembering how it looked when it was last read from or written to
     disk (`baseline`), so save_config() can tell which keys this session changed and leave the
-    rest to other sessions. A plain dict works everywhere a Config does (tests build them)."""
+    rest to other sessions. A plain dict works everywhere a Config does (tests build them).
+    `profile` names the active profile (shellcraft.profiles), whose keys save_config() routes to it."""
 
     baseline: dict[str, Any] | None = None
+    profile: str | None = None
 
 
 def config_dir() -> Path:
@@ -101,6 +103,23 @@ def save_config(config: dict[str, Any]) -> None:
     The file is written through a temporary file and renamed into place, so a crash mid-write
     never leaves a truncated config (and the stored API keys) behind.
     """
+    profile = getattr(config, "profile", None)
+    if profile:  # a profile's keys go to its profile.json, the rest (API keys, MCP…) to config.json
+        from shellcraft import profiles
+
+        owned = set(profiles.OWNED)
+        base_part = Config({k: v for k, v in config.items() if k not in owned})
+        base_part.baseline = {k: v for k, v in (config.baseline or {}).items() if k not in owned} \
+            if isinstance(config, Config) and config.baseline is not None else None
+        _write(base_part)
+        profiles.store_overlay(profile, config)
+        if isinstance(config, Config):
+            config.baseline = copy.deepcopy(dict(config))
+        return
+    _write(config)
+
+
+def _write(config: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     baseline = config.baseline if isinstance(config, Config) else None

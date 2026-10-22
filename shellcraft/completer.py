@@ -93,6 +93,9 @@ class ShellCompleter(Completer):
             if segment[0] == "env":
                 yield from self._env(segment, word)
                 return
+            if segment[0] == "profile":
+                yield from self._profile(segment, word)
+                return
             if len(segment) == 1 and segment[0] in ("man", "theme", "settings", "prompt"):
                 yield from self._arguments(segment[0], word)
                 return
@@ -303,6 +306,51 @@ class ShellCompleter(Completer):
                                       | {n: d for n, d in session.items() if n not in segment[2:]})
         elif segment[1] not in ("set", "-a", "--all"):
             yield from self._complete(word, {n: "environment variable" for n in os.environ if n not in segment})
+
+    def _profile(self, segment: list[str], word: str) -> Iterable[Completion]:
+        """`profile <Tab>`: its actions, then profile names, starters, files and keys where they go."""
+        from shellcraft import profiles
+
+        names = {n: "profile" for n in profiles.names()}
+        if len(segment) == 1:
+            yield from self._complete(word, {
+                "list": "the profiles", "show": "what a profile sets", "use": "switch to a profile",
+                "off": "back to the default setup", "new": "create one (a wizard)", "save": "this session as a profile",
+                "edit": "open a profile file in $EDITOR", "set": "change a profile's description, color, theme…",
+                "env": "a profile's environment variables", "diff": "what two profiles set differently",
+                "copy": "copy a profile", "rename": "rename a profile", "delete": "delete a profile",
+                "reload": "apply the active profile again", "export": "write a profile to a JSON file",
+                "import": "read a profile from a JSON file", "path": "a profile's folder",
+                "starters": "the starter profiles"})
+            return
+        action, prev = segment[1], segment[-1]
+        if prev == "--template":
+            yield from self._complete(word, {n: s["data"]["description"] for n, s in profiles.STARTERS.items()})
+        elif prev == "--from":
+            yield from self._complete(word, names)
+        elif action == "use" and len(segment) == 2:
+            yield from self._complete(word, names | {"default": "the base setup"})
+        elif action in ("show", "edit", "set", "env", "diff", "copy", "rename", "delete", "export", "path", "save") \
+                and len(segment) == 2:
+            extra = {"default": "the base setup"} if action in ("show", "diff") else {}
+            yield from self._complete(word, names | extra)
+        elif action == "diff" and len(segment) == 3:
+            yield from self._complete(word, names | {"default": "the base setup"})
+        elif action == "edit" and len(segment) == 3:
+            yield from self._complete(word, {"rc": "lines run when it starts", "aliases": "its aliases",
+                                             "config": "profile.json"})
+        elif action == "set" and len(segment) == 3:
+            yield from self._complete(word, {"description": "", "color": "#rrggbb", "theme": "",
+                                             "history": "own|shared"})
+        elif action == "set" and len(segment) == 4 and segment[3] == "history":
+            yield from self._complete(word, {"own": "its own history", "shared": "the base history"})
+        elif action == "env" and len(segment) == 3:
+            yield from self._complete(word, {"set": "add a variable", "unset": "remove one"})
+        elif action == "new" and len(segment) >= 3:
+            yield from self._complete(word, {"--template": "start from a starter", "--from": "copy a profile",
+                                             "--empty": "nothing set", "-d": "a description", "--use": "switch to it"})
+        elif action == "import" and len(segment) == 2:
+            yield from self._paths(word, None, CompleteEvent())
 
     def _aliases(self) -> dict[str, str]:
         return aliases.get_all(self.ctx.config) if self.ctx.allow_aliases else {}

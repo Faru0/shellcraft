@@ -26,6 +26,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--modules", type=Path, metavar="DIR",
                    help="modules directory (default: $SHELLCRAFT_MODULES or the bundled modules)")
     p.add_argument("--theme", help="theme for this session (does not change the saved default)")
+    p.add_argument("--profile", metavar="NAME",
+                   help="start in a profile (`profile list`); every start is the default setup without it")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
     p.add_argument("--no-startup", action="store_true", help="don't run the scripts in ~/.shellcraft/startup/")
     p.add_argument("--lite", action="store_true",
@@ -105,6 +107,21 @@ def main(argv: list[str] | None = None) -> int:
             save_config(config)
     except OSError:
         pass  # they keep working from config.json
+    # A profile (--profile, or the one the parent ShellCraft runs in) layers its config on the base.
+    from shellcraft import profiles
+
+    profile_name = args.profile or os.environ.get(profiles.ENV_VAR) or None
+    if profile_name == profiles.DEFAULT:
+        profile_name = None
+    if profile_name:
+        try:
+            config = profiles.effective(config, profile_name)
+        except profiles.ProfileError as exc:
+            print(f"shellcraft: {exc}", file=sys.stderr)
+            return 2
+        os.environ[profiles.ENV_VAR] = profile_name
+    else:
+        os.environ.pop(profiles.ENV_VAR, None)
     settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
     from shellcraft import prefix
 
@@ -129,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if (args.mcp or args.mcp_http) and not _mcp_installed():
         return 1
+    if profile_name and (args.mcp or args.mcp_http):  # a server in a profile: its variables too
+        for var, value in (profiles.load(profile_name).get("env") or {}).items():
+            os.environ[str(var)] = profiles.plain(value)
     if args.mcp_http:
         from shellcraft.mcp_server import AddressError, parse_http_address, serve_http
 
@@ -183,6 +203,9 @@ def main(argv: list[str] | None = None) -> int:
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite,
                        brief=args.brief if args.lite else None)
     with Shell(ctx) as shell:
+        if profile_name and not args.lite:  # its variables, recorded so `profile use` can undo them
+            for warning in profiles.enter_env(ctx, profile_name) + profiles.missing_modules(ctx, profile_name):
+                theme_warnings.append(f"profile {profile_name}: {warning}")
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
         if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite:
@@ -203,6 +226,8 @@ def main(argv: list[str] | None = None) -> int:
                 shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
             if startup.rc_path().is_file():
                 shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
+            if profile_name:
+                profiles.run_rc(ctx, profile_name)  # then the profile's rc
             if startup.background_scripts():
                 shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
         if ctx.brief is not None and hasattr(shell, "show_brief"):
