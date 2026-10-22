@@ -1,21 +1,21 @@
-"""curl (and fetch) on Python requests, against a real HTTP server on 127.0.0.1."""
+"""curl (a builtin, on Python requests), against a real HTTP server on 127.0.0.1."""
 
 import json
 import sys
 
 import pytest
 
+from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, WithStatus, to_text
-from shellcraft.modkit import ModuleError
 from shellcraft.pipeline import PipelineError, run_line
 
 
 @pytest.fixture
-def curl(registry):
-    run = registry.get("curl").run
+def curl(ctx):
+    run = BUILTINS["curl"].fn
 
     def call(*args, stdin=""):
-        return run(list(args), stdin)
+        return run(ctx, list(args), stdin)
     return call
 
 
@@ -139,7 +139,7 @@ def test_cookies_sent_and_saved(curl, web, tmp_path):
 def test_redirects_are_followed_only_with_location(curl, web):
     assert text(curl(f"{web.url}/redirect/2")) == ""  # curl's default: don't follow
     assert echo(curl("-L", f"{web.url}/redirect/2"))["path"] == "/echo"
-    with pytest.raises(ModuleError, match=r"\(47\) Maximum \(1\) redirects followed") as info:
+    with pytest.raises(CommandError, match=r"\(47\) Maximum \(1\) redirects followed") as info:
         curl("-L", "--max-redirs", "1", f"{web.url}/redirect/3")
     assert info.value.status == 47
 
@@ -188,14 +188,14 @@ def test_output_files(curl, web, tmp_path, monkeypatch):
 
 
 def test_binary_is_not_printed(curl, web):
-    with pytest.raises(ModuleError, match="Binary output can mess up your terminal") as info:
+    with pytest.raises(CommandError, match="Binary output can mess up your terminal") as info:
         curl(f"{web.url}/binary")
     assert info.value.status == 23
 
 
 def test_fail_gives_22(curl, web):
     assert text(curl(f"{web.url}/status/404")) == "status 404\n"  # without -f: the body, status 0
-    with pytest.raises(ModuleError, match=r"\(22\) The requested URL returned error: 404") as info:
+    with pytest.raises(CommandError, match=r"\(22\) The requested URL returned error: 404") as info:
         curl("-f", f"{web.url}/status/404")
     assert info.value.status == 22
     result = curl("-fs", f"{web.url}/status/500")
@@ -223,7 +223,7 @@ def test_range_and_max_filesize(curl, web):
     curl("-r", "0-9", f"{web.url}/echo")
     assert web.last["headers"]["Range"] == "bytes=0-9"
     web.big = 5000
-    with pytest.raises(ModuleError, match=r"\(63\) Maximum file size exceeded") as info:
+    with pytest.raises(CommandError, match=r"\(63\) Maximum file size exceeded") as info:
         curl("--max-filesize", "1K", f"{web.url}/big")
     assert info.value.status == 63
 
@@ -231,27 +231,27 @@ def test_range_and_max_filesize(curl, web):
 # ── errors, timeouts, retries, proxies ───────────────────────────────────────
 
 def test_timeout_is_28(curl, web):
-    with pytest.raises(ModuleError, match=r"\(28\) Operation timed out") as info:
+    with pytest.raises(CommandError, match=r"\(28\) Operation timed out") as info:
         curl("-m", "0.3", f"{web.url}/slow")
     assert info.value.status == 28
 
 
 def test_connection_refused_is_7_and_silent_keeps_the_status(curl):
-    with pytest.raises(ModuleError, match=r"\(7\) Failed to connect to 127.0.0.1 port 1"):
+    with pytest.raises(CommandError, match=r"\(7\) Failed to connect to 127.0.0.1 port 1"):
         curl("http://127.0.0.1:1/")
     result = curl("-s", "http://127.0.0.1:1/")
     assert (result.value, result.status) == ("", 7)
 
 
 def test_unknown_and_unsupported_options_are_2(curl):
-    with pytest.raises(ModuleError, match="option --frobnicate: is unknown") as info:
+    with pytest.raises(CommandError, match="option --frobnicate: is unknown") as info:
         curl("--frobnicate", "http://x")
     assert info.value.status == 2
-    with pytest.raises(ModuleError, match=r"not supported yet \(SOCKS proxies"):
+    with pytest.raises(CommandError, match=r"not supported yet \(SOCKS proxies"):
         curl("--socks5", "h:1080", "http://x")
-    with pytest.raises(ModuleError, match="not supported yet"):
+    with pytest.raises(CommandError, match="not supported yet"):
         curl("-x", "socks5://h:1080", "http://x")
-    with pytest.raises(ModuleError, match="requires parameter"):
+    with pytest.raises(CommandError, match="requires parameter"):
         curl("http://x", "-H")
 
 
@@ -273,7 +273,7 @@ def test_an_http_proxy(curl, web):
 def test_env_proxy_and_noproxy(curl, web, monkeypatch):
     monkeypatch.setenv("HTTP_PROXY", web.url)
     assert echo(curl("http://example.invalid/echo"))["path"] == "http://example.invalid/echo"
-    with pytest.raises(ModuleError):  # --noproxy: straight to the (unresolvable) host
+    with pytest.raises(CommandError):  # --noproxy: straight to the (unresolvable) host
         curl("--noproxy", "*", "http://example.invalid/echo")
 
 
@@ -356,7 +356,7 @@ def test_the_prompt_waits_for_a_continued_line():
 def test_cmd_form_conversion():
     from shellcraft import curlpaste
 
-    assert curlpaste.from_cmd("echo ^\"x^\"") == "echo ^\"x^\""  # only curl / fetch lines
+    assert curlpaste.from_cmd("echo ^\"x^\"") == "echo ^\"x^\""  # only curl lines
     assert curlpaste.from_cmd('curl ^"https://x/?a=1^&b=2^" -H ^"A: b^"') == "curl $'https://x/?a=1&b=2' -H $'A: b'"
 
 
@@ -378,30 +378,30 @@ def test_command_runs_the_os_program(ctx):
         run_line("command no-such-program-xyz", ctx)
 
 
-def test_which_shows_the_module_and_the_os_curl(ctx):
+def test_which_shows_the_builtin_and_the_os_curl(ctx):
     import shutil
 
     if not shutil.which("curl"):
         pytest.skip("no OS curl")
     lines = to_text(run_line("which -a curl", ctx).output).splitlines()
-    assert lines[0].startswith("curl: ShellCraft module") and "(shadowed" in lines[1]
+    assert lines[0] == "curl: ShellCraft builtin (info)" and "(shadowed" in lines[1]
 
 
-# ── MCP ──────────────────────────────────────────────────────────────────────
+# ── AI clients ───────────────────────────────────────────────────────────────
 
-def test_the_mcp_curl_tool(registry, web):
-    spec = registry.get("curl")
-    argv = spec.argv({"url": [f"{web.url}/json"], "jq": "a.name", "header": ["X-A: 1"], "location": True})
-    assert to_text(spec.run(argv, "")) == "ada\n"
-    assert web.last["headers"]["X-A"] == "1"
-    assert registry.get("fetch").skill.expose is False
+def test_ai_clients_get_curl_through_the_pipeline_tool(registry, web):
+    import anyio
+    from mcp.client import Client
 
+    from shellcraft.mcp_server import PIPELINE_TOOL, build_server
 
-def test_curl_error_is_a_command_error_with_status():
-    sys.path.insert(0, "modules")
-    from _curl import CurlError
-
-    assert issubclass(CurlError, CommandError) and issubclass(CurlError, ModuleError)
+    async def main():
+        async with Client(build_server(registry)) as client:
+            tools = [t.name for t in (await client.list_tools()).tools]
+            result = await client.call_tool(PIPELINE_TOOL, {"command": f"curl -s {web.url}/json --jq a.name"})
+            return tools, result
+    tools, result = anyio.run(main)
+    assert "curl" not in tools and not result.is_error and result.content[0].text == "ada\n"
 
 
 def test_over_mcp_curl_writes_no_files(registry, web, tmp_path, monkeypatch):

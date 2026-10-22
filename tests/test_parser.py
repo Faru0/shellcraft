@@ -8,8 +8,8 @@ def test_blank_line():
 
 
 def test_simple_pipeline_and_redirect():
-    p = parse("fetch data.csv | filter -i error > out.txt")
-    assert [(c.name, c.args) for c in p.segments] == [("fetch", ["data.csv"]), ("filter", ["-i", "error"])]
+    p = parse("cat data.csv | grep -i error > out.txt")
+    assert [(c.name, c.args) for c in p.segments] == [("cat", ["data.csv"]), ("grep", ["-i", "error"])]
     assert p.redirect.path == "out.txt" and not p.redirect.append
 
 
@@ -20,7 +20,7 @@ def test_append_and_operators_without_spaces():
 
 
 def test_quotes_protect_operators_and_spaces():
-    p = parse('filter "foo|bar > baz" \'it\'\'s\'')
+    p = parse('grep "foo|bar > baz" \'it\'\'s\'')
     assert p.segments[0].args == ["foo|bar > baz", "its"]
 
 
@@ -29,7 +29,7 @@ def test_escaped_double_quote():
 
 
 def test_windows_paths_keep_backslashes():
-    p = parse(r"fetch C:\data\logs.txt > C:\out\x.txt")
+    p = parse(r"cat C:\data\logs.txt > C:\out\x.txt")
     assert p.segments[0].args == [r"C:\data\logs.txt"]
     assert p.redirect.path == r"C:\out\x.txt"
 
@@ -64,7 +64,7 @@ def test_unsupported_operators_are_rejected(line, op):
 
 
 def test_unsupported_operators_are_literal_when_quoted():
-    p = parse("filter 'a;b' \"x && y\" '<tag>' '2>'")
+    p = parse("grep 'a;b' \"x && y\" '<tag>' '2>'")
     assert p.segments[0].args == ["a;b", "x && y", "<tag>", "2>"]
 
 
@@ -76,4 +76,4 @@ def test_two_only_redirects_stderr_at_word_start():
 
 
 def test_single_ampersand_stays_in_urls():
-    assert parse("fetch https://x/?a=1&b=2").segments[0].args == ["https://x/?a=1&b=2"]
+    assert parse("curl https://x/?a=1&b=2").segments[0].args == ["https://x/?a=1&b=2"]

@@ -361,7 +361,7 @@ STARTERS: dict[str, dict[str, Any]] = {
     "bugbounty": {
         "data": {"description": "Bug bounty: one program's scope, recon modules, clickable output",
                  "color": "#ff2a6d", "theme": "dracula", "settings": {"links": True},
-                 "modules": {"enable": ["curl", "fetch", "queryCert", "queryDns", "ip2geo"]},
+                 "modules": {"enable": ["queryCert", "queryDns", "ip2geo"]},
                  "env": {"BB_PROGRAM": "example", "BB_ROOT": "~/bugbounty/$BB_PROGRAM"}},
         "rc": ("# Bug bounty profile: runs after ~/.shellcraft/rc when you `profile use bugbounty`.\n"
                "# Keep each program's notes and output apart:\n"

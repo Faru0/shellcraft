@@ -210,9 +210,9 @@ def test_tr(ctx):
 # ── which / env ──────────────────────────────────────────────────────────────
 
 def test_which(ctx, monkeypatch, tmp_path):
-    assert out("which ls fetch", ctx).splitlines() == [
+    assert out("which ls curl", ctx).splitlines() == [
         "ls: ShellCraft builtin (files)",
-        f"fetch: ShellCraft module ({ctx.registry.get('fetch').path})",
+        "curl: ShellCraft builtin (info)",
     ]
     assert out("which ls nope-xyz", ctx).splitlines()[-1] == "nope-xyz: not found"
     with pytest.raises(PipelineError, match="not found"):

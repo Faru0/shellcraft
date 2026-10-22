@@ -26,7 +26,7 @@ _SPACE = re.compile(r"\s+")
 # diff
 
 Compare two files line by line and show what changed. Either file can be `-` for stdin, so
-`fetch https://x/config | diff saved.conf -` works. Identical files give empty output.
+`curl -s https://x/config | diff saved.conf -` works. Identical files give empty output.
 
 On screen, removed lines are red, added lines green and hunk headers highlighted. Piped or
 redirected output is plain text, so `diff -u old new > change.patch` writes a normal patch.

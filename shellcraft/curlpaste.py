@@ -2,7 +2,7 @@
 
 That form wraps every argument in `^"…^"`, escapes cmd's special characters with `^` (`^&`, `^%`,
 `^^`…), writes a quote inside an argument as `\\^"`, ends continued lines with `^`, and a newline
-inside an argument as `^` + two newlines. `from_cmd()` turns such a `curl` (or `fetch`) line into
+inside an argument as `^` + two newlines. `from_cmd()` turns such a `curl` line into
 the same command in ShellCraft's own quoting (`$'…'` strings), so it runs unchanged.
 
 The bash form ("Copy as cURL (bash)") needs no conversion: the parser understands its `$'…'`
@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import re
 
-_LEADING = re.compile(r"^\s*(curl|fetch)(\.exe)?\s", re.I)
+_LEADING = re.compile(r"^\s*curl(\.exe)?\s", re.I)
 
 
 def looks_like_cmd(line: str) -> bool:
-    """A curl / fetch line in cmd's quoting (Chrome's "Copy as cURL (cmd)")."""
+    """A curl line in cmd's quoting (Chrome's "Copy as cURL (cmd)")."""
     return bool(_LEADING.match(line)) and '^"' in line
 
 

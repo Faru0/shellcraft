@@ -17,6 +17,74 @@ from shellcraft.mcp_server import (
 from shellcraft.watch import ModuleWatcher
 from tests.conftest import OS_UPPER
 
+PICK_PY = """from shellcraft.commands.text import compile_pattern, match_lines
+from shellcraft.modkit import ArgParser
+
+
+def run(args, stdin):
+    parser = ArgParser("pick")
+    parser.add_argument("pattern")
+    parser.add_argument("-i", "--ignore-case", action="store_true")
+    parser.add_argument("-c", "--count", action="store_true")
+    parser.add_argument("-v", "--invert", action="store_true")
+    parser.add_argument("-m", "--max", type=int)
+    opts = parser.parse_args(args)
+    regex = compile_pattern("pick", opts.pattern, opts.ignore_case, False)
+    matches = match_lines(stdin.splitlines(), regex, opts.invert, opts.max)
+    return f"{len(matches)}\\n" if opts.count else "".join(f"{line}\\n" for _, line in matches)
+"""
+
+PICK_SKILL = """summary = "Keep the lines that match a pattern."
+when_to_use = "In tests."
+usage = "pick [-i] [-c] [-v] [-m N] PATTERN"
+examples = ['{"pattern": "x"}']
+
+[[params]]
+name = "pattern"
+metavar = "PATTERN"
+required = true
+description = "A regular expression."
+
+[[params]]
+name = "ignore_case"
+flag = "--ignore-case"
+type = "boolean"
+description = "Ignore case."
+
+[[params]]
+name = "count"
+flag = "--count"
+type = "boolean"
+description = "Only the number of matching lines."
+
+[[params]]
+name = "invert"
+flag = "--invert"
+type = "boolean"
+description = "The lines that don't match."
+
+[[params]]
+name = "max"
+flag = "--max"
+type = "integer"
+metavar = "N"
+description = "Stop after N matches."
+"""
+
+
+@pytest.fixture
+def registry(tmp_path_factory):
+    """The bundled modules plus `pick`, a small offline module with typed params (a test double)."""
+    from tests.conftest import MODULES_DIR
+
+    extra = tmp_path_factory.mktemp("mods")
+    (extra / "pick.py").write_text(PICK_PY)
+    (extra / "pick.skill").write_text(PICK_SKILL)
+    (extra / "pick.md").write_text("# pick\n\nKeep matching lines.\n")
+    reg = ModuleRegistry(MODULES_DIR, user_directory=extra)
+    reg.load()
+    return reg
+
 
 def _call(server, fn):
     async def main():
@@ -28,28 +96,29 @@ def _call(server, fn):
 def test_tools_carry_skill_descriptions(registry):
     result = _call(build_server(registry), lambda c: c.list_tools())
     tools = {t.name: t for t in result.tools}
-    assert {"curl", "filter", PIPELINE_TOOL} <= set(tools) and "fetch" not in tools
-    assert tools["filter"].description == registry.get("filter").skill.to_description()
-    assert "When to use:" in tools["filter"].description
-    assert tools["filter"].input_schema["properties"]["stdin"]["type"] == "string"
+    assert {"pick", "queryDns", PIPELINE_TOOL} <= set(tools)
+    assert not {"curl", "fetch", "filter"} & set(tools)  # curl is a builtin: through the pipeline tool
+    assert tools["pick"].description == registry.get("pick").skill.to_description()
+    assert "When to use:" in tools["pick"].description
+    assert tools["pick"].input_schema["properties"]["stdin"]["type"] == "string"
 
 
 def test_call_module_tool(registry):
     result = _call(build_server(registry),
-                   lambda c: c.call_tool("filter", {"pattern": "b", "ignore_case": True,
+                   lambda c: c.call_tool("pick", {"pattern": "b", "ignore_case": True,
                                                     "stdin": "apple\nBanana\ncherry\n"}))
     assert not result.is_error
     assert result.content[0].text == "Banana\n"
 
 
 def test_module_error_is_tool_error(registry):
-    result = _call(build_server(registry), lambda c: c.call_tool("filter", {"pattern": "(", "stdin": "x"}))
+    result = _call(build_server(registry), lambda c: c.call_tool("pick", {"pattern": "(", "stdin": "x"}))
     assert result.is_error and "invalid pattern" in result.content[0].text
 
 
 def test_pipeline_tool_blocks_redirect_and_system(registry):
     server = build_server(registry)
-    ok = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo a b c | filter -c b"}))
+    ok = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo a b c | grep -c b"}))
     assert ok.content[0].text == "1\n"
     redirect = _call(server, lambda c: c.call_tool(PIPELINE_TOOL, {"command": "echo x > pwned.txt"}))
     assert redirect.is_error and "redirection is disabled" in redirect.content[0].text
@@ -73,18 +142,18 @@ def test_pipeline_tool_allows_readonly_ports_but_not_writes(registry, tmp_path, 
 
 def test_params_become_a_typed_input_schema(registry):
     tools = {t.name: t for t in _call(build_server(registry), lambda c: c.list_tools()).tools}
-    schema = tools["filter"].input_schema
+    schema = tools["pick"].input_schema
     assert schema["required"] == ["pattern"] and schema["additionalProperties"] is False
     assert schema["properties"]["ignore_case"]["type"] == "boolean"
     assert schema["properties"]["max"]["type"] == "integer"
     assert tools["queryDns"].input_schema["properties"]["output"]["enum"] == ["table", "hosts", "ips", "json"]
     assert tools["queryDns"].input_schema["properties"]["domains"]["type"] == "array"
-    assert "Arguments (pass in `args`" not in tools["filter"].description
+    assert "Arguments (pass in `args`" not in tools["pick"].description
 
 
 def test_params_map_to_cli_args(registry):
     result = _call(build_server(registry), lambda c: c.call_tool(
-        "filter", {"pattern": "a", "count": True, "invert": False, "max": 1, "stdin": "a\nb\na\n"}))
+        "pick", {"pattern": "a", "count": True, "invert": False, "max": 1, "stdin": "a\nb\na\n"}))
     assert not result.is_error and result.content[0].text == "1\n"
 
 
@@ -95,7 +164,7 @@ def test_params_map_to_cli_args(registry):
     ({"pattern": "x", "count": "yes"}, "'count' must be a boolean"),
 ])
 def test_bad_params_are_tool_errors(registry, arguments, fragment):
-    result = _call(build_server(registry), lambda c: c.call_tool("filter", arguments))
+    result = _call(build_server(registry), lambda c: c.call_tool("pick", arguments))
     assert result.is_error and fragment in result.content[0].text
 
 
@@ -137,8 +206,8 @@ def test_to_argv_values_starting_with_dash_stay_values():
     assert argv == ["--sep=--data=@secret", "--limit=-1", "--", "-v"]
 
 
-def test_filter_pattern_starting_with_dash_over_mcp(registry):
-    spec = registry.get("filter")
+def test_pattern_starting_with_dash_over_mcp(registry):
+    spec = registry.get("pick")
     assert spec.run(spec.argv({"pattern": "-v"}), "keep -v\ndrop\n") == "keep -v\n"
 
 
@@ -170,16 +239,16 @@ def test_invalid_params_table_stops_the_module_loading(tmp_path):
 def test_man_pages_are_resources(registry):
     async def fn(c):
         listed = await c.list_resources()
-        page = await c.read_resource(MAN_URI + "curl")
+        page = await c.read_resource(MAN_URI + "queryDns")
         builtin = await c.read_resource(MAN_URI + "grep")
         return listed, page, builtin
 
     listed, page, builtin = _call(build_server(registry), fn)
     uris = {str(r.uri) for r in listed.resources}
-    assert {MAN_URI + "curl", MAN_URI + "filter", MAN_URI + "grep"} <= uris
+    assert {MAN_URI + "queryDns", MAN_URI + "curl", MAN_URI + "grep"} <= uris
     assert MAN_URI + "rm" not in uris and MAN_URI + "cd" not in uris  # not usable over MCP
     assert page.contents[0].mime_type == "text/markdown"
-    assert page.contents[0].text == registry.get("curl").doc_md
+    assert page.contents[0].text == registry.get("queryDns").doc_md
     assert "grep" in builtin.contents[0].text
 
 

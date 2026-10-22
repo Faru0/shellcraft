@@ -371,7 +371,7 @@ Print each PATH as an absolute path, `..` and symbolic links resolved.
 
 ```
 realpath .
-realpath ../modules/fetch.py
+realpath ../modules/myip.py
 realpath --relative-to ~ ~/projects/x
 ```
 """)

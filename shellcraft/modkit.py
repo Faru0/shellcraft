@@ -51,12 +51,6 @@ def error_stream(text: str) -> None:
         sys.stderr.flush()
 
 
-def may_write_files() -> bool:
-    """False when the command runs for an AI client over MCP, where commands don't change files
-    (`tee`, `cp`, `rm`… are refused there too). A module with options that write files checks it."""
-    return getattr(_error_sink, "writes", True)
-
-
 def check_cancel() -> None:
     """Raise Cancelled if the command was cancelled; call it between steps of a long loop."""
     if cancelled():

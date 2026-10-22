@@ -58,8 +58,9 @@ shellcraft/
 │   │   ├── files.py        #   ls find tree du touch mkdir cp mv rm
 │   │   ├── diff.py         #   diff (classic + unified, directories)
 │   │   ├── jq.py           #   jq (JSON paths, keys, pretty-print)
+│   │   ├── curl.py         #   curl (curl's command line on requests; the OS one is `command curl`)
 │   │   ├── info.py         #   date which env
-│   │   ├── misc.py         #   printf seq xargs basename dirname realpath stat whoami hostname uname sleep time type export unset
+│   │   ├── misc.py         #   printf seq xargs basename dirname realpath stat whoami hostname uname sleep time command type export unset
 │   │   ├── cond.py         #   test [ [[ true false (exit status only)
 │   │   ├── func.py         #   func (the command, guided creation)
 │   │   ├── profile.py      #   profile (the command and its wizard)
@@ -86,7 +87,7 @@ shellcraft/
 │   ├── review_spool.py     # the review queue shared by the shell and the MCP servers (`mark`, `tell`, `review`)
 │   ├── usage.py            # a command's usage line as a grammar, for Tab completion
 │   └── diagnostics.py      # the `diag` report (hidden until `--diag` or the diagnostics setting)
-├── modules/                # bundled modules: curl and fetch (one engine: _curl.py), filter, myip, ip2geo, queryDns, queryCert, queryCensys
+├── modules/                # bundled modules: myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
 │   ├── demo.py             # records docs/demo.cast (the README demo) from a scripted session; agg makes the GIF
@@ -276,8 +277,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
-| `test_curl.py` | `curl` against a real server on 127.0.0.1 (the `web` fixture): methods, headers, every body option, forms, auth, cookies, redirects, `-I` / `-i` / `-v` / `-w` / `-o`, exit statuses, retries, proxies, pasted Chrome commands (bash and cmd), `$'…'` and `\` continuations, `command`, the MCP tool and no file writes over MCP |
-| `test_fetch.py` | `fetch`: stdin and files, `--head N`, `--jq` and the old `--json PATH`, size limits, its old switches, URLs through the curl engine |
+| `test_curl.py` | `curl` against a real server on 127.0.0.1 (the `web` fixture): methods, headers, every body option, forms, auth, cookies, redirects, `-I` / `-i` / `-v` / `-w` / `-o`, exit statuses, retries, proxies, pasted Chrome commands (bash and cmd), `$'…'` and `\` continuations, `command`, no file writes for AI clients |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script`, `shellcraft ingest` and the `ingest` builtin |
 | `test_background.py` | `cmd &` background jobs and `jobs -f N` |

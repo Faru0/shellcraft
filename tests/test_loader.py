@@ -4,8 +4,8 @@ from shellcraft.loader import ModuleRegistry, SkillInfo
 
 
 def test_sample_modules_have_all_three_files(registry):
-    assert {"fetch", "filter"} <= set(registry.names())
-    for name in ("fetch", "filter"):
+    assert {"myip", "ip2geo"} <= set(registry.names())
+    for name in ("myip", "ip2geo"):
         spec = registry.get(name)
         assert spec.doc_md and spec.skill and spec.skill.parsed
 

@@ -429,12 +429,12 @@ def test_wizard_ai_rejects_extra_changes(tmp_path, monkeypatch):
 
 # ── the two doors: `shellcraft ingest` and the `ingest` builtin ───────────────
 
-FILTER = Path(__file__).resolve().parents[1] / "modules" / "filter.py"
+SAMPLE = Path(__file__).resolve().parents[1] / "modules" / "myip.py"
 
 
 def test_shellcraft_ingest_check_runs_the_checker(capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
-    assert main(["ingest", "check", str(FILTER)]) == 0
+    assert main(["ingest", "check", str(SAMPLE)]) == 0
     assert "1/1 module(s) passed" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         main(["ingest", "--help"])
@@ -450,10 +450,10 @@ def test_ingest_builtin_checks_modules_in_the_shell(tmp_path, monkeypatch, capsy
     modules.mkdir()
     ctx = ShellContext(registry=ModuleRegistry(modules))
     with pytest.raises(PipelineError, match="interactive"):
-        run_line(f"ingest check {FILTER}", ctx)  # not interactive: MCP never gets the wizard
+        run_line(f"ingest check {SAMPLE}", ctx)  # not interactive: MCP never gets the wizard
     ctx.interactive = True
     ctx.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
-    result = run_line(f"ingest check {FILTER}", ctx)
+    result = run_line(f"ingest check {SAMPLE}", ctx)
     assert result.status == 0 and "1/1 module(s) passed" in capsys.readouterr().out
     (modules / "broken.py").write_text("def run(args, stdin):\n    return 1\n")
     with pytest.raises(PipelineError, match="status 1"):

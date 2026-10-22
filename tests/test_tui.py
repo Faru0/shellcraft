@@ -28,7 +28,7 @@ def _ui(width=100, height=10, record=False):
 
 # ── syntax highlighting ──────────────────────────────────────────────────────
 
-def _styles(line, known=("ls", "grep", "fetch")):
+def _styles(line, known=("ls", "grep", "curl")):
     return [(style, text) for style, text in highlight(line, lambda n: n in known) if text.strip()]
 
 

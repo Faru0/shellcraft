@@ -45,8 +45,8 @@ myip 1.1.1.1                          # details for Cloudflare DNS
 myip 8.8.8.8 1.1.1.1 -f asn-org       # owner of each address
 myip 2606:4700:4700::1111 --json      # IPv6, raw JSON
 myip -p 22                            # is my SSH port open to the world?
-fetch ips.txt | myip -f country-iso > countries.tsv
-myip -i | filter -i "country|asn"
+cat ips.txt | myip -f country-iso > countries.tsv
+myip -i | grep -i "country|asn"
 ```
 
 ## Errors
@@ -56,4 +56,4 @@ failures and timeouts are reported the same way.
 
 ## See also
 
-`man ip2geo` (ISP, proxy/hosting flags, domain names), `man fetch`, `man filter`
+`man ip2geo` (ISP, proxy/hosting flags, domain names), `man curl`, `man grep`

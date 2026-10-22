@@ -10,7 +10,7 @@ Markdown: copy them into your client, or point it at them.
 
 | Tool | What it does |
 | --- | --- |
-| every module with a `.skill` | A typed tool (`queryDns`, `ip2geo`, `fetch`, `filter`…) |
+| every module with a `.skill` | A typed tool (`queryDns`, `ip2geo`, `queryCert`…) |
 | `shellcraft_pipeline` | A whole command line in the sandbox (read-only builtins and modules, no files written) |
 | `send_tui_alert` | A one-line alert in your footer: `info`, `warn` or `crit`, with optional data you paste with Alt-v |
 | `get_recent_output` | The last lines of your screen (your commands as `❯ cmd`, and their output) |

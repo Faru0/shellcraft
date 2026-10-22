@@ -475,7 +475,7 @@ With `settings pager off`, pages are always printed.
 ```
 man grep
 man -p echo
-man fetch > fetch.txt
+man curl > curl.txt
 ```
 """
 
@@ -2535,7 +2535,7 @@ never to AI clients over MCP. `which NAME` shows whether a name is an alias.
 alias ls='ls -a -l'
 alias ll='ls -l'
 alias errors='grep -i error'
-fetch app.log | errors | wc -l
+cat app.log | errors | wc -l
 unalias ll
 ```
 """

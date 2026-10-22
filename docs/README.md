@@ -7,7 +7,7 @@
 | [Pipes, scripting and startup](scripting.md) | Pipes and redirection, variables, loops and conditions, functions, exit status and history, aliases, the rc file and startup scripts |
 | [Funcs](funcs.md) | Named scripts of commands, run on demand: `func` to make, run, edit and share them; `settings editor` |
 | [Profiles](profiles.md) | Named setups (bug bounty, OSINT, SOC…): `profile` to create, switch, save, edit and share them |
-| [curl and fetch](curl.md) | HTTP requests with curl's options, pasting a browser's "Copy as cURL", `command curl`, what is not supported yet |
+| [curl](curl.md) | HTTP requests with curl's options, pasting a browser's "Copy as cURL", `command curl`, what is not supported yet |
 | [Subshells, alerts and the clip](subshells.md) | `sub`, `jobs`, the footer, `&`, alerts, the clip register |
 | [Keyboard and mouse](keyboard-and-mouse.md) | Typing helpers, the viewer, every shortcut and mouse action, Linux vs Windows, `diag` |
 | [Settings, API keys and themes](settings.md) | Every setting, API keys, OS commands, themes, command-line options |

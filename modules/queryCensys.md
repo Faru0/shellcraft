@@ -54,7 +54,7 @@ Censys credits. Free and Starter plans allow one request at a time.
 
 ```
 queryCensys host 8.8.8.8
-queryCensys host 8.8.8.8 -o json | fetch --jq resource.services.0.port
+queryCensys host 8.8.8.8 -o json | jq -f .resource.services[0].port
 queryDns example.com -t a -o ips | queryCensys host
 queryCensys cert 3daf28...e4 -o json
 queryCensys search 'host.services.port: 3389 and host.location.country_code: "NL"' -n 50

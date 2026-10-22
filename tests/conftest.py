@@ -142,7 +142,7 @@ def http(monkeypatch) -> FakeHTTP:
     return fake
 
 
-# ── a real HTTP server on 127.0.0.1, for curl / fetch ───────────────────────
+# ── a real HTTP server on 127.0.0.1, for curl ───────────────────────────────
 
 class WebServer:
     """Records every request and answers by path: /echo (the request as JSON), /status/N,

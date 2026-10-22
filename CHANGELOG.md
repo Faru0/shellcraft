@@ -7,13 +7,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
-- **`curl`** (`man curl`, `docs/curl.md`): HTTP requests with curl's own command line, built on
-  Python `requests`. Combined flags (`-fsSL`), methods, headers (add, remove, empty), every `-d`
+- **`curl`**, a builtin (`man curl`, `docs/curl.md`): HTTP requests with curl's own command line,
+  built on Python `requests`. Combined flags (`-fsSL`), methods, headers (add, remove, empty), every `-d`
   form, `--json`, `-F` forms and uploads, `-T`, basic / digest / bearer auth, cookies and cookie
   jars, `-L`, `-k`, http(s) proxies (and `HTTP_PROXY` / `NO_PROXY`), timeouts, `--retry`, `-o` / `-O`,
   `-i`, `-I`, `-v` (to the error stream), `-w`, `-f`, `-r`, and curl's exit statuses. `--jq PATH`
-  picks a JSON field. An MCP tool too (it writes no files there). What curl does that it doesn't yet
-  (SOCKS, HTTP/2, globbing…) is listed in its manual.
+  picks a JSON field. AI clients run it through the pipeline tool, where it writes no files. What
+  curl does that it doesn't yet (SOCKS, HTTP/2, globbing…) is listed in its manual.
 
 - **Pasting a browser's "Copy as cURL"**: the bash form runs as it is (the parser now reads `$'…'`
   strings, and a line ending in `\` continues on the next), and so does Windows' cmd form
@@ -21,6 +21,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 - **`command NAME`**, as in bash: runs the OS program even when a builtin or module has its name
   (`command curl …`); `command -v NAME` prints its path.
+
+### Removed
+
+- **The `fetch` and `filter` modules.** `curl` replaces `fetch` for URLs (`curl URL --jq PATH`,
+  `curl -s URL | head -n 20`), and `cat` reads files. `grep` does everything `filter` did, with the
+  same switches (`-i`, `-v`, `-c`, `-n`, `-F`, `-m`). A `disabled_modules` entry naming either is
+  ignored.
 
 - **Funcs** (`func`, `docs/funcs.md`): named scripts of ShellCraft lines, run on demand like the rc
   file. `func run NAME ARGS` runs the steps in your shell as if typed (`$1`, `$@`), stops at the first
@@ -154,10 +161,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
-- **`fetch` is `curl` under another name**, on `requests` instead of `urllib`. It still reads a
-  file or stdin and keeps `--head N`, `--timeout`, `--max-size` and `--method`; `--json PATH` is now
-  `--jq PATH` (the old spelling still works). AI clients get the `curl` tool instead of `fetch`.
-- A module's `modkit.error_stream()` text follows the command's own `2> FILE` and `2>&1`.
+- `modkit.error_stream()` text, from a module or a builtin, follows the command's own `2> FILE` and
+  `2>&1`.
 - The module checker accepts a module that shadows an OS program on purpose (its page names
   `command NAME`).
 

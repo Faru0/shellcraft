@@ -220,7 +220,8 @@ def test_sleep_and_time(ctx):
 def test_type(ctx):
     assert out("type ls", ctx) == "ls is a shell builtin\n"
     assert out("type -t for", ctx) == "keyword\n"
-    assert out("type fetch", ctx).startswith("fetch is a ShellCraft module")
+    assert out("type curl", ctx) == "curl is a shell builtin\n"
+    assert out("type myip", ctx).startswith("myip is a ShellCraft module")
     assert out("type nosuchcmd", ctx) == "nosuchcmd: not found\n" and ctx.last_status == 1
     ctx.config["aliases"] = {"ll": "ls -l"}
     assert out("type ll", ctx) == "ll is aliased to `ls -l'\n"

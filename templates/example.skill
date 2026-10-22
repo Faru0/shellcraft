@@ -25,7 +25,7 @@ when_to_use = """
 Use to find the most common words or terms in a document, log or web page: keyword
 extraction, spotting repeated errors, a quick summary of what a text is about.
 Pass the text in `stdin`, or give file paths in `files`.
-Do not use it for exact phrase search (use grep/filter) or for counting lines (use wc)."""
+Do not use it for exact phrase search (use grep) or for counting lines (use wc)."""
 
 # The synopsis, exactly as in the .md file.
 usage = "example [-n N] [-i] [--min-length N] [FILE...]"

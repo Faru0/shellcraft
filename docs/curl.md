@@ -1,11 +1,11 @@
-# curl and fetch
+# curl
 
 ← [README](../README.md) · [All docs](README.md)
 
 ShellCraft's `curl` takes curl's command line and makes the request with Python's `requests`, so
 it works the same on Linux, macOS and Windows, with or without curl installed. A command from an
-API's docs, a README or the browser's developer tools runs as it is. `fetch` is the same command
-under another name, with a few extras for reading files.
+API's docs, a README or the browser's developer tools runs as it is. It is a builtin: always
+there, like `grep` or `cat`.
 
 Every option is in `man curl`; this page is the overview.
 
@@ -62,29 +62,21 @@ command -v curl              # where it is
 which -a curl                # both: ShellCraft's module and the OS program
 ```
 
-## fetch
+## Reading files and keeping lines
 
-`fetch` is `curl` with fetch's habits:
-
-- a source without a scheme is a **local file** (`fetch notes.txt`), and no source (or `-`) reads
-  **stdin**;
-- `--head N` keeps the first *N* lines (curl's HEAD request is `-I`);
-- responses and files are limited to 10 MB unless `--max-size` says otherwise;
-- `--json PATH` from older versions still works as `--jq PATH`, and `--timeout`, `--max-size` and
-  `--method` still work.
+`curl` is for URLs. For a local file use `cat`, and for the first lines use `head`:
 
 ```
-fetch server.log | filter -c ERROR
-fetch https://example.com --head 20
-fetch data.json --jq users | filter -i admin
+cat server.log | grep -c ERROR
+curl -s https://example.com | head -n 20
+curl -s https://api.example.com/users --jq data | grep -i admin
 ```
 
 ## AI clients
 
-Over MCP, `curl` is a tool with named parameters (`url`, `method`, `header`, `data`, `json`,
-`form`, `user`, `location`, `proxy`, `jq`…). `fetch` is not offered as a second tool. Commands run
-for an AI client write no files, so `-o`, `-O`, `-D FILE` and `-c` are refused there; the response
-comes back as text.
+AI clients run `curl` through the `shellcraft_pipeline` tool, like any builtin
+(`curl -s https://api.example.com/items --jq data`). Commands run for an AI client write no files,
+so `-o`, `-O`, `-D FILE` and `-c` are refused there; the response comes back as text.
 
 ## Not supported yet
 

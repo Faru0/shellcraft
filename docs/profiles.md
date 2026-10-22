@@ -97,7 +97,7 @@ value: it is asked for with hidden typing when the profile starts.
   "color": "#05d9e8",
   "theme": "nord",
   "settings": {"links": true},
-  "modules": {"enable": ["queryCert", "queryDns"], "disable": ["fetch"]},
+  "modules": {"enable": ["queryCert", "queryDns"], "disable": ["queryCensys"]},
   "env": {"OSINT_ROOT": "~/osint"},
   "history": "own"
 }

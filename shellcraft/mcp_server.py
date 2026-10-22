@@ -278,7 +278,7 @@ PIPELINE_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "command": {
             "type": "string",
-            "description": "A ShellCraft command line such as `fetch data.csv | filter -i error`.",
+            "description": "A ShellCraft command line such as `cat data.csv | grep -i error` or `curl -s URL | jq -s`.",
         },
     },
     "required": ["command"],

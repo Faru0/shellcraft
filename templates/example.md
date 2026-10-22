@@ -31,7 +31,7 @@ are resolved from the current directory.
 example notes.txt
 cat README.md | example -i -n 5
 example --min-length 4 chapter1.txt chapter2.txt > top-words.txt
-fetch https://example.com | example -n 3
+curl -s https://example.com | example -n 3
 ```
 
 ## Errors

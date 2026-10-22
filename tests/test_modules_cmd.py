@@ -16,7 +16,7 @@ def mods(tmp_path, monkeypatch):
     """A private copy of two modules, plus one whose import leaves a marker file."""
     folder = tmp_path / "mods"
     folder.mkdir()
-    for name in ("filter", "myip"):
+    for name in ("ip2geo", "myip"):
         for ext in (".py", ".md", ".skill"):
             shutil.copy(MODULES_DIR / f"{name}{ext}", folder / f"{name}{ext}")
     marker = tmp_path / "imported.txt"
@@ -41,7 +41,7 @@ def text(ctx, line):
 def test_default_lists_enabled_and_names_the_disabled(mods):
     ctx = make_ctx(mods[0], ["myip"])
     listing = text(ctx, "modules")
-    assert "filter" in listing and "noisy" in listing
+    assert "ip2geo" in listing and "noisy" in listing
     assert not any(line.startswith("myip") for line in listing.splitlines())
     assert "1 disabled: myip" in listing
 
@@ -51,7 +51,7 @@ def test_all_lists_every_module_with_its_state(mods):
     for flag in ("-a", "--all", "all"):
         listing = text(ctx, f"modules {flag}").splitlines()
         assert any(line.startswith("off") and "myip" in line and "public IP" in line for line in listing)
-        assert any(line.startswith("on") and "filter" in line for line in listing)
+        assert any(line.startswith("on") and "ip2geo" in line for line in listing)
 
 
 def test_disabled_module_is_never_imported(mods):
@@ -82,12 +82,12 @@ def test_disable_then_enable_saves_the_choice(mods, tmp_path):
 def test_repeats_are_notes_not_errors(mods):
     ctx = make_ctx(mods[0], ["myip"])
     assert "myip is already disabled" in text(ctx, "modules disable myip")
-    assert "filter is already enabled" in text(ctx, "modules enable filter")
+    assert "ip2geo is already enabled" in text(ctx, "modules enable ip2geo")
 
 
 @pytest.mark.parametrize("line, message", [
     ("modules disable grep", "grep is a builtin, not a module"),
-    ("modules disable filtr", "did you mean 'filter'"),
+    ("modules disable ip2ge", "did you mean 'ip2geo'"),
     ("modules enable", "usage: modules enable NAME"),
     ("modules bogus", "usage: modules"),
 ])
@@ -110,11 +110,11 @@ def test_enable_reports_a_module_that_fails_to_load(mods):
 def test_mcp_context_can_list_but_not_toggle(mods):
     ctx = make_ctx(mods[0])
     ctx.allow_stateful = False
-    assert "filter" in text(ctx, "modules")
+    assert "ip2geo" in text(ctx, "modules")
     with pytest.raises(PipelineError) as info:
-        run_line("modules disable filter", ctx)
+        run_line("modules disable ip2geo", ctx)
     assert "not available in this context" in info.value.message
-    assert ctx.registry.get("filter") is not None
+    assert ctx.registry.get("ip2geo") is not None
 
 
 def test_man_and_which_know_disabled_modules(mods):
@@ -133,7 +133,7 @@ def test_startup_reads_disabled_modules_from_config(mods, tmp_path, started):
     (home / "config.json").write_text(json.dumps({"disabled_modules": ["myip"]}))
     cli.main(["--modules", str(mods[0]), "--no-banner"])
     registry = started[0].registry
-    assert registry.get("myip") is None and registry.is_disabled("myip") and registry.get("filter")
+    assert registry.get("myip") is None and registry.is_disabled("myip") and registry.get("ip2geo")
 
 
 def test_mcp_server_hides_disabled_modules(mods):
@@ -149,7 +149,7 @@ def test_mcp_server_hides_disabled_modules(mods):
         async with Client(build_server(registry)) as client:
             return [t.name for t in (await client.list_tools()).tools]
     names = anyio.run(main)
-    assert "filter" in names and "myip" not in names
+    assert "ip2geo" in names and "myip" not in names
 
 
 def test_completion_offers_subcommands_and_the_right_modules(mods):
@@ -164,6 +164,6 @@ def test_completion_offers_subcommands_and_the_right_modules(mods):
         return [c.text for c in completer.get_completions(Document(line, len(line)), CompleteEvent())]
     assert complete("modules ") == ["-a", "disable", "enable"]
     assert complete("modules enable ") == ["myip"]
-    assert complete("modules disable ") == ["filter", "noisy"]
-    assert complete("modules disable filter ") == ["noisy"]
+    assert complete("modules disable ") == ["ip2geo", "noisy"]
+    assert complete("modules disable ip2geo ") == ["noisy"]
     assert complete("for -py x in a { if gr") == ["grep"]

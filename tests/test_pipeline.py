@@ -3,15 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from shellcraft.context import ShellExit
+from shellcraft.context import ShellExit, to_text
 from shellcraft.pipeline import PipelineError, run_line
 from tests.conftest import OS_UPPER
 
 
-def test_chaining_modules(ctx, tmp_path):
+def test_chaining_commands(ctx, tmp_path):
     (tmp_path / "log.txt").write_text("INFO ok\nERROR boom\nerror small\n")
-    result = run_line("fetch log.txt | filter -i error | filter -c boom", ctx)
-    assert result.output == "1\n"
+    result = run_line("cat log.txt | grep -i error | grep -c boom", ctx)
+    assert to_text(result.output) == "1\n"
 
 
 def test_redirect_overwrite_and_append(ctx, tmp_path):
@@ -25,22 +25,22 @@ def test_redirect_overwrite_and_append(ctx, tmp_path):
 
 def test_failure_stops_pipeline(ctx, tmp_path):
     with pytest.raises(PipelineError) as info:
-        run_line("fetch missing.txt | filter x > never.txt", ctx)
-    assert (info.value.index, info.value.total, info.value.name) == (1, 2, "fetch")
+        run_line("cat missing.txt | grep x > never.txt", ctx)
+    assert (info.value.index, info.value.total, info.value.name) == (1, 2, "cat")
     assert not (tmp_path / "never.txt").exists()
 
 
-def test_module_exception_is_wrapped(ctx):
+def test_command_error_is_wrapped(ctx):
     with pytest.raises(PipelineError) as info:
-        run_line("echo x | filter '('", ctx)
+        run_line("echo x | grep '('", ctx)
     assert info.value.index == 2 and "invalid pattern" in info.value.message
 
 
 def test_unknown_command_suggests(ctx):
     ctx.allow_system = False
     with pytest.raises(PipelineError) as info:
-        run_line("filtr x", ctx)
-    assert "did you mean 'filter'" in info.value.message
+        run_line("gerp x", ctx)
+    assert "did you mean 'grep'" in info.value.message
 
 
 def test_cd_pwd_and_previous_dir(ctx, tmp_path):
@@ -68,8 +68,8 @@ def test_restricted_context(ctx):
 
 
 def test_renderable_builtin_flattens_into_pipe(ctx):
-    out = run_line("help | filter -c fetch", ctx).output
-    assert int(out) >= 1
+    out = run_line("help | grep -c curl", ctx).output
+    assert int(to_text(out)) >= 1
 
 
 def test_system_fallback(ctx):

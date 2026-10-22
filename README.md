@@ -178,6 +178,7 @@ one has a manual: `man ls`, `man grep`, …
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `yes` `jq` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | Info | `date` `which` `type` `command` `env` `whoami` `hostname` `uname` |
+| Web | `curl` (curl's command line on Python `requests`; a browser's **Copy as cURL** pastes and runs as it is; `man curl`, [docs/curl.md](docs/curl.md)) |
 
 - **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. Piped or redirected, they output plain text, one item per line.
 - **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program.
@@ -193,9 +194,6 @@ one has a manual: `man ls`, `man grep`, …
 
 | Module | What it does |
 | --- | --- |
-| `curl` | HTTP requests with curl's command line, on Python `requests`: methods, headers, bodies, forms, auth, cookies, redirects, proxies, retries, `-i` / `-v` / `-w`. A **Copy as cURL** from the browser (bash or cmd form) pastes and runs as it is. `command curl` runs the OS program. |
-| `fetch` | `curl` under another name that also reads a file or stdin. `--head N` keeps the first N lines, and `--jq PATH` extracts a field from JSON. |
-| `filter` | Keeps lines matching a regular expression (like `grep`, for stdin). |
 | `myip` | Shows your public IP, or the location/network owner of any IP (via ipconfig.io). `-p PORT` checks whether a port is reachable. |
 | `ip2geo` | Geolocates IPs or domain names: country, city, ISP, ASN, and mobile/proxy/hosting flags (via ip-api.com, no key). |
 | `queryDns` | A domain's DNS records (A, MX, NS, TXT, CNAME) with each IP's owner, country and netblock (DnsDumpster API; **needs a free key**). |

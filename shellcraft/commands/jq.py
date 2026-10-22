@@ -926,7 +926,7 @@ cat org.json | jq -F | grep -i manager    # flat lines to grep
 cat feed.xml | jq -x                      # XML as JSON
 cat feed.xml | jq -x -f .rss.channel.item[*].title   # one title per line
 curl -s https://x/api.xml | jq -x -k      # the root's keys
-fetch https://api.example.com/users | jq -i * -f .address.city | sort | uniq -c
+curl -s https://api.example.com/users | jq -i * -f .address.city | sort | uniq -c
 ```
 
 The shell would normally expand `*` into file names and `[x]` into a pattern; on a `jq` line it

@@ -86,7 +86,7 @@ An OS program is marked *disabled* while the `system_commands` setting is off.
 ```
 which ls
 which -a ls grep
-which fetch git
+which curl git
 ```
 """)
 def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
@@ -190,7 +190,7 @@ the MCP server.
 
 ```
 env set API_URL=https://api.example.com
-fetch $API_URL/health
+curl $API_URL/health
 env
 env -a | grep -i proxy
 env unset API_URL

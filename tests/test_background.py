@@ -42,7 +42,7 @@ def test_split_background():
     assert split_background("grep 'a b' f.txt   &  ") == "grep 'a b' f.txt"
     assert split_background("echo 'x &'") is None  # quoted
     assert split_background("a && b") is None and split_background("ls &> out") is None
-    assert split_background("fetch https://x/?a=1&b=2") is None  # inside a word
+    assert split_background("curl https://x/?a=1&b=2") is None  # inside a word
     assert split_background("&") is None and split_background("seq 3&") is None  # needs a space before
 
 

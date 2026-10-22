@@ -121,8 +121,8 @@ def test_ampersand_is_rejected_not_passed_on(line):
 
 
 def test_ampersand_inside_a_word_is_text():
-    assert parse("fetch 'https://x/?a=1&b=2'").segments[0].args == ["https://x/?a=1&b=2"]
-    assert parse("fetch https://x/?a=1&b=2").segments[0].args == ["https://x/?a=1&b=2"]
+    assert parse("curl 'https://x/?a=1&b=2'").segments[0].args == ["https://x/?a=1&b=2"]
+    assert parse("curl https://x/?a=1&b=2").segments[0].args == ["https://x/?a=1&b=2"]
 
 
 # ── commands ─────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ def test_help_hides_keywords_and_brackets_but_man_still_works(ctx):
     text = to_text(run_line("help", ctx).output)
     names = [line.split()[0] for line in text.splitlines() if line.strip()]
     assert "[" not in names and "[[" not in names and "for" not in names and "if" not in names
-    assert "grep" in names and "fetch" in names
+    assert "grep" in names and "curl" in names
     assert "[ EXPRESSION ]" in to_text(run_line("man [", ctx).output)
     assert "for NAME in" in to_text(run_line("man for", ctx).output)
 
@@ -208,7 +208,7 @@ def test_help_hides_keywords_and_brackets_but_man_still_works(ctx):
 def test_malformed_config_sections_are_dropped_with_a_warning(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     (tmp_path / "config.json").write_text(json.dumps(
-        {"env": [1], "settings": "x", "themes": [], "aliases": 3, "disabled_modules": "fetch", "theme": 5}))
+        {"env": [1], "settings": "x", "themes": [], "aliases": 3, "disabled_modules": "myip", "theme": 5}))
     config = config_mod.load_config()
     settings.export_env(config)  # used to raise AttributeError
     assert config == {"theme": "cyberpunk", "themes": {}}

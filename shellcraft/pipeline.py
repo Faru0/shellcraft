@@ -508,9 +508,28 @@ def stderr_file_sink(redirect: Any) -> Callable[[str], None]:
 _STDERR_STARTED: set[int] = set()  # commands whose `2> FILE` a module already wrote to (later writes append)
 
 
-def _module_stderr(cmd: Command, ctx: ShellContext) -> Callable[[str], None]:
-    """Where a module's modkit.error_stream() text goes: the command's own `2> FILE`, else the
-    shell's error stream."""
+def _with_error_stream(cmd: Command, ctx: ShellContext, call: Callable[[], Any]) -> Any:
+    """Run a builtin or module with modkit.error_stream() (curl's `-v` trace, a warning) going where
+    the command's own `2> FILE` / `2>&1` say: with `2>&1` it comes before the output, as curl -v's does."""
+    from shellcraft import modkit
+
+    previous = getattr(modkit._error_sink, "write", None)
+    merged: list[str] = []
+    modkit._error_sink.write = merged.append if cmd.merge_stderr and cmd.stderr is None else _command_stderr(cmd, ctx)
+    try:
+        result = call()
+    finally:
+        modkit._error_sink.write = previous
+    if merged and not streams.is_stream(result):
+        status = result.status if isinstance(result, WithStatus) else 0
+        combined = "".join(merged) + to_text(result)
+        return WithStatus(combined, status) if status else combined
+    return result
+
+
+def _command_stderr(cmd: Command, ctx: ShellContext) -> Callable[[str], None]:
+    """Where a command's modkit.error_stream() text goes: its own `2> FILE`, else the shell's
+    error stream."""
     redirect = cmd.stderr
     if redirect is None:
         return lambda text: write_stderr(ctx, text)
@@ -626,36 +645,21 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
                 or (builtin.sensitive and not ctx.allow_sensitive)):
             raise CommandError(f"builtin '{cmd.name}' is not available in this context")
         if builtin.streams:
-            return builtin.fn(ctx, cmd.args, Lines.of(stdin))
-        return builtin.fn(ctx, cmd.args, streams.text(stdin))
+            return _with_error_stream(cmd, ctx, lambda: builtin.fn(ctx, cmd.args, Lines.of(stdin)))
+        return _with_error_stream(cmd, ctx, lambda: builtin.fn(ctx, cmd.args, streams.text(stdin)))
 
     spec = ctx.registry.get(cmd.name)
     if spec is not None:
         if ctx.module_filter is not None and not ctx.module_filter(cmd.name):
             raise CommandError(f"module '{cmd.name}' is not available to MCP clients", STATUS_NOT_FOUND)
-        from shellcraft import modkit
 
-        previous = getattr(modkit._error_sink, "write", None)
-        previous_writes = getattr(modkit._error_sink, "writes", True)
-        modkit._error_sink.write = _module_stderr(cmd, ctx)  # modkit.error_stream()
-        modkit._error_sink.writes = ctx.allow_writes  # modkit.may_write_files()
-        merged: list[str] = []
-        if cmd.merge_stderr and cmd.stderr is None:
-            modkit._error_sink.write = merged.append  # `2>&1`: it comes before the output, as curl -v's does
-        try:
+        def call() -> Any:
             result = spec.run(list(cmd.args), streams.text(stdin))
-        finally:
-            modkit._error_sink.write = previous
-            modkit._error_sink.writes = previous_writes
-        if streams.is_stream(result):
-            return result  # a streaming module: its lines flow on as it yields them
-        result = _collect(result)
-        result = "" if result is None else result
-        if merged:
-            status = result.status if isinstance(result, WithStatus) else 0
-            combined = "".join(merged) + to_text(result)
-            return WithStatus(combined, status) if status else combined
-        return result
+            if streams.is_stream(result):
+                return result  # a streaming module: its lines flow on as it yields them
+            result = _collect(result)
+            return "" if result is None else result
+        return _with_error_stream(cmd, ctx, call)
 
     func = _func_command(cmd, ctx)
     if func is not None:  # `recon example.com`: a func whose header says `command: yes`
