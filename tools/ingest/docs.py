@@ -1,7 +1,7 @@
 """Offline drafts of a module's .md (man page) and .skill (MCP description), built from the analysis.
 
 They are correct about what the code shows (options, defaults, choices, error messages, API
-keys) and say TODO where a human — or an AI, see ai.py — has to add judgement (when not to use
+keys) and say TODO where a human — or an AI, see ingest_AI.py — has to add judgement (when not to use
 it, real example output). Both pass the structure checks in check.py.
 """
 

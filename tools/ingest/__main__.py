@@ -19,11 +19,9 @@ Your original script is never modified: the module is written to modules/<name>.
 from __future__ import annotations
 
 import argparse
-import getpass
 import re
 import shutil
 import sys
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,17 +30,14 @@ if str(ROOT) not in sys.path:  # also runnable from anywhere as: python <shellcr
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-from rich.syntax import Syntax
 from rich.text import Text
 
 from shellcraft.stdio import utf8_stdio
-from tools.ingest import ai, docs
+from tools.ingest import docs, ingest_AI, ui
 from tools.ingest.analyze import GUARD, KEEP, Analysis, analyze
 from tools.ingest.check import FAIL, WARN, check_module, name_problem, render
-from tools.ingest.convert import Conversion, ConvertError, convert, extra_changes
-
-console = Console(highlight=False)
+from tools.ingest.convert import ConvertError, convert
+from tools.ingest.ui import say, show_diff, step
 
 
 class Stop(Exception):
@@ -53,23 +48,7 @@ class Stop(Exception):
         self.code = code
 
 
-# ── small UI helpers ────────────────────────────────────────────────────────
-
-def say(text: str = "", style: str = "") -> None:
-    console.print(Text(text, style=style) if style else text, soft_wrap=True)
-
-
-def step(n: int, title: str) -> None:
-    console.print()
-    console.rule(Text(f"{n}. {title}", style="bold cyan"), align="left")
-
-
-def show_diff(diff: str) -> None:
-    if diff.strip():
-        console.print(Syntax(diff, "diff", theme="ansi_dark", word_wrap=True))
-    else:
-        say("(no changes)", "dim")
-
+# ── small helpers ───────────────────────────────────────────────────────────
 
 def default_name(path: Path) -> str:
     name = re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)
@@ -80,36 +59,36 @@ def default_name(path: Path) -> str:
 
 def ask_script(given: str | None) -> Path | None:
     while True:
-        raw = given or Prompt.ask("Path to your Python script")
+        raw = given or ui.ask("Path to your Python script")
         given = None
         path = Path(raw.strip().strip("'\"")).expanduser()
         if path.is_file() and path.suffix == ".py":
             return path.resolve()
         say(f"{path} is not an existing .py file.", "red")
-        if not Confirm.ask("Try another path?", default=True):
+        if not ui.confirm("Try another path?", default=True):
             return None
 
 
 def ask_name(script: Path, modules: Path, given: str | None) -> tuple[str, Path] | None:
     while True:
-        name = (given or Prompt.ask("What should the command be called?", default=default_name(script))).strip()
+        name = (given or ui.ask("What should the command be called?", default=default_name(script))).strip()
         given = None
         if problem := name_problem(name):
             say(problem, "red")
             continue
         if program := shutil.which(name):
             say(f"Note: `{name}` is also the program {program}. Inside ShellCraft the module wins.", "yellow")
-            if not Confirm.ask("Use this name anyway?", default=False):
+            if not ui.confirm("Use this name anyway?", default=False):
                 continue
         target = modules / f"{name}.py"
         if target.resolve() == script:
             say("Your script is already in the modules folder under this name. It will be changed in place; "
                 f"a copy of the original is kept as {name}.py.orig.", "yellow")
-            if not Confirm.ask("Continue?", default=False):
+            if not ui.confirm("Continue?", default=False):
                 continue
         elif target.exists():
             say(f"{target} already exists.", "yellow")
-            if not Confirm.ask("Overwrite it?", default=False):
+            if not ui.confirm("Overwrite it?", default=False):
                 continue
         return name, target
 
@@ -126,7 +105,7 @@ def summarize(analysis: Analysis) -> None:
         ("API keys", ", ".join(analysis.env_vars) or "none"),
     ]
     for label, value in facts:
-        console.print(Text.assemble((f"  {label:<22}", "dim"), value))
+        ui.console.print(Text.assemble((f"  {label:<22}", "dim"), value))
     for note in analysis.notes:
         say(f"  note: {note}", "yellow")
 
@@ -139,37 +118,10 @@ def report_conflicts(analysis: Analysis, extra: str | None = None) -> None:
     if extra:
         lines.append(extra + "\n")
     lines.rstrip()
-    console.print(Panel(lines, title="Conflicts: these must be fixed by hand", border_style="red",
-                        title_align="left"))
+    ui.console.print(Panel(lines, title="Conflicts: these must be fixed by hand", border_style="red",
+                           title_align="left"))
     say("Nothing was changed or written. Fix the lines above in your script, then run the wizard again.",
         "bold")
-
-
-def choose_provider() -> tuple[ai.Provider, str, str] | None:
-    """(provider, api key, model), asking for whatever isn't known."""
-    choice = Prompt.ask("Which AI?", choices=list(ai.PROVIDERS), default="claude")
-    provider = ai.PROVIDERS[choice]
-    key = ai.stored_key(provider)
-    if key:
-        say(f"Using the {provider.env} key from your environment/settings.", "dim")
-    else:
-        key = getpass.getpass(f"{provider.env} (input hidden; used for this run only, not saved): ").strip()
-        if not key:
-            say("No key given.", "red")
-            return None
-    return provider, key, ai.model_for(provider, OPTIONS.model)
-
-
-def ask_ai(provider: ai.Provider, key: str, model: str, prompt: str, what: str) -> str | None:
-    say(f"This sends {what} to {provider.label} ({model}).", "yellow")
-    if not Confirm.ask("Send it?", default=True):
-        return None
-    with console.status(f"waiting for {provider.label}…"):
-        try:
-            return ai.complete(provider, key, model, prompt)
-        except ai.AIError as exc:
-            say(f"AI request failed: {exc}", "red")
-            return None
 
 
 def apply_changes(analysis: Analysis, name: str, script: Path) -> str:
@@ -182,7 +134,7 @@ def apply_changes(analysis: Analysis, name: str, script: Path) -> str:
 
     say("To make your script work as a ShellCraft command, these changes are needed:\n")
     for i, text in enumerate(conversion.steps, start=1):
-        console.print(Text.assemble((f" {i}. ", "bold"), text))
+        ui.console.print(Text.assemble((f" {i}. ", "bold"), text))
     say()
     show_diff(conversion.diff(analysis.source, name))
     say("\nprint() output becomes the command's output and sys.exit() becomes a clean error, through "
@@ -193,7 +145,7 @@ def apply_changes(analysis: Analysis, name: str, script: Path) -> str:
             "  auto    make exactly these changes now (recommended)\n"
             "  manual  I'll edit the script myself (saves a .patch file too)\n"
             "  ai      send the script to Claude or OpenAI to make the changes")
-        mode = Prompt.ask("Choose", choices=["auto", "manual", "ai"], default="auto")
+        mode = ui.ask("Choose", choices=["auto", "manual", "ai"], default="auto")
         if mode == "auto":
             return conversion.source
         if mode == "manual":
@@ -201,73 +153,35 @@ def apply_changes(analysis: Analysis, name: str, script: Path) -> str:
             patch.write_text(conversion.diff(analysis.source, name), encoding="utf-8")
             say(f"\nSaved the changes as {patch} (apply with: patch -p1 < {patch.name}, or by hand from the "
                 "numbered list above).", "bold")
-            say(f"When you're done, run:  python -m tools.ingest {script}  again. It will then see a ready "
+            say(f"When you're done, run:  {OPTIONS.prog} {script}  again. It will then see a ready "
                 "module and go straight to the docs and the check.")
             raise Stop(0)
-        chosen = choose_provider()
-        if chosen is None:
-            continue
-        prompt = ai.convert_prompt(analysis.source, name, conversion.steps, analysis.import_name)
-        reply = ask_ai(*chosen, prompt, "your script's source code")
-        if reply is None:
-            continue
-        try:
-            candidate = ai.parse_code(reply)
-            compile(candidate, f"{name}.py", "exec")
-        except (ai.AIError, SyntaxError) as exc:
-            say(f"The AI's answer can't be used: {exc}", "red")
-            continue
-        if problems := extra_changes(analysis.source, candidate, conversion.source):
-            console.print(Panel("\n".join(problems[:30]), title="The AI changed more than it was asked to",
-                                border_style="red", title_align="left"))
-            say("Refusing to use it: only the listed changes are allowed. Pick auto or manual instead.", "bold")
-            continue
-        say("The AI's version makes only the requested changes:")
-        show_diff(Conversion(candidate).diff(analysis.source, name))
-        return candidate
+        candidate = ingest_AI.convert_with_ai(analysis.source, name, conversion, analysis.import_name, OPTIONS.model)
+        if candidate is not None:
+            return candidate
 
 
 def write_docs(analysis: Analysis, name: str, source: str, modules: Path) -> None:
     md_path, skill_path = modules / f"{name}.md", modules / f"{name}.skill"
     md, skill = docs.markdown(analysis, name), docs.skill(analysis, name)
     for path, text in ((md_path, md), (skill_path, skill)):
-        if path.exists() and not Confirm.ask(f"{path.name} already exists. Replace it with a new draft?",
-                                             default=False):
+        if path.exists() and not ui.confirm(f"{path.name} already exists. Replace it with a new draft?",
+                                            default=False):
             continue
         path.write_text(text, encoding="utf-8")
         say(f"wrote {path}", "green")
 
-    if not Confirm.ask("Have an AI turn the drafts into finished docs (better wording, examples and tests)?",
-                       default=False):
+    if not ui.confirm("Have an AI turn the drafts into finished docs (better wording, examples and tests)?",
+                      default=False):
         say(f"Review the TODO lines in {skill_path.name} when you have a moment.", "dim")
         return
-    chosen = choose_provider()
-    if chosen is None:
-        return
-    current_md = md_path.read_text(encoding="utf-8") if md_path.exists() else md
-    current_skill = skill_path.read_text(encoding="utf-8") if skill_path.exists() else skill
-    reply = ask_ai(*chosen, ai.docs_prompt(source, name, current_md, current_skill), "the module's source code")
-    if reply is None:
-        return
-    try:
-        new_md, new_skill = ai.parse_docs(reply)
-        tomllib.loads(new_skill)
-        if next((ln.strip() for ln in new_md.splitlines() if ln.strip()), "") != f"# {name}":
-            raise ai.AIError(f"the .md doesn't start with '# {name}'")
-    except (ai.AIError, tomllib.TOMLDecodeError) as exc:
-        say(f"The AI's docs can't be used ({exc}); keeping the drafts.", "red")
-        return
-    console.print(Panel(Syntax(new_skill, "toml", theme="ansi_dark", word_wrap=True), title=skill_path.name))
-    if Confirm.ask("Save the AI's .md and .skill?", default=True):
-        md_path.write_text(new_md, encoding="utf-8")
-        skill_path.write_text(new_skill, encoding="utf-8")
-        say(f"wrote {md_path} and {skill_path}", "green")
+    ingest_AI.docs_with_ai(source, name, md_path, skill_path, md, skill, OPTIONS.model)
 
 
 def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
-    console.print(Panel("Turn a Python script into a ShellCraft command.\n"
-                        "Your original file is never changed; the module goes to "
-                        f"{modules}.", title="ShellCraft ingest", border_style="cyan", title_align="left"))
+    ui.console.print(Panel("Turn a Python script into a ShellCraft command.\n"
+                           "Your original file is never changed; the module goes to "
+                           f"{modules}.", title="ShellCraft ingest", border_style="cyan", title_align="left"))
     step(1, "Your script")
     script = ask_script(script_arg)
     if script is None:
@@ -298,7 +212,7 @@ def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
     else:
         new_source = apply_changes(analysis, name, script)
     if new_source != source or target.resolve() != script:
-        if not Confirm.ask(f"Write the module to {target}?", default=True):
+        if not ui.confirm(f"Write the module to {target}?", default=True):
             say("Nothing written.")
             return 1
         modules.mkdir(parents=True, exist_ok=True)
@@ -311,10 +225,10 @@ def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
     write_docs(analysis, name, new_source, modules)
 
     step(6, "Check")
-    smoke = Confirm.ask('Run a quick test call, run([], ""), as part of the check? It executes your code.',
-                        default=True)
+    smoke = ui.confirm('Run a quick test call, run([], ""), as part of the check? It executes your code.',
+                       default=True)
     report = check_module(target, smoke=smoke)
-    render(console, report)
+    render(ui.console, report)
     say()
     if report.failed:
         say("Fix the FAIL lines above, then re-check with:", "bold")
@@ -325,13 +239,13 @@ def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
             say("Note: the module no longer runs as `python file.py` on its own; your original script still does.",
                 "dim")
         say("Re-check any time with:", "bold")
-    say(f"  python -m tools.ingest check {target}")
+    say(f"  {OPTIONS.prog} check {target}")
     return 1 if report.failed else 0
 
 
 # ── command line ────────────────────────────────────────────────────────────
 
-OPTIONS = argparse.Namespace(model=None)
+OPTIONS = argparse.Namespace(model=None, prog="python -m tools.ingest")
 
 
 def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
@@ -353,17 +267,25 @@ def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "py
     failed = 0
     for py in paths:
         report = check_module(py, allow_network=opts.network, timeout=opts.timeout)
-        render(console, report)
+        render(ui.console, report)
         failed += report.count(FAIL) + (report.count(WARN) if opts.strict else 0) > 0
     say(f"{len(paths) - failed}/{len(paths)} module(s) passed", "bold red" if failed else "bold green")
     return 1 if failed else 0
 
 
-def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
+def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: str = "python -m tools.ingest",
+         console: Console | None = None) -> int:
     """`modules_dir` and `prog` are set by `shellcraft ingest` and the `ingest` builtin, which run
-    the same wizard with the user's modules folder (~/.shellcraft/modules) as the default."""
+    the same wizard with the user's modules folder (~/.shellcraft/modules) as the default. The
+    builtin also passes the shell's console, so the wizard prints and asks through it."""
     argv = sys.argv[1:] if argv is None else argv
-    utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
+    if console is None:
+        utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
+    with ui.using(console):
+        return _main(argv, modules_dir, prog)
+
+
+def _main(argv: list[str], modules_dir: Path | None, prog: str) -> int:
     if argv[:1] == ["check"]:
         return check_main(argv[1:], modules_dir, prog)
     default_dir = modules_dir or ROOT / "modules"
@@ -373,7 +295,7 @@ def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: s
     parser.add_argument("--modules", type=Path, default=default_dir, help=f"where modules go (default {default_dir})")
     parser.add_argument("--model", help="AI model to use instead of the default")
     opts = parser.parse_args(argv)
-    OPTIONS.model = opts.model
+    OPTIONS.model, OPTIONS.prog = opts.model, prog
     try:
         return wizard(opts.script, opts.name, opts.modules.resolve())
     except Stop as stop:

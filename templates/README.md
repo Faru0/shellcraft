@@ -114,6 +114,10 @@ ShellCraft's `settings`. Otherwise you're asked for a key, which is used for tha
 never saved. The wizard says what it sends where, and asks first. Pick a model with `--model`, or
 `SHELLCRAFT_CLAUDE_MODEL` / `SHELLCRAFT_OPENAI_MODEL`.
 
+All of the wizard's AI code is one file, `tools/ingest/ingest_AI.py`: the providers and default
+models, the HTTP calls, the two prompts, and the steps that ask before anything is sent. To change
+the AI side (a newer model, another provider, better prompts), edit that file only.
+
 ## Write a module by hand
 
 ```bash

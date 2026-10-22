@@ -98,7 +98,8 @@ shellcraft/
 │       ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
 │       ├── convert.py      # line-based minimal rewrite, manual steps, the extra-change guard
 │       ├── docs.py         # offline .md / .skill drafts
-│       ├── ai.py           # Claude / OpenAI over requests; prompts/ holds the prompt texts
+│       ├── ingest_AI.py    # all of ingest's AI: Claude / OpenAI over requests, the prompts, the wizard's AI steps
+│       ├── ui.py           # the wizard's one console (the shell's own inside ShellCraft), ask / confirm
 │       └── check.py        # the module checker
 ├── docs/                   # the user guide, one page per topic (index: docs/README.md), and the demo recording
 ├── ai/                     # agents and skills for an AI co-pilot (Claude Code), not part of the package

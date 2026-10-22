@@ -166,6 +166,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **ingest's AI code is one file**, `tools/ingest/ingest_AI.py`: the providers and models, the HTTP
+  calls, both prompts (they were `prompts/*.md`) and the wizard's AI steps (choosing the provider and
+  key, asking before sending, converting, finishing the docs). Upgrading the AI side means editing
+  that file only. A typed-in key is now asked on the wizard's own console (hidden).
+
 - `modkit.error_stream()` text, from a module or a builtin, follows the command's own `2> FILE` and
   `2>&1`.
 - The module checker accepts a module that shadows an OS program on purpose (its page names
@@ -218,6 +223,11 @@ and the project uses [semantic versioning](https://semver.org/).
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
 
 ### Fixed
+
+- **`ingest` inside ShellCraft no longer writes over the last line** near the bottom of the screen
+  (seen on Windows). The wizard printed through its own console and asked through Rich's default
+  one, neither of them the shell's; it now prints and asks through the shell's console, like every
+  other command. Its closing hints name `ingest check` there, not `python -m tools.ingest check`.
 
 - **The startup banner is as wide as the window again.** The early banner (printed before the
   shell loads) let a stale `COLUMNS` win, and on Windows fell back to 80 columns when stdout couldn't

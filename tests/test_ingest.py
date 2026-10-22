@@ -14,7 +14,8 @@ from shellcraft.modkit import ModuleError, script
 from shellcraft.pipeline import PipelineError, run_line
 from shellcraft.themes import UI, all_themes
 from tests.conftest import ROOT
-from tools.ingest import ai, docs
+from tools.ingest import docs
+from tools.ingest import ingest_AI as ai
 from tools.ingest.__main__ import main as ingest_main
 from tools.ingest.analyze import GUARD, KEEP, MOVE, analyze
 from tools.ingest.check import FAIL, WARN, check_module, source_flags
@@ -452,10 +453,13 @@ def test_ingest_builtin_checks_modules_in_the_shell(tmp_path, monkeypatch, capsy
     with pytest.raises(PipelineError, match="interactive"):
         run_line(f"ingest check {SAMPLE}", ctx)  # not interactive: MCP never gets the wizard
     ctx.interactive = True
-    ctx.ui = UI(all_themes({})["nord"], Console(file=io.StringIO()))
+    screen = io.StringIO()
+    ctx.ui = UI(all_themes({})["nord"], Console(file=screen))
     result = run_line(f"ingest check {SAMPLE}", ctx)
-    assert result.status == 0 and "1/1 module(s) passed" in capsys.readouterr().out
+    # through the shell's own console (on Windows the console window, inside the footer's rows), not stdout
+    assert result.status == 0 and "1/1 module(s) passed" in screen.getvalue()
+    assert capsys.readouterr().out == ""
     (modules / "broken.py").write_text("def run(args, stdin):\n    return 1\n")
     with pytest.raises(PipelineError, match="status 1"):
         run_line("ingest check --all", ctx)  # --all means this shell's modules folder
-    assert "broken" in capsys.readouterr().out
+    assert "broken" in screen.getvalue()

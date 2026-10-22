@@ -85,7 +85,7 @@ def test_modules_and_help_show_the_origin_and_ingest_writes_to_the_user_folder(t
     import tools.ingest.__main__ as ingest
 
     seen = {}
-    monkeypatch.setattr(ingest, "main", lambda args, modules_dir, prog: seen.update(dir=modules_dir) or 0)
+    monkeypatch.setattr(ingest, "main", lambda args, modules_dir, prog, console: seen.update(dir=modules_dir) or 0)
     ctx.interactive = True
     from rich.console import Console
 
