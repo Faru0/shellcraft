@@ -68,11 +68,6 @@ SETTINGS: dict[str, Setting] = {
         Setting("lazy_modules", "Lazy modules", True,
                 "Import a module's code the first time it runs, not at startup (faster start; "
                 "an import error shows up when the module is first used)."),
-        Setting("keyring", "Keys in the OS keyring", True,
-                "Store API keys in the operating system's keyring (Windows Credential Manager, macOS "
-                "Keychain, Secret Service) when the optional `keyring` package is installed; "
-                "config.json then holds only a marker. Off, or without keyring: plain text in "
-                "config.json. `settings migrate-keys` moves stored keys over."),
         Setting("startup", "Startup scripts", True,
                 "Run the Python scripts in ~/.shellcraft/startup/ when the interactive shell starts "
                 "(man startup)."),
@@ -200,98 +195,32 @@ def env_settings(registry: ModuleRegistry | None) -> dict[str, EnvEntry]:
     return entries
 
 
-# ── where a key lives: the OS keyring (optional `keyring` package) or config.json ──
+# ── where a key lives: config.json ──
 
-KEYRING_SERVICE = "shellcraft"
-KEYRING_MARKER = "@keyring"  # config.json's value for a key kept in the keyring
-_backend: list[Any] = []  # [module or None], filled on first use; tests put a fake in
+OLD_KEYRING_MARKER = "@keyring"  # a key an older version kept in the OS keyring (no longer read)
 
 
-def keyring_backend() -> Any:
-    """The `keyring` module when it is installed and has a real backend, else None."""
-    if not _backend:
-        found: Any = None
-        try:
-            import keyring  # type: ignore[import-not-found]
-
-            backend = keyring.get_keyring()
-            if getattr(backend, "priority", 0) > 0 and "fail" not in type(backend).__module__:
-                found = keyring
-        except Exception:  # noqa: BLE001 — not installed, or no usable backend
-            found = None
-        _backend.append(found)
-    return _backend[0]
-
-
-def use_keyring(config: dict[str, Any]) -> bool:
-    return get(config, "keyring") and keyring_backend() is not None
-
-
-def stored_in_keyring(config: dict[str, Any], name: str) -> bool:
-    return _section(config, "env").get(name) == KEYRING_MARKER
+def from_old_keyring(config: dict[str, Any], name: str) -> bool:
+    """A key an older ShellCraft stored in the OS keyring: it has to be set again."""
+    return _section(config, "env").get(name) == OLD_KEYRING_MARKER
 
 
 def env_get(config: dict[str, Any], name: str) -> str | None:
     value = _section(config, "env").get(name)
-    if value == KEYRING_MARKER:
-        backend = keyring_backend()
-        if backend is None:
-            return None  # stored in a keyring this Python can't reach (keyring not installed)
-        try:
-            value = backend.get_password(KEYRING_SERVICE, name)
-        except Exception:  # noqa: BLE001 — a locked or broken keyring: the key is unavailable
-            return None
+    if value == OLD_KEYRING_MARKER:
+        return None
     return value if isinstance(value, str) and value else None
 
 
 def env_set(config: dict[str, Any], name: str, value: str) -> None:
-    """Store a key: in the keyring when possible (config.json keeps the marker), else in
-    config.json. Raises OSError when the keyring refuses it."""
+    """Store a key in config.json (owner-only once it holds keys) and export it now."""
     if not isinstance(config.get("env"), dict):
         config["env"] = {}
-    if use_keyring(config):
-        try:
-            keyring_backend().set_password(KEYRING_SERVICE, name, value)
-        except Exception as exc:  # noqa: BLE001
-            raise OSError(f"the keyring refused the key: {exc}") from None
-        config["env"][name] = KEYRING_MARKER
-    else:
-        _keyring_delete(config, name)
-        config["env"][name] = value
+    config["env"][name] = value
     _export(name, value)
 
 
-def _keyring_delete(config: dict[str, Any], name: str) -> None:
-    if stored_in_keyring(config, name) and (backend := keyring_backend()) is not None:
-        try:
-            backend.delete_password(KEYRING_SERVICE, name)
-        except Exception:  # noqa: BLE001 — already gone
-            pass
-
-
-def migrate_keys(config: dict[str, Any]) -> list[str]:
-    """Move the keys kept in plain text in config.json into the keyring; returns their names.
-    Raises OSError when the keyring is not available or refuses one."""
-    if keyring_backend() is None:
-        raise OSError("no keyring: pip install keyring (or `pip install shellcraft[keyring]`)")
-    moved = []
-    for name, value in list(_section(config, "env").items()):
-        if isinstance(value, str) and value and value != KEYRING_MARKER:
-            try:
-                keyring_backend().set_password(KEYRING_SERVICE, name, value)
-            except Exception as exc:  # noqa: BLE001
-                raise OSError(f"the keyring refused {name}: {exc}") from None
-            config["env"][name] = KEYRING_MARKER
-            moved.append(name)
-    return moved
-
-
-def plaintext_keys(config: dict[str, Any]) -> list[str]:
-    return sorted(n for n, v in _section(config, "env").items() if isinstance(v, str) and v and v != KEYRING_MARKER)
-
-
 def env_reset(config: dict[str, Any], name: str) -> None:
-    _keyring_delete(config, name)
     _section(config, "env").pop(name, None)
     original = _ORIGINAL_ENV.pop(name, os.environ.get(name))
     if original is None:
@@ -300,47 +229,13 @@ def env_reset(config: dict[str, Any], name: str) -> None:
         os.environ[name] = original
 
 
-_pending_keys: list[Any] = []  # the thread reading keyring-stored keys at startup (export_env background=True)
-
-
-def export_env(config: dict[str, Any], background: bool = False) -> None:
-    """Put every stored value into os.environ (startup, all modes), unless the environment has one.
-    With `background`, the keys kept in the OS keyring (importing `keyring` and asking the OS takes
-    a while) are read in a thread, so the prompt doesn't wait for them; wait_for_keys() joins it,
-    and every command line does that first."""
-    in_keyring = []
+def export_env(config: dict[str, Any]) -> None:
+    """Put every stored value into os.environ (startup, all modes), unless the environment has one."""
     for name in list(_section(config, "env")):
         if isinstance(name, str) and ENV_NAME.match(name) and not os.environ.get(name):
-            if stored_in_keyring(config, name):
-                in_keyring.append(name)
-                continue
             value = env_get(config, name)
             if value:
                 _export(name, value)
-    if not in_keyring:
-        return
-
-    def read() -> None:
-        for name in in_keyring:
-            value = env_get(config, name)
-            if value and not os.environ.get(name):
-                _export(name, value)
-
-    if not background:
-        read()
-        return
-    import threading
-
-    thread = threading.Thread(target=read, daemon=True, name="shellcraft:keyring")
-    _pending_keys.append(thread)
-    thread.start()
-
-
-def wait_for_keys(timeout: float = 10.0) -> None:
-    """Block until the keyring-stored keys are in the environment (a no-op once they are)."""
-    while _pending_keys:
-        _pending_keys[0].join(timeout)
-        _pending_keys.pop(0)
 
 
 def _export(name: str, value: str) -> None:
@@ -352,11 +247,10 @@ def env_status(config: dict[str, Any], name: str) -> tuple[str, str]:
     """(state, text) for display: ("set", "set ••••ab12"), ("environment", …) or ("unset", …)."""
     value = env_get(config, name)
     current = os.environ.get(name)
-    where = " (keyring)" if stored_in_keyring(config, name) else ""
-    if value is None and stored_in_keyring(config, name):
-        return "unset", "in the keyring, which can't be reached"
+    if value is None and from_old_keyring(config, name) and not current:
+        return "unset", "stored in the OS keyring by an older version: set it again"
     if value is not None and current in (None, "", value):
-        return "set", f"set {mask(value)}{where}"
+        return "set", f"set {mask(value)}"
     if current:
         if value is not None:
             return "environment", f"from environment (stored {mask(value)} unused)"

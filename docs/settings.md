@@ -27,7 +27,6 @@ a setting immediately, and `settings reset KEY` restores its default. Everything
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 | `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
-| `keyring` | on | Keep API keys in the OS keyring when the `keyring` package is installed (else plain text in `config.json`). |
 | `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
 | `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
 | `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
@@ -65,7 +64,7 @@ settings reset DNSDUMPSTER_API_KEY    # forget it
 <details>
 <summary>How keys are stored and passed to modules</summary>
 
-- **Storage:** with the optional `keyring` package (`pip install keyring`, or `pip install -e ".[keyring]"`) and a working backend (Windows Credential Manager, macOS Keychain, Secret Service), a key goes into the OS keyring and `config.json` holds only the marker `@keyring`. **Without it, keys are plain text** under `"env"` in `~/.shellcraft/config.json`: mode 600 keeps other users out on Linux and macOS, but **does nothing on Windows**. `settings migrate-keys` moves keys already stored in plain text into the keyring; `settings keyring off` keeps them in `config.json`.
+- **Storage:** a key you set is kept in plain text under `"env"` in `~/.shellcraft/config.json`: mode 600 keeps other users out on Linux and macOS, but **does nothing on Windows**. If you'd rather not keep keys in a file, export them in your shell profile instead: ShellCraft never stores those, and they always win. (A key an older ShellCraft kept in the OS keyring shows as "set it again".)
 - **Delivery:** stored keys are exported as environment variables at startup, in every mode including `--mcp`, and right after you set one. A variable already set in your shell (or an MCP client's `env` block) wins at startup. After `settings reset`, your shell's own value applies again.
 - **History:** `settings NAME VALUE` is saved as `settings NAME ••••`, but prefer the prompt form, `settings NAME`. Start any line with a space to keep it out of the history entirely.
 - `queryCensys` also needs the Censys SDK: `pip install censys-platform`, or `pip install -e ".[censys]"`.

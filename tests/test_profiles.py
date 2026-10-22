@@ -142,21 +142,7 @@ def test_each_profile_keeps_its_own_history(ctx):
     assert switched == ["a"]
 
 
-def test_save_captures_the_session_and_secrets_become_rc_lines(ctx, monkeypatch):
-    class FakeKeyring:
-        store: dict = {}
-
-        def get_password(self, s, n):
-            return self.store.get((s, n))
-
-        def set_password(self, s, n, v):
-            self.store[(s, n)] = v
-
-        def delete_password(self, s, n):
-            self.store.pop((s, n))
-
-    from shellcraft import settings
-    monkeypatch.setattr(settings, "_backend", [FakeKeyring()])
+def test_save_captures_the_session_and_secrets_become_rc_lines(ctx):
     out(ctx, "theme dracula")
     out(ctx, "settings links on")
     out(ctx, "env set TARGET=acme.test")

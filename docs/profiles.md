@@ -50,7 +50,7 @@ keeps the value in brackets and Ctrl-C stops without creating anything:
 3. the theme;
 4. modules to turn off, and modules to turn on;
 5. environment variables: `NAME=VALUE`, or just `NAME` for a secret (asked when the profile starts,
-   then kept in the OS keyring);
+   with hidden typing);
 6. aliases: `NAME=COMMAND`;
 7. its own command history or the shared one, and the color of its prompt badge;
 
@@ -62,7 +62,7 @@ Customize a session the usual way (`theme`, `settings`, `modules disable`, `env 
 then `profile save NAME` keeps it: the theme, the settings that differ from their defaults, the
 prompt, the modules off, the variables set with `env set` / `export` / an rc, and the active
 profile's rc and aliases. A secret is saved as an `env set -s NAME` line in the rc, never as a
-value; its value goes to the OS keyring.
+value: it is asked for with hidden typing when the profile starts.
 
 ## While a profile is active
 

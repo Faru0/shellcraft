@@ -80,9 +80,9 @@ ShellCraft always starts in the default setup; `shellcraft --profile NAME` start
 
 ## Secrets
 
-A profile never stores a secret's value. Put `env set -s NAME` in its rc: the first start asks
-for it with hidden typing and the OS keyring keeps it; `profile save` writes such lines for the
-secrets you set in the session.
+A profile never stores a secret's value. Put `env set -s NAME` in its rc: each start asks for it
+with hidden typing (or export it in your own shell, and ShellCraft sees it as is); `profile save`
+writes such lines for the secrets you set in the session.
 
 ## Examples
 
@@ -352,8 +352,8 @@ def _wizard(ctx: ShellContext, name: str, description: str | None, overwrite: bo
         data["modules"] = modules
     env = dict(data.get("env") or {})
     secrets: list[str] = []
-    _say(ctx, "Environment variables: NAME=VALUE for a plain one, just NAME for a secret (asked when the "
-              "profile starts, then kept in the OS keyring). An empty line finishes."
+    _say(ctx, "Environment variables: NAME=VALUE for a plain one, just NAME for a secret (asked with hidden "
+              "typing when the profile starts). An empty line finishes."
          + (f" Already set: {', '.join(env)}." if env else ""))
     while True:
         entry = _ask(ctx, "  variable")

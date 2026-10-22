@@ -7,9 +7,8 @@ lite subshell and `mcp start` server started afterwards sees them. They last for
 ShellCraft's value wins over the host's: `env set PATH=…` replaces it, and `env unset PATH`
 brings the host's value back (the bash `unset PATH` removes it for the session instead).
 
-A secret (`env set -s NAME`) is masked wherever it is shown, never reaches the history file, and
-is kept in the OS keyring (service `shellcraft-env`) when one is available, so an rc line
-`env set -s NAME` asks for it once and then finds it there.
+A secret (`env set -s NAME`) is masked wherever it is shown and never reaches the history file;
+with no value it is asked for with hidden typing (in an rc file: at every start).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from dataclasses import dataclass
 from typing import Any
 
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-KEYRING_SERVICE = "shellcraft-env"
 
 
 @dataclass
@@ -95,45 +93,3 @@ def shown(entry: EnvVar) -> str:
 
     value = os.environ.get(entry.name, "")
     return mask(value) if entry.secret else value
-
-
-# ── secrets in the OS keyring ────────────────────────────────────────────────
-
-def _keyring(config: dict[str, Any]) -> Any:
-    from shellcraft import settings
-
-    return settings.keyring_backend() if settings.use_keyring(config) else None
-
-
-def keyring_get(config: dict[str, Any], name: str) -> str | None:
-    backend = _keyring(config)
-    if backend is None:
-        return None
-    try:
-        value = backend.get_password(KEYRING_SERVICE, name)
-    except Exception:  # noqa: BLE001 — a locked or broken keyring: ask instead
-        return None
-    return value or None
-
-
-def keyring_set(config: dict[str, Any], name: str, value: str) -> bool:
-    """Keep a secret for the next `env set -s NAME`; False when there is no keyring (or it refused)."""
-    backend = _keyring(config)
-    if backend is None:
-        return False
-    try:
-        backend.set_password(KEYRING_SERVICE, name, value)
-    except Exception:  # noqa: BLE001
-        return False
-    return True
-
-
-def keyring_delete(config: dict[str, Any], name: str) -> bool:
-    backend = _keyring(config)
-    if backend is None:
-        return False
-    try:
-        backend.delete_password(KEYRING_SERVICE, name)
-    except Exception:  # noqa: BLE001 — nothing kept
-        return False
-    return True

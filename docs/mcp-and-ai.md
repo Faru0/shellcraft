@@ -20,7 +20,7 @@ To keep using the shell while the HTTP server runs, start it from inside the she
 `mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
 stop it, and the prompt shows `● mcp :38765` while it runs) and prints the
 `claude mcp add … --header "Authorization: Bearer …"` line to use. The token is made once and
-**saved** (in the OS keyring when there is one, else in `config.json`), and so is the address: every
+**saved** in `config.json` (owner-only), and so is the address: every
 `mcp start`, in any session, uses the same ones, so a client added once keeps working. `mcp show`
 prints the token and the `claude mcp add` line again; `mcp token rotate` makes a new token (a
 running server restarts with it) and prints `claude mcp remove shellcraft` and the new `claude mcp

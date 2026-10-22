@@ -1506,7 +1506,7 @@ bash's `~/.bashrc`. Each line runs as if you typed it at the prompt, so anything
 # ~/.shellcraft/rc
 theme nord
 env set PROJECT_ROOT=~/projects   # environment variables for modules and programs (man env)
-env set -s GITHUB_TOKEN           # a secret: asked once, then the OS keyring has it
+env set -s GITHUB_TOKEN           # a secret: asked with hidden typing at each start
 cd ~/projects
 alert -l info "welcome back"
 sub find ~/projects -name "*.log" -mtime -1
@@ -2720,10 +2720,10 @@ mcp log [N]                  # the last N lines of its log (default 20)
 
 The server only listens on this machine (`127.0.0.1`, `localhost` or `::1`), and every request
 must carry a **bearer token**, so other local users and processes can't use it. The token is made
-once and **saved** (in the OS keyring when there is one, else in `~/.shellcraft/config.json`, like
-an API key), so every `mcp start`, in any session, uses the same one and a client added once keeps
-working. `mcp show` prints it with the `claude mcp add` line; `mcp token rotate` makes a new one
-(do it if the old one leaked) and prints what to run in your client:
+once and **saved** in `~/.shellcraft/config.json` (owner-only, like an API key), so every `mcp
+start`, in any session, uses the same one and a client added once keeps working. `mcp show` prints
+it with the `claude mcp add` line; `mcp token rotate` makes a new one (do it if the old one
+leaked) and prints what to run in your client:
 
 ```
 claude mcp remove shellcraft
@@ -2771,13 +2771,13 @@ def _uptime(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
-MCP_TOKEN_KEY = "SHELLCRAFT_MCP_TOKEN"  # where the server's bearer token is kept (the keyring when there is one)
+MCP_TOKEN_KEY = "SHELLCRAFT_MCP_TOKEN"  # the server's bearer token, kept in config.json like an API key
 
 
 def _mcp_token(ctx: ShellContext, rotate: bool = False) -> str:
     """The MCP server's bearer token: the saved one, so clients keep working across `mcp start`s
-    and shell sessions; a new one the first time, or with `rotate`. Kept like an API key: in the
-    OS keyring when there is one, else in config.json."""
+    and shell sessions; a new one the first time, or with `rotate`. Kept like an API key, in
+    config.json."""
     import secrets
 
     token = None if rotate else settings.env_get(ctx.config, MCP_TOKEN_KEY)
@@ -2956,7 +2956,6 @@ settings reset KEY            # back to the default
 settings NAME                 # enter an API key (typing is hidden)
 settings NAME VALUE           # set an API key in one go
 settings reset NAME           # forget a stored API key
-settings migrate-keys         # move keys kept in plain text into the OS keyring
 settings prefix_key [KEY]     # the subshell prefix key (Ctrl-] by default); alone: the choices
 settings editor [COMMAND]     # the editor for func edit / profile edit (code, vim, nano…); alone: the one in use
 ```
@@ -2977,12 +2976,11 @@ shell) or `not set`. A stored key is exported to the environment when ShellCraft
 (the shell and `--mcp` alike) and replaces a value from your shell. `settings reset NAME`
 forgets the stored key and brings back your shell's value, if it had one.
 
-**Where keys are kept.** With the optional `keyring` package installed (`pip install keyring`, or
-the `keyring` extra) and a working backend (Windows Credential Manager, macOS Keychain, Secret
-Service on Linux desktops), a key you set goes into the OS keyring and `config.json` keeps only
-the marker `@keyring`; the `keyring` setting turns that off. `settings migrate-keys` moves keys
-already in `config.json` over. Without the keyring, keys are kept in **plain text** in
-`config.json`: mode 600 keeps other users out on Linux and macOS, but does nothing on Windows.
+**Where keys are kept.** A key you set is kept in `~/.shellcraft/config.json`, in plain text:
+mode 600 keeps other users out on Linux and macOS (it does nothing on Windows). A key you export
+in your own shell is never stored and always wins, so if you'd rather not keep keys in a file,
+export them in your shell profile instead. (A key an older ShellCraft kept in the OS keyring shows
+as "set it again".)
 `settings NAME VALUE` is saved to history as `settings NAME ••••`, but prefer `settings NAME`,
 which asks for the value without echoing it.
 
@@ -3005,20 +3003,6 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     keys = settings.env_settings(ctx.registry)
     if not args:
         return _settings_table(ctx, keys)
-
-    if args == ["migrate-keys"]:
-        try:
-            moved = settings.migrate_keys(ctx.config)
-        except OSError as exc:
-            raise CommandError(f"settings: {exc}") from None
-        if not moved:
-            return Text("no keys in plain text: nothing to move", style="sc.muted")
-        msg = Text.assemble(("✓ ", "sc.success"), f"moved to the keyring: {', '.join(moved)}")
-        try:
-            save_config(ctx.config)
-        except OSError as exc:
-            msg.append(f"  (not saved: {exc})", style="sc.warning")
-        return msg
 
     if args[0] == prefix.CONFIG_KEY or args[:2] == ["reset", prefix.CONFIG_KEY]:
         return _prefix_key(ctx, args)
@@ -3051,8 +3035,7 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             settings.env_set(ctx.config, entry.name, value.strip())
         except OSError as exc:
             raise CommandError(f"settings: {exc}") from None
-        where = "set in the keyring" if settings.stored_in_keyring(ctx.config, entry.name) else "set"
-        return _store_env(ctx, entry, where, value.strip())
+        return _store_env(ctx, entry, "set", value.strip())
 
     if args[0] == AI_RUN_KEY:  # the session grant: never saved
         if len(args) != 2:
@@ -3201,11 +3184,6 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
                       Text(envvars.shown(e), style="sc.accent", overflow="fold", justify="left"),
                       "Set with env set (or export); gone at exit. Put the env set line in ~/.shellcraft/rc "
                       "to set it at every start; env unset NAME (or settings reset NAME) removes it.")
-    plain = settings.plaintext_keys(ctx.config)
-    if plain and settings.use_keyring(ctx.config):
-        table.caption = (f"⚠ {len(plain)} key(s) in plain text in config.json: "
-                         "settings migrate-keys moves them to the keyring")
-        table.caption_style = "sc.warning"
     return table
 
 

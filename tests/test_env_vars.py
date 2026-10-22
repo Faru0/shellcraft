@@ -1,5 +1,5 @@
 """`env`: the environment variables set in this session (env set / unset / export / the rc file),
-who sees them, secrets in the keyring, and the `settings` section."""
+who sees them, secrets, and the `settings` section."""
 
 import io
 import os
@@ -110,31 +110,14 @@ def test_the_screen_table_prints_long_values_whole(ctx):
     assert "".join(cells) == long_value and "…" not in screen and "typed" in screen  # wrapped in the cell, not cut
 
 
-def test_secrets_are_masked_kept_in_the_keyring_and_out_of_history(ctx, monkeypatch):
-    class FakeKeyring:
-        store: dict = {}
-
-        def get_password(self, service, name):
-            return self.store.get((service, name))
-
-        def set_password(self, service, name, value):
-            self.store[(service, name)] = value
-
-        def delete_password(self, service, name):
-            self.store.pop((service, name))
-
-    backend = FakeKeyring()
-    monkeypatch.setattr(settings, "_backend", [backend])
+def test_secrets_are_masked_and_kept_out_of_history(ctx, monkeypatch):
     out(ctx, "env set -s SC_TOKEN tok-1234567890abcd")
     assert os.environ["SC_TOKEN"] == "tok-1234567890abcd"
     assert out(ctx, "env") == "SC_TOKEN=••••abcd\n"  # masked, piped too
-    assert backend.store[(envvars.KEYRING_SERVICE, "SC_TOKEN")] == "tok-1234567890abcd"
     out(ctx, "env unset SC_TOKEN")
-    out(ctx, "env set -s SC_TOKEN")  # no value: the keyring has it, nothing asked
-    assert os.environ["SC_TOKEN"] == "tok-1234567890abcd"
-    assert "the keyring forgot SC_TOKEN" in out(ctx, "env unset -k SC_TOKEN")
+    assert "SC_TOKEN" not in os.environ
     with pytest.raises(PipelineError, match="no terminal"):
-        run_line("env set -s SC_TOKEN", ctx)  # nothing kept and nothing to ask on
+        run_line("env set -s SC_TOKEN", ctx)  # nothing to ask on (never stored anywhere)
     asked = []
 
     def fake_ask(c, prompt, hidden=False):

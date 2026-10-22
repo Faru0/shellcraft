@@ -315,8 +315,8 @@ def diff(a: str | None, b: str | None) -> list[tuple[str, str, str]]:
 def snapshot(ctx: Any) -> tuple[dict[str, Any], str, str]:
     """(profile.json data, rc, aliases) capturing the session's customizations: the theme, the
     settings that differ from their defaults, the prompt, the modules turned off, the variables
-    set with `env set` / `export` / an rc (secrets become `env set -s NAME` rc lines, their values
-    kept in the keyring), and the active profile's rc and aliases."""
+    set with `env set` / `export` / an rc (secrets become `env set -s NAME` rc lines, asked for when
+    the profile starts; their values are never stored), and the active profile's rc and aliases."""
     from shellcraft import envvars
     from shellcraft.config import load_config
     from shellcraft.settings import SETTINGS
@@ -341,8 +341,7 @@ def snapshot(ctx: Any) -> tuple[dict[str, Any], str, str]:
     env: dict[str, str] = {}
     for entry in envvars.session(ctx):
         value = os.environ.get(entry.name, "")
-        if entry.secret:
-            envvars.keyring_set(ctx.config, entry.name, value)
+        if entry.secret:  # never stored: the profile asks for it when it starts
             if f"env set -s {entry.name}" not in rc:
                 secrets.append(f"env set -s {entry.name}")
         else:
@@ -350,8 +349,8 @@ def snapshot(ctx: Any) -> tuple[dict[str, Any], str, str]:
     if env:
         data["env"] = env
     if secrets:
-        rc = (rc.rstrip("\n") + "\n" if rc.strip() else "") + "# secrets: asked once, then kept in the OS keyring\n" \
-            + "\n".join(secrets) + "\n"
+        head = rc.rstrip("\n") + "\n" if rc.strip() else ""
+        rc = head + "# secrets: asked with hidden typing when the profile starts\n" + "\n".join(secrets) + "\n"
     aliases_text = read_text(current, "aliases") if current else ""
     return data, rc, aliases_text
 
@@ -367,7 +366,7 @@ STARTERS: dict[str, dict[str, Any]] = {
         "rc": ("# Bug bounty profile: runs after ~/.shellcraft/rc when you `profile use bugbounty`.\n"
                "# Keep each program's notes and output apart:\n"
                "mkdir -p $BB_ROOT\ncd $BB_ROOT\n"
-               "# env set -s H1_API_TOKEN          # a platform token: asked once, kept in the keyring\n"),
+               "# env set -s H1_API_TOKEN          # a platform token, asked with hidden typing at start\n"),
         "aliases": ("alias subs='queryCert -s'\nalias dns='queryDns'\nalias geo='ip2geo'\n"
                     "alias headers='fetch --head 40'\n"),
     },

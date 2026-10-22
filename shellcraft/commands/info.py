@@ -125,7 +125,7 @@ def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return lines_out(lines)
 
 
-ENV_USAGE = "env [-a | NAME...] | env set [-s] NAME[=VALUE] [VALUE] | env unset [-k] NAME..."
+ENV_USAGE = "env [-a | NAME...] | env set [-s] NAME[=VALUE] [VALUE] | env unset NAME..."
 
 
 @builtin("env", "ShellCraft's environment variables: list, set, unset (-a: all of them)", ENV_USAGE,
@@ -144,10 +144,9 @@ env -a                       # every environment variable, NAME=value (also --al
 env NAME...                  # just those, from the whole environment
 env set NAME=VALUE           # set one for this session (several: env set A=1 B=2)
 env set NAME VALUE           # the same
-env set -s NAME              # a secret: asks with hidden typing (or finds it in the OS keyring)
+env set -s NAME              # a secret: asks with hidden typing
 env set -s NAME VALUE        # a secret in one go (the history keeps it masked)
 env unset NAME...            # drop ShellCraft's value; a value your shell had comes back
-env unset -k NAME            # ... and forget the secret kept in the keyring
 ```
 
 ## Who sees them
@@ -171,7 +170,7 @@ Variables last for the session. To set them at every start, put the lines in
 
 ```
 env set PROJECT_ROOT=~/projects
-env set -s GITHUB_TOKEN          # asks once, then the OS keyring has it
+env set -s GITHUB_TOKEN          # a secret: asked with hidden typing at each start
 ```
 
 `env` shows where each one came from (`typed`, `rc`, `export`), and `settings` lists them too,
@@ -179,9 +178,10 @@ under "Environment (this session)".
 
 ## Secrets
 
-`env set -s` masks the value everywhere (`••••ab12`), keeps `env set -s NAME VALUE` out of the
-history file, and stores the secret in the OS keyring when the `keyring` package and setting are
-on, so the next `env set -s NAME` finds it without asking. Without a keyring it asks each time.
+`env set -s` masks the value everywhere (`••••ab12`) and keeps `env set -s NAME VALUE` out of the
+history file. With no value it asks with hidden typing (in an rc file: at every start). A
+variable you already export in your own shell needs none of this: ShellCraft and everything it
+runs see it as it is.
 
 Environment variables often hold secrets, so `env` is **not** available to AI clients through
 the MCP server.
@@ -252,8 +252,6 @@ def _env_set(ctx: ShellContext, args: list[str]) -> Any:
         if not envvars.valid(name):
             raise CommandError(f"env set: '{name}': not a valid name (letters, digits and _, not first a digit)")
         entry = envvars.set_var(ctx, name, value, secret=secret)
-        if secret and value:
-            envvars.keyring_set(ctx.config, name, value)
         line = Text.assemble(("✓ ", "sc.success"), (name, "sc.path"),
                              " set for this session (modules, programs and new subshells see it)")
         if envvars.overrides(entry):
@@ -267,9 +265,6 @@ def _env_set(ctx: ShellContext, args: list[str]) -> Any:
 
 
 def _secret_value(ctx: ShellContext, name: str) -> str:
-    kept = envvars.keyring_get(ctx.config, name)
-    if kept:
-        return kept
     from shellcraft import ask
 
     try:
@@ -284,21 +279,15 @@ def _secret_value(ctx: ShellContext, name: str) -> str:
 def _env_unset(ctx: ShellContext, args: list[str]) -> Any:
     from rich.text import Text
 
-    forget = args[:1] == ["-k"]
-    if forget:
-        args = args[1:]
     if not args:
-        raise CommandError("env unset: usage: env unset [-k] NAME...")
+        raise CommandError("env unset: usage: env unset NAME...")
     lines = []
     for name in args:
         how = envvars.unset_var(ctx, name)
-        kept = envvars.keyring_delete(ctx.config, name) if forget else False
         if how == "restored":
             lines.append(Text.assemble(("✓ ", "sc.success"), (name, "sc.path"), " restored to your shell's value"))
         elif how == "removed":
             lines.append(Text.assemble(("✓ ", "sc.success"), (name, "sc.path"), " removed"))
-        elif not kept:
+        else:
             lines.append(Text(f"{name}: not set in this session (`env` lists them)", style="sc.muted"))
-        if kept:
-            lines.append(Text.assemble(("✓ ", "sc.success"), f"the keyring forgot {name}"))
     return Text("\n").join(lines)

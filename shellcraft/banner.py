@@ -21,7 +21,7 @@ def core_warnings() -> list[str]:
     """What the shell itself is missing, shown in the banner like a module's missing import:
     optional packages whose absence takes a feature away (pywinpty on Windows: no subshells on
     a pseudo-terminal, so no footer; pyte: no screen redraw when switching subshells; mcp: no
-    MCP server; keyring: keys in plain text)."""
+    MCP server)."""
     import importlib.util
 
     def missing(name: str) -> bool:
@@ -41,9 +41,6 @@ def core_warnings() -> list[str]:
     if missing("mcp"):
         found.append(f"the 'mcp' package is not installed: `mcp start` and --mcp won't work — "
                      f"{python} -m pip install mcp")
-    if missing("keyring"):
-        found.append("keyring is not installed: API keys are kept in plain text in config.json — "
-                     f"{python} -m pip install keyring")
     return found
 
 

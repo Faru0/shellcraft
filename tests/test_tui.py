@@ -545,11 +545,11 @@ def test_banner_warns_about_missing_core_packages(tmp_path, monkeypatch):
 
     from shellcraft.banner import core_warnings, render_banner
 
-    gone = {"winpty", "pyte", "mcp", "keyring"}
+    gone = {"winpty", "pyte", "mcp", "keyring"}  # keyring: never asked about any more
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name in gone else object())
     monkeypatch.setattr(sys, "platform", "win32")
     found = core_warnings()
-    assert [w.split(" ")[0] for w in found] == ["pywinpty", "pyte", "the", "keyring"]
+    assert [w.split(" ")[0] for w in found] == ["pywinpty", "pyte", "the"]
     assert "no footer" in found[0] and "pip install pywinpty" in found[0] and "mcp start" in found[2]
     monkeypatch.setattr(sys, "platform", "linux")
     assert not any(w.startswith("pywinpty") for w in core_warnings())  # pywinpty is Windows only

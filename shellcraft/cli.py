@@ -129,9 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[profiles.ENV_VAR] = profile_name
     else:
         os.environ.pop(profiles.ENV_VAR, None)
-    # API keys set with `settings NAME`, for modules in every mode; the interactive shell reads the
-    # keyring-stored ones in the background (the first command waits for them, if it must).
-    settings.export_env(config, background=not (args.mcp or args.mcp_http))
+    settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
     from shellcraft import prefix
 
     prefix.from_config(config)  # the subshell prefix key (`settings prefix_key`)

@@ -310,10 +310,9 @@ class ShellCompleter(Completer):
                 options |= {n: "environment variable" for n in os.environ}
             yield from self._complete(word, options | session)
         elif segment[1] == "set" and len(segment) == 2:
-            yield from self._complete(word, {"-s": "a secret: masked, hidden typing, kept in the keyring"} | session)
+            yield from self._complete(word, {"-s": "a secret: masked, hidden typing, not in history"} | session)
         elif segment[1] == "unset":
-            yield from self._complete(word, ({"-k": "also forget the keyring's copy"} if len(segment) == 2 else {})
-                                      | {n: d for n, d in session.items() if n not in segment[2:]})
+            yield from self._complete(word, {n: d for n, d in session.items() if n not in segment[2:]})
         elif segment[1] not in ("set", "-a", "--all"):
             yield from self._complete(word, {n: "environment variable" for n in os.environ if n not in segment})
 

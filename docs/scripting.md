@@ -44,7 +44,7 @@ out of the way until you ask for it:
 
 ```
 env set API_URL=https://api.example.test     # set one for this session (several: env set A=1 B=2)
-env set -s GITHUB_TOKEN                      # a secret: hidden typing, masked, kept in the OS keyring
+env set -s GITHUB_TOKEN                      # a secret: hidden typing, masked, never in the history
 env                                          # what this session set: name, full value, where from
 env -a                                       # the whole environment (env -a | grep -i proxy)
 env unset API_URL                            # drop it; a value your shell had comes back
@@ -189,7 +189,7 @@ the interactive shell starts, as if you typed them. Anything you can type works 
 ```
 theme nord
 env set PROJECT_ROOT=~/projects
-env set -s GITHUB_TOKEN              # asks once; the OS keyring keeps it for the next start
+env set -s GITHUB_TOKEN              # a secret, asked with hidden typing at each start
 cd ~/projects
 sub find ~/projects -name "*.log" -mtime -1
 alert -l info "shell ready"

@@ -121,7 +121,7 @@ def _packages() -> list[str]:
     the mouse look broken on Windows, and the banner may have scrolled away."""
     from shellcraft.banner import core_warnings
 
-    names = ["pyte", "mcp", "keyring", "requests"]
+    names = ["pyte", "mcp", "requests"]
     if sys.platform == "win32":
         names.insert(0, "pywinpty")
     found = []

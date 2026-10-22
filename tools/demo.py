@@ -135,17 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     work = Path(tempfile.mkdtemp(prefix="shellcraft-demo-"))
     for name, text in FILES.items():
         (work / name).write_text(text, encoding="utf-8")
-    # No user@host in the prompt; the OS keyring off (a stub package keeps the banner's "keyring is
-    # not installed" hint, which names this machine's Python, out of the picture).
-    config = {"theme": "cyberpunk", "settings": {"clear_on_start": True, "keyring": False},
+    # No user@host in the prompt.
+    config = {"theme": "cyberpunk", "settings": {"clear_on_start": True},
               "prompt": {"left": ["name", "path", "git", "status", "duration"]}}
     (home / "config.json").write_text(json.dumps(config))
-    stub = home / "stub" / "keyring"
-    stub.mkdir(parents=True)
-    (stub / "__init__.py").write_text("")
     env = dict(os.environ, SHELLCRAFT_HOME=str(home), TERM="xterm-256color", COLORTERM="truecolor",
-               PS1="$ ", HOME=str(work), USER="demo", LOGNAME="demo",
-               PYTHONPATH=str(home / "stub"))
+               PS1="$ ", HOME=str(work), USER="demo", LOGNAME="demo")
     env.pop("SHELLCRAFT_MODULES", None)
     pid, fd = pty.fork()
     if pid == 0:  # the child: the shell, in the scratch folder

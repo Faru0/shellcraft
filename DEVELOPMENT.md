@@ -38,7 +38,7 @@ shellcraft/
 │   ├── jobs.py             # subshells (`sub`): programs on a pty / ConPTY with a pyte emulator each, attach / detach / switch, the alternate screen, commands in threads
 │   ├── footer.py           # the subshell panel at the bottom while attached (scroll region), clickable, Ctrl-] N
 │   ├── prefix.py           # the subshell prefix key (Ctrl-] by default, `settings prefix_key`)
-│   ├── envvars.py          # the session's environment variables (`env set`, `export`, the rc file), keyring secrets
+│   ├── envvars.py          # the session's environment variables (`env set`, `export`, the rc file), secrets
 │   ├── profiles.py         # profiles: storage, layering over config.json, switching, snapshots, starters
 │   ├── funcs.py            # funcs: the .func file, default + profile + session layers, running (isolated too)
 │   ├── crashlog.py         # ~/.shellcraft/crash.log: unexpected errors the shell survived, for bug reports
@@ -267,7 +267,6 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_tui.py` | themes (custom colors, presets), the input-line lexer, the toolbar, prompt segments, the pager's key handling (pipe input), `show()`'s paging threshold, theme persistence and preview, the banner's narrow fallback, the completer (quotes, positionals) |
 | `test_jobs.py` | subshells: a program job on a pty (output, status, notifications), attach / detach / switch through a fake terminal, command jobs, `sub` / `jobs` (background commands, refusals, exit status), nested ShellCraft argv, the footer (tabs, spans, hover, clicks, Ctrl-] N, margin clamping), the completion menu following the mouse |
 | `test_cancel.py` | cooperative cancellation: the modkit API, a real Ctrl-C during the spinner wait reaching the module, an MCP timeout cancelling the abandoned thread |
-| `test_keyring.py` | API keys in the OS keyring (fake backend): set / get / export / reset, the setting off, an unreachable keyring, `settings migrate-keys`, a refusing backend |
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |
 | `test_startup.py` | startup scripts: order, `_helpers`, variables handed back (and unset), failures and timeouts changing nothing, the `startup` builtin, `--no-startup` and the setting |
@@ -292,11 +291,11 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
-| `test_startup_speed.py` | no heavy package (markdown, mcp, requests, keyring…) before the prompt and a module-count ceiling, the banner without prompt_toolkit, the lazy prompt style, `man` still rendering Markdown, keyring keys read in the background, the `--timing` report in a pty |
+| `test_startup_speed.py` | no heavy package (markdown, mcp, requests…) before the prompt, `keyring` never imported and a module-count ceiling, the banner without prompt_toolkit, the lazy prompt style, `man` still rendering Markdown, keyring keys read in the background, the `--timing` report in a pty |
 | `test_crash_safety.py` | Ctrl-C and errors injected into every step of the REPL loop (only Ctrl-D / `exit` end it), the prompt fallback, modules calling sys.exit() (shell and MCP), Ctrl-C in rc files and funcs, the func depth limit, the crash log, a Ctrl-C fuzzer in a pty |
 | `test_funcs.py` | funcs: the file, running (arguments, stop at failure, show / quiet, isolated, system, background), as a command, default + profile layers, managing steps and files, guided creation, profile export; `settings editor` |
 | `test_profiles.py` | profiles: create / list / copy / delete, layering, `profile use` and `off` (theme, settings, modules, env, aliases, history), where changes are saved, `profile save`, the wizard, diff, export / import, `--profile` |
-| `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets in the keyring, the rc origin, the `settings` section |
+| `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets (masked, out of history), the rc origin, the `settings` section |
 | `test_copilot.py` | the co-pilot tools: reading the shell, `open_subshell`, `run_in_shell` tiers, the session grant, `tell` |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python

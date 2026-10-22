@@ -1,4 +1,4 @@
-"""Startup speed: what loads before the prompt, the early banner, the timing report, keyring keys."""
+"""Startup speed: what loads before the prompt, the early banner, the timing report."""
 
 import json
 import os
@@ -75,29 +75,24 @@ def test_the_timing_report_lists_every_phase():
         assert age is not None and 0 <= age < 600
 
 
-def test_keyring_keys_are_read_in_the_background_and_waited_for(monkeypatch):
-    calls = []
-
-    class SlowKeyring:
-        def get_password(self, service, name):
-            time.sleep(0.3)
-            calls.append(name)
-            return "from-the-keyring-1234"
-
-    monkeypatch.setattr(settings, "_backend", [SlowKeyring()])
-    monkeypatch.delenv("DNSDUMPSTER_API_KEY", raising=False)
-    monkeypatch.setenv("PLAIN_KEY_X", "")
-    monkeypatch.delenv("PLAIN_KEY_X")
-    config = {"env": {"DNSDUMPSTER_API_KEY": settings.KEYRING_MARKER, "PLAIN_KEY_X": "plain-value"},
-              "settings": {"keyring": True}}
-    started = time.perf_counter()
-    settings.export_env(config, background=True)
-    assert time.perf_counter() - started < 0.2  # the prompt does not wait for the keyring
-    assert os.environ["PLAIN_KEY_X"] == "plain-value"  # plain keys at once
-    settings.wait_for_keys()
-    assert os.environ["DNSDUMPSTER_API_KEY"] == "from-the-keyring-1234" and calls == ["DNSDUMPSTER_API_KEY"]
-    os.environ.pop("DNSDUMPSTER_API_KEY", None)
+def test_stored_keys_are_exported_at_once_and_the_environment_wins(monkeypatch):
+    monkeypatch.setenv("SHELL_SET_KEY", "from-my-shell")
+    monkeypatch.delenv("PLAIN_KEY_X", raising=False)
+    monkeypatch.delenv("OLD_KEY_Y", raising=False)
+    config = {"env": {"PLAIN_KEY_X": "plain-value", "SHELL_SET_KEY": "stored", "OLD_KEY_Y": "@keyring"}}
+    settings.export_env(config)
+    assert os.environ["PLAIN_KEY_X"] == "plain-value"  # stored keys reach the environment
+    assert os.environ["SHELL_SET_KEY"] == "from-my-shell"  # a variable from your shell wins
+    assert "OLD_KEY_Y" not in os.environ  # a key an older version kept in the OS keyring: skipped quietly
+    assert settings.env_status(config, "OLD_KEY_Y")[1].startswith("stored in the OS keyring by an older version")
     os.environ.pop("PLAIN_KEY_X", None)
+
+
+def test_keyring_is_never_imported(tmp_path):
+    code = ("import sys, shellcraft.cli, shellcraft.shell, shellcraft.commands, shellcraft.settings as s; "
+            "s.export_env({'env': {'K': '@keyring'}}); print('keyring' in sys.modules)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True)
+    assert out.stdout.strip() == "False"
 
 
 @posix_only

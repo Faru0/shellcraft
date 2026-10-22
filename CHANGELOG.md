@@ -263,6 +263,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Removed
 
+- **The OS keyring** (the optional `keyring` package, the `keyring` setting, `settings
+  migrate-keys`, `env unset -k`, the `[keyring]` extra). API keys you set with `settings NAME VALUE`
+  and the `mcp start` token are kept in `~/.shellcraft/config.json` (mode 600); a variable exported
+  in your own shell is never stored and always wins. `env set -s` still masks a secret and keeps it
+  out of the history; in an rc file it asks at each start. The keyring cost startup time and could
+  stall when the Linux Secret Service was locked or absent, and whether it was used depended on
+  which Python ran ShellCraft. A key an older version kept there shows as "set it again".
+
 - **The `core` compatibility shim** (the package's name before 0.3.0, promised to go in 0.4):
   write `from shellcraft.modkit import …`; `python -m core.cli` is `python -m shellcraft.cli`.
 
