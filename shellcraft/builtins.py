@@ -14,7 +14,7 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import aliases, envvars, prefix, profiles, settings
+from shellcraft import aliases, envvars, loading, prefix, profiles, settings
 from shellcraft import editor as editormod
 from shellcraft.config import save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
@@ -2958,6 +2958,7 @@ settings NAME VALUE           # set an API key in one go
 settings reset NAME           # forget a stored API key
 settings prefix_key [KEY]     # the subshell prefix key (Ctrl-] by default); alone: the choices
 settings editor [COMMAND]     # the editor for func edit / profile edit (code, vim, nano…); alone: the one in use
+settings loader [bar|spinner] # what the screen shows while the shell starts (bar by default)
 ```
 
 ## Settings
@@ -2997,7 +2998,7 @@ settings reset CENSYS_ORG_ID
 
 @builtin("settings", "Show or change settings and API keys",
          "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings prefix_key [KEY] | "
-         "settings editor [COMMAND] | settings reset KEY",
+         "settings editor [COMMAND] | settings loader [bar|spinner] | settings reset KEY",
          stateful=True, doc=SETTINGS_DOC)
 def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     keys = settings.env_settings(ctx.registry)
@@ -3008,6 +3009,8 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return _prefix_key(ctx, args)
     if args[0] == editormod.CONFIG_KEY or args[:2] == ["reset", editormod.CONFIG_KEY]:
         return _editor_setting(ctx, args)
+    if args[0] == loading.CONFIG_KEY or args[:2] == ["reset", loading.CONFIG_KEY]:
+        return _loader_setting(ctx, args)
 
     if args[0] == "reset":
         if len(args) != 2:
@@ -3103,6 +3106,44 @@ def _prefix_key(ctx: ShellContext, args: list[str]) -> Any:
     return msg
 
 
+LOADER_LABEL = "Loading line"
+LOADER_DESCRIPTION = ("What the screen shows under the banner while the shell starts, and in a `sub shellcraft` "
+                      "subshell until its prompt: bar (a progress bar with the step it's on) or spinner. It vanishes "
+                      "when the prompt is ready.")
+
+
+def _loader_setting(ctx: ShellContext, args: list[str]) -> Any:
+    """`settings loader` (the choices), `settings loader bar|spinner`, `settings reset loader`."""
+    if args == [loading.CONFIG_KEY]:
+        current = loading.style(ctx.config)
+        table = Table(title=f"{LOADER_LABEL}: {current}", title_style="sc.prompt", border_style="sc.border",
+                      header_style="sc.accent")
+        table.add_column("style", style="sc.path", no_wrap=True)
+        table.add_column("")
+        table.add_column("what it shows", style="sc.muted")
+        for name, note in loading.STYLES.items():
+            table.add_row(name, Text("● in use", style="sc.success") if name == current else "", note)
+        plain = "".join(f"{name}\t{'*' if name == current else ''}\t{note}\n" for name, note in loading.STYLES.items())
+        return Styled(table, plain)
+    if args[0] == "reset" and len(args) == 2:
+        chosen = loading.DEFAULT
+    elif len(args) == 2 and args[1].lower() in loading.STYLES:
+        chosen = args[1].lower()
+    else:
+        raise CommandError(f"usage: settings {loading.CONFIG_KEY} [{'|'.join(loading.STYLES)}]")
+    if chosen == loading.DEFAULT:
+        ctx.config.pop(loading.CONFIG_KEY, None)
+    else:
+        ctx.config[loading.CONFIG_KEY] = chosen
+    msg = Text.assemble(("✓ ", "sc.success"), f"{LOADER_LABEL} set to ", (chosen, "sc.accent"),
+                        ("  (from the next start)", "sc.muted"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f"  (not saved: {exc})", style="sc.warning")
+    return msg
+
+
 EDITOR_LABEL = "Editor"
 EDITOR_DESCRIPTION = ("What func edit, func new -e and profile edit open files in: a terminal editor (vim, nano…) "
                       "runs in a subshell, a window editor (code, subl…) in its own window, waited for. Unset: "
@@ -3167,6 +3208,8 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
     table.add_row(prefix.CONFIG_KEY, PREFIX_LABEL, Text(prefix.label(), style="sc.accent"), PREFIX_DESCRIPTION)
     table.add_row(editormod.CONFIG_KEY, EDITOR_LABEL, Text(" ".join(editormod.command(ctx.config)), style="sc.accent",
                                                            overflow="fold"), EDITOR_DESCRIPTION)
+    table.add_row(loading.CONFIG_KEY, LOADER_LABEL, Text(loading.style(ctx.config), style="sc.accent"),
+                  LOADER_DESCRIPTION)
     on = bool(getattr(ctx, "ai_run", False))
     session_vars = envvars.session(ctx)
     table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on

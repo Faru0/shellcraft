@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from typing import Any
 
 _T0 = time.perf_counter()
 _marks: list[tuple[str, float]] = []
@@ -56,8 +57,19 @@ def process_age() -> float | None:
 _BEFORE = process_age()  # how old the process was when ShellCraft's code started
 
 
+_listener: Any = None  # shellcraft.loading's step(label), while the loading line runs
+
+
+def on_mark(listener: Any) -> None:
+    """Call `listener(label)` at each mark (None: stop)."""
+    global _listener
+    _listener = listener
+
+
 def mark(label: str) -> None:
     _marks.append((label, time.perf_counter() - _T0))
+    if _listener is not None:
+        _listener(label)
 
 
 def enabled() -> bool:

@@ -30,6 +30,7 @@ shellcraft/
 │   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer ($name, $'…', $(( )), $( ), globs, \ continuations) → Pipeline(segments, redirects)
+│   ├── loading.py          # the loading line under the banner until the first prompt (settings loader)
 │   ├── termsize.py         # the terminal width before prompt_toolkit loads (the early banner)
 │   ├── curlpaste.py        # a pasted Windows "Copy as cURL (cmd)" line turned into ShellCraft quoting
 │   ├── arith.py            # $(( … )) integer arithmetic, evaluated from the AST (no eval)
@@ -294,6 +295,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
+| `test_loading.py` | the loading line: bar and spinner frames, the estimate from the last start, the width cut, `settings loader`, a slowed real start (and `--lite`) drawing it and erasing it before the prompt |
 | `test_startup_speed.py` | no heavy package (markdown, mcp, requests…) before the prompt, `keyring` never imported and a module-count ceiling, the banner without prompt_toolkit, the lazy prompt style, `man` still rendering Markdown, keyring keys read in the background, the `--timing` report in a pty |
 | `test_crash_safety.py` | Ctrl-C and errors injected into every step of the REPL loop (only Ctrl-D / `exit` end it), the prompt fallback, modules calling sys.exit() (shell and MCP), Ctrl-C in rc files and funcs, the func depth limit, the crash log, a Ctrl-C fuzzer in a pty |
 | `test_funcs.py` | funcs: the file, running (arguments, stop at failure, show / quiet, isolated, system, background), as a command, default + profile layers, managing steps and files, guided creation, profile export; `settings editor` |

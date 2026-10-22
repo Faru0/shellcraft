@@ -177,8 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"), expose=expose)
         return 0
 
-    from shellcraft.context import ShellContext
-    from shellcraft.themes import UI, all_themes
+    from shellcraft.themes import all_themes
 
     theme_warnings: list[str] = []
     themes = all_themes(config, theme_warnings)
@@ -205,8 +204,24 @@ def main(argv: list[str] | None = None) -> int:
                                                             profile_name, settings.get(config, "clear_on_start"))
     if early:
         timing.mark("banner")
+    from shellcraft import loading
 
+    loading.start(loading.style(config), themes[theme_name])  # until the shell takes the terminal
+    try:
+        return _start_shell(args, config, registry, themes[theme_name], theme_warnings, profile_name, profiles,
+                            allow_system, show_banner, early)
+    finally:
+        loading.stop()
+
+
+def _start_shell(args: Any, config: Any, registry: Any, theme: Any, theme_warnings: list[str],
+                 profile_name: str | None, profiles: Any, allow_system: bool, show_banner: bool, early: bool) -> int:
+    """Load prompt_toolkit and the shell (the slow part, under the loading line), then run it."""
     from shellcraft.console import build_console
+    from shellcraft.context import ShellContext
+    from shellcraft.themes import UI
+
+    timing.mark("prompt_toolkit imported")
     from shellcraft.shell import Shell
 
     timing.mark("prompt_toolkit + shell imported")
@@ -215,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     # opens CONIN$ / CONOUT$ itself (shellcraft.console: Win32Input for keys, VT output) and rebuilds this
     # UI's Rich console on CONOUT$, whatever stdin and stdout are redirected to. Rich takes the
     # terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
-    ui = UI(themes[theme_name], build_console())
+    ui = UI(theme, build_console())
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite,
                        brief=args.brief if args.lite else None)
     from shellcraft import crashlog
@@ -244,7 +259,7 @@ def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str |
         from shellcraft.banner import render_banner
         from shellcraft.themes import UI
 
-        restore = _vt_stdout()
+        restore = termsize.enable_vt()
         try:
             # The width the shell will use (Rich alone would trust COLUMNS or fall back to 80 columns).
             console = Console(highlight=False, force_terminal=True, legacy_windows=False, color_system="truecolor",
@@ -258,26 +273,6 @@ def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str |
     except Exception:  # noqa: BLE001 — the shell prints it later, as before
         return False
     return True
-
-
-def _vt_stdout() -> Any:
-    """Windows: turn VT processing on for stdout while the early banner prints; returns the undo."""
-    if sys.platform != "win32":
-        return lambda: None
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        k32.GetStdHandle.restype = wintypes.HANDLE
-        handle = k32.GetStdHandle(-11)
-        mode = wintypes.DWORD()
-        if not k32.GetConsoleMode(handle, ctypes.byref(mode)):
-            return lambda: None
-        k32.SetConsoleMode(handle, mode.value | 0x0001 | 0x0004)  # processed output + VT processing
-        return lambda: k32.SetConsoleMode(handle, mode.value)
-    except (OSError, AttributeError):
-        return lambda: None
 
 
 def _ctrl_break_is_ctrl_c() -> None:
@@ -296,8 +291,9 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
                  theme_warnings: list[str], profile_name: str | None, profiles: Any, cleared: bool = False) -> int:
     from rich.text import Text
 
-    from shellcraft import settings
+    from shellcraft import loading, settings
 
+    loading.stop()  # erased before the shell writes anything
     with Shell(ctx) as shell:
         timing.mark("shell set up")
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP

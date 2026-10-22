@@ -20,7 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 # newer ShellCraft's layout) is dropped with a warning instead of crashing every mode at startup.
 SECTION_TYPES: dict[str, type] = {
     "theme": str, "sub_theme": str, "themes": dict, "settings": dict, "env": dict, "aliases": dict,
-    "disabled_modules": list, "prompt": dict,
+    "disabled_modules": list, "prompt": dict, "loader": str,
 }
 # Sections whose entries are merged one key at a time when saving (see save_config).
 MERGED_SECTIONS = ("themes", "settings", "env", "aliases", "prompt")

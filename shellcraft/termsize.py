@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
 
 def columns() -> int | None:
@@ -65,3 +66,24 @@ def _windows_columns() -> int | None:
         return width if width > 0 else None
     except (OSError, AttributeError, ValueError):
         return None
+
+
+def enable_vt() -> Any:
+    """Windows: turn VT processing on for stdout (ANSI colors and cursor moves); returns the undo.
+    Elsewhere nothing to do."""
+    if sys.platform != "win32":
+        return lambda: None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        k32.GetStdHandle.restype = wintypes.HANDLE
+        handle = k32.GetStdHandle(-11)
+        mode = wintypes.DWORD()
+        if not k32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return lambda: None
+        k32.SetConsoleMode(handle, mode.value | 0x0001 | 0x0004)  # processed output + VT processing
+        return lambda: k32.SetConsoleMode(handle, mode.value)
+    except (OSError, AttributeError):
+        return lambda: None

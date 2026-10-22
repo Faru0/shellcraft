@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A loading line while the shell starts**, under the banner and in a `sub shellcraft` subshell
+  (which used to show a black screen): a progress bar with the step it's on, measured against the
+  last start, or a spinner (`settings loader bar|spinner`, bar by default). It vanishes the moment
+  the prompt is ready, and a start faster than a tenth of a second never shows it.
+
 - **`curl`**, a builtin (`man curl`, `docs/curl.md`): HTTP requests with curl's own command line,
   built on Python `requests`. Combined flags (`-fsSL`), methods, headers (add, remove, empty), every `-d`
   form, `--json`, `-F` forms and uploads, `-T`, basic / digest / bearer auth, cookies and cookie
