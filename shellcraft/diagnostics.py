@@ -203,8 +203,10 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
         out += _section("windows console", [f"not open: {windows_console_error or 'CONIN$/CONOUT$ could not be used'}, "
                                             "so the shell runs on sys.stdin/sys.stdout"])
 
-    from shellcraft import crashlog
+    from shellcraft import crashlog, timing
 
+    out += _section("startup timing (the last start; python main.py --timing prints it)",
+                    timing.last().splitlines() or ["none recorded yet"])
     last = crashlog.last()
     out += _section("last crash (~/.shellcraft/crash.log)",
                     last.splitlines()[-25:] if last else ["none recorded"])

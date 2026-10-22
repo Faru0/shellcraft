@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import sys
 import tomllib
@@ -131,7 +132,13 @@ def _import_path(*directories: Path) -> None:
 def _forget_imports(*directories: Path) -> None:
     """Drop every module imported from the folders (commands and helpers alike), so a reload sees
     the files as they are now."""
-    folders = {str(d.resolve()) for d in directories}
+    # Plain path strings, compared without touching the disk: resolving every loaded module's file
+    # (hundreds of realpath calls) made each start and reload slow, on Windows most of all.
+    folders = set()
+    for d in directories:
+        for form in (os.path.abspath(d), str(d.resolve())):
+            folders.add(os.path.normcase(form))
+    prefixes = tuple(folders)
     # Helpers by name too: an `_x` imported from somewhere else must not stand in for ours.
     helper_names = {py.stem for d in directories if d.is_dir() for py in d.glob("_*.py")}
     package = sys.modules.get(PACKAGE)
@@ -144,8 +151,11 @@ def _forget_imports(*directories: Path) -> None:
             if package is not None:  # `from . import x` would otherwise find the old one here
                 package.__dict__.pop(key.split(".", 1)[1], None)
             continue
-        file = getattr(module, "__file__", None) or ""
-        if file and str(Path(file).resolve().parent) in folders:
+        file = getattr(module, "__file__", None)
+        if not isinstance(file, str) or not os.path.normcase(file).startswith(prefixes):
+            continue  # the common case: not from a modules folder, decided without a system call
+        if os.path.normcase(os.path.dirname(os.path.abspath(file))) in folders \
+                or os.path.normcase(os.path.dirname(os.path.realpath(file))) in folders:
             del sys.modules[key]
 RESERVED_NAMES = {"shellcraft_pipeline"}
 

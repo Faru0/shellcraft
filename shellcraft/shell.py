@@ -1416,11 +1416,23 @@ class Shell:
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()
         self._reset_input()
+        if not getattr(self, "_first_prompt_done", False):
+            self._first_prompt_done = True
+            self._startup_report()
         prefill, self.ctx.prefill = self.ctx.prefill, ""  # `clip -i`: the next prompt starts with it
         line = self.session.prompt(message, default=prefill) if prefill else self.session.prompt(message)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line
+
+    def _startup_report(self) -> None:
+        """Before the first prompt: the startup timing, kept for `diag`, and shown with --timing."""
+        from shellcraft import timing
+
+        timing.mark("first prompt")
+        timing.save()
+        if timing.enabled():
+            self.ui.console.print(Text(timing.report(), style="sc.muted"), markup=False, highlight=False)
 
     PROMPT_FAILURES = 3  # prompt errors in a row before a plain input() prompt takes over
 

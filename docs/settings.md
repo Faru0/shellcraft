@@ -130,6 +130,7 @@ the banner.
 | `--theme NAME` | Use a theme for this session only. |
 | `--profile NAME` | Start in a profile ([Profiles](profiles.md)); without it every start is the default setup. |
 | `--no-banner` | Skip the startup banner. |
+| `--timing` | Print how long each startup phase took, just before the first prompt (subshells started from that session report theirs too). `diag` shows the last start's timing. |
 | `--diag` | Turn the `diagnostics` setting on (the hidden `diag` command) and print the diagnostics report at startup. |
 | `--allow-system` | Allow OS commands for this session (see [OS commands](#os-commands)). |
 | `--modules DIR` | Load modules from DIR instead of the bundled ones. |

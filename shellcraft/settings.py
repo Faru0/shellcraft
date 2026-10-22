@@ -300,13 +300,47 @@ def env_reset(config: dict[str, Any], name: str) -> None:
         os.environ[name] = original
 
 
-def export_env(config: dict[str, Any]) -> None:
-    """Put every stored value into os.environ (startup, all modes), unless the environment has one."""
+_pending_keys: list[Any] = []  # the thread reading keyring-stored keys at startup (export_env background=True)
+
+
+def export_env(config: dict[str, Any], background: bool = False) -> None:
+    """Put every stored value into os.environ (startup, all modes), unless the environment has one.
+    With `background`, the keys kept in the OS keyring (importing `keyring` and asking the OS takes
+    a while) are read in a thread, so the prompt doesn't wait for them; wait_for_keys() joins it,
+    and every command line does that first."""
+    in_keyring = []
     for name in list(_section(config, "env")):
         if isinstance(name, str) and ENV_NAME.match(name) and not os.environ.get(name):
-            value = env_get(config, name)  # from the keyring when the key lives there
+            if stored_in_keyring(config, name):
+                in_keyring.append(name)
+                continue
+            value = env_get(config, name)
             if value:
                 _export(name, value)
+    if not in_keyring:
+        return
+
+    def read() -> None:
+        for name in in_keyring:
+            value = env_get(config, name)
+            if value and not os.environ.get(name):
+                _export(name, value)
+
+    if not background:
+        read()
+        return
+    import threading
+
+    thread = threading.Thread(target=read, daemon=True, name="shellcraft:keyring")
+    _pending_keys.append(thread)
+    thread.start()
+
+
+def wait_for_keys(timeout: float = 10.0) -> None:
+    """Block until the keyring-stored keys are in the environment (a no-op once they are)."""
+    while _pending_keys:
+        _pending_keys[0].join(timeout)
+        _pending_keys.pop(0)
 
 
 def _export(name: str, value: str) -> None:

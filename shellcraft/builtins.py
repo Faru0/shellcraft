@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 from rich.console import Group
-from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
@@ -489,6 +488,8 @@ def _man(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         raise CommandError("usage: man [-p] COMMAND")
     doc = manual_text(ctx.registry, names[0])
     # Like man(1), the viewer whatever the page's height; -p prints it.
+    from rich.markdown import Markdown  # loaded on the first `man` (markdown-it is ~90 modules)
+
     return Paged(Markdown(doc), page=not print_it) if ctx.ui else doc
 
 
@@ -1192,6 +1193,8 @@ def _hotkeys(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         raise CommandError("usage: hotkeys  (man hotkeys opens it in the viewer)")
     if ctx.ui is None:
         return HOTKEYS_DOC
+    from rich.markdown import Markdown
+
     return Styled(Paged(Markdown(HOTKEYS_DOC), page=False), HOTKEYS_DOC)  # printed in full, to scroll back to
 
 

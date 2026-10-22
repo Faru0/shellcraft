@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from shellcraft import __version__
+from shellcraft import __version__, timing  # timing first: it notes when startup began
 
 # An installed copy has the modules inside the package; a source checkout has them next to shellcraft/.
 _INSTALLED_MODULES = Path(__file__).resolve().parent / "bundled_modules"
@@ -36,6 +36,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="a lightweight shell, what `sub shellcraft` runs inside ShellCraft: builtins, modules and "
                         "settings, without the banner, the startup scripts, the alert watcher, hot reload or "
                         "the MCP server")
+    p.add_argument("--timing", action="store_true",
+                   help="print how long each startup phase took, just before the first prompt")
     p.add_argument("--diag", action="store_true",
                    help="turn the diagnostics setting on (the `diag` command) and print its report at startup")
     p.add_argument("--allow-system", action="store_true",
@@ -94,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
         return ingest_main(argv[1:], modules_dir=Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR)),
                            prog="shellcraft ingest")
     args = _parse_args(argv)
+    if args.timing:
+        os.environ[timing.ENV] = "1"  # subshells started from this shell report theirs too
+    timing.mark("arguments")
     modules_dir = args.modules or Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR))
 
     from shellcraft import settings
@@ -124,7 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[profiles.ENV_VAR] = profile_name
     else:
         os.environ.pop(profiles.ENV_VAR, None)
-    settings.export_env(config)  # API keys set with `settings NAME`, for modules in every mode
+    # API keys set with `settings NAME`, for modules in every mode; the interactive shell reads the
+    # keyring-stored ones in the background (the first command waits for them, if it must).
+    settings.export_env(config, background=not (args.mcp or args.mcp_http))
     from shellcraft import prefix
 
     prefix.from_config(config)  # the subshell prefix key (`settings prefix_key`)
@@ -137,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                               user_directory=config_dir() / "modules",
                               lazy=settings.get(config, "lazy_modules"))
     registry.load()
+    timing.mark("modules found")
     expose = [n.strip() for n in args.expose.split(",") if n.strip()] if args.expose else None
     if args.parent_pid:
         from shellcraft.mcp_child import watch_parent
@@ -194,8 +202,16 @@ def main(argv: list[str] | None = None) -> int:
         for warning in [*core_warnings(), *theme_warnings]:
             print(f"shellcraft: {warning}", file=sys.stderr)
 
+    timing.mark("config and theme")
+    early = show_banner and not args.diag and _early_banner(themes[theme_name], registry, theme_warnings,
+                                                            profile_name, settings.get(config, "clear_on_start"))
+    if early:
+        timing.mark("banner")
+
     from shellcraft.console import build_console
     from shellcraft.shell import Shell
+
+    timing.mark("prompt_toolkit + shell imported")
 
     # The interactive shell is always on a terminal. On Linux that is stdout. On Windows, Shell
     # opens CONIN$ / CONOUT$ itself (shellcraft.console: Win32Input for keys, VT output) and rebuilds this
@@ -209,12 +225,58 @@ def main(argv: list[str] | None = None) -> int:
     crashlog.install_thread_hook()  # a background thread's error goes to the log, not over the prompt
     _ctrl_break_is_ctrl_c()
     try:
-        return _interactive(Shell, ctx, ui, config, args, show_banner, theme_warnings, profile_name, profiles)
+        return _interactive(Shell, ctx, ui, config, args, show_banner and not early, theme_warnings, profile_name,
+                            profiles, cleared=early)
     except Exception as exc:  # noqa: BLE001 — the last resort: one line, the details in the log
         logged = crashlog.record(exc, "the interactive shell")
         print(f"shellcraft: unexpected error: {type(exc).__name__}: {exc}"
               + (f" (details in {logged})" if logged else ""), file=sys.stderr)
         return 1
+
+
+def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str | None, clear: bool) -> bool:
+    """Print the banner before prompt_toolkit and the shell are imported (most of the start-up time),
+    so something is on screen at once. Only on a terminal; False when it wasn't printed here."""
+    if not sys.stdout.isatty():
+        return False
+    try:
+        from rich.console import Console
+
+        from shellcraft.banner import render_banner
+        from shellcraft.themes import UI
+
+        restore = _vt_stdout()
+        try:
+            console = Console(highlight=False, force_terminal=True, legacy_windows=False, color_system="truecolor")
+            if clear:  # home, clear the screen and the scrollback, as `clear` does
+                console.file.write("\x1b[H\x1b[2J\x1b[3J")
+            console.print(render_banner(UI(theme, console), registry, warnings, profile))
+            console.file.flush()
+        finally:
+            restore()
+    except Exception:  # noqa: BLE001 — the shell prints it later, as before
+        return False
+    return True
+
+
+def _vt_stdout() -> Any:
+    """Windows: turn VT processing on for stdout while the early banner prints; returns the undo."""
+    if sys.platform != "win32":
+        return lambda: None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        k32.GetStdHandle.restype = wintypes.HANDLE
+        handle = k32.GetStdHandle(-11)
+        mode = wintypes.DWORD()
+        if not k32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return lambda: None
+        k32.SetConsoleMode(handle, mode.value | 0x0001 | 0x0004)  # processed output + VT processing
+        return lambda: k32.SetConsoleMode(handle, mode.value)
+    except (OSError, AttributeError):
+        return lambda: None
 
 
 def _ctrl_break_is_ctrl_c() -> None:
@@ -230,19 +292,20 @@ def _ctrl_break_is_ctrl_c() -> None:
 
 
 def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_banner: bool,
-                 theme_warnings: list[str], profile_name: str | None, profiles: Any) -> int:
+                 theme_warnings: list[str], profile_name: str | None, profiles: Any, cleared: bool = False) -> int:
     from rich.text import Text
 
     from shellcraft import settings
 
     with Shell(ctx) as shell:
+        timing.mark("shell set up")
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
         try:  # startup: Ctrl-C (or a bug) skips the rest of it, and the prompt still comes
             if profile_name and not args.lite:  # its variables, recorded so `profile use` can undo them
                 for warning in profiles.enter_env(ctx, profile_name) + profiles.missing_modules(ctx, profile_name):
                     theme_warnings.append(f"profile {profile_name}: {warning}")
-            if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite:
+            if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite and not cleared:
                 # Home, clear the screen and the scrollback (ESC[3J): the terminal starts fresh, as
                 # `clear` on Linux and Windows Terminal do, instead of leaving the old lines above.
                 from shellcraft.output import clear_screen
@@ -253,13 +316,16 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
                 shell.diagnostics()  # first, so it is there even if the banner is what breaks
             if show_banner:
                 shell.banner(theme_warnings)
+                timing.mark("banner")
             if not args.no_startup and not args.lite and settings.get(config, "startup"):
                 from shellcraft import startup
 
                 if startup.scripts():
                     shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
+                    timing.mark("startup scripts")
                 if startup.rc_path().is_file():
                     shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
+                    timing.mark("rc file")
                 if profile_name:
                     profiles.run_rc(ctx, profile_name)  # then the profile's rc
                 if startup.background_scripts():

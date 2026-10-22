@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, fields, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from prompt_toolkit.styles import Style as PTStyle
-from prompt_toolkit.styles.style import parse_color
 from rich.color import Color, ColorParseError
 from rich.console import Console
 from rich.theme import Theme as RichTheme
+
+if TYPE_CHECKING:  # prompt_toolkit is imported only when its style is first needed (a fast start)
+    from prompt_toolkit.styles import Style as PTStyle
 
 
 def _hex(color: str) -> tuple[int, int, int]:
@@ -105,6 +106,8 @@ class ThemeDef:
         )
 
     def pt_style(self) -> PTStyle:
+        from prompt_toolkit.styles import Style as PTStyle
+
         surface, alt, text = self._surface(), self._surface_alt(), self._surface_text()
         return PTStyle.from_dict(
             {
@@ -273,6 +276,8 @@ def all_themes(config: dict[str, Any], warnings: list[str] | None = None) -> dic
 
 
 def _valid_color(value: str) -> bool:
+    from prompt_toolkit.styles.style import parse_color  # only custom themes are checked
+
     try:
         parse_color(value)
         Color.parse(value)
@@ -287,7 +292,7 @@ class UI:
     def __init__(self, theme: ThemeDef, console: Console | None = None):
         self.console = console or Console(highlight=False)
         self.theme = theme
-        self.pt_style = theme.pt_style()
+        self._pt_style: Any = None  # built on first use: the banner can print before prompt_toolkit loads
         self.console.push_theme(theme.rich_theme())
         # The `mouse` setting: prompt_toolkit takes the mouse only while a completion menu is open
         # and in the pager, so the terminal's own selection and wheel scrollback work the rest of
@@ -309,4 +314,11 @@ class UI:
         self.console.pop_theme()
         self.console.push_theme(theme.rich_theme())
         self.theme = theme
-        self.pt_style = theme.pt_style()
+        self._pt_style = None
+
+    @property
+    def pt_style(self) -> PTStyle:
+        """The theme as a prompt_toolkit style (built the first time it is asked for)."""
+        if self._pt_style is None:
+            self._pt_style = self.theme.pt_style()
+        return self._pt_style

@@ -109,6 +109,9 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
     from shellcraft import ask, script
     from shellcraft.parser import split_background
+    from shellcraft.settings import wait_for_keys
+
+    wait_for_keys()  # the API keys still being read from the OS keyring at startup, if any
 
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program

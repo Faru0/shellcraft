@@ -129,3 +129,12 @@ Windows it also shows the console's Alt flags, to paste into a bug report. When 
 show there at all, `diag keys --raw` prints what the console itself delivers, below the key
 reader (`--vt` with the console's VT input on), and `diag keys --raw --mouse` the same for
 the mouse wheel and clicks.
+
+## A slow start
+
+ShellCraft prints its banner before loading the prompt library, so something shows at once, and
+the prompt follows (about 0.15 s on a typical Linux machine). If the start feels slow, run
+`python main.py --timing`: just before the prompt it prints how long each phase took, starting
+with the time the process existed before ShellCraft's own code ran (the Python interpreter, its
+packages, and on Windows antivirus scanning the files). `diag` keeps the last start's table, to
+paste into a bug report.

@@ -139,6 +139,15 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **A faster start.** The banner is printed before the prompt library loads, so it appears in about
+  60 ms instead of 160 ms, and the prompt follows sooner (145 ms instead of 167 ms on Linux; `sub
+  shellcraft` 141 ms instead of 161 ms). About 90 fewer modules load before the prompt (the Markdown
+  renderer now loads on the first `man`), the module registry no longer resolves the path of every
+  loaded Python module (15 ms → 2 ms, much more on Windows), and API keys kept in the OS keyring are
+  read in the background (the first command waits for them only if it must). `python main.py
+  --timing` prints how long each startup phase took, starting from when the process was created;
+  `diag` keeps the last one.
+
 - **`env` alone lists only the variables set in this session** (`env set`, `export`, the rc
   file), with their full values and where they came from. `env -a` (`--all`) prints the whole
   environment, as `env` did: `env -a | grep -i proxy`.
