@@ -214,6 +214,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **The startup banner is as wide as the window again.** The early banner (printed before the
+  shell loads) let a stale `COLUMNS` win, and on Windows fell back to 80 columns when stdout couldn't
+  be measured, so it came out narrow with the small title. It now measures the window the way the
+  shell does (`shellcraft/termsize.py`), so it matches the `banner` command.
+
 - **Ctrl-C could close ShellCraft.** A Ctrl-C landing at the wrong moment (a second one while the
   first was being handled, or while the next prompt was starting — likelier on Windows) escaped the
   REPL loop. The loop now only ends on Ctrl-D or `exit`: Ctrl-C anywhere is `^C interrupted`, a

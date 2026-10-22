@@ -30,6 +30,7 @@ shellcraft/
 │   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer ($name, $'…', $(( )), $( ), globs, \ continuations) → Pipeline(segments, redirects)
+│   ├── termsize.py         # the terminal width before prompt_toolkit loads (the early banner)
 │   ├── curlpaste.py        # a pasted Windows "Copy as cURL (cmd)" line turned into ShellCraft quoting
 │   ├── arith.py            # $(( … )) integer arithmetic, evaluated from the AST (no eval)
 │   ├── script.py           # scripts: bash for/while/until/if/case/&&/|| and -py blocks; piped blocks; conditions

@@ -240,12 +240,15 @@ def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str |
     try:
         from rich.console import Console
 
+        from shellcraft import termsize
         from shellcraft.banner import render_banner
         from shellcraft.themes import UI
 
         restore = _vt_stdout()
         try:
-            console = Console(highlight=False, force_terminal=True, legacy_windows=False, color_system="truecolor")
+            # The width the shell will use (Rich alone would trust COLUMNS or fall back to 80 columns).
+            console = Console(highlight=False, force_terminal=True, legacy_windows=False, color_system="truecolor",
+                              width=termsize.columns())
             if clear:  # home, clear the screen and the scrollback, as `clear` does
                 console.file.write("\x1b[H\x1b[2J\x1b[3J")
             console.print(render_banner(UI(theme, console), registry, warnings, profile))

@@ -142,7 +142,8 @@ def buffer_info(conout: Any) -> Any:
 
 def window_size(info: Any) -> Size:
     """The size prompt_toolkit's Win32Output reports: the visible window (srWindow, not dwSize, whose
-    height is the whole scrollback), without its last column, capped below the buffer width."""
+    height is the whole scrollback), without its last column, capped below the buffer width.
+    shellcraft.termsize measures the same way for the early banner, before prompt_toolkit loads."""
     window = info.srWindow
     columns = min(info.dwSize.X - 1, window.Right - window.Left)
     return Size(rows=max(1, window.Bottom - window.Top + 1), columns=max(1, columns))

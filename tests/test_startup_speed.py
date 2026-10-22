@@ -131,3 +131,57 @@ def test_the_banner_shows_before_the_prompt_and_timing_prints(tmp_path):
     for phase in ("modules found", "banner", "shell set up", "first prompt"):
         assert phase in text
     assert "first prompt" in (tmp_path / timing.FILE).read_text()
+
+
+def test_termsize_asks_the_terminal_not_columns(monkeypatch):
+    import os as _os
+
+    from shellcraft import termsize
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("COLUMNS", "80")
+    sizes = {1: OSError, 2: _os.terminal_size((150, 40))}
+
+    def fake(fd):
+        value = sizes.get(fd, OSError)
+        if value is OSError:
+            raise OSError
+        return value
+    monkeypatch.setattr(termsize.os, "get_terminal_size", fake)
+    assert termsize.columns() == 150  # stdout isn't a terminal: stderr is asked; COLUMNS is ignored
+    sizes.clear()
+    assert termsize.columns() is None
+
+
+@posix_only
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded, use of forkpty")
+def test_the_early_banner_is_as_wide_as_the_terminal(tmp_path):
+    import fcntl
+    import pty
+    import re
+    import struct
+    import termios
+
+    (tmp_path / "config.json").write_text(json.dumps({"settings": {"clear_on_start": False}}))
+    env = dict(os.environ, SHELLCRAFT_HOME=str(tmp_path), TERM="xterm-256color", COLUMNS="60")  # a stale COLUMNS
+    pid, fd = pty.fork()
+    if pid == 0:
+        fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 150, 0, 0))
+        os.execve(sys.executable, [sys.executable, str(ROOT / "main.py")], env)
+    out = b""
+    try:
+        end = time.time() + 10
+        while time.time() < end and "╮".encode() not in out:
+            ready, _, _ = select.select([fd], [], [], 0.02)
+            if ready:
+                try:
+                    out += os.read(fd, 65536)
+                except OSError:
+                    break
+    finally:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+        os.close(fd)
+    text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", out.decode("utf-8", "replace"))
+    top = next(line for line in text.splitlines() if line.startswith("╭") and line.rstrip().endswith("╮"))
+    assert len(top.rstrip()) == 150
