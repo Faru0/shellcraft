@@ -85,19 +85,15 @@ def test_modules_and_help_show_the_origin_and_ingest_writes_to_the_user_folder(t
     import tools.ingest.__main__ as ingest
 
     seen = {}
-    monkeypatch.setattr(ingest, "main", lambda args, modules_dir, prog, console: seen.update(dir=modules_dir) or 0)
+    monkeypatch.setattr(ingest, "main", lambda args, prog, console, folders: seen.update(folders=folders) or 0)
     ctx.interactive = True
     from rich.console import Console
 
     from shellcraft.themes import UI, all_themes
 
     ctx.ui = UI(all_themes({})["nord"], Console(file=__import__("io").StringIO()))
-    (user / "sub").mkdir()
-    import shutil
-
-    shutil.rmtree(user)  # not created yet: ingest creates it
     run_line("ingest check --all", ctx)
-    assert seen["dir"] == user and user.is_dir()
+    assert seen["folders"] == [main, user]  # `ingest check --all` covers what this shell loads
 
 
 def test_the_cli_loads_the_user_folder(tmp_path, monkeypatch, started):

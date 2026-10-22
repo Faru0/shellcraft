@@ -396,6 +396,37 @@ def test_wizard_auto(tmp_path, monkeypatch):
     assert load(modules / "yellz.py").run(["a"], "") == "A\n"
 
 
+@pytest.mark.parametrize("entry", ["python -m tools.ingest", "shellcraft ingest"])
+def test_new_modules_go_to_the_users_folder_by_default(tmp_path, monkeypatch, entry):
+    from shellcraft.cli import main as cli_main
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    script_path = write(work, "orig", FLAT)
+    answers = iter(["auto", "y", "n", "n"])  # apply · write · AI docs? · smoke test
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    argv = [str(script_path), "--name", "yellh"]
+    assert (ingest_main(argv) if entry.startswith("python") else cli_main(["ingest", *argv])) == 0
+    assert {p.name for p in (home / "modules").iterdir() if p.is_file()} == {"yellh.py", "yellh.md", "yellh.skill"}
+    assert sorted(p.name for p in work.iterdir()) == ["orig.py"]  # nothing written next to the script
+
+
+def test_check_all_covers_the_bundled_folder_and_yours(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    (home / "modules").mkdir(parents=True)
+    (home / "modules" / "mine.py").write_text("def run(args, stdin):\n    return 1\n")  # fails the check
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    assert ingest_main(["check", "--all"]) == 1
+    out = capsys.readouterr().out
+    assert "mine" in out and "queryDns" in out
+    assert ingest_main(["check", "--all", "--modules", str(ROOT / "modules")]) == 0
+    assert "mine" not in capsys.readouterr().out
+
+
 def test_wizard_stops_on_conflict(tmp_path, monkeypatch):
     script_path = write(tmp_path, "asks", "name = input('Name? ')\nprint(name)\n")
     modules = tmp_path / "mods"
@@ -461,5 +492,5 @@ def test_ingest_builtin_checks_modules_in_the_shell(tmp_path, monkeypatch, capsy
     assert capsys.readouterr().out == ""
     (modules / "broken.py").write_text("def run(args, stdin):\n    return 1\n")
     with pytest.raises(PipelineError, match="status 1"):
-        run_line("ingest check --all", ctx)  # --all means this shell's modules folder
+        run_line("ingest check --all", ctx)  # --all means this shell's module folders
     assert "broken" in screen.getvalue()

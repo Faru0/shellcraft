@@ -13,7 +13,8 @@ or let an AI (Claude or OpenAI) do them. Only the changes that are needed are ma
 in the script can't be converted safely, the wizard stops and says what to fix by hand. Finally it
 writes the .md (man page) and .skill (MCP description) and checks the result.
 
-Your original script is never modified: the module is written to modules/<name>.py.
+Your original script is never modified or moved: the module is written to ~/.shellcraft/modules/<name>.py
+(or the folder --modules names), where ShellCraft loads it at once.
 """
 
 from __future__ import annotations
@@ -248,20 +249,39 @@ def wizard(script_arg: str | None, name_arg: str | None, modules: Path) -> int:
 OPTIONS = argparse.Namespace(model=None, prog="python -m tools.ingest")
 
 
-def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "python -m tools.ingest") -> int:
-    default_dir = modules_dir or ROOT / "modules"
+def user_modules() -> Path:
+    """Where new modules go and where ShellCraft looks for yours: ~/.shellcraft/modules
+    ($SHELLCRAFT_HOME/modules)."""
+    from shellcraft.config import config_dir
+
+    return config_dir() / "modules"
+
+
+def shell_folders() -> list[Path]:
+    """Every folder the shell loads modules from: the bundled ones (or $SHELLCRAFT_MODULES), then yours."""
+    import os
+
+    from shellcraft.cli import DEFAULT_MODULES_DIR
+
+    return [Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR)), user_modules()]
+
+
+def check_main(argv: list[str], folders: list[Path] | None = None, prog: str = "python -m tools.ingest") -> int:
+    folders = folders or shell_folders()
     parser = argparse.ArgumentParser(prog=f"{prog} check",
                                      description="Check ShellCraft modules against the framework.")
     parser.add_argument("paths", nargs="*", type=Path, help="module .py files")
-    parser.add_argument("--all", action="store_true", help=f"check every module in {default_dir}")
-    parser.add_argument("--modules", type=Path, default=default_dir, help="the modules folder for --all")
+    parser.add_argument("--all", action="store_true",
+                        help="check every module the shell loads: " + ", ".join(str(f) for f in folders))
+    parser.add_argument("--modules", type=Path, help="with --all: only the modules in this folder")
     parser.add_argument("--network", action="store_true", help="also run tests that need the internet")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
     parser.add_argument("--timeout", type=float, default=10.0, help="seconds per call (default 10)")
     opts = parser.parse_args(argv)
     paths = list(opts.paths)
     if opts.all:
-        paths += sorted(p for p in Path(opts.modules).glob("*.py") if not p.name.startswith("_"))
+        for folder in [opts.modules] if opts.modules else folders:
+            paths += sorted(p for p in Path(folder).glob("*.py") if not p.name.startswith("_"))
     if not paths:
         parser.error("give one or more module .py files, or --all")
     failed = 0
@@ -273,22 +293,22 @@ def check_main(argv: list[str], modules_dir: Path | None = None, prog: str = "py
     return 1 if failed else 0
 
 
-def main(argv: list[str] | None = None, modules_dir: Path | None = None, prog: str = "python -m tools.ingest",
-         console: Console | None = None) -> int:
-    """`modules_dir` and `prog` are set by `shellcraft ingest` and the `ingest` builtin, which run
-    the same wizard with the user's modules folder (~/.shellcraft/modules) as the default. The
-    builtin also passes the shell's console, so the wizard prints and asks through it."""
+def main(argv: list[str] | None = None, prog: str = "python -m tools.ingest", console: Console | None = None,
+         folders: list[Path] | None = None) -> int:
+    """The wizard (new modules go to ~/.shellcraft/modules unless --modules says otherwise) or
+    `check`. `shellcraft ingest` and the `ingest` builtin set `prog`; the builtin also passes the
+    shell's console, so the wizard prints and asks through it, and its module folders for `check --all`."""
     argv = sys.argv[1:] if argv is None else argv
     if console is None:
         utf8_stdio()  # a report piped or redirected on Windows would otherwise be cp1252
     with ui.using(console):
-        return _main(argv, modules_dir, prog)
+        return _main(argv, prog, folders)
 
 
-def _main(argv: list[str], modules_dir: Path | None, prog: str) -> int:
+def _main(argv: list[str], prog: str, folders: list[Path] | None) -> int:
     if argv[:1] == ["check"]:
-        return check_main(argv[1:], modules_dir, prog)
-    default_dir = modules_dir or ROOT / "modules"
+        return check_main(argv[1:], folders, prog)
+    default_dir = user_modules()
     parser = argparse.ArgumentParser(prog=prog, description=__doc__.splitlines()[0])
     parser.add_argument("script", nargs="?", help="the Python script to turn into a module")
     parser.add_argument("--name", help="the command name (asked for when left out)")

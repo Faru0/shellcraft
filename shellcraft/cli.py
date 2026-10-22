@@ -93,8 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["ingest"]:  # `shellcraft ingest ...`: the module wizard, with this shell's modules folder
         from tools.ingest.__main__ import main as ingest_main
 
-        return ingest_main(argv[1:], modules_dir=Path(os.environ.get("SHELLCRAFT_MODULES", DEFAULT_MODULES_DIR)),
-                           prog="shellcraft ingest")
+        return ingest_main(argv[1:], prog="shellcraft ingest")  # new modules go to ~/.shellcraft/modules
     args = _parse_args(argv)
     if args.timing:
         os.environ[timing.ENV] = "1"  # subshells started from this shell report theirs too

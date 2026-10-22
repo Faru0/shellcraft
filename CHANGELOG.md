@@ -166,6 +166,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **Every way of running ingest puts new modules in `~/.shellcraft/modules`**: the `ingest` command,
+  `shellcraft ingest` and `python -m tools.ingest`. `shellcraft ingest` used to write into the bundled
+  folder (inside the installed package for an installed copy) and `python -m tools.ingest` into the
+  checkout. `--modules DIR` still picks another folder. `ingest check --all` checks every module the
+  shell loads, the bundled ones and yours; `--modules DIR` narrows it to one folder.
+
 - **ingest's AI code is one file**, `tools/ingest/ingest_AI.py`: the providers and models, the HTTP
   calls, both prompts (they were `prompts/*.md`) and the wizard's AI steps (choosing the provider and
   key, asking before sending, converting, finishing the docs). Upgrading the AI side means editing

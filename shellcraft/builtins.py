@@ -773,9 +773,8 @@ def _ingest(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from tools.ingest.__main__ import main as ingest_main
 
     try:
-        target = ctx.registry.user_directory or ctx.registry.directory  # ~/.shellcraft/modules
-        target.mkdir(parents=True, exist_ok=True)
-        code = ingest_main(args, modules_dir=target, prog="ingest", console=ctx.ui.console)  # the shell's screen
+        code = ingest_main(args, prog="ingest", console=ctx.ui.console,  # the shell's screen
+                           folders=ctx.registry.directories)  # `ingest check --all`: what this shell loads
     except SystemExit as exc:  # argparse: --help, or a usage error already printed
         code = exc.code if isinstance(exc.code, int) else 1
     if code:
