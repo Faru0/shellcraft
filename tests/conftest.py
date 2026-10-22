@@ -140,3 +140,112 @@ def http(monkeypatch) -> FakeHTTP:
     fake = FakeHTTP()
     monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
     return fake
+
+
+# ── a real HTTP server on 127.0.0.1, for curl / fetch ───────────────────────
+
+class WebServer:
+    """Records every request and answers by path: /echo (the request as JSON), /status/N,
+    /redirect/N (N hops to /echo), /json, /binary, /slow, /flaky (503 until `flaky` runs out),
+    /cookie (sets one), /digest (401 without a Digest Authorization), /big (`big` bytes)."""
+
+    def __init__(self) -> None:
+        import http.server
+        import threading
+
+        self.requests: list[dict] = []
+        self.flaky = 0
+        self.big = 0
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *args):  # quiet
+                pass
+
+            def _handle(self):
+                import json as _json
+                import time as _time
+                import urllib.parse
+
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                record = {"method": self.command, "path": self.path, "headers": dict(self.headers.items()),
+                          "header_list": list(self.headers.items()), "body": body.decode("latin-1")}
+                owner.requests.append(record)
+                path = urllib.parse.urlparse(self.path).path
+                status, headers, out = 200, {"Content-Type": "application/json"}, b""
+                if path == "/echo":
+                    out = _json.dumps(record).encode()
+                elif path.startswith("/status/"):
+                    status = int(path.rsplit("/", 1)[1])
+                    out, headers = f"status {status}\n".encode(), {"Content-Type": "text/plain"}
+                elif path.startswith("/redirect/"):
+                    hops = int(path.rsplit("/", 1)[1])
+                    status, headers = 302, {"Location": f"/redirect/{hops - 1}" if hops > 1 else "/echo"}
+                elif path == "/json":
+                    out = b'{"a": {"b": [1, 2, 3], "name": "ada"}, "list": ["x", "y"]}'
+                elif path == "/binary":
+                    out, headers = b"\x89PNG\r\n\x1a\n\x00\x00\x00", {"Content-Type": "image/png"}
+                elif path == "/slow":
+                    _time.sleep(1.5)
+                    out, headers = b"late\n", {"Content-Type": "text/plain"}
+                elif path == "/flaky":
+                    if owner.flaky > 0:
+                        owner.flaky -= 1
+                        status, out = 503, b"busy\n"
+                    else:
+                        out = b"ok\n"
+                    headers = {"Content-Type": "text/plain", "Retry-After": "0"}
+                elif path == "/cookie":
+                    headers = {"Content-Type": "text/plain", "Set-Cookie": "token=xyz; Path=/"}
+                    out = b"set\n"
+                elif path == "/digest":
+                    if not self.headers.get("Authorization", "").startswith("Digest "):
+                        status = 401
+                        headers = {"WWW-Authenticate": 'Digest realm="test", nonce="abc", qop="auth"',
+                                   "Content-Type": "text/plain"}
+                        out = b"no\n"
+                    else:
+                        out, headers = b"digest ok\n", {"Content-Type": "text/plain"}
+                elif path == "/big":
+                    out, headers = b"x" * owner.big, {"Content-Type": "text/plain"}
+                elif path.startswith("/files/"):
+                    out, headers = b"file body\n", {"Content-Type": "text/plain"}
+                else:
+                    status, out = 404, b"not found\n"
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(out)
+
+            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.port = self.server.server_address[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+        self.thread.start()
+
+    @property
+    def last(self) -> dict:
+        return self.requests[-1]
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def web(monkeypatch):
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy",
+                 "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    server = WebServer()
+    yield server
+    server.close()

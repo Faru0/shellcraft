@@ -1,46 +1,32 @@
-# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+# ShellCraft skill file (TOML). Read for Tab completion, `man` and the module checker.
+# fetch is curl under another name: AI clients get the `curl` tool instead, so this one is local.
+expose = false
 
-summary = "Fetch text from an http(s) URL or a local file and return it as the tool output."
+summary = "curl under another name, that also reads a local file or stdin; --head N keeps the first N lines."
 
 when_to_use = """
-Use as the first step whenever you need the contents of a web page, a JSON API response, or a
-file on the ShellCraft host. Use --json to pull one field out of a JSON document instead of
-returning the whole payload, and --head to limit large outputs before sending them on.
-Do not use it to write files; it only reads."""
-
-usage = "fetch [SOURCE] [--head N] [--json PATH] [--timeout SECONDS]"
+At the prompt and in scripts: read a URL, a file or stdin into a pipeline, keeping the first lines
+with --head N or one JSON field with --jq. AI clients use the curl tool."""
 
 examples = [
-  '{"source": "https://example.com", "head": 20}',
-  '{"source": "package.json", "json": "dependencies"}',
-  '{"source": "https://api.example.com/items", "method": "POST", "header": ["Authorization: Bearer <token>"], "data": "{\"name\": \"x\"}"}',
-  '{"source": "https://api.github.com/repos/python/cpython", "json": "stargazers_count", "retry": 2}',
+  '{"source": ["https://example.com"], "head": 20}',
+  '{"source": ["package.json"], "jq": "dependencies"}',
 ]
 
-notes = """
-Output is plain text. Pass it as `stdin` to `filter` (or use the shellcraft_pipeline tool with
-'fetch SOURCE | filter PATTERN') to narrow it down. Errors (missing file, HTTP error, bad JSON)
-come back as tool errors with a one-line explanation.
-Binary content (images, PDFs, archives, anything with NUL bytes) is rejected with a tool error:
-this tool only returns text."""
-
-[[params]]
-name = "source"
-metavar = "SOURCE"
-description = "http(s) URL or file path relative to the server's working directory. Omit (or '-') to echo `stdin`."
+usage = "fetch [SOURCE...] [--head N] [--jq PATH] [any curl option]"
 
 [[params]]
 name = "head"
 flag = "--head"
 type = "integer"
 metavar = "N"
-description = "Return only the first N lines."
+description = "Keep only the first N lines (curl's --head, a HEAD request, is `-I` here)."
 
 [[params]]
-name = "json"
-flag = "--json"
+name = "jq"
+flag = "--jq"
 metavar = "PATH"
-description = "Dotted path into parsed JSON, e.g. 'data.items.0.name'. Lists of scalars are returned one per line."
+description = "Print one field of a JSON document: 'data.items.0.name' or '.data.items[0].name'."
 
 [[params]]
 name = "header"
@@ -48,29 +34,21 @@ flag = "--header"
 short = "-H"
 type = "array"
 metavar = "'NAME: VALUE'"
-description = "Request header as 'Name: value' (URLs only); one item per header."
+description = "Request header as 'Name: value' (URLs only)."
 
 [[params]]
 name = "method"
-flag = "--method"
+flag = "--request"
 short = "-X"
 metavar = "METHOD"
-values = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-description = "HTTP method (URLs only). Default GET, or POST when `data` is given."
+description = "HTTP method (URLs only)."
 
 [[params]]
 name = "data"
 flag = "--data"
 short = "-d"
 metavar = "DATA"
-description = "Request body (URLs only): text, '@FILE' to send a file, or '@-' to send `stdin`. JSON bodies get Content-Type application/json, others form-urlencoded, unless a header sets it."
-
-[[params]]
-name = "retry"
-flag = "--retry"
-type = "integer"
-metavar = "N"
-description = "Retry up to N times on connection errors, timeouts and HTTP 408/425/429/5xx, waiting 1s, 2s, 4s... (or the server's Retry-After)."
+description = "Request body: text, '@FILE' or '@-' for stdin."
 
 [[params]]
 name = "max_size"
@@ -79,17 +57,21 @@ metavar = "SIZE"
 description = "Largest response or file to accept, e.g. 500K or 10M (default 10M); 0 for no limit."
 
 [[params]]
-name = "timeout"
-flag = "--timeout"
-type = "number"
-metavar = "SECONDS"
-description = "Network timeout in seconds (default 15)."
+name = "source"
+type = "array"
+metavar = "SOURCE"
+description = "URLs or local files; none (or '-') reads stdin."
 
-# Tests: run by `python tools/ingest check`, never shown to the AI.
+# Tests: run by `python tools/ingest check`.
 [[tests]]
 args = ["--head", "1"]
 stdin = "first\nsecond\n"
 expect = "first\n"
+
+[[tests]]
+args = ["--jq", "user.name"]
+stdin = '{"user": {"name": "ada"}}'
+expect = "ada\n"
 
 [[tests]]
 args = ["--json", "user.name"]
@@ -97,7 +79,7 @@ stdin = '{"user": {"name": "ada"}}'
 expect = "ada\n"
 
 [[tests]]
-args = ["--json", "a"]
+args = ["--jq", "a"]
 stdin = "not json"
 error = "not valid JSON"
 

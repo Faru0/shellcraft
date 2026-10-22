@@ -7,6 +7,7 @@ import getpass
 import os
 import platform
 import re
+import shutil
 import socket
 import stat as statmod
 import time
@@ -577,6 +578,52 @@ def time_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     styled.append_text(Text.assemble(("real ", "sc.muted"), (f"{elapsed:.3f}s", "sc.accent")))
     output = Styled(styled, text + line + "\n")
     return WithStatus(output, status) if status else output
+
+
+# ── command ──────────────────────────────────────────────────────────────────
+
+@builtin("command", "Run the OS program NAME even when a builtin or module has the name",
+         "command NAME [ARG...] | command -v NAME", category="shell", streams=True, doc="""\
+# command
+
+Run the operating system's program `NAME`, skipping ShellCraft's builtins, modules, aliases and
+functions of the same name, as bash's `command` does. Useful where ShellCraft has its own command
+with a program's name: `curl` is ShellCraft's (on Python requests), `command curl` is the system's.
+
+Like any OS program, it needs OS commands on (`settings system_commands on`, or `--allow-system`).
+
+## Usage
+
+```
+command NAME [ARG...]     # run the OS program NAME
+command -v NAME           # the program's path (nothing, and status 1, when there is none)
+```
+
+## Examples
+
+```
+command curl -sI https://example.com
+command -v curl
+command ls -la | grep conf
+```
+""")
+def command(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
+    from shellcraft.parser import Command
+    from shellcraft.pipeline import _resolve_system, _stream_system
+
+    if args[:1] == ["-v"]:
+        if len(args) != 2:
+            raise CommandError("command: usage: command -v NAME")
+        found = shutil.which(args[1])
+        return f"{found}\n" if found else WithStatus("", 1)
+    if not args:
+        raise CommandError("command: usage: command NAME [ARG...] | command -v NAME")
+    argv = _resolve_system(Command(args[0], list(args[1:])))
+    if argv is None:
+        raise CommandError(f"command: {args[0]}: no such program on the PATH", 127)
+    if not ctx.allow_system:
+        raise CommandError(f"command: {args[0]}: OS commands are off — run: settings system_commands on", 127)
+    return _stream_system(argv, stdin)
 
 
 # ── type / export / unset ────────────────────────────────────────────────────

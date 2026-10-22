@@ -168,6 +168,82 @@ def find_closing_paren(line: str, i: int) -> int | None:
     return None
 
 
+_ANSI_C = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v", "e": "\x1b",
+           "E": "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def ansi_c_string(line: str, at: int) -> tuple[str, int]:
+    """`$'…'` starting at `at`: its text with bash's escapes decoded (\\n \\t \\xHH \\uHHHH \\NNN …),
+    and the index after the closing quote."""
+    out: list[str] = []
+    i, n = at + 2, len(line)
+    while i < n:
+        ch = line[i]
+        if ch == "'":
+            return "".join(out), i + 1
+        if ch == "\\" and i + 1 < n:
+            nxt = line[i + 1]
+            if nxt in _ANSI_C:
+                out.append(_ANSI_C[nxt])
+                i += 2
+                continue
+            for prefix, digits, base in (("x", 2, 16), ("u", 4, 16), ("U", 8, 16)):
+                if nxt == prefix:
+                    j = i + 2
+                    while j < n and j < i + 2 + digits and line[j] in "0123456789abcdefABCDEF":
+                        j += 1
+                    if j > i + 2:
+                        out.append(chr(int(line[i + 2:j], base)))
+                        i = j
+                        break
+            else:
+                if nxt in "01234567":
+                    j = i + 1
+                    while j < n and j < i + 4 and line[j] in "01234567":
+                        j += 1
+                    out.append(chr(int(line[i + 1:j], 8)))
+                    i = j
+                    continue
+                out.append("\\" + nxt)
+                i += 2
+                continue
+            continue
+        out.append(ch)
+        i += 1
+    raise ParseError("unterminated $' quote", at)
+
+
+def join_continued_lines(line: str) -> str:
+    """Backslash + newline (outside single quotes) joins two lines, as in bash: a curl command
+    pasted over several lines with `\\` at the ends is one command."""
+    if "\\\n" not in line and "\\\r\n" not in line:
+        return line
+    out: list[str] = []
+    quote = ""
+    i, n = 0, len(line)
+    while i < n:
+        ch = line[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+            elif quote == '"' and ch == "\\" and i + 1 < n and line[i + 1] in '"\\':
+                out.append(line[i:i + 2])
+                i += 2
+                continue
+        elif ch in ("'", '"'):
+            quote = ch
+        if ch == "\\" and quote != "'":
+            if line.startswith("\\\n", i):
+                i += 2
+                continue
+            if line.startswith("\\\r\n", i):
+                i += 3
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool = False,
              substitute: Callable[[str], str] | None = None, glob: bool = False) -> list[Token]:
     """Split a line into words and operators.
@@ -236,6 +312,11 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
 
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
+            if ch == "$" and line.startswith("$'", i):  # bash's ANSI-C string: $'a\nb', as curl pastes use
+                text, i = ansi_c_string(line, i)
+                quoted = True
+                add(text, False)
+                continue
             if ch == "$" and (var := expansion(i)) is not None:
                 value, i = var
                 expanded = True

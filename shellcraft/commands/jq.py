@@ -934,7 +934,7 @@ doesn't, so the examples work as typed.
 
 ## See also
 
-`fetch --json PATH` (JSON from a URL), `grep`, `sort`.
+`curl URL --jq PATH` (one field of JSON from a URL), `grep`, `sort`.
 """)
 def jq(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser = ArgParser("jq")

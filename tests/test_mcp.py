@@ -28,7 +28,7 @@ def _call(server, fn):
 def test_tools_carry_skill_descriptions(registry):
     result = _call(build_server(registry), lambda c: c.list_tools())
     tools = {t.name: t for t in result.tools}
-    assert {"fetch", "filter", PIPELINE_TOOL} <= set(tools)
+    assert {"curl", "filter", PIPELINE_TOOL} <= set(tools) and "fetch" not in tools
     assert tools["filter"].description == registry.get("filter").skill.to_description()
     assert "When to use:" in tools["filter"].description
     assert tools["filter"].input_schema["properties"]["stdin"]["type"] == "string"
@@ -170,16 +170,16 @@ def test_invalid_params_table_stops_the_module_loading(tmp_path):
 def test_man_pages_are_resources(registry):
     async def fn(c):
         listed = await c.list_resources()
-        page = await c.read_resource(MAN_URI + "fetch")
+        page = await c.read_resource(MAN_URI + "curl")
         builtin = await c.read_resource(MAN_URI + "grep")
         return listed, page, builtin
 
     listed, page, builtin = _call(build_server(registry), fn)
     uris = {str(r.uri) for r in listed.resources}
-    assert {MAN_URI + "fetch", MAN_URI + "filter", MAN_URI + "grep"} <= uris
+    assert {MAN_URI + "curl", MAN_URI + "filter", MAN_URI + "grep"} <= uris
     assert MAN_URI + "rm" not in uris and MAN_URI + "cd" not in uris  # not usable over MCP
     assert page.contents[0].mime_type == "text/markdown"
-    assert page.contents[0].text == registry.get("fetch").doc_md
+    assert page.contents[0].text == registry.get("curl").doc_md
     assert "grep" in builtin.contents[0].text
 
 

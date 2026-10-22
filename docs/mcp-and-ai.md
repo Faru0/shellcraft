@@ -61,8 +61,8 @@ Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:38765/mc
 To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
 
 > [!WARNING]
-> Connected AI clients can read any file your user account can read (through `fetch`, `cat`,
-> `grep`, …), and `fetch` can request any URL; while your interactive shell runs they can also read
+> Connected AI clients can read any file your user account can read (through `curl`, `cat`,
+> `grep`, …), and `curl` can request any URL (and send a file's contents with `-d @FILE`); while your interactive shell runs they can also read
 > its screen, its subshells' output and your command history, and run the commands you approve
 > (or any command after `settings ai_run on`). Modules that use your API keys (`queryDns`,
 > `queryCensys`) spend your quota when an AI calls them. Only connect AI clients you trust.

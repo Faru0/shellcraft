@@ -7,6 +7,21 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`curl`** (`man curl`, `docs/curl.md`): HTTP requests with curl's own command line, built on
+  Python `requests`. Combined flags (`-fsSL`), methods, headers (add, remove, empty), every `-d`
+  form, `--json`, `-F` forms and uploads, `-T`, basic / digest / bearer auth, cookies and cookie
+  jars, `-L`, `-k`, http(s) proxies (and `HTTP_PROXY` / `NO_PROXY`), timeouts, `--retry`, `-o` / `-O`,
+  `-i`, `-I`, `-v` (to the error stream), `-w`, `-f`, `-r`, and curl's exit statuses. `--jq PATH`
+  picks a JSON field. An MCP tool too (it writes no files there). What curl does that it doesn't yet
+  (SOCKS, HTTP/2, globbing…) is listed in its manual.
+
+- **Pasting a browser's "Copy as cURL"**: the bash form runs as it is (the parser now reads `$'…'`
+  strings, and a line ending in `\` continues on the next), and so does Windows' cmd form
+  (`^"…^"` quoting, `^` line ends).
+
+- **`command NAME`**, as in bash: runs the OS program even when a builtin or module has its name
+  (`command curl …`); `command -v NAME` prints its path.
+
 - **Funcs** (`func`, `docs/funcs.md`): named scripts of ShellCraft lines, run on demand like the rc
   file. `func run NAME ARGS` runs the steps in your shell as if typed (`$1`, `$@`), stops at the first
   failure, and prints a one-line result; `-i` runs it isolated (directory, variables, env, aliases,
@@ -138,6 +153,13 @@ and the project uses [semantic versioning](https://semver.org/).
   the main shell and from a subshell.
 
 ### Changed
+
+- **`fetch` is `curl` under another name**, on `requests` instead of `urllib`. It still reads a
+  file or stdin and keeps `--head N`, `--timeout`, `--max-size` and `--method`; `--json PATH` is now
+  `--jq PATH` (the old spelling still works). AI clients get the `curl` tool instead of `fetch`.
+- A module's `modkit.error_stream()` text follows the command's own `2> FILE` and `2>&1`.
+- The module checker accepts a module that shadows an OS program on purpose (its page names
+  `command NAME`).
 
 - **A faster start.** The banner is printed before the prompt library loads, so it appears in about
   60 ms instead of 160 ms, and the prompt follows sooner (145 ms instead of 167 ms on Linux; `sub

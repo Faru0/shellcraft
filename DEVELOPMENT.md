@@ -29,7 +29,8 @@ shellcraft/
 │   ├── shell.py            # REPL: PromptSession, prompt, history, ghost text
 │   ├── console.py          # the terminal: Windows CONIN$/CONOUT$ (Win32Input + VT output), the Rich console
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
-│   ├── parser.py           # quote-aware tokenizer ($name, $(( )), $( ), globs) → Pipeline(segments, redirects)
+│   ├── parser.py           # quote-aware tokenizer ($name, $'…', $(( )), $( ), globs, \ continuations) → Pipeline(segments, redirects)
+│   ├── curlpaste.py        # a pasted Windows "Copy as cURL (cmd)" line turned into ShellCraft quoting
 │   ├── arith.py            # $(( … )) integer arithmetic, evaluated from the AST (no eval)
 │   ├── script.py           # scripts: bash for/while/until/if/case/&&/|| and -py blocks; piped blocks; conditions
 │   ├── histexpand.py       # !!, !$, !*, !N, !prefix (interactive shell only)
@@ -85,7 +86,7 @@ shellcraft/
 │   ├── review_spool.py     # the review queue shared by the shell and the MCP servers (`mark`, `tell`, `review`)
 │   ├── usage.py            # a command's usage line as a grammar, for Tab completion
 │   └── diagnostics.py      # the `diag` report (hidden until `--diag` or the diagnostics setting)
-├── modules/                # bundled modules: fetch, filter, myip, ip2geo, queryDns, queryCert, queryCensys
+├── modules/                # bundled modules: curl and fetch (one engine: _curl.py), filter, myip, ip2geo, queryDns, queryCert, queryCensys
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
 │   ├── demo.py             # records docs/demo.cast (the README demo) from a scripted session; agg makes the GIF
@@ -275,7 +276,8 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
-| `test_fetch.py` | `fetch`: headers, methods, request bodies, retries, size limit, binary rejection (HTTP stubbed) |
+| `test_curl.py` | `curl` against a real server on 127.0.0.1 (the `web` fixture): methods, headers, every body option, forms, auth, cookies, redirects, `-I` / `-i` / `-v` / `-w` / `-o`, exit statuses, retries, proxies, pasted Chrome commands (bash and cmd), `$'…'` and `\` continuations, `command`, the MCP tool and no file writes over MCP |
+| `test_fetch.py` | `fetch`: stdin and files, `--head N`, `--jq` and the old `--json PATH`, size limits, its old switches, URLs through the curl engine |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script`, `shellcraft ingest` and the `ingest` builtin |
 | `test_background.py` | `cmd &` background jobs and `jobs -f N` |

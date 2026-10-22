@@ -361,14 +361,14 @@ STARTERS: dict[str, dict[str, Any]] = {
     "bugbounty": {
         "data": {"description": "Bug bounty: one program's scope, recon modules, clickable output",
                  "color": "#ff2a6d", "theme": "dracula", "settings": {"links": True},
-                 "modules": {"enable": ["fetch", "queryCert", "queryDns", "ip2geo"]},
+                 "modules": {"enable": ["curl", "fetch", "queryCert", "queryDns", "ip2geo"]},
                  "env": {"BB_PROGRAM": "example", "BB_ROOT": "~/bugbounty/$BB_PROGRAM"}},
         "rc": ("# Bug bounty profile: runs after ~/.shellcraft/rc when you `profile use bugbounty`.\n"
                "# Keep each program's notes and output apart:\n"
                "mkdir -p $BB_ROOT\ncd $BB_ROOT\n"
                "# env set -s H1_API_TOKEN          # a platform token, asked with hidden typing at start\n"),
         "aliases": ("alias subs='queryCert -s'\nalias dns='queryDns'\nalias geo='ip2geo'\n"
-                    "alias headers='fetch --head 40'\n"),
+                    "alias headers='curl -sIL'\n"),
     },
     "osint": {
         "data": {"description": "OSINT: domain, certificate, DNS and IP lookups",

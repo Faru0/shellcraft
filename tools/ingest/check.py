@@ -120,7 +120,13 @@ def check_name(report: Report) -> bool:
         report.add(FAIL, "name", problem)
         return False
     if os_program := shutil.which(report.name):
-        report.add(WARN, "name", f"shadows the OS program {os_program} (the module will win)")
+        md = report.path.with_suffix(".md")
+        if md.is_file() and f"`command {report.name}" in md.read_text(encoding="utf-8", errors="replace"):
+            report.add(PASS, "name", f"shadows the OS program {os_program} on purpose "
+                                     f"(its page says `command {report.name}` runs that one)")
+        else:
+            report.add(WARN, "name", f"shadows the OS program {os_program} (the module will win; say in its "
+                                     f".md that `command {report.name}` runs the OS one if that's on purpose)")
     else:
         report.add(PASS, "name", f"`{report.name}` is free")
     return True
@@ -135,6 +141,9 @@ def check_files(report: Report) -> None:
 
 def check_import(report: Report) -> bool:
     try:
+        from shellcraft.loader import _import_path
+
+        _import_path(report.path.parent)  # its helpers (`from _helper import …`) import as in the shell
         report.spec = ModuleRegistry(report.path.parent).load_file(report.name, report.path)
     except BaseException as exc:  # noqa: BLE001 — includes SystemExit at import time
         report.add(FAIL, "import", f"{type(exc).__name__}: {exc}")

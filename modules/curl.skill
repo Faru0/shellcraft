@@ -1,0 +1,193 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Make an HTTP(S) request the way curl does (on Python requests) and return the response body as text."
+
+when_to_use = """
+Use to call a web API or read a web page: GET, POST, PUT, PATCH, DELETE with headers, a body
+(form, raw text or JSON), basic/digest/bearer auth, cookies, redirects and an http(s) proxy.
+Use `jq` to pull one field out of a JSON response instead of returning the whole payload.
+It does not write files on the host: the body comes back as the tool output."""
+
+usage = "curl [-X METHOD] [-H 'Name: value']... [-d DATA | --json JSON | -F name=value] [-L] [-i] URL..."
+
+examples = [
+  '{"url": ["https://api.github.com/repos/python/cpython"], "jq": "stargazers_count"}',
+  '{"url": ["https://api.example.com/items"], "method": "POST", "header": ["Authorization: Bearer <token>"], "json": "{\"name\": \"x\"}"}',
+  '{"url": ["https://example.com"], "head": true, "location": true}',
+  '{"url": ["https://httpbin.org/post"], "form": ["name=ada", "lang=python"]}',
+]
+
+notes = """
+Behaves like curl: redirects are not followed unless `location` is true, HTTP errors (4xx/5xx)
+still return the body unless `fail` is true, and a binary body (image, PDF, archive) is refused
+with a tool error. The error text starts with curl's exit status, e.g. "curl: (6) Could not
+resolve host" or "curl: (28) Operation timed out". Pass the body through `stdin` with
+`data: "@-"`. SOCKS proxies, HTTP/2 and URL globbing are not supported yet."""
+
+[[params]]
+name = "method"
+flag = "--request"
+short = "-X"
+metavar = "METHOD"
+description = "HTTP method. Default GET, or POST when a body is given (HEAD with `head`)."
+
+[[params]]
+name = "header"
+flag = "--header"
+short = "-H"
+type = "array"
+metavar = "'NAME: VALUE'"
+description = "Request headers as 'Name: value', one item per header. 'Name:' removes a default header."
+
+[[params]]
+name = "data"
+flag = "--data"
+short = "-d"
+metavar = "DATA"
+description = "Request body, form-urlencoded by default: text, '@FILE' for a file, '@-' for `stdin`. Several are joined with '&'."
+
+[[params]]
+name = "json"
+flag = "--json"
+metavar = "JSON"
+description = "A JSON request body; sets Content-Type and Accept to application/json."
+
+[[params]]
+name = "form"
+flag = "--form"
+short = "-F"
+type = "array"
+metavar = "NAME=VALUE"
+description = "multipart/form-data fields, one per item; 'name=@file' uploads a file."
+
+[[params]]
+name = "user"
+flag = "--user"
+short = "-u"
+metavar = "USER:PASSWORD"
+description = "Credentials for basic auth (digest with `digest`)."
+
+[[params]]
+name = "digest"
+flag = "--digest"
+type = "boolean"
+description = "Use HTTP digest auth for `user`."
+
+[[params]]
+name = "bearer"
+flag = "--oauth2-bearer"
+metavar = "TOKEN"
+description = "Send 'Authorization: Bearer TOKEN'."
+
+[[params]]
+name = "cookie"
+flag = "--cookie"
+short = "-b"
+metavar = "'NAME=VALUE; ...'"
+description = "Cookies to send, or a Netscape cookie file to read them from."
+
+[[params]]
+name = "location"
+flag = "--location"
+short = "-L"
+type = "boolean"
+description = "Follow redirects."
+
+[[params]]
+name = "head"
+flag = "--head"
+short = "-I"
+type = "boolean"
+description = "Send a HEAD request and return only the response headers."
+
+[[params]]
+name = "include"
+flag = "--include"
+short = "-i"
+type = "boolean"
+description = "Put the response headers before the body."
+
+[[params]]
+name = "fail"
+flag = "--fail"
+short = "-f"
+type = "boolean"
+description = "Fail (curl exit 22) on an HTTP status of 400 or more, without the body."
+
+[[params]]
+name = "get"
+flag = "--get"
+short = "-G"
+type = "boolean"
+description = "Put the `data` in the URL's query string and send a GET."
+
+[[params]]
+name = "insecure"
+flag = "--insecure"
+short = "-k"
+type = "boolean"
+description = "Don't check the server's TLS certificate."
+
+[[params]]
+name = "proxy"
+flag = "--proxy"
+short = "-x"
+metavar = "[PROTOCOL://]HOST[:PORT]"
+description = "An http or https proxy."
+
+[[params]]
+name = "max_time"
+flag = "--max-time"
+short = "-m"
+type = "number"
+metavar = "SECONDS"
+description = "Give up after this many seconds."
+
+[[params]]
+name = "retry"
+flag = "--retry"
+type = "integer"
+metavar = "N"
+description = "Retry up to N times on timeouts and HTTP 408, 429, 500, 502, 503, 504."
+
+[[params]]
+name = "write_out"
+flag = "--write-out"
+short = "-w"
+metavar = "FORMAT"
+description = "Text to add after the transfer, e.g. '%{http_code}\\n' or '%{time_total}'."
+
+[[params]]
+name = "jq"
+flag = "--jq"
+metavar = "PATH"
+description = "Return one field of a JSON response: 'data.items.0.name' or '.data.items[0].name'."
+
+[[params]]
+name = "url"
+type = "array"
+required = true
+metavar = "URL"
+description = "The URL(s) to request, one after another."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+[[tests]]
+args = ["--version"]
+contains = "curl 8.11.1 (ShellCraft"
+
+[[tests]]
+args = ["--no-such-option", "https://example.com"]
+error = "option --no-such-option: is unknown"
+
+[[tests]]
+args = ["--socks5", "localhost:1080", "https://example.com"]
+error = "not supported yet (SOCKS proxies"
+
+[[tests]]
+args = []
+error = "no URL specified"
+
+
+[[tests]]
+params = {url = ["http://127.0.0.1:1/"], fail = true}
+error = "curl: (7) Failed to connect to 127.0.0.1 port 1"

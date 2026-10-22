@@ -1,55 +1,49 @@
 # fetch
 
-Pull text into a ShellCraft pipeline from a **URL**, a **local file**, or **stdin**.
+`curl` under another name, with two extras: it also reads a **local file** or **stdin**, and
+`--head N` keeps the first *N* lines. Every curl option works (`man curl`).
 
 ## Synopsis
 
 ```
-fetch [SOURCE] [--head N] [--json PATH] [--timeout SECONDS] [--max-size SIZE]
-      [-H 'NAME: VALUE']... [-X METHOD] [-d DATA] [--retry N]
+fetch [SOURCE...] [--head N] [--jq PATH] [CURL OPTIONS]
 ```
 
 ## Description
 
-`fetch` is the usual *first* stage of a pipeline. It reads its source and writes the text to its
-output stream, so the next command receives it as stdin.
+`fetch` is the usual *first* stage of a pipeline:
 
-- **SOURCE** starting with `http://` or `https://` is downloaded (a spinner shows while it runs).
-- Any other **SOURCE** is read as a file, relative to the current directory (`cd` changes it).
-- With no **SOURCE** (or `-`), `fetch` passes stdin through unchanged.
+- a **SOURCE** with a scheme (`https://…`) is requested exactly as `curl` would;
+- any other **SOURCE** is read as a file, relative to the current directory;
+- with no **SOURCE** (or `-`), stdin passes through.
+
+Differences from `curl`: `--head N` means "the first N lines" (curl's HEAD request is `-I`), a
+response or file is limited to 10 MB unless `--max-size` says otherwise, and the old
+`--json PATH` still works as `--jq PATH`. Its older switches keep working too: `--timeout`
+(curl's `--max-time`), `--max-size` (`--max-filesize`) and `--method` (`-X`).
+
+AI clients get the `curl` tool; `fetch` is not offered as a second one.
 
 ## Options
 
 | Option | Meaning |
 | --- | --- |
 | `--head N` | Keep only the first *N* lines. |
-| `--json PATH` | Parse the text as JSON and extract a dotted path such as `data.items.0.name`. Lists of scalars come out one item per line. |
-| `--timeout S` | Network timeout in seconds (default `15`). |
-| `--max-size SIZE` | Largest response or file to accept, such as `500K` or `10M` (default `10M`). `0` means no limit. |
-| `-H`, `--header 'NAME: VALUE'` | Add a request header (URLs only). Repeat it for several headers. |
-| `-X`, `--method METHOD` | HTTP method (URLs only). The default is `GET`, or `POST` when `--data` is given. |
-| `-d`, `--data DATA` | Request body (URLs only): text, `@FILE` to send a file, or `@-` to send stdin. A JSON body gets `Content-Type: application/json`, anything else `application/x-www-form-urlencoded`, unless a `-H` header sets it. |
-| `--retry N` | Retry up to *N* times on connection errors, timeouts and HTTP 408, 425, 429 and 5xx. It waits 1 s, 2 s, 4 s… (at most 30 s), or what the server's `Retry-After` header asks for. |
+| `--jq PATH` | Print one field of a JSON document: `data.items.0.name` or `.data.items[0].name`. Lists of plain values come out one per line. |
+| `--max-size SIZE` | Largest response or file, such as `500K` or `10M` (default `10M`); `0` for no limit. |
+| any curl option | `-H`, `-X`, `-d`, `--json`, `-L`, `-u`, `-x`, `--retry`… (`man curl`). |
 
 ## Examples
 
 ```
-fetch notes.txt
+fetch notes.txt --head 5
 fetch https://example.com --head 20
-fetch https://api.github.com/repos/python/cpython --json stargazers_count
-fetch data.json --json users | filter -i admin > admins.txt
-fetch server.log | filter -c ERROR
-fetch https://api.example.com/items -H "Authorization: Bearer <token>" -d '{"name": "x"}'
+fetch https://api.github.com/repos/python/cpython --jq stargazers_count
+fetch data.json --jq users | filter -i admin > admins.txt
+fetch https://api.example.com/items -H "Authorization: Bearer $TOKEN" --json '{"name": "x"}'
 echo 'a=1&b=2' | fetch https://example.com/form -X PUT -d @-
-fetch https://flaky.example.com/data.json --retry 3 --max-size 50M
 ```
-
-## Errors
-
-Missing files, HTTP errors, timeouts and invalid JSON stop the pipeline with a styled error.
-`fetch` only returns text: binary content (images, audio, video, PDFs, archives, or anything
-containing NUL bytes) is rejected, and so is anything larger than `--max-size`.
 
 ## See also
 
-`man filter`
+`man curl` · `man filter`

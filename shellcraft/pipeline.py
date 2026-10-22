@@ -107,8 +107,11 @@ class Variables(Mapping[str, str]):
 def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
-    from shellcraft import ask, script
-    from shellcraft.parser import split_background
+    from shellcraft import ask, curlpaste, script
+    from shellcraft.parser import join_continued_lines, split_background
+
+    # A pasted curl command: Windows' "Copy as cURL (cmd)" form, and lines continued with `\`.
+    line = join_continued_lines(curlpaste.from_cmd(line))
 
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program
@@ -502,6 +505,24 @@ def stderr_file_sink(redirect: Any) -> Callable[[str], None]:
     return write
 
 
+_STDERR_STARTED: set[int] = set()  # commands whose `2> FILE` a module already wrote to (later writes append)
+
+
+def _module_stderr(cmd: Command, ctx: ShellContext) -> Callable[[str], None]:
+    """Where a module's modkit.error_stream() text goes: the command's own `2> FILE`, else the
+    shell's error stream."""
+    redirect = cmd.stderr
+    if redirect is None:
+        return lambda text: write_stderr(ctx, text)
+
+    def write(text: str) -> None:
+        append = redirect.append or id(cmd) in _STDERR_STARTED
+        _STDERR_STARTED.add(id(cmd))
+        with open(redirect.path, "a" if append else "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    return write
+
+
 def _to_stderr(cmd: Command, data: Any, ctx: ShellContext, index: int, total: int) -> Any:
     """`>&2`: the segment's output goes to the error stream (its own `2> file` if it has one;
     with `2>&1` too it stays output). The next segment gets nothing; the status is unchanged."""
@@ -527,8 +548,11 @@ def _failed(cmd: Command, error: PipelineError, index: int, total: int) -> tuple
         message = message[len(cmd.name) + 2:]
     text = f"{cmd.name}: {message}\n"
     if cmd.stderr is not None:
+        started = id(cmd) in _STDERR_STARTED
+        _STDERR_STARTED.discard(id(cmd))
         try:
-            with open(cmd.stderr.path, "a" if cmd.stderr.append else "w", encoding="utf-8", newline="") as fh:
+            with open(cmd.stderr.path, "a" if cmd.stderr.append or started else "w", encoding="utf-8",
+                      newline="") as fh:
                 fh.write(text)
         except OSError as exc:
             raise PipelineError(index, total, cmd.stderr.path,
@@ -609,11 +633,29 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
     if spec is not None:
         if ctx.module_filter is not None and not ctx.module_filter(cmd.name):
             raise CommandError(f"module '{cmd.name}' is not available to MCP clients", STATUS_NOT_FOUND)
-        result = spec.run(list(cmd.args), streams.text(stdin))
+        from shellcraft import modkit
+
+        previous = getattr(modkit._error_sink, "write", None)
+        previous_writes = getattr(modkit._error_sink, "writes", True)
+        modkit._error_sink.write = _module_stderr(cmd, ctx)  # modkit.error_stream()
+        modkit._error_sink.writes = ctx.allow_writes  # modkit.may_write_files()
+        merged: list[str] = []
+        if cmd.merge_stderr and cmd.stderr is None:
+            modkit._error_sink.write = merged.append  # `2>&1`: it comes before the output, as curl -v's does
+        try:
+            result = spec.run(list(cmd.args), streams.text(stdin))
+        finally:
+            modkit._error_sink.write = previous
+            modkit._error_sink.writes = previous_writes
         if streams.is_stream(result):
             return result  # a streaming module: its lines flow on as it yields them
         result = _collect(result)
-        return "" if result is None else result
+        result = "" if result is None else result
+        if merged:
+            status = result.status if isinstance(result, WithStatus) else 0
+            combined = "".join(merged) + to_text(result)
+            return WithStatus(combined, status) if status else combined
+        return result
 
     func = _func_command(cmd, ctx)
     if func is not None:  # `recon example.com`: a func whose header says `command: yes`

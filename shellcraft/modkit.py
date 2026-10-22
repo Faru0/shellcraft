@@ -37,6 +37,26 @@ def cancelled() -> bool:
     return event is not None and event.is_set()
 
 
+_error_sink = threading.local()  # .write: where this thread's module writes its error stream
+
+
+def error_stream(text: str) -> None:
+    """Write `text` to the shell's error stream (what `2> file` / `2>&1` redirect; shown in the error
+    style at the prompt): curl's `-v` trace, a warning. Without a shell (tests, plain Python): stderr."""
+    write = getattr(_error_sink, "write", None)
+    if write is not None:
+        write(text)
+    else:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+
+
+def may_write_files() -> bool:
+    """False when the command runs for an AI client over MCP, where commands don't change files
+    (`tee`, `cp`, `rm`… are refused there too). A module with options that write files checks it."""
+    return getattr(_error_sink, "writes", True)
+
+
 def check_cancel() -> None:
     """Raise Cancelled if the command was cancelled; call it between steps of a long loop."""
     if cancelled():

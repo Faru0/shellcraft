@@ -285,7 +285,8 @@ def test_docs_mention_api_keys(tmp_path):
 
 # ── check ───────────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("py", sorted((ROOT / "modules").glob("*.py")) + [ROOT / "templates/example.py"],
+@pytest.mark.parametrize("py", sorted(p for p in (ROOT / "modules").glob("*.py") if not p.name.startswith("_"))
+                         + [ROOT / "templates/example.py"],
                          ids=lambda p: p.stem)
 def test_bundled_modules_and_example_pass(py):
     report = check_module(py)

@@ -177,7 +177,7 @@ one has a manual: `man ls`, `man grep`, …
 | AI and MCP | `mcp` `mark` `tell` `review` `ingest` |
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `yes` `jq` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
-| Info | `date` `which` `type` `env` `whoami` `hostname` `uname` |
+| Info | `date` `which` `type` `command` `env` `whoami` `hostname` `uname` |
 
 - **Colored on screen, plain when piped:** `ls` shows colored columns, `tree` draws a colored tree, and `grep` highlights matches. Piped or redirected, they output plain text, one item per line.
 - **`which NAME`** tells you whether a name runs an alias, a builtin, a module or an OS program.
@@ -193,7 +193,8 @@ one has a manual: `man ls`, `man grep`, …
 
 | Module | What it does |
 | --- | --- |
-| `fetch` | Reads text from a URL, a file or stdin. `--head N` keeps the first N lines, and `--json PATH` extracts a field from JSON. |
+| `curl` | HTTP requests with curl's command line, on Python `requests`: methods, headers, bodies, forms, auth, cookies, redirects, proxies, retries, `-i` / `-v` / `-w`. A **Copy as cURL** from the browser (bash or cmd form) pastes and runs as it is. `command curl` runs the OS program. |
+| `fetch` | `curl` under another name that also reads a file or stdin. `--head N` keeps the first N lines, and `--jq PATH` extracts a field from JSON. |
 | `filter` | Keeps lines matching a regular expression (like `grep`, for stdin). |
 | `myip` | Shows your public IP, or the location/network owner of any IP (via ipconfig.io). `-p PORT` checks whether a port is reachable. |
 | `ip2geo` | Geolocates IPs or domain names: country, city, ISP, ASN, and mobile/proxy/hosting flags (via ip-api.com, no key). |
@@ -238,7 +239,7 @@ details, the rules, a reference module and the checker:
 
 | Document | For |
 | --- | --- |
-| [docs/](docs/README.md) | The user guide: scripting, funcs, profiles, subshells, keyboard and mouse, settings, MCP |
+| [docs/](docs/README.md) | The user guide: scripting, funcs, profiles, curl, subshells, keyboard and mouse, settings, MCP |
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [ai/README.md](ai/README.md) | Agents and skills that teach an AI client to work as a co-pilot in ShellCraft |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |

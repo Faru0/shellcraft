@@ -1621,7 +1621,7 @@ class Shell:
     def _read_continuation(self, line: str) -> str | None:
         """While a `{` or `(` is still open, read more lines (with a `┆ …` prompt) and join them
         into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing."""
-        while script.incomplete(line) is not None:
+        while script.incomplete(line) is not None or _continued(line):
             try:
                 more = self._ask(self._continuation_prompt)
             except KeyboardInterrupt:
@@ -1634,7 +1634,9 @@ class Shell:
                     show_error(self.ui, ParseError(f"{exc.message} (end of input)", exc.pos), line)
                 self.ctx.last_status = STATUS_SYNTAX
                 return None
-            if more.strip():
+            if _continued(line):  # `\` (or a cmd-style curl line's `^`) at the end: the next line goes on it
+                line = line + "\n" + more
+            elif more.strip():
                 line = script.join_continuation(line, more)  # adds `;` only where one is needed
         return line
 
@@ -1675,6 +1677,17 @@ class Shell:
     def _goodbye(self, code: int) -> int:
         self.ui.console.print(Text("⏻ session closed — stay curious.", style="sc.muted"))
         return code
+
+
+def _continued(line: str) -> bool:
+    r"""The line ends with a lone `\` (bash's line continuation, as in a pasted curl command), or a
+    cmd-style curl line ends with `^` (Windows' "Copy as cURL (cmd)")."""
+    stripped = line.rstrip(" \t")
+    if stripped.endswith("\\") and not stripped.endswith("\\\\"):
+        return True
+    from shellcraft import curlpaste
+
+    return stripped.endswith("^") and curlpaste.looks_like_cmd(line + '^"')
 
 
 def _last_segment_words(text: str) -> list[str]:
