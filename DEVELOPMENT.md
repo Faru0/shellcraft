@@ -40,6 +40,8 @@ shellcraft/
 │   ├── prefix.py           # the subshell prefix key (Ctrl-] by default, `settings prefix_key`)
 │   ├── envvars.py          # the session's environment variables (`env set`, `export`, the rc file), keyring secrets
 │   ├── profiles.py         # profiles: storage, layering over config.json, switching, snapshots, starters
+│   ├── funcs.py            # funcs: the .func file, default + profile + session layers, running (isolated too)
+│   ├── editor.py           # `settings editor`: terminal editors in a subshell, window editors waited for
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
 │   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
@@ -56,6 +58,7 @@ shellcraft/
 │   │   ├── info.py         #   date which env
 │   │   ├── misc.py         #   printf seq xargs basename dirname realpath stat whoami hostname uname sleep time type export unset
 │   │   ├── cond.py         #   test [ [[ true false (exit status only)
+│   │   ├── func.py         #   func (the command, guided creation)
 │   │   ├── profile.py      #   profile (the command and its wizard)
 │   │   ├── review.py       #   mark tell review (the user's side of the review loop)
 │   │   └── _io.py          #   shared file/stdin helpers
@@ -287,6 +290,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
+| `test_funcs.py` | funcs: the file, running (arguments, stop at failure, show / quiet, isolated, system, background), as a command, default + profile layers, managing steps and files, guided creation, profile export; `settings editor` |
 | `test_profiles.py` | profiles: create / list / copy / delete, layering, `profile use` and `off` (theme, settings, modules, env, aliases, history), where changes are saved, `profile save`, the wizard, diff, export / import, `--profile` |
 | `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets in the keyring, the rc origin, the `settings` section |
 | `test_copilot.py` | the co-pilot tools: reading the shell, `open_subshell`, `run_in_shell` tiers, the session grant, `tell` |

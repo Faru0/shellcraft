@@ -7,6 +7,20 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Funcs** (`func`, `docs/funcs.md`): named scripts of ShellCraft lines, run on demand like the rc
+  file. `func run NAME ARGS` runs the steps in your shell as if typed (`$1`, `$@`), stops at the first
+  failure, and prints a one-line result; `-i` runs it isolated (directory, variables, env, aliases,
+  theme and settings put back, nothing saved), `-b` in the background, `-q` / `-v` quiet or not. A
+  small header sets the description, `system` (needs OS commands), `output` (show / quiet, with `@`
+  steps always shown), `command` (typing the name runs it) and `usage`. `func new NAME` asks step by
+  step (or `-e` for the editor); without `--save` a func lasts for the session. `list`, `show`,
+  `edit`, `add` / `insert` / `rm` / `move`, `set`, `rename`, `copy`, `delete`, `export`, `import`.
+  The default setup's funcs work in every profile; a profile's own win; profiles export them.
+
+- **`settings editor`:** the editor `func edit` and `profile edit` open (`settings editor code` for
+  VS Code). Terminal editors run in a subshell; window editors get their wait switch (`code --wait`).
+  Without it: `$VISUAL`, `$EDITOR`, then nano / notepad.
+
 - **Profiles** (`profile`, `docs/profiles.md`): named setups for bug bounty, OSINT or SOC work,
   switched in the running shell. A profile layers on the default setup and keeps only what it changes:
   theme, settings, prompt, modules on / off, environment variables, aliases, an rc file and its own

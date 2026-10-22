@@ -267,6 +267,7 @@ def summary(name: str) -> dict[str, Any]:
         "aliases": len(aliasmod.parse_file(read_text(name, "aliases"))[0]), "rc": len(rc_lines),
         "modules": (len(mods.get("enable") or []), len(mods.get("disable") or [])),
         "history": data.get("history", "own"), "used": data.get("used", ""), "created": data.get("created", ""),
+        "funcs": len(list((folder(name) / "funcs").glob("*.func"))) if (folder(name) / "funcs").is_dir() else 0,
     }
 
 
@@ -407,8 +408,12 @@ def export_bundle(name: str) -> dict[str, Any]:
     """One JSON document: profile.json, rc and aliases (no history; secrets are never in a profile)."""
     data = load(name)
     data.pop("used", None)
+    funcs_dir = folder(name) / "funcs"
+    funcs = {}
+    if funcs_dir.is_dir():
+        funcs = {p.stem: p.read_text(encoding="utf-8") for p in sorted(funcs_dir.glob("*.func"))}
     return {"format": BUNDLE, "version": SCHEMA, "name": name, "profile": data,
-            "rc": read_text(name, "rc"), "aliases": read_text(name, "aliases")}
+            "rc": read_text(name, "rc"), "aliases": read_text(name, "aliases"), "funcs": funcs}
 
 
 def import_bundle(bundle: Any, name: str | None = None, overwrite: bool = False) -> str:
@@ -417,7 +422,31 @@ def import_bundle(bundle: Any, name: str | None = None, overwrite: bool = False)
     target = name or str(bundle.get("name") or "")
     create(target, bundle["profile"], str(bundle.get("rc") or ""), str(bundle.get("aliases") or ""),
            overwrite=overwrite)
+    write_funcs(target, bundle.get("funcs") if isinstance(bundle.get("funcs"), dict) else {})
     return target
+
+
+def write_funcs(name: str, texts: dict[str, str]) -> None:
+    """Put func files (name → text) into a profile's funcs folder."""
+    from shellcraft import funcs as funcmod
+
+    target = folder(name) / "funcs"
+    for func_name, text in texts.items():
+        if funcmod.NAME.match(str(func_name)):
+            target.mkdir(parents=True, exist_ok=True)
+            (target / f"{func_name}{funcmod.SUFFIX}").write_text(str(text), encoding="utf-8")
+
+
+def session_funcs(ctx: Any) -> dict[str, str]:
+    """The funcs `profile save` copies: the active profile's files and the session's own funcs."""
+    from shellcraft import funcs as funcmod
+
+    current = active(ctx.config)
+    texts = {}
+    if current:
+        texts.update({n: funcmod.render(f) for n, f in funcmod.load_dir(funcmod.profile_dir(current), current).items()})
+    texts.update({n: funcmod.render(f) for n, f in getattr(ctx, "funcs", {}).items()})
+    return texts
 
 
 # ── switching ────────────────────────────────────────────────────────────────

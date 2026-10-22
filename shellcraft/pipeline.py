@@ -237,6 +237,9 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: b
     for index, cmd in enumerate(pipeline.segments, start=1):
         if cmd.name == "cd" and (total > 1 or pipeline.redirect):
             raise PipelineError(index, total, "cd", "cd only works on its own line, not in a pipeline")
+        if total > 1 and _func_command(cmd, ctx) is not None:
+            raise PipelineError(index, total, cmd.name, f"{cmd.name} is a func: it runs on its own line, not in a "
+                                                        f"pipeline (func show {cmd.name})")
     data: Any = stdin
     if pipeline.stdin_path is not None:
         try:
@@ -280,7 +283,7 @@ def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ct
     upstream: Any = data
     try:
         for index, cmd in segments[:-1]:
-            if _main_thread(cmd):
+            if _main_thread(cmd, ctx):
                 # Shell-state builtins (`history`, `time`, `read`…) run here, on the main thread, as
                 # they always have; their output then feeds the next segment.
                 value, _ = _run_inline(cmd, upstream, index, total, ctx)
@@ -290,7 +293,7 @@ def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ct
             _start(cmd, index, total, ctx, upstream, channel, cancel, final=False)
             upstream = channel
         index, cmd = segments[-1]
-        if _main_thread(cmd):
+        if _main_thread(cmd, ctx):
             return _run_inline(cmd, upstream, index, total, ctx)
         out = Channel(cancel)
         _start(cmd, index, total, ctx, upstream, out, cancel, final=True)
@@ -299,9 +302,20 @@ def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ct
         cancel.set()  # producers still writing (the last segment finished early, or Ctrl-C) stop
 
 
-def _main_thread(cmd: Command) -> bool:
+def _main_thread(cmd: Command, ctx: ShellContext | None = None) -> bool:
     builtin = BUILTINS.get(cmd.name)
-    return builtin is not None and (builtin.stateful or builtin.direct)
+    if builtin is not None:
+        return builtin.stateful or builtin.direct
+    return ctx is not None and _func_command(cmd, ctx) is not None  # a func runs its lines here
+
+
+def _func_command(cmd: Command, ctx: ShellContext) -> Any:
+    """The func a typed name runs (header `command: yes`), when no builtin or module has the name."""
+    if cmd.bypass or not cmd.name or cmd.name in BUILTINS or ctx.registry.get(cmd.name) is not None:
+        return None
+    from shellcraft import funcs
+
+    return funcs.as_command(ctx, cmd.name)
 
 
 def _label(segments: list[tuple[int, Command]], ctx: ShellContext) -> str:
@@ -551,7 +565,7 @@ SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local",
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     """One command to completion (what `xargs` and `time` run): through the spinner runner,
     except the builtins that stay on the main thread; a streamed result is collected."""
-    if _main_thread(cmd):
+    if _main_thread(cmd, ctx):
         result = _call(cmd, stdin, ctx)
     else:
         result = ctx.runner(f"running {cmd.name}…", lambda: _call(cmd, stdin, ctx))
@@ -598,6 +612,12 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
             return result  # a streaming module: its lines flow on as it yields them
         result = _collect(result)
         return "" if result is None else result
+
+    func = _func_command(cmd, ctx)
+    if func is not None:  # `recon example.com`: a func whose header says `command: yes`
+        from shellcraft.commands.func import run_func
+
+        return run_func(ctx, func, list(cmd.args))
 
     argv = _resolve_system(cmd)
     if argv is not None:

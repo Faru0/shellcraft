@@ -88,6 +88,7 @@ value; its value goes to the OS keyring.
 | `rc` | ShellCraft lines run after `~/.shellcraft/rc` when the profile starts |
 | `aliases` | Aliases added on top of `~/.shellcraft/aliases`; a profile alias wins |
 | `history` | Its own command history |
+| `funcs/` | Its own [funcs](funcs.md), added to the default setup's |
 
 ```json
 {

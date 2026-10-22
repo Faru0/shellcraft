@@ -133,6 +133,16 @@ Named setups for bug bounty, OSINT or SOC work, switched in the running shell. A
 only what it changes; API keys and your base aliases are shared.
 **→ [Profiles](docs/profiles.md)**
 
+### Funcs
+
+```
+func new recon --save                  # a named script of commands, made step by step
+func run recon example.com             # runs its steps in your shell, $1 = example.com
+func                                   # list them; func show recon pretty-prints one
+```
+
+Like your rc file, but run when you call it; kept per profile. **→ [Funcs](docs/funcs.md)**
+
 ### Settings and themes
 
 `settings` lists every on/off setting and the API keys modules need; `settings KEY on|off`
@@ -161,7 +171,7 @@ one has a manual: `man ls`, `man grep`, …
 
 | Group | Commands |
 | --- | --- |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `startup` `profile` `source` `.` `export` `unset` `declare` `local` `shift` `read` `sleep` `time` `xargs` `test` `[` `[[` `true` `false`, and `diag` once diagnostics are on |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `unalias` `history` `modules` `reload` `banner` `startup` `profile` `func` `source` `.` `export` `unset` `declare` `local` `shift` `read` `sleep` `time` `xargs` `test` `[` `[[` `true` `false`, and `diag` once diagnostics are on |
 | Scripting | `for` `while` `until` `if` `case` `select` `function` (`man for`, `man if`…) |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
 | AI and MCP | `mcp` `mark` `tell` `review` `ingest` |
@@ -228,7 +238,7 @@ details, the rules, a reference module and the checker:
 
 | Document | For |
 | --- | --- |
-| [docs/](docs/README.md) | The user guide: scripting, profiles, subshells, keyboard and mouse, settings, MCP |
+| [docs/](docs/README.md) | The user guide: scripting, funcs, profiles, subshells, keyboard and mouse, settings, MCP |
 | [templates/README.md](templates/README.md) | Writing and testing your own modules |
 | [ai/README.md](ai/README.md) | Agents and skills that teach an AI client to work as a co-pilot in ShellCraft |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Working on ShellCraft itself: layout, architecture, running the tests |

@@ -64,6 +64,8 @@ class ShellContext:
     # Shell functions (`name() { …; }`, shellcraft.script.Function) and the arguments of the calls in
     # progress (`$1`, `$@`, `$#` read the innermost). Never used over MCP.
     functions: dict[str, Any] = field(default_factory=dict)
+    # Funcs made in this session without --save (shellcraft.funcs.Func), by name.
+    funcs: dict[str, Any] = field(default_factory=dict)
     positional: list[list[str]] = field(default_factory=list)
     # Where a script (`for`, `if`, `a ; b`) sends each statement's output and errors as it runs.
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is

@@ -7,9 +7,6 @@ and its manual.
 from __future__ import annotations
 
 import json
-import os
-import shlex
-import sys
 from typing import Any
 
 from rich.console import Group
@@ -45,7 +42,7 @@ profile new NAME                     # the wizard: asks what the profile should 
 profile new NAME --template osint    # start from a starter (profile starters lists them)
 profile new NAME --from OTHER        # a copy of another profile; --empty: nothing set
 profile save [NAME]                  # this session's customizations as a profile (asks the name)
-profile edit [NAME] [rc|aliases|config]   # open a profile file in your $EDITOR (rc by default)
+profile edit [NAME] [rc|aliases|config]   # open a profile file in your editor (settings editor; rc by default)
 profile set NAME KEY VALUE           # description, color (#rrggbb), theme, history (own|shared)
 profile env NAME                     # its environment variables; env NAME set VAR VALUE / unset VAR
 profile diff [A] [B]                 # what differs: the active profile (or A) against the default, or A against B
@@ -122,10 +119,13 @@ def _list(ctx: ShellContext, args: list[str]) -> Any:
         raise CommandError("profile list: takes no arguments")
     current = profiles.active(ctx.config)
     table = Table(title="Profiles", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
-    for column in ("", "name", "description", "theme", "env", "aliases", "modules", "history", "last used"):
+    for column in ("", "name", "description", "theme", "env", "aliases", "funcs", "modules", "history", "last used"):
         table.add_column(column, overflow="fold")
+    from shellcraft import funcs as funcmod
+
+    default_funcs = len(funcmod.load_dir(funcmod.default_dir(), "default"))
     table.add_row("●" if current is None else "", Text("default", style="sc.path"), "your base setup", "", "", "",
-                  "", "shared", "")
+                  str(default_funcs or ""), "", "shared", "")
     plain = [f"{'*' if current is None else ' '} default"]
     for name in profiles.names():
         s = profiles.summary(name)
@@ -133,7 +133,7 @@ def _list(ctx: ShellContext, args: list[str]) -> Any:
         mods = " ".join(p for p in (f"+{on}" if on else "", f"−{off}" if off else "") if p)
         table.add_row(Text("●", style="sc.success") if name == current else "",
                       Text(name, style=f"bold {s['color']}"), s["description"], s["theme"], str(s["env"] or ""),
-                      str(s["aliases"] or ""), mods, s["history"], s["used"])
+                      str(s["aliases"] or ""), str(s["funcs"] or ""), mods, s["history"], s["used"])
         plain.append(f"{'*' if name == current else ' '} {name}\t{s['description']}")
     hint = Text("profile use NAME switches · profile new NAME creates one (a wizard) · profile save NAME "
                 "keeps this session's setup · man profile", style="sc.muted")
@@ -166,6 +166,13 @@ def _show(ctx: ShellContext, args: list[str]) -> Any:
             parts.append(Text("── rc ──", style="sc.muted"))
             parts.append(Text(rc))
             plain += "-- rc --\n" + rc + "\n"
+        from shellcraft import funcs as funcmod
+
+        owned = funcmod.load_dir(funcmod.profile_dir(name), name)
+        if owned:
+            parts.append(Text("── funcs ──", style="sc.muted"))
+            parts.append(Text("\n".join(f"{n}  {f.description}" for n, f in sorted(owned.items()))))
+            plain += "-- funcs --\n" + "".join(f"{n}\t{f.description}\n" for n, f in sorted(owned.items()))
         parts.append(Text(f"{profiles.folder(name)}", style="sc.muted"))
     return Styled(Group(*parts), plain)
 
@@ -442,6 +449,7 @@ def _save(ctx: ShellContext, args: list[str]) -> Any:
     elif exists and not flags.get("-f"):
         raise CommandError(f"profile save: '{name}' exists already (-f replaces it)")
     profiles.create(name, data, rc, aliases_text, overwrite=True)
+    profiles.write_funcs(name, profiles.session_funcs(ctx))
     return Text.assemble(("✓ ", "sc.success"), "saved as profile ", (name, "sc.path"),
                          (f"  (profile use {name}; profile show {name})", "sc.muted"))
 
@@ -462,12 +470,11 @@ def _edit(ctx: ShellContext, args: list[str]) -> Any:
     path = profiles.folder(name) / FILES[which]
     if not path.exists():
         path.write_text(f"# {which} of profile {name}\n" if which != "config" else "{}\n", encoding="utf-8")
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or ("notepad" if sys.platform == "win32" else "nano")
-    if not (ctx.interactive and ctx.jobs is not None):
+    if not (ctx.interactive and ctx.ui is not None):
         return f"{path}\n"
-    from shellcraft.pipeline import run_line
+    from shellcraft import editor
 
-    run_line(f"sub {shlex.quote(editor)} {shlex.quote(str(path))}", ctx)
+    editor.open_file(ctx, path)  # settings editor (VS Code, vim…), else $VISUAL / $EDITOR
     if name == profiles.active(ctx.config):
         return _switch(ctx, name)
     return Text.assemble(("✓ ", "sc.success"), f"edited {path.name} of ", (name, "sc.path"))

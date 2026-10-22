@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import os
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -15,6 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from shellcraft import aliases, envvars, prefix, profiles, settings
+from shellcraft import editor as editormod
 from shellcraft.config import save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
 from shellcraft.themes import all_themes
@@ -233,8 +235,8 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 # short description; the commands you know from Linux are a grid of names (`help -a` describes
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
-    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup profile theme prompt "
-                   "settings banner diag hotkeys mark tell review"),
+    ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup profile func theme "
+                   "prompt settings banner diag hotkeys mark tell review"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -248,6 +250,7 @@ FUNCTION_HELPERS = ("local", "shift", "declare")
 DESCRIBED = ("ShellCraft", "Modules")  # the groups listed with descriptions by a bare `help`
 HELP_SHORT = {  # one line each, for the ShellCraft group
     "profile": "Named setups: switch, create, save (bug bounty, OSINT…)",
+    "func": "Named scripts of commands, run on demand (func run NAME)",
     "sub": "Open a subshell or a background job", "jobs": "List, switch, rename or stop subshells",
     "alert": "Show an alert in the footer", "clip": "The clip register (Alt-v pastes)",
     "record": "Record the session to a file", "script": "The same as record",
@@ -1798,8 +1801,10 @@ def _sub_command(ctx: ShellContext, table: Any, line: str) -> Text:
                           "sc.muted"))
 
 
-def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = None, origin: str = "") -> Any:
-    """Start `line` as a background command job (see _sub_command) and return the job."""
+def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = None, origin: str = "",
+                work: Any = None) -> Any:
+    """Start `line` as a background command job (see _sub_command) and return the job. `work`, when
+    given, is what runs instead of the line: (its context) -> (status, output) (`func run -b`)."""
     import dataclasses
 
     from shellcraft.context import _direct
@@ -1819,9 +1824,12 @@ def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = Non
     stop = StopFlag()  # `jobs -k` sets it: every pipeline the job runs stops
     background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
                                      emit=None, emit_error=None, jobs=None, emit_stderr=None,
-                                     stderr_sinks=[errors.append], live=record, stop=stop)
+                                     stderr_sinks=[errors.append], live=record, stop=stop, positional=[])
 
     def run() -> tuple[int, str]:
+        if work is not None:
+            status, text = work(background)
+            return status, text + "".join(errors)
         try:
             result = run_line(line, background)
         except (ParseError, PipelineError) as exc:
@@ -2947,6 +2955,7 @@ settings NAME VALUE           # set an API key in one go
 settings reset NAME           # forget a stored API key
 settings migrate-keys         # move keys kept in plain text into the OS keyring
 settings prefix_key [KEY]     # the subshell prefix key (Ctrl-] by default); alone: the choices
+settings editor [COMMAND]     # the editor for func edit / profile edit (code, vim, nano…); alone: the one in use
 ```
 
 ## Settings
@@ -2986,7 +2995,8 @@ settings reset CENSYS_ORG_ID
 
 
 @builtin("settings", "Show or change settings and API keys",
-         "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings prefix_key [KEY] | settings reset KEY",
+         "settings [KEY on|off|toggle] | settings NAME [VALUE] | settings prefix_key [KEY] | "
+         "settings editor [COMMAND] | settings reset KEY",
          stateful=True, doc=SETTINGS_DOC)
 def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     keys = settings.env_settings(ctx.registry)
@@ -3009,6 +3019,8 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
     if args[0] == prefix.CONFIG_KEY or args[:2] == ["reset", prefix.CONFIG_KEY]:
         return _prefix_key(ctx, args)
+    if args[0] == editormod.CONFIG_KEY or args[:2] == ["reset", editormod.CONFIG_KEY]:
+        return _editor_setting(ctx, args)
 
     if args[0] == "reset":
         if len(args) != 2:
@@ -3105,6 +3117,47 @@ def _prefix_key(ctx: ShellContext, args: list[str]) -> Any:
     return msg
 
 
+EDITOR_LABEL = "Editor"
+EDITOR_DESCRIPTION = ("What func edit, func new -e and profile edit open files in: a terminal editor (vim, nano…) "
+                      "runs in a subshell, a window editor (code, subl…) in its own window, waited for. Unset: "
+                      "$VISUAL, $EDITOR, then nano (notepad on Windows).")
+
+
+def _editor_setting(ctx: ShellContext, args: list[str]) -> Any:
+    """`settings editor` (show it and the editors found), `settings editor CMD…`, `settings reset editor`."""
+    if args == [editormod.CONFIG_KEY]:
+        argv = editormod.command(ctx.config)
+        lines = [Text.assemble(("editor: ", "sc.muted"), (" ".join(argv), "sc.accent"),
+                               (f"  ({editormod.label(argv)}, from {editormod.source(ctx.config)}; "
+                                f"{'window' if editormod.is_window(argv) else 'terminal'})", "sc.muted"))]
+        available = editormod.found()
+        if available:
+            lines.append(Text("found here: " + ", ".join(f"{k} ({v})" for k, v in available.items()), style="sc.muted"))
+        lines.append(Text("settings editor NAME chooses one (e.g. settings editor code); settings reset editor "
+                          "goes back", style="sc.muted"))
+        return Text("\n").join(lines)
+    if args[0] == "reset":
+        ctx.config.pop(editormod.CONFIG_KEY, None)
+        message = Text.assemble(("✓ ", "sc.success"), "editor reset: ", (" ".join(editormod.command(ctx.config)),
+                                                                         "sc.accent"),
+                                (f" (from {editormod.source(ctx.config)})", "sc.muted"))
+    else:
+        value = " ".join(args[1:]).strip()
+        if not value:
+            raise CommandError("usage: settings editor COMMAND (e.g. code, vim, nano, \"code --wait\")")
+        ctx.config[editormod.CONFIG_KEY] = value
+        argv = editormod.command(ctx.config)
+        note = "" if shutil.which(argv[0]) else "  (not found on the PATH yet)"
+        how = "a window editor, waited for" if editormod.is_window(argv) else "opened in a subshell"
+        message = Text.assemble(("✓ ", "sc.success"), "editor set to ", (value, "sc.accent"),
+                                (f"  ({editormod.label(argv)}, {how})", "sc.muted"), (note, "sc.warning"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        message.append(f"  (not saved: {exc})", style="sc.warning")
+    return message
+
+
 AI_RUN_KEY = "ai_run"
 AI_RUN_LABEL = "AI runs any command"
 AI_RUN_DESCRIPTION = ("An AI client may run any command here at once (its trace shows above the prompt). "
@@ -3126,6 +3179,8 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
         value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
         table.add_row(s.key, s.label, value, s.description)
     table.add_row(prefix.CONFIG_KEY, PREFIX_LABEL, Text(prefix.label(), style="sc.accent"), PREFIX_DESCRIPTION)
+    table.add_row(editormod.CONFIG_KEY, EDITOR_LABEL, Text(" ".join(editormod.command(ctx.config)), style="sc.accent",
+                                                           overflow="fold"), EDITOR_DESCRIPTION)
     on = bool(getattr(ctx, "ai_run", False))
     session_vars = envvars.session(ctx)
     table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on

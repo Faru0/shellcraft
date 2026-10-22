@@ -32,7 +32,7 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.rule import Rule
 from rich.text import Text
 
-from shellcraft import aliases, gitinfo, histexpand, prefix, profiles, script, settings
+from shellcraft import aliases, funcs, gitinfo, histexpand, prefix, profiles, script, settings
 from shellcraft.alerts import AlertBus
 from shellcraft.banner import render_banner
 from shellcraft.builtins import BUILTINS
@@ -1092,7 +1092,8 @@ class Shell:
 
     def _is_known_command(self, name: str) -> bool:
         return (name in BUILTINS or name in KEYWORDS or self.ctx.registry.get(name) is not None
-                or name in aliases.get_all(self.ctx.config) or name in self.ctx.functions)
+                or name in aliases.get_all(self.ctx.config) or name in self.ctx.functions
+                or funcs.as_command(self.ctx, name) is not None)
 
     def _current_lexer(self) -> Any:
         return self._lexer if settings.get(self.ctx.config, "highlight") else None

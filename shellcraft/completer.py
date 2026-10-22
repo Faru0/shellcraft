@@ -13,7 +13,7 @@ from typing import Iterable
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
 
-from shellcraft import aliases, envvars
+from shellcraft import aliases, envvars, funcs
 from shellcraft.builtins import BUILTINS, available
 from shellcraft.context import ShellContext
 from shellcraft.options import OptionSpec, builtin_options, positional_values
@@ -96,6 +96,9 @@ class ShellCompleter(Completer):
             if segment[0] == "profile":
                 yield from self._profile(segment, word)
                 return
+            if segment[0] == "func":
+                yield from self._func(segment, word)
+                return
             if len(segment) == 1 and segment[0] in ("man", "theme", "settings", "prompt"):
                 yield from self._arguments(segment[0], word)
                 return
@@ -120,6 +123,10 @@ class ShellCompleter(Completer):
                     from shellcraft.prefix import KEYS
 
                     yield from self._complete(word, {name: spec.note for name, spec in KEYS.items()})
+                elif segment[1] == "editor":
+                    from shellcraft import editor
+
+                    yield from self._complete(word, editor.found())
                 return  # after an API-key name comes a secret: offer nothing
             if len(segment) > 2 and segment[0] == "settings":
                 return
@@ -256,6 +263,9 @@ class ShellCompleter(Completer):
         if self.ctx.allow_aliases:
             for name in self.ctx.functions:
                 entries[name] = "shell function"
+            for name, func in funcs.available(self.ctx).items():
+                if func.command and name not in entries:
+                    entries[name] = f"func · {func.description or 'runs its steps'}"
         for name in sorted(entries):
             if name.startswith(word):
                 yield Completion(name, start_position=-len(word), display_meta=entries[name])
@@ -350,6 +360,49 @@ class ShellCompleter(Completer):
             yield from self._complete(word, {"--template": "start from a starter", "--from": "copy a profile",
                                              "--empty": "nothing set", "-d": "a description", "--use": "switch to it"})
         elif action == "import" and len(segment) == 2:
+            yield from self._paths(word, None, CompleteEvent())
+
+    def _func(self, segment: list[str], word: str) -> Iterable[Completion]:
+        """`func <Tab>`: its actions, then func names, step numbers and header fields where they go."""
+        names = {n: f.description or f.where for n, f in funcs.available(self.ctx).items()}
+        if len(segment) == 1:
+            yield from self._complete(word, {
+                "list": "the funcs", "show": "a func's header and steps", "run": "run a func", "new": "make one",
+                "save": "put a session func on disk", "edit": "open it in your editor", "add": "append a step",
+                "insert": "insert a step", "rm": "remove a step", "move": "reorder a step",
+                "set": "change a header field", "rename": "rename", "copy": "copy", "delete": "delete",
+                "export": "write funcs to a JSON file", "import": "read funcs from a JSON file",
+                "path": "where it lives"})
+            return
+        action = segment[1]
+        args = segment[2:]
+        if action == "run":
+            if not [a for a in args if not a.startswith("-")]:
+                yield from self._complete(word, {"-i": "isolated", "-b": "in the background", "-q": "quiet",
+                                                 "-v": "show the output"} | names)
+            return
+        if action == "new":
+            if args:
+                yield from self._complete(word, {"--save": "keep it on disk", "-e": "write it in your editor",
+                                                 "-g": "the default setup's", "-d": "a description",
+                                                 "--system": "it runs OS commands", "--quiet": "quiet output",
+                                                 "--command": "typing its name runs it"})
+            return
+        if not args and action in ("show", "view", "save", "edit", "add", "insert", "rm", "move", "set",
+                                   "rename", "copy", "delete", "export", "path"):
+            yield from self._complete(word, names | ({"--all": "every func"} if action == "export" else {}))
+        elif action == "set" and len(args) == 1:
+            yield from self._complete(word, {"description": "", "system": "yes|no", "output": "show|quiet",
+                                             "command": "yes|no", "usage": ""})
+        elif action == "set" and len(args) == 2:
+            values = {"system": ("yes", "no"), "command": ("yes", "no"), "output": funcs.OUTPUTS}.get(args[1], ())
+            yield from self._complete(word, {v: "" for v in values})
+        elif action in ("rm", "insert", "move") and len(args) in (1, 2) and args[0] in names:
+            if action == "insert" and len(args) == 2:
+                return
+            steps = funcs.available(self.ctx)[args[0]].steps
+            yield from self._complete(word, {str(i): s[:50] for i, s in enumerate(steps, 1)})
+        elif action == "import" and not args:
             yield from self._paths(word, None, CompleteEvent())
 
     def _aliases(self) -> dict[str, str]:

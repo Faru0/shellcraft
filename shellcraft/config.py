@@ -35,6 +35,7 @@ class Config(dict):
 
     baseline: dict[str, Any] | None = None
     profile: str | None = None
+    frozen: bool = False  # `func run -i`: nothing this session changes is written while it runs
 
 
 def config_dir() -> Path:
@@ -103,6 +104,8 @@ def save_config(config: dict[str, Any]) -> None:
     The file is written through a temporary file and renamed into place, so a crash mid-write
     never leaves a truncated config (and the stored API keys) behind.
     """
+    if getattr(config, "frozen", False):
+        return  # an isolated func is running: its changes are undone afterwards, never saved
     profile = getattr(config, "profile", None)
     if profile:  # a profile's keys go to its profile.json, the rest (API keys, MCP…) to config.json
         from shellcraft import profiles
