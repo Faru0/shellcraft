@@ -215,9 +215,9 @@ def test_cli_closes_the_shell_even_when_it_crashes(monkeypatch, tmp_path):
 
     monkeypatch.setenv("SHELLCRAFT_HOME", str(tmp_path))
     monkeypatch.setattr(shell, "Shell", FakeShell)
-    with pytest.raises(RuntimeError):
-        cli.main(["--no-banner", "--modules", str(tmp_path)])
+    assert cli.main(["--no-banner", "--modules", str(tmp_path)]) == 1  # one line, not a traceback
     assert events == [("shell", True, "truecolor", False), "shell closed"]
+    assert "RuntimeError: boom" in (tmp_path / "crash.log").read_text()  # the details, for a report
 
 
 # ── Console diagnostics ──────────────────────────────────────────────────────

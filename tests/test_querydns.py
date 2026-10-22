@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import pytest
@@ -26,7 +27,7 @@ RESULT = {
 
 @pytest.fixture
 def querydns(registry, http: FakeHTTP, clean_env):
-    module = registry.get("queryDns").run.__globals__
+    module = inspect.unwrap(registry.get("queryDns").run).__globals__
     clean_env.setenv("DNSDUMPSTER_API_KEY", KEY)
     slept = []
     clean_env.setitem(module, "sleep", slept.append)

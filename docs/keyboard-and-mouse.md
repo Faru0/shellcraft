@@ -16,7 +16,7 @@ shortcut tables and `man hotkeys` opens them in the viewer.
 - **The mouse** works in the completion menu: the entry under the mouse is highlighted as you move, a click picks it, the wheel moves through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
 - **`settings mouse_always on`** keeps the mouse on at the prompt: click to place the cursor, click a prompt segment (`⚡` → `help`, the path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error again), click the toolbar to open the man page of the command you are typing, and roll the wheel over the input line to move through the history (or through the matches during Ctrl-R). The command runs above the prompt and what you typed stays. The cost: the terminal needs **Shift** for text selection and wheel scrollback, which is why it is off by default.
 - **Clickable paths:** file names printed by `ls`, `tree`, `find`, `du` and `grep` can be terminal hyperlinks: `settings links on`, then Ctrl-click (Cmd-click on macOS) opens the file or folder, in Windows Terminal, GNOME Terminal, kitty, WezTerm, iTerm2 and others. Off by default, so a stray click in a listing opens nothing.
-- **Ctrl-C** cancels the current line or a running command. **Ctrl-D** or `exit` leaves the shell.
+- **Ctrl-C** cancels the current line or a running command, as many times as you like: it never closes ShellCraft (a module that ignores it keeps running in the background, where Python can't stop it). Only **Ctrl-D** on an empty line, or `exit`, leaves the shell. On Windows, Ctrl-Break works like Ctrl-C. If ShellCraft ever hits an unexpected error, it says so and keeps going; the details are in `~/.shellcraft/crash.log` (and in `diag`) for a bug report.
 - A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
 - `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
 - **The prompt** shows `user@host`, the directory, `⎇ branch` in a git repository, `● mcp :38765` while `mcp start` runs, `[✗ N]` after a failure and `⏱` after a slow command. `prompt name path git status` picks the segments, `prompt -r clock` adds a right-hand clock, `prompt reset` goes back (`man prompt`). `settings transient_prompt on` collapses the two-line prompt to `❯ command` after Enter, so the scrollback stays dense.
@@ -48,7 +48,7 @@ search on from there. Turn the viewer off with `settings pager off`.
 | `Ctrl-W` | Delete the word before the cursor |
 | `Ctrl-U` `Ctrl-K` | Delete to the start / end of the line |
 | `Ctrl-L` | Clear the screen |
-| `Ctrl-C` | Drop the line (or stop the running command) |
+| `Ctrl-C` | Drop the line (or stop the running command); it never closes ShellCraft |
 | `Ctrl-D` | Leave ShellCraft, on an empty line |
 
 ## The clip register and alerts

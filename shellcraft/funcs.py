@@ -28,6 +28,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,14 @@ SUFFIX = ".func"
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,47}$")
 HEADER = re.compile(r"^#\s*(func|description|system|output|command|usage)\s*:\s*(.*?)\s*$", re.I)
 OUTPUTS = ("show", "quiet")
+MAX_DEPTH = 16  # funcs running inside funcs (a func that runs itself by name stops here)
+_local = threading.local()  # .running: the funcs running in this thread, innermost last
+
+
+def _running() -> list[str]:
+    if not hasattr(_local, "running"):
+        _local.running = []
+    return _local.running
 SPEAKERS = ("echo", "printf")  # in a quiet func their output still shows: that's how a script talks to you
 
 
@@ -251,10 +260,13 @@ def run(ctx: Any, func: Func, args: list[str], output: str | None = None, isolat
     if not steps:
         raise FuncError(f"{func.name} has no steps yet (func add {func.name} 'COMMAND')")
     mode = output or func.output
+    if len(_running()) >= MAX_DEPTH:
+        raise FuncError(f"{func.name}: funcs nested more than {MAX_DEPTH} deep (does it call itself?)")
     saved = _snapshot(ctx) if isolated else None
     outcome = Outcome()
     start = time.monotonic()
     ctx.positional.append(list(args))
+    _running().append(func.name)
     try:
         for number, step in enumerate(steps, 1):
             line, shown = step, mode == "show"
@@ -269,6 +281,10 @@ def run(ctx: Any, func: Func, args: list[str], output: str | None = None, isolat
                 result = run_line(line, ctx)
             except ShellExit:
                 raise
+            except KeyboardInterrupt:  # Ctrl-C: the func stops at this step
+                outcome.status, outcome.failed, outcome.failed_line = 130, number, line
+                outcome.error = "interrupted (Ctrl-C)"
+                break
             except Exception as exc:  # noqa: BLE001 — a failing step: report it and stop
                 outcome.status = getattr(exc, "status", 1) or 1
                 outcome.failed, outcome.failed_line = number, line
@@ -292,6 +308,7 @@ def run(ctx: Any, func: Func, args: list[str], output: str | None = None, isolat
                 break
     finally:
         ctx.positional.pop()
+        _running().pop()
         if saved is not None:
             _restore(ctx, saved)
         outcome.seconds = time.monotonic() - start

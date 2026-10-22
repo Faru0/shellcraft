@@ -6,6 +6,7 @@ import contextlib
 import getpass
 import os
 import re
+import signal
 import socket
 import sys
 import threading
@@ -39,7 +40,7 @@ from shellcraft.builtins import BUILTINS
 from shellcraft.completer import ShellCompleter
 from shellcraft.config import config_dir
 from shellcraft.console import DirectConsole, build_console, create_prompt_toolkit_console, truecolor_output
-from shellcraft.context import ShellContext, ShellExit, set_width_source
+from shellcraft.context import CommandError, ShellContext, ShellExit, set_width_source
 from shellcraft.footer import MARK, Footer, panel_lines, parse_mouse, wheel_up
 from shellcraft.highlight import KEYWORDS, ShellLexer
 from shellcraft.jobs import JobTable, depth
@@ -470,10 +471,20 @@ class Shell:
         if app is None or not app.is_running or loop is None or loop.is_closed():
             return False
         try:
-            loop.call_soon_threadsafe(lambda: run_in_terminal(fn))
+            loop.call_soon_threadsafe(lambda: run_in_terminal(lambda: self._guarded(fn, "a background update")))
         except RuntimeError:
             return False
         return True
+
+    def _guarded(self, fn: Callable[[], Any], where: str) -> None:
+        """Run `fn` above the prompt (from a click or a wake): an error is shown and logged, and
+        never reaches prompt_toolkit's event loop, which would end the prompt."""
+        try:
+            fn()
+        except (KeyboardInterrupt, ShellExit):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            self._internal_error(exc, where)
 
     def _open_requests(self) -> None:
         """At the prompt: open the requested subshells in the background and say so."""
@@ -1015,9 +1026,13 @@ class Shell:
 
     def _run_clicked(self, line: str) -> None:
         """Run a command picked with the mouse, printed above the prompt; the typed line stays."""
+        self._guarded(lambda: self._run_clicked_now(line), f"running: {line}")
+
+    def _run_clicked_now(self, line: str) -> None:
         self.ui.console.print(Text(f"❯ {line}", style="sc.muted"), markup=False, highlight=False)
         try:
-            result = run_line(line, self.ctx)
+            with self._interruptible():
+                result = run_line(line, self.ctx)
         except (ShellExit, KeyboardInterrupt):
             return
         except Exception as exc:  # noqa: BLE001 — shown like an error at the prompt
@@ -1025,7 +1040,11 @@ class Shell:
             self.last_error = (exc, line)
             return
         if result is not None:
-            show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
+            try:
+                with self._interruptible():
+                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
+            except KeyboardInterrupt:
+                pass
 
     def _install_mouse(self) -> None:
         """Two things prompt_toolkit's PromptSession does not do by itself (for `mouse_always`):
@@ -1392,7 +1411,7 @@ class Shell:
         and replaced by a compact `❯ command` line."""
         transient = self._transient()
         self.session.app.erase_when_done = transient
-        self._report_finished()
+        self._guarded(self._report_finished, "the finished-jobs report")
         self.footer.set_hover(None)
         self._panel_hover = self._panel_cursor = None
         self._footer_at_prompt()
@@ -1403,58 +1422,188 @@ class Shell:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line
 
+    PROMPT_FAILURES = 3  # prompt errors in a row before a plain input() prompt takes over
+
     def loop(self) -> int:
-        while True:
-            self._open_requests()
-            try:
-                line = self._ask(self._prompt)
-                line = self._read_continuation(line)
-            except KeyboardInterrupt:
-                continue
-            except EOFError:
-                return self._goodbye(0)
-            if line is None:
-                continue
-
-            try:
-                line, expanded = histexpand.expand(line, self._previous_command(), self._history_lines())
-            except ParseError as exc:
-                show_error(self.ui, exc, line)
-                self.ctx.last_status = STATUS_SYNTAX
-                continue
-            if expanded:
-                self.ui.console.print(Text(line, style="sc.muted"), markup=False, highlight=False)
-            self._remember(line)
-            self.scrollback.command(line)
-            if self.ctx.recording is not None:
-                self.ctx.recording.command(line)
-
-            self._hot_reload()
-            started = time.monotonic()
-            try:
-                result = run_line(line, self.ctx)
-            except ShellExit as exc:
-                return self._goodbye(exc.code)
-            except KeyboardInterrupt:
-                self.ui.console.print(Text("^C interrupted", style="sc.warning"))
-                self.ctx.last_status = STATUS_INTERRUPTED
-                continue
-            except (ParseError, PipelineError) as exc:
-                show_error(self.ui, exc, line)
-                self.last_error = (exc, line)
-                continue
-            except Exception as exc:  # noqa: BLE001 — a bug anywhere must not end the session
-                show_error(self.ui, exc, line)
-                self.last_error = (exc, line)
-                self.ctx.last_status = 1
-                continue
-            finally:
-                self.last_duration = time.monotonic() - started
-
-            if result is not None:
+        """Prompt, run, repeat. Only Ctrl-D on an empty prompt and `exit` end it: Ctrl-C, a module
+        calling sys.exit() and unexpected errors (logged to ~/.shellcraft/crash.log) never do.
+        Between commands a Ctrl-C is dropped (what it would stop has stopped), so a burst of them
+        can't land in an unguarded moment; while a command runs it interrupts it as usual."""
+        self._prompt_failures = 0
+        with self._interrupts_deferred():
+            while True:
                 try:
-                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
+                    code = self._iteration()
                 except KeyboardInterrupt:
+                    self._interrupted()
+                    continue
+                except ShellExit as exc:
+                    return self._goodbye(exc.code)
+                except SystemExit as exc:  # a module or a bug called sys.exit(): not how ShellCraft ends
+                    stray = CommandError(f"something tried to exit ShellCraft (sys.exit({exc.code!r})); "
+                                         "use exit or Ctrl-D")
+                    self._quietly(lambda e=stray: show_error(self.ui, e, ""))
+                    continue
+                except Exception as exc:  # noqa: BLE001 — a bug anywhere must not end the session
+                    self._internal_error(exc, "the prompt loop")
+                    continue
+                if code is not None:
+                    return code
+
+    def _iteration(self) -> int | None:
+        """One prompt and the command typed at it; an exit code when the session ends."""
+        self._quietly(self._open_requests)
+        try:
+            line = self._ask(self._prompt)
+            line = self._read_continuation(line)
+        except KeyboardInterrupt:
+            return None
+        except EOFError:
+            return self._goodbye(0)
+        except Exception as exc:  # noqa: BLE001 — the prompt itself failed (a rendering bug, asyncio)
+            self._internal_error(exc, "the prompt")
+            self._prompt_failures += 1
+            if self._prompt_failures < self.PROMPT_FAILURES:
+                return None
+            line = self._plain_input()
+            if line is EOFError:
+                return self._goodbye(0)
+        else:
+            self._prompt_failures = 0
+        if not isinstance(line, str):
+            return None
+
+        try:
+            line, expanded = histexpand.expand(line, self._previous_command(), self._history_lines())
+        except ParseError as exc:
+            show_error(self.ui, exc, line)
+            self.ctx.last_status = STATUS_SYNTAX
+            return None
+        if expanded:
+            self.ui.console.print(Text(line, style="sc.muted"), markup=False, highlight=False)
+        self._remember(line)
+        self.scrollback.command(line)
+        if self.ctx.recording is not None:
+            self.ctx.recording.command(line)
+
+        self._hot_reload()
+        started = time.monotonic()
+        try:
+            with self._interruptible():
+                result = run_line(line, self.ctx)
+        except ShellExit:
+            raise
+        except KeyboardInterrupt:
+            self._interrupted()
+            return None
+        except (ParseError, PipelineError) as exc:
+            self._quietly(lambda e=exc, text=line: show_error(self.ui, e, text))
+            self.last_error = (exc, line)
+            return None
+        except Exception as exc:  # noqa: BLE001 — a bug in a command: shown, and logged
+            self.last_error = (exc, line)
+            self.ctx.last_status = 1
+            self._internal_error(exc, f"running: {line}", show_as=line)
+            return None
+        finally:
+            self.last_duration = time.monotonic() - started
+
+        if result is not None:
+            try:
+                with self._interruptible():
+                    show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
+            except KeyboardInterrupt:
+                pass
+        return None
+
+    def _plain_input(self) -> Any:
+        """The fallback when the prompt keeps failing: Python's input(), so `exit` still works."""
+        self._quietly(lambda: self.ui.console.print(Text(
+            "the prompt keeps failing (details in ~/.shellcraft/crash.log); a plain prompt for now",
+            style="sc.warning"), markup=False, highlight=False))
+        try:
+            with self._interruptible():
+                return input("shellcraft> ")
+        except KeyboardInterrupt:
+            return None
+        except EOFError:
+            return EOFError
+
+    def _interrupted(self) -> None:
+        self.ctx.last_status = STATUS_INTERRUPTED
+        self._quietly(lambda: self.ui.console.print(Text("^C interrupted", style="sc.warning")))
+
+    def _internal_error(self, exc: BaseException, where: str, show_as: str = "") -> None:
+        """An unexpected error: the error panel (with where the details went), and the crash log."""
+        from shellcraft import crashlog
+
+        logged = crashlog.record(exc, where)
+
+        def report() -> None:
+            show_error(self.ui, exc, show_as)
+            if logged is not None and not show_as:
+                self.ui.console.print(Text(f"(an unexpected error in {where}; details in {logged})",
+                                           style="sc.muted"), markup=False, highlight=False)
+
+        self._quietly(report)
+
+    @staticmethod
+    def _quietly(action: Callable[[], Any]) -> None:
+        """Run `action` (a print, a report) so that neither Ctrl-C nor an error in it escapes."""
+        try:
+            action()
+        except KeyboardInterrupt:
+            pass
+        except Exception:  # noqa: BLE001 — printing must never end the session
+            pass
+
+    @contextlib.contextmanager
+    def _interrupts_deferred(self) -> Any:
+        """Ctrl-C (and Ctrl-Break on Windows) are dropped while this is active, except inside
+        `_interruptible()`: between commands nothing is running for them to stop."""
+        installed: list[tuple[int, Any]] = []
+        if threading.current_thread() is threading.main_thread():
+            for name in ("SIGINT", "SIGBREAK"):
+                number = getattr(signal, name, None)
+                if number is None:
+                    continue
+                try:
+                    installed.append((number, signal.signal(number, self._dropped_interrupt)))
+                except (ValueError, OSError):
+                    pass
+        try:
+            yield
+        finally:
+            for number, previous in installed:
+                try:
+                    signal.signal(number, previous)
+                except (ValueError, OSError):
+                    pass
+
+    @staticmethod
+    def _dropped_interrupt(signum: int, frame: Any) -> None:
+        pass
+
+    @contextlib.contextmanager
+    def _interruptible(self) -> Any:
+        """Ctrl-C (and Ctrl-Break) interrupt again while a command runs or its output prints."""
+        swapped: list[tuple[int, Any]] = []
+        if threading.current_thread() is threading.main_thread():
+            for name in ("SIGINT", "SIGBREAK"):
+                number = getattr(signal, name, None)
+                if number is None:
+                    continue
+                try:
+                    swapped.append((number, signal.signal(number, signal.default_int_handler)))
+                except (ValueError, OSError):
+                    pass
+        try:
+            yield
+        finally:
+            for number, previous in swapped:
+                try:
+                    signal.signal(number, previous)
+                except (ValueError, OSError):
                     pass
 
     def _read_continuation(self, line: str) -> str | None:

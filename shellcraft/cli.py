@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from shellcraft import __version__
 
@@ -202,36 +204,78 @@ def main(argv: list[str] | None = None) -> int:
     ui = UI(themes[theme_name], build_console())
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite,
                        brief=args.brief if args.lite else None)
+    from shellcraft import crashlog
+
+    crashlog.install_thread_hook()  # a background thread's error goes to the log, not over the prompt
+    _ctrl_break_is_ctrl_c()
+    try:
+        return _interactive(Shell, ctx, ui, config, args, show_banner, theme_warnings, profile_name, profiles)
+    except Exception as exc:  # noqa: BLE001 — the last resort: one line, the details in the log
+        logged = crashlog.record(exc, "the interactive shell")
+        print(f"shellcraft: unexpected error: {type(exc).__name__}: {exc}"
+              + (f" (details in {logged})" if logged else ""), file=sys.stderr)
+        return 1
+
+
+def _ctrl_break_is_ctrl_c() -> None:
+    """Windows: Ctrl-Break would end the process (Python's default); make it a Ctrl-C."""
+    import signal
+
+    number = getattr(signal, "SIGBREAK", None)
+    if number is not None:
+        try:
+            signal.signal(number, signal.default_int_handler)
+        except (ValueError, OSError):
+            pass
+
+
+def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_banner: bool,
+                 theme_warnings: list[str], profile_name: str | None, profiles: Any) -> int:
+    from rich.text import Text
+
+    from shellcraft import settings
+
     with Shell(ctx) as shell:
-        if profile_name and not args.lite:  # its variables, recorded so `profile use` can undo them
-            for warning in profiles.enter_env(ctx, profile_name) + profiles.missing_modules(ctx, profile_name):
-                theme_warnings.append(f"profile {profile_name}: {warning}")
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP
         # stdio stream is garbage to the client, and `--version` must print only the version.
-        if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite:
-            # Home, clear the screen and the scrollback (ESC[3J): the terminal starts fresh, as
-            # `clear` on Linux and Windows Terminal do, instead of leaving the old lines above.
-            from shellcraft.output import clear_screen
+        try:  # startup: Ctrl-C (or a bug) skips the rest of it, and the prompt still comes
+            if profile_name and not args.lite:  # its variables, recorded so `profile use` can undo them
+                for warning in profiles.enter_env(ctx, profile_name) + profiles.missing_modules(ctx, profile_name):
+                    theme_warnings.append(f"profile {profile_name}: {warning}")
+            if settings.get(config, "clear_on_start") and ui.console.is_terminal and not args.lite:
+                # Home, clear the screen and the scrollback (ESC[3J): the terminal starts fresh, as
+                # `clear` on Linux and Windows Terminal do, instead of leaving the old lines above.
+                from shellcraft.output import clear_screen
 
-            clear_screen(ui)
-        if args.diag:
-            _enable_diagnostics(config)
-            shell.diagnostics()  # first, so it is there even if the banner is what breaks
-        if show_banner:
-            shell.banner(theme_warnings)
-        if not args.no_startup and not args.lite and settings.get(config, "startup"):
-            from shellcraft import startup
+                clear_screen(ui)
+            if args.diag:
+                _enable_diagnostics(config)
+                shell.diagnostics()  # first, so it is there even if the banner is what breaks
+            if show_banner:
+                shell.banner(theme_warnings)
+            if not args.no_startup and not args.lite and settings.get(config, "startup"):
+                from shellcraft import startup
 
-            if startup.scripts():
-                shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
-            if startup.rc_path().is_file():
-                shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
-            if profile_name:
-                profiles.run_rc(ctx, profile_name)  # then the profile's rc
-            if startup.background_scripts():
-                shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
-        if ctx.brief is not None and hasattr(shell, "show_brief"):
-            shell.show_brief(ctx.brief)  # what the AI that opened this subshell wants read first
+                if startup.scripts():
+                    shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
+                if startup.rc_path().is_file():
+                    shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
+                if profile_name:
+                    profiles.run_rc(ctx, profile_name)  # then the profile's rc
+                if startup.background_scripts():
+                    shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
+            if ctx.brief is not None and hasattr(shell, "show_brief"):
+                shell.show_brief(ctx.brief)  # what the AI that opened this subshell wants read first
+        except KeyboardInterrupt:
+            with contextlib.suppress(KeyboardInterrupt):
+                ui.console.print(Text("^C startup interrupted; the rest of it was skipped", style="sc.warning"))
+        except Exception as exc:  # noqa: BLE001
+            from shellcraft import crashlog
+
+            logged = crashlog.record(exc, "startup")
+            with contextlib.suppress(KeyboardInterrupt):
+                ui.console.print(Text(f"startup failed: {type(exc).__name__}: {exc}"
+                                      + (f" (details in {logged})" if logged else ""), style="sc.error"))
         return shell.loop()
 
 

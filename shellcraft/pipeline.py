@@ -418,6 +418,8 @@ def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: 
             if text:
                 out.put(("value", text) if final else text)
             out.end(status)
+        except BaseException as exc:  # noqa: BLE001 — SystemExit, GeneratorExit…: the channel must still close
+            out.fail(PipelineError(index, total, cmd.name, f"{type(exc).__name__}: {exc}"))
     except Cancelled:
         return
     finally:

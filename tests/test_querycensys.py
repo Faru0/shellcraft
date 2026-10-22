@@ -1,3 +1,4 @@
+import inspect
 import json
 import sys
 from types import SimpleNamespace
@@ -86,7 +87,7 @@ class FakeGlobalData:
 
 @pytest.fixture
 def censys(registry, clean_env):
-    module = registry.get("queryCensys").run.__globals__
+    module = inspect.unwrap(registry.get("queryCensys").run).__globals__
     clean_env.setenv("CENSYS_API_TOKEN", "censys_test")
     fake = FakeGlobalData()
     clients = []

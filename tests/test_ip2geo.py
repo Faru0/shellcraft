@@ -1,3 +1,4 @@
+import inspect
 import json
 import urllib.parse
 
@@ -17,7 +18,7 @@ RECORDS = {
 
 @pytest.fixture
 def ip2geo(registry, http: FakeHTTP, monkeypatch):
-    module = registry.get("ip2geo").run.__globals__
+    module = inspect.unwrap(registry.get("ip2geo").run).__globals__
     slept = []
     monkeypatch.setitem(module, "sleep", slept.append)
     state = {"remaining": 44}

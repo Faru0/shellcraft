@@ -401,6 +401,13 @@ def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
             where = f"{Path(path).name}:{number}: {line}"
             try:
                 result = run_line(line, ctx)
+            except KeyboardInterrupt:  # Ctrl-C: this file stops here; the shell goes on
+                failed += 1
+                from shellcraft.context import CommandError
+
+                _report(ctx, CommandError("interrupted (Ctrl-C); the rest of the file was skipped", 130), where, line)
+                ctx.last_status = 130
+                break
             except Exception as exc:  # noqa: BLE001 — a failing line (or a bug) must not stop the file
                 failed += 1
                 _report(ctx, exc, where, line)

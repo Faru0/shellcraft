@@ -232,6 +232,48 @@ class SkillInfo:
         return "\n\n".join(parts)
 
 
+def exit_safe(name: str, run: Callable[..., Any]) -> Callable[..., Any]:
+    """run(args, stdin) where sys.exit() — the module's own, or argparse's on --help or a bad
+    argument — ends the module, never the shell or the MCP server: exit 0 (or None) is a normal end
+    with no output, any other exit an error naming the status. A streaming run() (a generator) is
+    wrapped the same way."""
+    import functools
+    import inspect
+
+    @functools.wraps(run)
+    def safe(args: list[str], stdin: Any) -> Any:
+        try:
+            result = run(args, stdin)
+        except SystemExit as exc:
+            return _exited(name, exc)
+        if inspect.isgenerator(result):
+            return _exit_safe_stream(name, result)
+        return result
+
+    safe.exit_safe_of = run  # type: ignore[attr-defined]  # the module's own run() (the checker calls it)
+    return safe
+
+
+def _exited(name: str, exc: SystemExit) -> str:
+    from shellcraft.modkit import ModuleError
+
+    code = exc.code
+    if code in (None, 0):
+        return ""
+    if isinstance(code, str):
+        raise ModuleError(f"{name}: {code}") from None
+    raise ModuleError(f"{name}: exited with status {code} (sys.exit)") from None
+
+
+def _exit_safe_stream(name: str, gen: Any) -> Any:
+    try:
+        status = yield from gen
+    except SystemExit as exc:
+        _exited(name, exc)
+        return 0
+    return status
+
+
 @dataclass
 class ModuleSpec:
     name: str
@@ -470,12 +512,16 @@ class ModuleRegistry:
         sys.modules[import_name] = module
         try:
             spec.loader.exec_module(module)
+        except SystemExit as exc:  # its top level called sys.exit(): a broken module, not the end of the shell
+            sys.modules.pop(import_name, None)
+            raise ImportError(f"it exits while being imported (sys.exit({exc.code!r}))") from None
         except BaseException:
             sys.modules.pop(import_name, None)
             raise
         run = getattr(module, "run", None)
         if not callable(run):
             raise AttributeError("missing callable run(args, stdin)")
+        run = exit_safe(name, run)
 
         md = py.with_suffix(".md")
         skill = SkillInfo.parse(text) if (text := _read(py.with_suffix(".skill"))) is not None else None

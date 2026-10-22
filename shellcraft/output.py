@@ -100,7 +100,13 @@ def make_spinner_runner(ctx: ShellContext) -> Callable[[str, Callable[[], Any]],
             cancel.set()  # the thread can't be killed; a module that checks modkit.cancelled() stops
             raise
         if "error" in box:
-            raise box["error"]
+            error = box["error"]
+            if isinstance(error, SystemExit):  # sys.exit() in the worker: an error, never the end of the shell
+                from shellcraft.context import CommandError
+
+                raise CommandError(f"{label.removeprefix('running ').rstrip('…')}: exited with status "
+                                   f"{error.code} (sys.exit)") from None
+            raise error
         return box.get("value")
 
     return runner

@@ -41,6 +41,7 @@ shellcraft/
 │   ├── envvars.py          # the session's environment variables (`env set`, `export`, the rc file), keyring secrets
 │   ├── profiles.py         # profiles: storage, layering over config.json, switching, snapshots, starters
 │   ├── funcs.py            # funcs: the .func file, default + profile + session layers, running (isolated too)
+│   ├── crashlog.py         # ~/.shellcraft/crash.log: unexpected errors the shell survived, for bug reports
 │   ├── editor.py           # `settings editor`: terminal editors in a subshell, window editors waited for
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
 │   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
@@ -290,6 +291,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
+| `test_crash_safety.py` | Ctrl-C and errors injected into every step of the REPL loop (only Ctrl-D / `exit` end it), the prompt fallback, modules calling sys.exit() (shell and MCP), Ctrl-C in rc files and funcs, the func depth limit, the crash log, a Ctrl-C fuzzer in a pty |
 | `test_funcs.py` | funcs: the file, running (arguments, stop at failure, show / quiet, isolated, system, background), as a command, default + profile layers, managing steps and files, guided creation, profile export; `settings editor` |
 | `test_profiles.py` | profiles: create / list / copy / delete, layering, `profile use` and `off` (theme, settings, modules, env, aliases, history), where changes are saved, `profile save`, the wizard, diff, export / import, `--profile` |
 | `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets in the keyring, the rc origin, the `settings` section |

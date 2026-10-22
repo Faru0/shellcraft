@@ -1,3 +1,4 @@
+import inspect
 import json
 import urllib.error
 import urllib.parse
@@ -24,7 +25,7 @@ CERTS = [
 
 @pytest.fixture
 def querycert(registry, http: FakeHTTP, monkeypatch):
-    module = registry.get("queryCert").run.__globals__
+    module = inspect.unwrap(registry.get("queryCert").run).__globals__
     monkeypatch.setitem(module, "sleep", lambda s: None)
     http.handler = lambda request: FakeResponse(CERTS)
     return registry.get("queryCert").run

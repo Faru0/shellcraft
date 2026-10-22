@@ -1104,7 +1104,7 @@ between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in
 | `Ctrl-W` | Delete the word before the cursor |
 | `Ctrl-U` `Ctrl-K` | Delete to the start / end of the line |
 | `Ctrl-L` | Clear the screen |
-| `Ctrl-C` | Drop the line (or stop the running command) |
+| `Ctrl-C` | Drop the line (or stop the running command); it never closes ShellCraft |
 | `Ctrl-D` | Leave ShellCraft, on an empty line |
 
 ## The clip register and alerts

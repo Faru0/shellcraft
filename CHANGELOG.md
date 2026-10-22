@@ -178,6 +178,20 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Ctrl-C could close ShellCraft.** A Ctrl-C landing at the wrong moment (a second one while the
+  first was being handled, or while the next prompt was starting — likelier on Windows) escaped the
+  REPL loop. The loop now only ends on Ctrl-D or `exit`: Ctrl-C anywhere is `^C interrupted`, a
+  Ctrl-C between commands is dropped (nothing is running for it to stop), a prompt that fails falls
+  back to a plain one after three tries, and any unexpected error is shown and logged to
+  `~/.shellcraft/crash.log` (`diag` shows the last one) instead of ending the session. Ctrl-C during
+  startup skips the rest of startup; in an rc file it stops that file; in a func, that func.
+  Ctrl-Break on Windows works like Ctrl-C instead of killing the process.
+
+- **A module calling `sys.exit()` hung the shell** (plain `argparse` does on `--help` or a bad
+  argument): the spinner ran forever. `sys.exit(0)` now ends the module normally and any other exit
+  is an error naming the status, in the shell and over MCP; a module exiting at import time is a
+  warning. A func that runs itself stops after 16 levels.
+
 - The prefix key and the next key in one read (a fast double press) lost the second key; the
   prefix twice now sends one to the program, and the prefix then another key returns to the prompt,
   as when the two keys arrive apart.

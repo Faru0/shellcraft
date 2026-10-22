@@ -83,7 +83,9 @@ class Outcome:
 
 
 def invoke(fn: Callable[[list[str], str], Any], args: list[str], stdin: str, timeout: float) -> Outcome:
-    """Call fn(args, stdin) in a worker thread (like the shell does), capturing stray prints."""
+    """Call fn(args, stdin) in a worker thread (like the shell does), capturing stray prints. The
+    module's own run() is called, not the shell's sys.exit-safe wrapper, so an exit is reported."""
+    fn = getattr(fn, "exit_safe_of", fn)
     outcome = Outcome()
 
     def target() -> None:

@@ -1,3 +1,4 @@
+import inspect
 import json
 import re
 
@@ -19,7 +20,7 @@ RECORDS = {
 
 @pytest.fixture
 def myip(registry, monkeypatch):
-    module = registry.get("myip").run.__globals__
+    module = inspect.unwrap(registry.get("myip").run).__globals__
 
     def fake_get(path, ip, timeout):
         if path.startswith("/port/"):
@@ -78,7 +79,7 @@ def _response(status=200, body=b"", reason="OK"):
 @pytest.fixture
 def get(registry, monkeypatch):
     """Returns (_get, calls); set `get.result` to a Response or an exception to raise."""
-    module = registry.get("myip").run.__globals__
+    module = inspect.unwrap(registry.get("myip").run).__globals__
     calls = []
 
     def fake(url, **kwargs):
