@@ -1255,7 +1255,7 @@ class Shell:
         return handler
 
     def _close_job_handler(self, number: int | None) -> Callable[[MouseEvent], Any]:
-        """The × on a finished subshell's line: a click forgets that job."""
+        """The ✖ on a finished subshell's line: a click forgets that job."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "left":
                 self.footer.remove_job(number)

@@ -76,7 +76,7 @@ search on from there. Turn the viewer off with `settings pager off`.
 | `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
 | Click a line | anywhere | Switch to that shell |
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
-| Click the `×` of a finished line | anywhere | Remove it from the footer |
+| Click the `✖` of a finished line or an alert | anywhere | Remove it from the footer |
 
 `Ctrl-]` is the default prefix key. `settings prefix_key` lists the others (`ctrl-b`, `ctrl-a`,
 `ctrl-t`, `ctrl-g`, `ctrl-s`) and what each one shadows; `settings prefix_key ctrl-b` switches

@@ -174,6 +174,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **The footer's close button is on the right, and bigger.** An alert's row no longer starts with
+  an icon (its color says how serious it is); like a finished subshell's row, it ends with a heavy
+  `✖` that closes it. The finished subshell's `×` is now the same, more visible `✖`.
+
 - **Every way of running ingest puts new modules in `~/.shellcraft/modules`**: the `ingest` command,
   `shellcraft ingest` and `python -m tools.ingest`. `shellcraft ingest` used to write into the bundled
   folder (inside the installed package for an installed copy) and `python -m tools.ingest` into the

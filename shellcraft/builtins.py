@@ -833,7 +833,7 @@ An `&` anywhere else is still an error.
   (`cd`, `settings`…), and `tail -f` needs the terminal, so they are refused there.
 - The footer looks the same at the prompt and inside a subshell: the line under the mouse is
   highlighted, the ● marks where you are, a running line is plain and a finished one is green
-  (`done`) or red (`exit 2`, `killed`), with an × on the right that removes it (`jobs` has the
+  (`done`) or red (`exit 2`, `killed`), with a ✖ on the right that removes it (`jobs` has the
   times). It takes up to half the screen, then says how many more there are. An alert sent from
   a subshell shows inline on its line; the badge on the `main` line counts them all (`man alert`).
   `jobs -c` clears the finished ones, `jobs -k N` stops one, `settings footer off` goes back to a
@@ -904,7 +904,7 @@ room. In the panel under the prompt (and in the footer inside a subshell):
   alert, the most severe first, with the message, where it came from and the time left; another
   click folds them back (`▾` / `▸`).
 - A **crit** alert always keeps its full row, folded or not.
-- To dismiss one: click its **✖** at the start of the row (`alert -c [N]` from the keyboard).
+- To dismiss one: click the **✖** at the right end of its row (`alert -c [N]` from the keyboard).
   Every level has the same mark, in its color: green info, amber warn, red crit.
 - A **right-click** on a row copies the alert's data (`-d`, or the message when it has none)
   into the shell's clip register; the row says `copied`. **Alt-v** pastes it at the prompt
@@ -1132,7 +1132,7 @@ between Linux and Windows. `hotkeys` prints this page; `man hotkeys` opens it in
 | `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
 | Click a line | anywhere | Switch to that shell |
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
-| Click the `×` of a finished line | anywhere | Remove it from the footer |
+| Click the `✖` of a finished line or an alert | anywhere | Remove it from the footer |
 
 `Ctrl-]` is the default prefix key. `settings prefix_key` lists the others (`ctrl-b`, `ctrl-a`,
 `ctrl-t`, `ctrl-g`, `ctrl-s`) and what each one shadows; `settings prefix_key ctrl-b` switches
@@ -1901,7 +1901,7 @@ def _attach_loop(ctx: ShellContext, job: Any, footer: Any, terminal: Any) -> Any
         # `exit` inside it: the pty closed, and the reader marks the job finished a moment later
         finished = ctx.jobs.wait_finished(job)
         ctx.jobs.pop_notifications()  # its end is reported here, not at the next prompt
-        if settings.get(ctx.config, "jobs_autoclear"):  # it leaves the footer now, no × to click
+        if settings.get(ctx.config, "jobs_autoclear"):  # it leaves the footer now, no ✖ to click
             if finished:
                 ctx.jobs.remove(job)
             else:

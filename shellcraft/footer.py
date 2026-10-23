@@ -143,7 +143,7 @@ class Footer:
         return rows
 
     def remove_job(self, number: int | None) -> None:
-        """The × on a finished line: forget that job (as `jobs -c` would for all of them)."""
+        """The ✖ on a finished line: forget that job (as `jobs -c` would for all of them)."""
         get, remove = getattr(self.jobs, "get", None), getattr(self.jobs, "remove", None)
         job = get(number) if get is not None and number is not None else None
         if job is not None and not job.running and remove is not None:
@@ -253,7 +253,7 @@ class Footer:
     def mouse(self, kind: str, x: int, y: int, button: str = "left") -> tuple[str, Any] | None:
         """A mouse event (from parse_mouse) over the footer. None when it is not on the footer;
         ("switch", tab) for a click on a shell's line; ("handled", None) for the rest: hover, a
-        click on the badge (fold / unfold the alerts), a click on an alert's icon (dismiss it) or a
+        click on the badge (fold / unfold the alerts), a click on an alert's ✖ (dismiss it) or a
         right-click on an alert (copy its content into the clip register)."""
         if kind == "down":
             self._pressed = button
@@ -321,14 +321,15 @@ class Footer:
 # ── the stack, shared by the panel under the prompt and the footer in a subshell ─
 
 MARK = 3  # the width of the " ○ " / " ● " marker that starts a shell's line
+CLOSE = "✖"  # the close button at the right end of an alert's line and a finished subshell's line
 MARK_DOT = "●"  # the alert counts in the badge and an inline alert: a filled bubble in the level's color
 
 
 class Row(NamedTuple):
     """One line of the stack. `tab` is 0 for this shell, a job number, or None (an alert, the
     header); `alert` the Alert an alert row shows; `spans` (start, end, style, role) ranges
-    styled over the row (offsets in characters): the badge's counts, an inline alert, the icon;
-    `badge` where the alert badge starts on the main row and `close` where the icon (the close
+    styled over the row (offsets in characters): the badge's counts, an inline alert, the ✖;
+    `badge` where the alert badge starts on the main row and `close` where the ✖ (the close
     button) is on an
     alert row (-1: none). `hovered` says the row is under the mouse or chosen with ↓ / ↑."""
 
@@ -357,25 +358,24 @@ def alert_rows(alerts: list, jobs: list, expanded: bool) -> list:
 
 
 def alert_lines(alerts: list, width: int, hover: Any = None, copied: Any = None) -> list[Row]:
-    """One line per alert, most severe first: ` ▲ disk almost full            warning · 42s`.
-    The icon at the start is the close button; the row says `copied` after a right-click on it."""
-    from shellcraft.alerts import ICONS
-
+    """One line per alert, most severe first, in its level's color: ` disk almost full   warn · 42s  ✖ `.
+    The ✖ at the right end is the close button, as on a finished subshell's line; the row says
+    `copied` after a right-click on it."""
     lines: list[Row] = []
     for alert in alerts:
         hovered = hover is alert
-        left = f" {ICONS[alert.level]} {alert.message}" + (f" · from {alert.source}" if alert.source else "")
+        left = f" {alert.message}" + (f" · from {alert.source}" if alert.source else "")
         remaining = alert.remaining
         if hovered and copied is alert:
-            right = "copied · Alt-v pastes "
+            right = f"copied · Alt-v pastes  {CLOSE} "
         else:
-            right = f"{alert.level}" + (f" · {int(remaining) + 1}s " if remaining is not None else " ")
+            right = f"{alert.level}" + (f" · {int(remaining) + 1}s" if remaining is not None else "") + f"  {CLOSE} "
         room = max(10, width - get_cwidth(right) - 1)
         if get_cwidth(left) > room:
             left = left[: room - 1] + "…"
         pad = max(1, width - get_cwidth(left) - get_cwidth(right))
         text = left + " " * pad + right
-        close = 1  # the icon: the close button
+        close = len(text) - 2  # the ✖: the close button
         spans = ((close, close + 1, None, "close"),)
         lines.append(Row(None, f"alert.{alert.level}", text, hovered, alert=alert, spans=spans, close=close))
     return lines
@@ -414,10 +414,10 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
     A shell that runs `record` (`recording` for main, `job.recording` for a subshell) has its
     bubble in red (a "rec" span over the marker), ● or ○ as usual.
 
-        ✖ Payment API is down · from mcp · claude                              critical
+        Payment API is down · from mcp · claude                                crit  ✖
         ● main ▾                                                      ● 1  ● 1  ● 1 ▸
         ○ 1  bash --norc  ▲ Disk /home at 91%
-        ○ 2  find / -name "*.log"                                                  done
+        ○ 2  find / -name "*.log"                                               done  ✖
     """
     width = max(40, width)
     alerts = list(alerts or [])
@@ -465,7 +465,7 @@ def panel_lines(jobs: list, current: int, hover: Any = None, width: int = 80, de
         left += job.short(width // 3)
         killed = getattr(job, "killed", False)
         state = "running" if job.running else "failed" if killed or job.status != 0 else "done"
-        right = "" if job.running else f"{job.label} × "  # a finished line: × removes it (as jobs -c would)
+        right = "" if job.running else f"{job.label}  {CLOSE} "  # a finished line: ✖ removes it (as jobs -c would)
         own = [a for a in alerts if a.job == job.number and a.job in numbers]
         if own:
             first = own[0]  # the most severe (alerts are sorted)

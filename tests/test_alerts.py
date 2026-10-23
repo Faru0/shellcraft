@@ -163,8 +163,8 @@ def test_panel_lines_show_alerts_first_with_their_source(bus):
     bus.post("look here", "crit", source="sub 1 (bash)")
     lines = panel_lines([], 0, None, 80, alerts=bus.current())
     assert [row.style for row in lines] == ["alert.crit", "alert.info"]  # no stack without jobs
-    assert lines[0][2].startswith(" ✖ look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("crit")
-    assert lines[1][2].startswith(" ✖ all good · from main shell") and "info · " in lines[1][2]
+    assert lines[0][2].startswith(" look here · from sub 1 (bash)") and lines[0][2].rstrip().endswith("crit  ✖")
+    assert lines[1][2].startswith(" all good · from main shell") and "info · " in lines[1][2]
     long = AlertBus()
     long.post("x" * 200, "warn")
     text = panel_lines([], 0, None, 60, alerts=long.current())[0][2]
@@ -199,18 +199,20 @@ def test_panel_folds_alerts_into_a_badge_and_shows_a_subshells_alert_inline():
     bash = rows[2]
     assert bash.text.startswith(" ○ 1  bash --norc  ● Disk /home at 91% +1") and bash.text.rstrip() == bash.text.rstrip()
     assert "running" not in bash.text and bash.spans[0][2] == "alert.warn.mark"
-    assert rows[3].text.rstrip().endswith("done ×") and "s ·" not in rows[3].text  # no time on the right
+    assert rows[3].text.rstrip().endswith("done  ✖") and "s ·" not in rows[3].text  # no time on the right
     # unfolded: every alert gets a row, the badge shows ▾
     assert bus.toggle() is True
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current(), expanded=True)
     assert [r.style for r in rows][:3] == ["alert.crit", "alert.warn", "alert.info"]
     assert rows[3].text.rstrip().endswith("▾") and [r.alert for r in rows[:3]] == [crit, warn, info]
     assert alert_rows(bus.current(), jobs, False) == [crit] and alert_rows(bus.current(), [], False) == [crit, warn, info]
-    # the icon at the start of every alert row is its close button
+    # the ✖ at the right end of every alert row is its close button, as on a finished subshell's row
     hovered = panel_lines(jobs, 0, warn, 80, alerts=bus.current(), expanded=True)
-    assert hovered[1].hovered and hovered[1].text.endswith("warn · 60s ") and hovered[1].close == 1
-    assert hovered[1].spans == ((1, 2, None, "close"),) and hovered[1].text[1] == "✖"
-    assert not hovered[0].hovered and hovered[0].close == 1 and hovered[0].spans == ((1, 2, None, "close"),)
+    end = len(hovered[1].text) - 2
+    assert hovered[1].hovered and hovered[1].text.endswith("warn · 60s  ✖ ") and hovered[1].close == end
+    assert hovered[1].spans == ((end, end + 1, None, "close"),) and hovered[1].text[end] == "✖"
+    assert not hovered[1].text.startswith(" ✖")  # no icon on the left any more
+    assert not hovered[0].hovered and hovered[0].text[hovered[0].close] == "✖"
     # only critical alerts: no ▸, nothing to fold
     bus.remove(warn) and bus.remove(info)
     rows = panel_lines(jobs, 0, None, 80, alerts=bus.current())
@@ -237,15 +239,15 @@ def test_footer_mouse_hover_close_right_click_and_badge(home):
     assert parse_mouse("\x1b[<2;5;22m") == ("up", 5, 22, "right") and parse_mouse("\x1b[<35;5;22M") == ("move", 5, 22, "none")
     assert footer.mouse("move", 5, 22) == ("handled", None) and footer.hover is crit
     assert footer.mouse("up", 5, 22, "left") == ("handled", None) and crit in bus.current()  # a left click elsewhere: nothing
-    assert footer.mouse("up", 2, 22, "left") == ("handled", None) and crit not in bus.current()  # the icon
+    assert footer.mouse("up", 79, 22, "left") == ("handled", None) and crit not in bus.current()  # the ✖
     assert footer.height() == 2 and footer.row_tabs == [0, 1]
     assert footer.mouse("up", 79, 23, "left") == ("handled", None) and bus.expanded  # the badge on main
     assert footer.row_tabs == [None, 0, 1] and footer.rows[0].alert is warn
     assert footer.mouse("up", 10, 22, "right") == ("handled", None) and bus.current() == [warn]  # right-click: copy
-    assert bus.clip == "disk" and bus.copied is warn and footer.rows[0].text.rstrip().endswith("warn · 60s")
+    assert bus.clip == "disk" and bus.copied is warn and footer.rows[0].text.rstrip().endswith("warn · 60s  ✖")
     assert footer.mouse("move", 10, 22) == ("handled", None) and "copied · Alt-v pastes" in footer.rows[0].text
     assert footer.mouse("move", 10, 23) == ("handled", None) and bus.copied is None  # the hint goes with the mouse
-    assert footer.mouse("up", 2, 22, "left") == ("handled", None) and not bus.current()  # the icon dismisses
+    assert footer.mouse("up", 79, 22, "left") == ("handled", None) and not bus.current()  # the ✖ dismisses
     assert footer.row_tabs == [0, 1]
     assert footer.mouse("up", 5, 23, "left") == ("switch", 0) and footer.mouse("up", 5, 24) == ("switch", 1)
     assert footer.mouse("up", 5, 24, "right") == ("handled", None)

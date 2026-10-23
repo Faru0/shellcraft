@@ -24,14 +24,14 @@ stack, at the prompt and inside every subshell alike: `main` first, then one lin
 newest at the bottom, growing as you open more (up to half the screen, then "… and N more"):
 
 ```
- ✖ Payment API is down · from mcp · claude-code                              crit
+ Payment API is down · from mcp · claude-code                            crit  ✖
  ● main ▾                                                         ● 1  ● 1  ● 1 ▸
  ○ 1  bash --norc  ● Disk /home at 91%
- ○ 2  find / -name "*.log"                                                   done
+ ○ 2  find / -name "*.log"                                                done  ✖
 ```
 
 The ● is the shell you are in. A running line is plain; a finished one is green (`done`) or
-red (`exit 2`, `killed`), with an **×** on the right that removes it when you are done with it. The `▾` after `main`
+red (`exit 2`, `killed`), with a **✖** on the right that removes it when you are done with it. The `▾` after `main`
 (a click, or **Ctrl-] c**) folds the subshell lines into `main  2 subshells ▸` when you need
 the room; the same again unfolds them. Alerts are part of the stack: see below. With no
 subshell the footer is the `main` line alone; `settings footer off` goes back to a panel under
@@ -96,7 +96,7 @@ color (`● Disk /home at 91%`; `+1` when it has more). The **badge** at the rig
 `main` line counts every alert by level (`● 1  ● 1  ● 1 ▸`, a filled bubble in each level's color): a click on it unfolds one full row
 per alert, most severe first, with the message, where it came from and the time left; another
 click folds them back. A **crit** alert always keeps its full row, so it cannot be missed.
-To dismiss an alert, click its **✖** at the start of the row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
+To dismiss an alert, click the **✖** at the right end of its row (`alert -c` from the keyboard). With no subshell to fold into, every alert shows as a row.
 
 An alert can carry **data**: `alert -d /var/log/app.log "errors in the log"` or
 `make 2>&1 | alert -l crit build failed -d -`. A **right-click** on its row copies the payload

@@ -31,7 +31,6 @@ from typing import Any, Callable
 LEVELS = ("info", "warn", "crit")
 # The long names of earlier versions, still accepted (scripts, spool files from older shells, MCP clients).
 LEVEL_ALIASES = {"warning": "warn", "critical": "crit"}
-ICONS = {"info": "✖", "warn": "✖", "crit": "✖"}  # the same mark, in the level's color; a click on it dismisses
 DEFAULT_TIMEOUT = {"info": 15.0, "warn": 60.0, "crit": None}  # None: stays until dismissed
 
 
@@ -135,7 +134,7 @@ class AlertBus:
         return gone
 
     def remove(self, alert: Alert) -> bool:
-        """Drop this alert (a click on its ×, or a right-click): whether it was still there."""
+        """Drop this alert (a click on its ✖, or a right-click): whether it was still there."""
         with self._lock:
             found = any(a is alert for a in self.alerts)
             self.alerts = [a for a in self.alerts if a is not alert]
