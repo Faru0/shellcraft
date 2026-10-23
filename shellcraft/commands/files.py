@@ -9,7 +9,7 @@ import stat
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from rich.columns import Columns
 from rich.console import Group
@@ -414,13 +414,42 @@ def _children(directory: Path, show_hidden: bool = True) -> list[Path]:
     return [e for e in entries if show_hidden or not e.name.startswith(".")]
 
 
-def _walk(path: Path, shown: str, depth: int, max_depth: int | None):
-    yield path, shown, depth
+class _Found(NamedTuple):
+    """One path find walked over, with what the directory listing already told about it, so a
+    `-type` test and the walk itself need no stat call of their own (os.scandir knows the kind
+    of every entry from the directory read; Path.is_dir() and friends stat each one again)."""
+
+    path: Path
+    shown: str
+    depth: int
+    is_dir: bool
+    is_file: bool
+    is_symlink: bool
+
+
+def _scan(directory: Path) -> list[os.DirEntry]:
+    try:
+        with os.scandir(directory) as it:
+            return sorted(it, key=lambda e: e.name.lower())
+    except OSError:
+        return []  # unreadable directories are skipped, like `find` without error spam
+
+
+def _walk(path: Path, shown: str, depth: int, max_depth: int | None, entry: os.DirEntry | None = None):
+    if entry is None:
+        try:
+            st = path.lstat()
+            kind = (stat.S_ISDIR(st.st_mode), stat.S_ISREG(st.st_mode), stat.S_ISLNK(st.st_mode))
+        except OSError:
+            kind = (False, False, False)
+    else:
+        kind = (entry.is_dir(follow_symlinks=False), entry.is_file(follow_symlinks=False), entry.is_symlink())
+    yield _Found(path, shown, depth, *kind)
     if max_depth is not None and depth >= max_depth:
         return
-    if path.is_dir() and not path.is_symlink():
-        for child in _children(path):
-            yield from _walk(child, os.path.join(shown, child.name), depth + 1, max_depth)
+    if kind[0]:
+        for child in _scan(path):
+            yield from _walk(Path(child.path), os.path.join(shown, child.name), depth + 1, max_depth, child)
 
 
 _SIZE_UNITS = {"c": 1, "b": 512, "w": 2, "k": 1024, "M": 1024 ** 2, "G": 1024 ** 3}
@@ -537,7 +566,8 @@ def find(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
     newer_cache: dict[str, float] = {}
     now = time.time()
 
-    def check(path: Path, name: str, shown: str, test: str, value: str | None) -> bool:
+    def check(found: _Found, name: str, shown: str, test: str, value: str | None) -> bool:
+        path = found.path
         if test == "-name":
             return fnmatch.fnmatchcase(name, value)
         if test == "-iname":
@@ -548,10 +578,10 @@ def find(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
             return fnmatch.fnmatchcase(shown.lower(), value.lower())
         if test == "-type":
             if value == "l":
-                return path.is_symlink()
+                return found.is_symlink
             if value == "d":
-                return not path.is_symlink() and path.is_dir()
-            return not path.is_symlink() and path.is_file()
+                return found.is_dir
+            return found.is_file
         try:
             st = path.lstat()
         except OSError:
@@ -577,21 +607,21 @@ def find(ctx: ShellContext, args: list[str], stdin: str) -> Styled | str:
             return stat.S_ISREG(st.st_mode) and st.st_size == 0
         return True
 
-    def matches(path: Path, name: str, shown: str, depth: int) -> bool:
+    def matches(found: _Found, name: str, shown: str, depth: int) -> bool:
         if depth < mindepth:
             return False
-        return all(check(path, name, shown, test, value) != negated for negated, test, value in tests)
+        return all(check(found, name, shown, test, value) != negated for negated, test, value in tests)
 
     found: list[str] = []
     for start in paths or ["."]:
         root = user_path(start)
         if not root.exists() and not root.is_symlink():
             raise ModuleError(f"find: {start}: no such file or directory")
-        for path, shown, depth in _walk(root, start, 0, maxdepth):
+        for item in _walk(root, start, 0, maxdepth):
             # Like POSIX find, a start point is matched by its literal basename (so "." is ".").
-            name = path.name if depth else os.path.basename(os.path.normpath(start))
-            if matches(path, name, shown, depth):
-                found.append(shown)
+            name = item.path.name if item.depth else os.path.basename(os.path.normpath(start))
+            if matches(item, name, item.shown, item.depth):
+                found.append(item.shown)
     if not links_on(ctx) or not found:
         return lines_out(found)
     styled = Text()

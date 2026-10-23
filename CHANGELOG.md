@@ -5,6 +5,17 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster where it was felt.** Plain output no longer goes through Rich line by line: 20,000
+  lines print in 2 ms instead of 211, and `ls -l` of a thousand entries in 26 ms instead of 196.
+  Pipelines move lines between segments in chunks instead of one queue operation per line:
+  `seq 1 100000 | grep 1` takes 245 ms instead of 499, and a four-stage pipeline 220 instead of
+  734. A subshell's output reaches the terminal before the terminal emulator parses it, so a
+  build or `find /` in a `sub` no longer falls seconds behind. `find` reads each directory once
+  with `os.scandir` instead of stat-ing every entry again for `-type` and the walk: five times
+  faster on a big tree. Nothing looks or behaves differently.
+
 ### Added
 
 - **Every new profile comes with an empty `startup/` folder**, whether it's made by `profile new`,

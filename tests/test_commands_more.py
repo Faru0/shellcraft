@@ -118,6 +118,16 @@ def test_ls_sorting_recursion_and_directories(ctx, tree_dir):
         run_line("ls -z", ctx)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_find_knows_links_from_what_they_point_at(ctx, tree_dir):
+    (tree_dir / "to_sub").symlink_to(tree_dir / "sub", target_is_directory=True)
+    (tree_dir / "to_a").symlink_to(tree_dir / "a.txt")
+    assert out("find . -type l", ctx) == "./to_a\n./to_sub\n"
+    dirs = out("find . -type d", ctx).splitlines()
+    assert "./sub" in dirs and "./to_sub" not in dirs  # the link to a folder is not one, nor walked into
+    assert "to_sub/inner.py" not in out("find .", ctx) and "./to_a" not in out("find . -type f", ctx)
+
+
 def test_find_tests(ctx, tree_dir):
     assert out("find . -size +1k", ctx) == "./big.bin\n"
     assert out("find . -size -3c -type f", ctx) == "./empty\n"
