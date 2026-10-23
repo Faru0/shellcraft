@@ -45,7 +45,8 @@ and offers to switch to it.
 
 ## Write one by hand
 
-A profile is a folder: `~/.shellcraft/profiles/NAME/`. Every file in it is optional.
+A profile is a folder: `~/.shellcraft/profiles/NAME/`. Every file in it is optional. Making a
+profile, any way, also makes its empty `startup/` folder.
 
 ```
 ~/.shellcraft/profiles/recon/
@@ -111,7 +112,8 @@ Funcs that only exist in this profile. See [Funcs](funcs.md).
 
 ### startup/
 
-More files like the profile's rc, ending in `.sc`, one per job. They run after the profile's rc,
+More files like the profile's rc, ending in `.sc`, one per job. The folder is already there in
+every new profile, so just drop the files in. They run after the profile's rc,
 in name order, when you start in the profile and when you switch to it. See
 [Startup files](startup.md#startup-files).
 

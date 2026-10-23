@@ -107,7 +107,7 @@ def test_a_profile_runs_its_own_folder_at_start_and_on_switch(home, tmp_path, mo
     monkeypatch.chdir(tmp_path)
     profiles.create("acme", {"description": "acme"}, "env set SC_FIRST=profile-rc\n", "")
     folder = profiles.folder("acme") / "startup"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "10-p.sc").write_text("env set SC_PROFILE=$SC_FIRST-then-its-folder\n")
     main(["--profile", "acme"])
     assert os.environ["SC_PROFILE"] == "profile-rc-then-its-folder"
@@ -125,7 +125,7 @@ def test_profile_export_import_and_copy_carry_its_startup_files(home, tmp_path):
 
     profiles.create("acme", {"description": "acme"}, "", "")
     folder = profiles.folder("acme") / "startup"
-    folder.mkdir()
+    folder.mkdir(exist_ok=True)
     (folder / "10-p.sc").write_text("echo hi\n")
     bundle = profiles.export_bundle("acme")
     assert bundle["startup"] == {"10-p.sc": "echo hi\n"}

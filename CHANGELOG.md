@@ -7,6 +7,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Every new profile comes with an empty `startup/` folder**, whether it's made by `profile new`,
+  a starter, `profile save`, `profile copy` or `profile import`. No need to create the folder by
+  hand before adding `.sc` files.
+
 - **Comments at the end of a line**: `cd ~/projects   # where I work`. A line starting with `#` is a
   comment, and so is everything after a `#` (or `##`…) with whitespace before and after it, at the
   prompt, in rc files, funcs, profiles and the aliases file. A `#` touching other text stays text,

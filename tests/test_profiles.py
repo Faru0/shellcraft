@@ -46,6 +46,18 @@ def base_file():
     return json.loads((config_dir() / "config.json").read_text())
 
 
+def test_every_new_profile_gets_a_startup_folder(ctx):
+    out(ctx, "profile new plain --empty")
+    out(ctx, "profile new spy --template osint")
+    out(ctx, "profile copy spy spy2")
+    for name in ("plain", "spy", "spy2"):
+        assert (profiles.folder(name) / "startup").is_dir()
+    assert list((profiles.folder("plain") / "startup").iterdir()) == []
+    (profiles.folder("plain") / "startup" / "10-a.sc").write_text("x = 1\n")
+    profiles.make_startup("plain")
+    assert [p.name for p in (profiles.folder("plain") / "startup").iterdir()] == ["10-a.sc"]
+
+
 def test_create_list_show_copy_rename_delete(ctx):
     out(ctx, "profile new recon --empty -d 'recon work'")
     assert profiles.names() == ["recon"] and profiles.load("recon")["description"] == "recon work"

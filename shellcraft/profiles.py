@@ -161,6 +161,14 @@ def create(name: str, data: dict[str, Any] | None = None, rc: str = "", aliases:
         write_text(name, "rc", rc)
     if aliases:
         write_text(name, "aliases", aliases)
+    make_startup(name)
+
+
+def make_startup(name: str) -> None:
+    """Give a profile its startup folder, empty, if it has none yet."""
+    from shellcraft import startup
+
+    (folder(name) / startup.FOLDER).mkdir(parents=True, exist_ok=True)
 
 
 def copy_profile(src: str, dst: str) -> None:
@@ -173,6 +181,7 @@ def copy_profile(src: str, dst: str) -> None:
     data["created"] = time.strftime("%Y-%m-%d %H:%M")
     data.pop("used", None)
     write(dst, data)
+    make_startup(dst)
 
 
 def rename(old: str, new: str) -> None:
