@@ -40,6 +40,7 @@ from shellcraft import prefix
 DETACH_KEY = b"\x1d"  # Ctrl-], the default prefix (shellcraft.prefix holds the one in use)
 PREFIX_WAIT = 0.6  # seconds to wait for the digit after Ctrl-]
 TAIL_BYTES = 64 * 1024  # kept in memory per job
+BACKLOG_BYTES = 512 * 1024  # output waiting for the emulator; older output has scrolled off its history anyway
 HISTORY_LINES = 5000  # scrollback lines the emulator keeps per program
 MAX_FINISHED = 20  # finished jobs kept in the table (the oldest are dropped)
 WINPTY_POLL = 0.1  # seconds between asking a ConPTY program whether it is still alive
@@ -163,6 +164,7 @@ class Job:
         self._tail = bytearray()
         self._lock = threading.RLock()
         self._log_file: IO[bytes] | None = None
+        self._backlog = bytearray()  # output not yet fed to the emulator (see append)
         # program jobs
         self.pid: int | None = None
         self.master_fd: int | None = None  # POSIX
@@ -228,7 +230,20 @@ class Job:
                 self.mouse_modes = mouse_modes_after(self.mouse_modes, data)
                 self.mouse_on = bool(self.mouse_modes & {1000, 1002, 1003})
             if self.screen is not None:
-                data = self._emulate(data)
+                # The emulator (pyte, pure Python) parses about half a megabyte a second, far
+                # slower than a build or `find /` prints. Output goes to the attached terminal
+                # at once and waits here for the emulator, which catches up when its screen is
+                # wanted: a switch to the job, a scroll, a resize. A switch to or from the
+                # program's alternate screen is handled now, since it changes what the
+                # terminal gets.
+                if ALT_SCREEN_RE.search(data):
+                    self._catch_up()
+                    data = self._emulate(data)
+                else:
+                    self._backlog += data
+                    if len(self._backlog) > BACKLOG_BYTES:
+                        cut = self._backlog.find(b"\n", len(self._backlog) - BACKLOG_BYTES)
+                        del self._backlog[:cut + 1 if cut >= 0 else len(self._backlog) - BACKLOG_BYTES]
             sink, on_output = self.sink, self.on_output
         if sink is not None:
             if on_output is not None:
@@ -237,6 +252,12 @@ class Job:
                 sink(data)
             except OSError:
                 pass
+
+    def _catch_up(self) -> None:
+        """Feed the emulator what it has not seen yet (under the lock)."""
+        if self._backlog:
+            pending, self._backlog = bytes(self._backlog), bytearray()
+            self.stream.feed(pending)
 
     def _emulate(self, data: bytes) -> bytes:
         """Feed the emulator. A switch to or from the program's alternate screen is honoured in
@@ -287,6 +308,7 @@ class Job:
         with self._lock:
             if self.screen is None:
                 return b"\x1b[H\x1b[2J" + self.tail(4096)
+            self._catch_up()
             if rows and cols and (self.screen.lines, self.screen.columns) != (rows, cols):
                 self.screen.resize(rows, cols)
             return render_screen(self.screen)
@@ -294,6 +316,7 @@ class Job:
     def resize(self, rows: int, cols: int) -> None:
         with self._lock:
             if self.screen is not None and (self.screen.lines, self.screen.columns) != (rows, cols):
+                self._catch_up()
                 self.screen.resize(rows, cols)
             if self.master_fd is not None:
                 try:
@@ -311,6 +334,7 @@ class Job:
         with self._lock:
             if self.screen is None:
                 return
+            self._catch_up()
             for _ in range(abs(pages)):
                 if pages < 0:
                     self.screen.prev_page()
@@ -322,6 +346,8 @@ class Job:
 
     def scroll_bottom(self) -> None:
         with self._lock:
+            if self.screen is not None:
+                self._catch_up()
             while self.scrolled and self.screen is not None:
                 self.screen.next_page()
                 self.scrolled -= 1

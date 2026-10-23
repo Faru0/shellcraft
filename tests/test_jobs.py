@@ -1074,3 +1074,23 @@ def test_the_chosen_prefix_detaches_and_switches(tmp_path, monkeypatch):
     table.kill(job)
     os.close(term_master)
     os.close(term_slave)
+
+
+def test_output_reaches_the_terminal_before_the_emulator_and_the_page_catches_up(tmp_path):
+    """A chatty program's output goes to the attached terminal at once; the emulator (slow,
+    pure Python) sees it when its screen is wanted, and never more than the newest BACKLOG_BYTES."""
+    from shellcraft.jobs import BACKLOG_BYTES, Job, new_screen
+
+    job = Job(1, "chatty", "program", tmp_path / "1.log")
+    job.screen, job.stream = new_screen(10, 40)
+    if job.screen is None:
+        pytest.skip("pyte is not installed")
+    got = []
+    job.sink = got.append
+    for n in range(100):
+        job.append(f"line {n}\n".encode())
+    assert b"".join(got).count(b"\n") == 100 and len(job._backlog) > 0
+    assert b"line 99" in job.page() and len(job._backlog) == 0
+    job.append(b"x" * (BACKLOG_BYTES + 10) + b"\n" + b"last one\n")
+    assert len(job._backlog) <= BACKLOG_BYTES + 20 and b"last one" in job.page()
+    assert b"".join(got).endswith(b"last one\n")
