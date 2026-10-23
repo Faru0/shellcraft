@@ -22,6 +22,9 @@ and the project uses [semantic versioning](https://semver.org/).
   the same plain voice. The README is now short: a pitch, install, a quick start and where to go.
   `tests/test_docs.py` checks every link, and runs the tutorial's code.
 
+- **Every starter file opens with a `# How to use this file` header**: what it's for, how to switch it
+  on, and where to read more. A func file may now have its own `#` notes above its header; they are
+  kept when ShellCraft rewrites the file (`func set`, `func add`).
 - **Starter files in `~/.shellcraft`**, the way Linux fills a new home folder from `/etc/skel`:
   an `rc` and an `aliases` file that are all comments with ready lines to uncomment, an example func
   (`funcs/example.func.sample`) and two example startup scripts with a README

@@ -1,28 +1,33 @@
+# How to use this file
+# --------------------
+# This is an example func: a named list of ShellCraft commands you run when you need them.
+# It isn't loaded while its name ends in .sample. To use it, copy it to a name ending in .func:
+#
+#     cp example.func.sample recon.func
+#
+# Then run it with `func run recon example.com`, or just `recon example.com` (see command: yes).
+# $1, $2… are the arguments, $@ all of them and $# how many. It stops at the first step that fails.
+#
+# The header below (the `# key: value` lines) describes the func:
+#   func         its name (the file name wins)
+#   description  one line, shown by `func list`
+#   system       yes if a step runs a program from your PATH (needs `settings system_commands on`)
+#   output       show: every step's output prints. quiet: only echo/printf and steps starting with @
+#   command      yes: typing its name runs it
+#   usage        how to call it
+# Every line after the header is one step. Lines starting with # are comments, and so is a note
+# after a step with a space before and after the # (queryDns $1   # look up the records).
+#
+# Funcs here work in every profile; a profile's own go in ~/.shellcraft/profiles/NAME/funcs/.
+# More: `man func`, or docs/funcs.md.
+
 # func: recon
 # description: Quick look at a domain: its subdomains and DNS records
 # system: no
 # output: show
 # command: yes
 # usage: recon DOMAIN
-queryCert -s $1 > subs-$1.txt
-queryDns $1
+queryCert -s $1 > subs-$1.txt     # subdomains from certificate logs
+queryDns $1                       # the DNS records
 @ cat subs-$1.txt | wc -l
 echo "recon of $1 done, subdomains in subs-$1.txt"
-
-# This is an example func. It isn't loaded while its name ends in .sample.
-# To use it, copy it to a name ending in .func:   cp example.func.sample recon.func
-#
-# A func is a named list of ShellCraft commands that runs when you call it:
-#   func run recon example.com    (or just `recon example.com`, because of `command: yes`)
-# $1, $2… are the arguments, $@ all of them, $# how many. It stops at the first step that fails.
-#
-# The header lines at the top (# key: value) describe it:
-#   func         its name (the file name wins)
-#   description  one line for `func list`
-#   system       yes if it runs OS programs (needs `settings system_commands on`)
-#   output       show: every step's output prints. quiet: only echo/printf and steps starting with @
-#   command      yes: typing its name runs it
-#   usage        how to call it
-#
-# Funcs in this folder work in every profile. A profile's own go in
-# ~/.shellcraft/profiles/NAME/funcs/. The manual: docs/funcs.md, or `man func`.

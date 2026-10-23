@@ -72,3 +72,23 @@ def test_the_prompt_colors_what_the_shell_ignores():
     assert comment("profile set w color #05d9e8") == ""  # not a comment: not colored as one
     assert comment("echo hi #note") == ""
     assert comment("# a whole line") == "# a whole line"
+
+
+def test_notes_above_a_func_header_are_kept():
+    text = ("# How to use this file\n# run it with: func run x\n\n# func: x\n# description: d\n# command: yes\n"
+            "echo hi\n")
+    func = funcs.parse(text, "x")
+    assert func.notes == "# How to use this file\n# run it with: func run x"
+    assert func.description == "d" and func.command and func.steps == ["echo hi"]
+    func.description = "changed"  # what `func set` / `func add` do, then the file is written again
+    written = funcs.render(func)
+    assert written.startswith("# How to use this file\n# run it with: func run x\n\n# func: x\n")
+    assert "# description: changed" in written
+
+
+def test_the_starter_files_open_with_how_to_use_them():
+    from shellcraft import skel
+
+    for rel in skel.files():
+        first = (skel.SOURCE / rel).read_text(encoding="utf-8").splitlines()[0]
+        assert first in ("# How to use this file", "# How to use this folder"), rel

@@ -1,14 +1,22 @@
+# How to use this file
+# --------------------
+# This is an example background startup script. It doesn't run while its name ends in .sample.
+# To use it, copy it to a name ending in .py:
+#
+#     cp 30-watcher.py.sample 30-watcher.py
+#
+# The `# shellcraft: background, restart` line below is what makes it a background script:
+#   background  it starts as a subshell once the prompt is ready, so the shell never waits for it.
+#               It shows in the footer as `startup: 30-watcher.py` (Ctrl-] and its number to look,
+#               Ctrl-] x to end it).
+#   restart     if it crashes it starts again, giving up after 5 crashes in 10 minutes.
+# A background script can't set variables for the shell; put those in a normal startup script.
+# It can send alerts: the `alert` command is on its PATH.
+#
+# Inside ShellCraft: `startup stop NAME`, `startup start NAME`, `startup restart NAME`.
+# More: `man startup`, or docs/startup.md.
+#
 # shellcraft: background, restart
-"""Example background startup script. It runs once its name ends in .py: cp 30-watcher.py.sample 30-watcher.py
-
-`# shellcraft: background` starts it as a subshell the moment the prompt appears, so it never
-slows the start down; it shows in the subshell panel (Ctrl-] N or a click attaches to it, Ctrl-] x
-ends it). `restart` starts it again if it exits with an error: after 2, 4, 8… up to 60 s, giving
-up with a red alert after 5 crashes in 10 minutes. `startup stop / start / restart NAME` control it.
-
-A background script can't set variables for the shell (it starts after the shell is ready);
-put those in a normal script. It can send alerts: `alert` is on its PATH.
-"""
 
 import os
 import subprocess

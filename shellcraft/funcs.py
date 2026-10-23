@@ -62,6 +62,7 @@ class Func:
     command: bool = False
     usage: str = ""
     body: str = ""  # the lines after the header, comments included
+    notes: str = ""  # `#` comment lines above the header (how to use it, who wrote it), kept as they are
     where: str = "session"  # "session", "default", or the profile's name
     path: Path | None = None
 
@@ -93,6 +94,11 @@ def parse(text: str, name: str | None = None) -> Func:
     func = Func(name=name or "")
     lines = text.splitlines()
     i = 0
+    # Comment lines above the header (`# How to use this func: …`) are notes, not the end of it.
+    while i < len(lines) and not HEADER.match(lines[i].strip()) \
+            and (not lines[i].strip() or lines[i].strip().startswith("#")):
+        i += 1
+    func.notes = "\n".join(lines[:i]).strip("\n")
     while i < len(lines):
         m = HEADER.match(lines[i].strip())
         if not m:
@@ -117,13 +123,14 @@ def parse(text: str, name: str | None = None) -> Func:
 
 
 def render(func: Func) -> str:
-    """The file's text: the header, then the body."""
+    """The file's text: its notes, the header, then the body."""
     header = [f"# func: {func.name}", f"# description: {func.description}",
               f"# system: {'yes' if func.system else 'no'}", f"# output: {func.output}",
               f"# command: {'yes' if func.command else 'no'}"]
     if func.usage:
         header.append(f"# usage: {func.usage}")
-    return "\n".join(header) + "\n" + func.body
+    notes = func.notes + "\n\n" if func.notes else ""
+    return notes + "\n".join(header) + "\n" + func.body
 
 
 # ── where they live ──────────────────────────────────────────────────────────

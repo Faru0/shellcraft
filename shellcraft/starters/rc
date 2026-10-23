@@ -1,13 +1,16 @@
-# ~/.shellcraft/rc: runs every time the interactive shell starts, like ~/.bashrc in bash.
+# How to use this file
+# --------------------
+# ~/.shellcraft/rc runs every time the interactive shell starts, like ~/.bashrc in bash.
+# Each line is a ShellCraft command, run as if you typed it at the prompt.
 #
-# Each line is a ShellCraft command, run as if you typed it at the prompt. Lines starting with #
-# are comments, so as it comes this file does nothing. Remove the # in front of a line to use it.
-# A note after a command works too: `theme nord   # my favourite` (a space before and after the #).
+# Lines starting with # are comments, so as it comes this file does nothing. Remove the # in front
+# of a line to use it. A note after a command works too, with a space before and after the #:
+#     theme nord   # my favourite
 # A line that fails is reported with its line number, and the rest still run.
 #
-# Rerun it any time with:  source ~/.shellcraft/rc
-# Skip it for one start:    shellcraft --no-startup
-# The manual: docs/startup.md, or `man startup` inside ShellCraft.
+# Rerun it any time:   source ~/.shellcraft/rc
+# Skip it for a start: shellcraft --no-startup
+# More: `man startup`, or docs/startup.md.
 
 # ── Look and place ──────────────────────────────────────────────────────────
 # theme nord

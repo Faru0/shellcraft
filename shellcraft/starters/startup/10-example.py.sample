@@ -1,8 +1,17 @@
-"""Example startup script. It runs once its name ends in .py: cp 10-example.py.sample 10-example.py
-
-Every .py in ~/.shellcraft/startup/ runs once when the interactive shell starts, in name order,
-before the first prompt. What it prints is shown under the banner. `man startup` has the rules.
-"""
+# How to use this file
+# --------------------
+# This is an example startup script. It doesn't run while its name ends in .sample.
+# To use it, copy it to a name ending in .py:
+#
+#     cp 10-example.py.sample 10-example.py
+#
+# Every .py file in ~/.shellcraft/startup/ runs once when the interactive shell starts, in name
+# order (number them: 10-env.py, 20-vpn.py), before the first prompt. What it prints shows under
+# the banner. A script that fails, or takes longer than 30 seconds, is reported in one line and the
+# shell starts anyway. `# shellcraft: timeout=120` on a line up here gives it longer.
+#
+# Inside ShellCraft: `startup` lists the scripts, `startup run` runs them again now.
+# More: `man startup`, or docs/startup.md.
 
 import os
 import shutil
