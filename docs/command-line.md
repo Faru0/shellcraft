@@ -24,7 +24,7 @@ shellcraft --timing              # show how long each part of the start took
 | `--allow-system` | Let commands run your system's programs, for this session only |
 | `--modules DIR` | Load the bundled modules from DIR instead. Your own folder, `~/.shellcraft/modules`, is still loaded |
 | `--timing` | Print how long each startup step took, just before the first prompt |
-| `--diag` | Turn on the hidden `diag` command and print its report at startup |
+| `--diag` | Turn on the hidden `diag` command and print its report at startup (`diag --save` writes it to a file) |
 | `--init` | Write the [starter files](your-shellcraft-folder.md#the-starter-files) that are missing, then exit |
 | `--init --force` | Also refresh the `.sample` and README starter files |
 | `--version`, `-h` | The version, or the help text |

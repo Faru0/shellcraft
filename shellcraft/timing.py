@@ -89,6 +89,12 @@ def report() -> str:
     lines += [f"{label:<{width}}  {own * 1000:5.0f} ms  {total * 1000:5.0f} ms" for label, own, total in rows]
     if _BEFORE is None:
         lines.append("(the time before ShellCraft's code could not be read on this system)")
+    try:
+        from shellcraft.diagnostics import host_summary
+
+        lines.append(f"on: {host_summary()}")
+    except Exception:  # noqa: BLE001 — the table is the point; the host line is a bonus
+        pass
     return "\n".join(lines)
 
 

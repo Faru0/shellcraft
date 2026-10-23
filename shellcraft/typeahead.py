@@ -41,30 +41,37 @@ def pending_bytes(fd: int) -> bytes:
 
 def keep(data: str) -> tuple[list[KeyPress], int]:
     """The keys in `data` worth passing on, and how many were dropped (cursor replies, mouse)."""
+    kept, dropped = sort(data)
+    return kept, len(dropped)
+
+
+def sort(data: str) -> tuple[list[KeyPress], list[KeyPress]]:
+    """The keys in `data`: those worth passing on, and the junk (cursor replies, mouse reports)."""
     keys: list[KeyPress] = []
     parser = Vt100Parser(keys.append)
     parser.feed_and_flush(data)
-    kept = [k for k in keys if k.key not in JUNK]
-    return kept, len(keys) - len(kept)
+    return [k for k in keys if k.key not in JUNK], [k for k in keys if k.key in JUNK]
 
 
-def collect(input_obj: Any, fd: int | None = None) -> int:
-    """Move the pending input to the prompt's typeahead, junk removed; returns how many junk
-    keys were dropped. Read in raw mode: in cooked mode a partial line is not readable yet, and
-    would reach the prompt untouched the moment it switches to raw mode."""
+def collect(input_obj: Any, fd: int | None = None) -> tuple[int, int, str]:
+    """Move the pending input to the prompt's typeahead, junk removed: (keys kept, junk keys
+    dropped, a sample of the junk for `diag`). Read in raw mode: in cooked mode a partial line
+    is not readable yet, and would reach the prompt untouched the moment it switches to raw."""
+    nothing = (0, 0, "")
     if fd is None:
         try:
             fd = sys.stdin.fileno()
         except (AttributeError, ValueError, OSError):
-            return 0
+            return nothing
     try:
         with input_obj.raw_mode():
             data = pending_bytes(fd)
     except Exception:  # noqa: BLE001 — not a terminal (tests, pipes): nothing to collect
-        return 0
+        return nothing
     if not data:
-        return 0
-    kept, dropped = keep(data.decode("utf-8", errors="replace"))
+        return nothing
+    kept, junk = sort(data.decode("utf-8", errors="replace"))
     if kept:
         store_typeahead(input_obj, kept)
-    return dropped
+    sample = " ".join(repr(k.data) for k in junk[:4]) + (" …" if len(junk) > 4 else "")
+    return len(kept), len(junk), sample

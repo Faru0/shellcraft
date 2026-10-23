@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import pathlib
 import re
 import shutil
 import time
@@ -124,11 +125,23 @@ and for a Windows pseudo-terminal whether pywinpty says the program is alive).
 ## Usage
 
 ```
-diag          # the whole report
+diag                 # the whole report
+diag --save          # the same, written to ~/.shellcraft/diag.txt to send as a file
+diag --save FILE     # written to FILE
 ```
 
 Run it with a subshell running (`sub pwsh`), and again after it has ended, when the footer line
 should have turned green or red and does not. `shellcraft --diag` prints the same report at start.
+
+## After a Ctrl-C that left junk on the screen
+
+The report has a **recent interrupts** section: for each Ctrl-C of this session, where it landed
+(a running command, its output being printed, the prompt, the gap between commands), what was
+running and for how long, the console modes at that moment on Windows, and what the terminal
+had delivered by the time the next prompt started (typed text kept, mouse or cursor reports
+dropped). So: reproduce the problem, then `diag --save`, and send the file. The **system** line
+`processes` names the terminal hosting the shell (WindowsTerminal.exe, conhost.exe, Code.exe),
+and **signal handlers** says how Ctrl-C and Ctrl-Break are being handled.
 
 ## The key test
 
@@ -182,11 +195,24 @@ def _diag(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         lines = raw_keys(lambda line: control(line + "\r\n"), vt="--vt" in args, mouse=mouse, control=control)
         return Styled(Text("✓ copy the lines above into a report", style="sc.success"),
                       "".join(line + "\n" for line in lines))
-    if args:
-        raise CommandError("usage: diag [keys [--raw [--vt] [--mouse]]]")
+    save = None
+    if args[:1] == ["--save"] and len(args) <= 2:
+        from shellcraft.config import config_dir
+
+        save = pathlib.Path(args[1]).expanduser() if len(args) == 2 else config_dir() / "diag.txt"
+    elif args:
+        raise CommandError("usage: diag [keys [--raw [--vt] [--mouse]] | --save [FILE]]")
     if ctx.console_report is None:
         raise CommandError("diag: only in the interactive shell")
     report = ctx.console_report()
+    if save is not None:
+        try:
+            save.parent.mkdir(parents=True, exist_ok=True)
+            save.write_text(report + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise CommandError(f"diag --save: {exc}") from None
+        return Text.assemble(("✓ ", "sc.success"), "diagnostics written to ", (str(save), "sc.path"),
+                             ("  (send this file; it has no secrets, only terminal details)", "sc.muted"))
     return Styled(Text(report, no_wrap=True, overflow="ignore"), report + "\n")  # unwrapped: copy as is
 
 

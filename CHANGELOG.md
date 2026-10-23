@@ -16,6 +16,18 @@ and the project uses [semantic versioning](https://semver.org/).
   with `os.scandir` instead of stat-ing every entry again for `-type` and the walk: five times
   faster on a big tree. Nothing looks or behaves differently.
 
+### Added
+
+- **`diag` knows about Ctrl-C and about Windows 11.** A **recent interrupts** section records every
+  Ctrl-C of the session: where it landed (a running command, its output being printed, the
+  prompt, the gap between commands), what was running and for how long, the console modes at
+  that moment on Windows, and what the terminal had delivered by the next prompt (typed text
+  kept, mouse or cursor reports dropped). The **system** section names the real Windows release
+  (11 24H2, build) and the process chain up to the terminal host (WindowsTerminal.exe,
+  conhost.exe, Code.exe); a **signal handlers** section says how Ctrl-C and Ctrl-Break are
+  handled. `diag --save [FILE]` writes the report to a file (default `~/.shellcraft/diag.txt`).
+  `--timing` ends its table with the same host line.
+
 ### Fixed
 
 - **Ctrl-C in the first moments of a start** (while prompt_toolkit loads) printed a Python

@@ -59,6 +59,112 @@ def _stream(name: str, stream: Any) -> str:
             f"errors={getattr(stream, 'errors', None)} type={type(stream).__name__}")
 
 
+def windows_release() -> str:
+    """Windows 11 24H2 build 26100.2894, from the registry (sys.getwindowsversion lies about
+    the major version for compatibility)."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") as key:
+            def value(name: str) -> Any:
+                try:
+                    return winreg.QueryValueEx(key, name)[0]
+                except OSError:
+                    return "?"
+            build = int(value("CurrentBuildNumber") or 0)
+            product = str(value("ProductName"))
+            if build >= 22000 and product.startswith("Windows 10"):
+                product = product.replace("Windows 10", "Windows 11", 1)
+            return f"{product} {value('DisplayVersion')} build {build}.{value('UBR')}"
+    except Exception as exc:  # noqa: BLE001
+        return f"unknown ({exc})"
+
+
+def process_chain(limit: int = 6) -> list[str]:
+    """This process and its parents, youngest first: `python.exe <- pwsh.exe <- WindowsTerminal.exe`
+    says which terminal is hosting the shell, which no environment variable states reliably."""
+    try:
+        if sys.platform == "win32":
+            return _process_chain_windows(limit)
+        chain = []
+        pid = os.getpid()
+        for _ in range(limit):
+            with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as fh:
+                stat = fh.read()
+            name = stat[stat.index("(") + 1:stat.rindex(")")]
+            ppid = int(stat[stat.rindex(")") + 1:].split()[1])
+            chain.append(f"{name}[{pid}]")
+            if ppid <= 1:
+                break
+            pid = ppid
+        return chain
+    except Exception as exc:  # noqa: BLE001
+        return [f"unknown ({exc})"]
+
+
+def _process_chain_windows(limit: int) -> list[str]:
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessEntry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snapshot = k32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    parents: dict[int, tuple[int, str]] = {}
+    try:
+        entry = ProcessEntry()
+        entry.dwSize = ctypes.sizeof(ProcessEntry)
+        ok = k32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while ok:
+            parents[entry.th32ProcessID] = (entry.th32ParentProcessID, entry.szExeFile)
+            ok = k32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        k32.CloseHandle(snapshot)
+    chain = []
+    pid = os.getpid()
+    for _ in range(limit):
+        if pid not in parents:
+            break
+        ppid, name = parents[pid]
+        chain.append(f"{name}[{pid}]")
+        if ppid == pid or ppid not in parents:
+            break
+        pid = ppid
+    return chain
+
+
+def host_summary() -> str:
+    """One line that says what the shell is running in, for the top of a pasted report."""
+    terminal = os.environ.get("TERM_PROGRAM") or ("Windows Terminal" if "WT_SESSION" in os.environ else "")
+    if os.environ.get("TERM_PROGRAM_VERSION"):
+        terminal += " " + os.environ["TERM_PROGRAM_VERSION"]
+    system = windows_release() if sys.platform == "win32" else platform.platform()
+    chain = " <- ".join(process_chain(4))
+    return f"{system}; terminal {terminal or 'unknown'}; TERM={os.environ.get('TERM', '')!r}; processes {chain}"
+
+
+def _signal_lines() -> list[str]:
+    import signal
+
+    lines = []
+    for name in ("SIGINT", "SIGBREAK", "SIGTSTP", "SIGWINCH"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        handler = _try(lambda n=number: signal.getsignal(n))
+        for label, value in (("default_int_handler", "KeyboardInterrupt"), ("SIG_DFL", "default"),
+                             ("SIG_IGN", "ignored")):
+            if label in handler:
+                handler = f"{value} ({label})"
+        lines.append(f"{name}: {handler}")
+    return lines
+
+
 def _section(title: str, lines: list[str]) -> list[str]:
     return [f"[{title}]", *(f"  {line}" for line in lines)]
 
@@ -152,8 +258,11 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
         f"rich {_try(lambda: metadata.version('rich'))}",
         f"python {sys.version.split()[0]} ({platform.python_implementation()}) {sys.executable}",
         f"platform {platform.platform()} sys.platform={sys.platform}",
-        *([f"windows version {_try(sys.getwindowsversion)}"] if sys.platform == "win32" else []),
+        *([f"windows {windows_release()} (sys.getwindowsversion: {_try(sys.getwindowsversion)})"]
+          if sys.platform == "win32" else []),
         f"cwd {os.getcwd()}",
+        f"processes {' <- '.join(process_chain())}  "
+        "(this shell, then what started it: the terminal host is at the end)",
     ])
 
     out += _section("packages", _packages())
@@ -203,8 +312,11 @@ def console_report(ui: Any, direct_console: Any = None, windows_console_error: s
         out += _section("windows console", [f"not open: {windows_console_error or 'CONIN$/CONOUT$ could not be used'}, "
                                             "so the shell runs on sys.stdin/sys.stdout"])
 
-    from shellcraft import crashlog, timing
+    from shellcraft import crashlog, interrupts, timing
 
+    out += _section("signal handlers", _signal_lines())
+    out += _section("recent interrupts (Ctrl-C: where it landed, what the terminal delivered before the next prompt)",
+                    interrupts.report_lines())
     out += _section("startup timing (the last start; python main.py --timing prints it)",
                     timing.last().splitlines() or ["none recorded yet"])
     last = crashlog.last()

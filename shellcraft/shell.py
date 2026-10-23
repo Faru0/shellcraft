@@ -1409,9 +1409,14 @@ class Shell:
             self._interrupt_dropped = False
             self._quietly(lambda: self.ui.console.file.write("\n"))
         if self.ui.console.is_terminal:
-            from shellcraft import typeahead
+            from shellcraft import interrupts, typeahead
 
-            self._guarded(lambda: typeahead.collect(self.session.input), "the typeahead")
+            def collect() -> None:
+                kept, dropped, sample = typeahead.collect(self.session.input)
+                if kept or dropped:
+                    interrupts.note_typeahead(kept, dropped, sample)
+
+            self._guarded(collect, "the typeahead")
 
     def _startup_report(self) -> None:
         """Before the first prompt: the startup timing, kept for `diag`, and shown with --timing."""
@@ -1457,6 +1462,9 @@ class Shell:
             line = self._ask(self._prompt)
             line = self._read_continuation(line)
         except KeyboardInterrupt:
+            from shellcraft import interrupts
+
+            interrupts.record("at the prompt")
             return None
         except EOFError:
             return self._goodbye(0)
@@ -1494,7 +1502,7 @@ class Shell:
         except ShellExit:
             raise
         except KeyboardInterrupt:
-            self._interrupted()
+            self._interrupted("a running command", line, time.monotonic() - started)
             return None
         except (ParseError, PipelineError) as exc:
             self._quietly(lambda e=exc, text=line: show_error(self.ui, e, text))
@@ -1516,7 +1524,7 @@ class Shell:
                 # The print stopped wherever it was: inside a colored span, mid-line. Back to
                 # plain text on a fresh line before anything else is written.
                 self._quietly(lambda: self.ui.console.file.write("\x1b[0m\n" if self.ui.console.is_terminal else "\n"))
-                self._interrupted()
+                self._interrupted("its output being printed", line, time.monotonic() - started)
         return None
 
     def _plain_input(self) -> Any:
@@ -1532,7 +1540,10 @@ class Shell:
         except EOFError:
             return EOFError
 
-    def _interrupted(self) -> None:
+    def _interrupted(self, where: str = "the prompt loop", command: str = "", elapsed: float | None = None) -> None:
+        from shellcraft import interrupts
+
+        interrupts.record(where, command, elapsed)
         self.ctx.last_status = STATUS_INTERRUPTED
         self._quietly(lambda: self.ui.console.print(Text("^C interrupted", style="sc.warning")))
 
@@ -1584,7 +1595,10 @@ class Shell:
                     pass
 
     def _dropped_interrupt(self, signum: int, frame: Any) -> None:
+        from shellcraft import interrupts
+
         self._interrupt_dropped = True  # its ^C echo is on the line: the next prompt starts below it
+        interrupts.record("between commands (dropped)")
 
     @contextlib.contextmanager
     def _interruptible(self) -> Any:

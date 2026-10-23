@@ -37,9 +37,10 @@ def test_collect_hands_the_prompt_only_the_real_keys():
     inp = Vt100Input(os.fdopen(slave, "r"))
     os.write(master, b"\x1b[<0;10;5M\x1b[12;34Recho hi\n")
     time.sleep(0.1)
-    assert typeahead.collect(inp, slave) == 2
+    kept, dropped, sample = typeahead.collect(inp, slave)
+    assert (kept, dropped) == (8, 2) and "<" in sample  # the sample shows a report, for diag
     assert "".join(k.data for k in get_typeahead(inp)) == "echo hi\n"
-    assert typeahead.collect(inp, slave) == 0  # nothing left
+    assert typeahead.collect(inp, slave) == (0, 0, "")  # nothing left
 
 
 @posix_only
@@ -123,3 +124,59 @@ def test_ctrl_c_during_startup_exits_quietly(tmp_path):
             status = 130 << 8
         assert b"Traceback" not in out, out[-500:]
         assert os.waitstatus_to_exitcode(status) == 130
+
+
+# ── the interrupt log in diag ────────────────────────────────────────────────
+
+def test_the_interrupt_log_says_where_each_ctrl_c_landed_and_what_came_after():
+    from shellcraft import interrupts
+
+    interrupts.clear()
+    assert "none this session" in interrupts.report_lines()[0]
+    interrupts.record("a running command", "seq 1 400000 | grep 1", 1.25)
+    interrupts.note_typeahead(0, 2, "'\\x1b[<64;10;5M'")
+    interrupts.note_typeahead(3, 0, "")  # a second find within the window goes to a new event only if junk
+    lines = "\n".join(interrupts.report_lines())
+    assert "a running command after 1.25 s: seq 1 400000 | grep 1" in lines
+    assert "0 key(s) kept, 2 report(s) dropped: '\\x1b[<64;10;5M'" in lines
+    interrupts.note_typeahead(0, 1, "'\\x1b[12;34R'")  # the event already has its typeahead: a report on its own
+    assert "a report at the prompt, no interrupt" in "\n".join(interrupts.report_lines())
+    interrupts.clear()
+
+
+def test_the_shell_records_interrupts_and_diag_reports_them(sh):
+    from shellcraft import interrupts
+
+    interrupts.clear()
+    sh._dropped_interrupt(2, None)
+    sh._interrupted("a running command", "sleep 5", 0.5)
+    report = sh.report()
+    assert "recent interrupts" in report and "between commands (dropped)" in report
+    assert "a running command after 0.50 s: sleep 5" in report
+    assert "signal handlers" in report and "SIGINT:" in report
+    assert "processes " in report and "python" in report.lower()
+    interrupts.clear()
+
+
+def test_host_summary_and_process_chain_work_here():
+    from shellcraft.diagnostics import host_summary, process_chain
+
+    chain = process_chain()
+    assert chain and "[" in chain[0]
+    assert "processes" in host_summary() and "TERM=" in host_summary()
+
+
+def test_the_timing_report_ends_with_the_host_line():
+    from shellcraft import timing
+
+    assert timing.report().splitlines()[-1].startswith("on: ")
+
+
+def test_diag_save_writes_the_report_to_a_file(sh, tmp_path):
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import run_line
+
+    run_line("settings diagnostics on", sh.ctx)
+    target = tmp_path / "report.txt"
+    out = to_text(run_line(f"diag --save {target}", sh.ctx).output)
+    assert "diagnostics written to" in out and "recent interrupts" in target.read_text(encoding="utf-8")

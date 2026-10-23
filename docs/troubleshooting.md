@@ -76,9 +76,20 @@ On Linux, Alt-v should show as `escape v`. `settings diagnostics off` hides `dia
 Something like `<64;10;5M` or `12;34R` at the prompt is a mouse or cursor report the terminal
 sent while a command was running, which older versions handed to the next prompt as text.
 ShellCraft now filters them out of what was typed ahead, and keeps the terminal from cutting
-a color code in half when a command is interrupted. If you still see it, note what was
-running and whether you used the wheel or the mouse at that moment, and report it with the
-output of `diag` (see "Reporting a bug" below).
+a color code in half when a command is interrupted.
+
+If you still see it, the shell has already recorded what happened. Right after it happens:
+
+```
+settings diagnostics on      # once
+diag --save                  # writes ~/.shellcraft/diag.txt
+```
+
+The file's **recent interrupts** section says where each Ctrl-C of the session landed, what was
+running, the console modes at that moment on Windows, and what the terminal delivered before
+the next prompt. Its **system** line names the terminal hosting the shell (Windows Terminal,
+conhost, VS Code). Send the file, and say whether you used the wheel or the mouse at the time.
+On Windows, also run `python main.py --timing` once; its last line says the same about the host.
 
 ## Something crashed
 
