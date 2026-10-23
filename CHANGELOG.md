@@ -238,6 +238,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **ingest: a variable your script fills in now starts fresh on every run.** A top-level
+  `counts = {}` (or `total = 0`) that the moved code changes (`counts[w] += 1`, `items.append(x)`,
+  `total += 1`) stayed at module level, so a second run kept the first run's data (or, for
+  `total += 1`, failed). It now moves into `run()` with that code, unless a function reads it.
+
 - **`ingest` inside ShellCraft no longer writes over the last line** near the bottom of the screen
   (seen on Windows). The wizard printed through its own console and asked through Rich's default
   one, neither of them the shell's; it now prints and asks through the shell's console, like every

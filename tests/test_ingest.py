@@ -494,3 +494,27 @@ def test_ingest_builtin_checks_modules_in_the_shell(tmp_path, monkeypatch, capsy
     with pytest.raises(PipelineError, match="status 1"):
         run_line("ingest check --all", ctx)  # --all means this shell's module folders
     assert "broken" in screen.getvalue()
+
+
+def test_a_constant_the_moved_code_changes_moves_into_run(tmp_path):
+    source = textwrap.dedent('''\
+        import sys
+
+        counts = {}
+        total = 0
+        LIMIT = 3
+        for word in sys.stdin.read().split():
+            counts[word] = counts.get(word, 0) + 1
+            total += 1
+        for word, n in sorted(counts.items())[:LIMIT]:
+            print(word, n)
+        print("total", total)
+        ''')
+    script_path = write(tmp_path, "wc", source)
+    analysis = analyze(script_path)
+    moved = {stmt.lineno for stmt, what in analysis.plan if what != KEEP}
+    assert {3, 4} <= moved and 5 not in moved  # counts and total move; the true constant stays
+    module = tmp_path / "wcm.py"
+    module.write_text(convert(analysis, "wcm").source)
+    run = load(module).run
+    assert run([], "a b a") == run([], "a b a") == "a 2\nb 1\ntotal 3\n"  # nothing carried over between calls

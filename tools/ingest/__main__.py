@@ -139,7 +139,7 @@ def apply_changes(analysis: Analysis, name: str, script: Path) -> str:
     say()
     show_diff(conversion.diff(analysis.source, name))
     say("\nprint() output becomes the command's output and sys.exit() becomes a clean error, through "
-        "@script — so the rest of your code stays exactly as it is.", "dim")
+        "@script, so the rest of your code stays exactly as it is.", "dim")
 
     while True:
         say("\nHow do you want to apply them?\n"

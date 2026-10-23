@@ -247,6 +247,11 @@ def _plan(result: Analysis) -> None:
     body = result.tree.body
     defs = {n.lineno for n in body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
     used = globals_used_by_defs(result.source, result.path, defs)
+    # Names that top-level code changes in place (counts[w] += 1, items.append(x), total += 1). A
+    # "constant" like `counts = {}` must move into run() with that code: kept at module level it
+    # would carry its contents from one call to the next (or, for `total += 1`, be unset in run()).
+    mutated = set().union(*(mutated_names(n) for n in body
+                            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))))
     kept_names: set[str] = set()
     kept_vars: set[str] = set()  # bound by kept assignments (not imports or defs)
     plan: list[tuple[ast.stmt, str]] = []
@@ -267,7 +272,7 @@ def _plan(result: Analysis) -> None:
         elif isinstance(node, ast.Try) and all(isinstance(s, (ast.Import, ast.ImportFrom, ast.Pass, ast.Assign))
                                                for s in node.body + [h for x in node.handlers for h in x.body]):
             what = KEEP  # try: import x / except ImportError: x = None
-        elif _is_definition(node, used, kept_vars):
+        elif _is_definition(node, used, kept_vars, mutated):
             what = KEEP
             kept_vars |= bound_names(node)
         else:
@@ -309,7 +314,7 @@ def _plan(result: Analysis) -> None:
                 seen_moved |= bound_names(stmt)
 
 
-def _is_definition(node: ast.stmt, used: dict[str, int], kept_vars: set[str]) -> bool:
+def _is_definition(node: ast.stmt, used: dict[str, int], kept_vars: set[str], mutated: set[str] = frozenset()) -> bool:
     """Assignments that functions depend on, and setup calls on such objects, stay at module level.
 
     `parser = ArgumentParser()` + `parser.add_argument(...)` must not move into run() when a
@@ -324,9 +329,10 @@ def _is_definition(node: ast.stmt, used: dict[str, int], kept_vars: set[str]) ->
             return False  # per-call input (args, stdin) can't be computed once at import time
         if bool(names & set(used)) or bool(bases & kept_vars):
             return True
-        # Plain constants (URL = "…", LIMITS = {…}, TOTAL = A + 1) stay put: moving them changes nothing.
+        # Plain constants (URL = "…", LIMITS = {…}, TOTAL = A + 1) stay put: moving them changes nothing,
+        # unless code that runs per call changes them in place (`mutated`).
         value = node.value
-        return bool(names) and not bases and value is not None \
+        return bool(names) and not bases and value is not None and not names & mutated \
             and not any(isinstance(n, (ast.Call, ast.Await, ast.Yield, ast.NamedExpr)) for n in ast.walk(value)) \
             and loaded_names(value) <= kept_vars | _CONSTANT_NAMES
     if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
@@ -334,6 +340,32 @@ def _is_definition(node: ast.stmt, used: dict[str, int], kept_vars: set[str]) ->
         base = dotted(func).split(".")[0] if isinstance(func, ast.Attribute) else ""
         return bool(base) and base in kept_vars
     return False
+
+
+_MUTATORS = {"append", "extend", "insert", "remove", "pop", "clear", "update", "setdefault", "add", "discard",
+             "sort", "reverse", "popitem", "appendleft", "extendleft", "popleft"}
+
+
+def mutated_names(node: ast.AST) -> set[str]:
+    """Names this statement changes in place or adds to: `x[k] = v`, `x.attr = v`, `del x[k]`,
+    `x += 1`, `x.append(v)` and the other mutating methods (not inside a nested function)."""
+    found: set[str] = set()
+    stack = [node]
+    while stack:
+        sub = stack.pop()
+        if sub is not node and isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(sub, (ast.Subscript, ast.Attribute)) and isinstance(sub.ctx, (ast.Store, ast.Del)):
+            base = dotted(sub).split(".")[0] if isinstance(sub, ast.Attribute) else dotted(sub.value).split(".")[0]
+            if base:
+                found.add(base)
+        elif isinstance(sub, ast.AugAssign) and isinstance(sub.target, ast.Name):
+            found.add(sub.target.id)
+        elif isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) and sub.func.attr in _MUTATORS \
+                and isinstance(sub.func.value, ast.Name):
+            found.add(sub.func.value.id)
+        stack.extend(ast.iter_child_nodes(sub))
+    return found
 
 
 def _reads_input(node: ast.AST | None) -> bool:
