@@ -47,9 +47,10 @@ alias today='date +%Y-%m-%d'
 alias api='curl -s -H "Accept: application/json"'
 ```
 
-Edit it in any editor. The change applies to the next command you type, with no restart. `alias`
-and `unalias` at the prompt edit the same file and leave your comments alone. `alias --file`
-prints its path.
+Lines starting with `#` are comments, and so is a ` # note` at the end of a line (see
+[Comments](scripting.md#comments)). Edit it in any editor. The change applies to the next command
+you type, with no restart. `alias` and `unalias` at the prompt edit the same file and leave your
+comments alone. `alias --file` prints its path.
 
 A line ShellCraft can't use, such as one with a `|` in it or an unclosed quote, is skipped. `alias`
 lists it with its line number so you can fix it. An alias can't hold a pipe: for that, use a

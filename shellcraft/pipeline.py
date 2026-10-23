@@ -108,10 +108,11 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
     from shellcraft import ask, curlpaste, script
-    from shellcraft.parser import join_continued_lines, split_background
+    from shellcraft.parser import join_continued_lines, split_background, strip_comments
 
-    # A pasted curl command: Windows' "Copy as cURL (cmd)" form, and lines continued with `\`.
-    line = join_continued_lines(curlpaste.from_cmd(line))
+    # Comments first (`cmd  # note`, a `# …` line), then a pasted curl command: Windows' "Copy as
+    # cURL (cmd)" form, and lines continued with `\`.
+    line = join_continued_lines(curlpaste.from_cmd(strip_comments(line)))
 
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program

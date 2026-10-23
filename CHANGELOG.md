@@ -7,6 +7,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Comments at the end of a line**: `cd ~/projects   # where I work`. A line starting with `#` is a
+  comment, and so is everything after a `#` (or `##`…) with whitespace before and after it, at the
+  prompt, in rc files, funcs, profiles and the aliases file. A `#` touching other text stays text,
+  so `#05d9e8`, `#TODO`, `$#` and `page#top` need no quotes; quoted text is never a comment. The
+  prompt colors comments by the same rule. (Before, ` # note` reached the command as arguments.)
+
 - **A real user manual** in `docs/`, with a front page that says where to start. New pages:
   Getting started, Your ~/.shellcraft folder (every file, what it's for, when it's read),
   Aliases and history, Startup, Settings and themes, Command line, Cheat sheet, Troubleshooting,

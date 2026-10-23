@@ -22,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from shellcraft.parser import Command, ParseError, Pipeline, parse
+from shellcraft.parser import Command, ParseError, Pipeline, parse, strip_comments
 
 NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")
 BYPASS = "\\"
@@ -74,13 +74,13 @@ def parse_file(text: str) -> tuple[dict[str, str], list[str]]:
     found: dict[str, str] = {}
     errors: list[str] = []
     for number, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
+        line = strip_comments(raw).strip()  # `# …` lines and `alias x='y'  # note`, as in the rc file
+        if not line:
             continue
         if line.startswith("alias ") or line.startswith("alias\t"):
             line = line[5:].strip()
         try:
-            words = shlex.split(line, comments=True)
+            words = shlex.split(line)
         except ValueError as exc:
             errors.append(f"line {number}: {exc}")
             continue

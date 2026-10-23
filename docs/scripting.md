@@ -25,6 +25,32 @@ A trailing `&` runs the line in the background, as a subshell job (see [Subshell
 `grep -r TODO . &`. An `&` anywhere else is rejected with a parse error rather than passed on as an
 argument; quote it to use it as text.
 
+## Comments
+
+A line that starts with `#` is a comment. So is everything after a `#` that has a space or tab
+before it and after it:
+
+```
+# this whole line is ignored
+cd ~/projects        # so is this note
+theme nord           ## any number of # works
+```
+
+The same rule applies at the prompt, in the rc file, in funcs, in profiles and in the aliases file.
+
+A `#` that touches other text is not a comment, so these keep working without quotes:
+
+```
+profile set work color #05d9e8
+grep #TODO notes.py
+echo $#
+curl https://example.com/page#top
+```
+
+Text in quotes is never a comment: `echo "a # b"` prints `a # b`. The one thing to quote is a `#`
+standing alone as an argument, as in bash: `cut -d '#' -f2`. The prompt shows comments in a muted
+color, so you can see what will be ignored.
+
 ## Variables
 
 ```

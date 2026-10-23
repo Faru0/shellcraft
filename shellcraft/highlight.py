@@ -15,6 +15,8 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 
+from shellcraft.parser import comment_at
+
 KEYWORDS = frozenset({"for", "if", "elif", "else", "then", "do", "done", "fi", "while", "until", "case",
                       "esac", "in", "break", "continue", "!", "-py", "{", "}", "export", "unset",
                       "function", "return", "select"})
@@ -52,7 +54,7 @@ def highlight(line: str, known: Callable[[str], bool]) -> StyleAndTextTuples:
             out.append(("", ch))
             i += 1
             continue
-        if ch == "#" and (i == 0 or line[i - 1].isspace()):
+        if ch == "#" and comment_at(line, i):  # the same rule the shell runs lines with
             out.append(("class:comment", line[i:]))
             break
         op = next((o for o in _OPERATORS if line.startswith(o, i)), None)

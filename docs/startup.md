@@ -24,7 +24,9 @@ env set PROJECT_ROOT=~/projects
 alert -l info "shell ready"
 ```
 
-Anything you can type works, including loops, `if` blocks and functions over several lines:
+Lines starting with `#` are comments, and so is a ` # note` after a command (see
+[Comments](scripting.md#comments)). Anything you can type works, including loops, `if` blocks and
+functions over several lines:
 
 ```
 backup() {

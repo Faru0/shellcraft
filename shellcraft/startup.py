@@ -345,16 +345,17 @@ def logical_lines(text: str) -> list[tuple[int, str]]:
     and `#` comments skipped, an unfinished `for` / `if` / `{` joined with the lines after it, as
     the prompt does. A block still open at the end is returned as is (running it reports why)."""
     from shellcraft import script
+    from shellcraft.parser import strip_comments
 
     out: list[tuple[int, str]] = []
     pending: tuple[int, str] | None = None
     for number, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
+        line = strip_comments(raw).strip()  # `# …` lines and `cmd  # note` comments
         if pending is None:
-            if not line or line.startswith("#"):
+            if not line:
                 continue
             pending = (number, line)
-        elif line and not line.startswith("#"):
+        elif line:
             pending = (pending[0], script.join_continuation(pending[1], line))
         if pending is not None and script.incomplete(pending[1]) is None:
             out.append(pending)

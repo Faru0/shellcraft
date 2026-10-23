@@ -210,14 +210,21 @@ def _incomplete_error(text: str) -> IncompleteError | None:
 
 
 def incomplete(text: str) -> str | None:
-    """The joiner for a continuation line when `text` is an unfinished script, else None."""
-    exc = _incomplete_error(text)
+    """The joiner for a continuation line when `text` is an unfinished script, else None.
+    Comments don't count: `for x in a b; do  # loop` is unfinished, `echo { # note` isn't."""
+    from shellcraft.parser import strip_comments
+
+    exc = _incomplete_error(strip_comments(text))
     return None if exc is None else exc.join
 
 
 def join_continuation(text: str, more: str) -> str:
     """`text` (unfinished) and the next line as one line, with `;` only where one is needed:
-    none after `do`, `then`, `else`, `{`, `;`, `&&`, `||`, `|` or before a -py `}` / `else`."""
+    none after `do`, `then`, `else`, `{`, `;`, `&&`, `||`, `|` or before a -py `}` / `else`.
+    Comments are dropped first: joined into one line, a comment would swallow what follows it."""
+    from shellcraft.parser import strip_comments
+
+    text, more = strip_comments(text), strip_comments(more)
     exc = _incomplete_error(text)
     join = " ; " if exc is None else exc.join
     head, more = text.rstrip(), more.strip()

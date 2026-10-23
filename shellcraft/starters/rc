@@ -2,6 +2,7 @@
 #
 # Each line is a ShellCraft command, run as if you typed it at the prompt. Lines starting with #
 # are comments, so as it comes this file does nothing. Remove the # in front of a line to use it.
+# A note after a command works too: `theme nord   # my favourite` (a space before and after the #).
 # A line that fails is reported with its line number, and the rest still run.
 #
 # Rerun it any time with:  source ~/.shellcraft/rc

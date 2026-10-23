@@ -213,6 +213,66 @@ def ansi_c_string(line: str, at: int) -> tuple[str, int]:
     raise ParseError("unterminated $' quote", at)
 
 
+def comment_at(text: str, i: int) -> bool:
+    """Whether the `#` at text[i] (outside quotes) starts a comment that runs to the end of its line:
+    it is the first non-space character of the line, or it has whitespace before it and its run of
+    `#`s is followed by whitespace or the end of the line (` # note`, ` ## note`). A `#` touching
+    other text is plain text: `#05d9e8`, `#TODO`, `$#`, `${#name}`, `page#top`."""
+    if text[i] != "#":
+        return False
+    line_start = text.rfind("\n", 0, i) + 1
+    if not text[line_start:i].strip():
+        return True
+    if not text[i - 1].isspace() or (i >= 2 and text[i - 2] == "\\"):  # `a\ #`: an escaped space is part of a word
+        return False
+    j = i
+    while j < len(text) and text[j] == "#":
+        j += 1
+    return j == len(text) or text[j].isspace()
+
+
+def strip_comments(text: str) -> str:
+    """`text` without its comments (see comment_at), line by line; quoted text is never a comment.
+    The whitespace before a comment goes too, the line breaks stay."""
+    if "#" not in text:
+        return text
+    out: list[str] = []
+    quote = ""  # the open quote: ', " or $'
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quote:
+            if ch == "\\" and quote != "'" and i + 1 < n:  # an escape inside "…" or $'…'
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if ch == quote[-1]:
+                quote = ""
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:  # \# is a plain #
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if text.startswith("$'", i):
+            quote = "$'"
+            out.append("$'")
+            i += 2
+            continue
+        if ch in "'\"":
+            quote = ch
+        elif ch == "#" and comment_at(text, i):
+            end = text.find("\n", i)
+            while out and out[-1] in " \t":
+                out.pop()
+            i = n if end == -1 else end
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def join_continued_lines(line: str) -> str:
     """Backslash + newline (outside single quotes) joins two lines, as in bash: a curl command
     pasted over several lines with `\\` at the ends is one command."""

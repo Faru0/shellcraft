@@ -58,8 +58,9 @@ recon example.com            # the same, because the header says command: yes
 | `# command: yes` | Typing its name runs it, like a command. A builtin or module with the same name still wins |
 | `# usage: TEXT` | How to call it, shown by `func list` and `func show` |
 
-All of them are optional. Other lines starting with `#` after the header are comments. A
-`for … done` loop written over several lines counts as one step.
+All of them are optional. Other lines starting with `#` after the header are comments, and so is a
+` # note` after a step (see [Comments](scripting.md#comments)). A `for … done` loop written over
+several lines counts as one step.
 
 ### Another example
 
