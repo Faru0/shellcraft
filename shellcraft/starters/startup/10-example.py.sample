@@ -1,4 +1,4 @@
-"""Example startup script: copy it to ~/.shellcraft/startup/ (and rename it) to use it.
+"""Example startup script. It runs once its name ends in .py: cp 10-example.py.sample 10-example.py
 
 Every .py in ~/.shellcraft/startup/ runs once when the interactive shell starts, in name order,
 before the first prompt. What it prints is shown under the banner. `man startup` has the rules.

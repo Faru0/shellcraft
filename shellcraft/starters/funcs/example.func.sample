@@ -1,0 +1,28 @@
+# func: recon
+# description: Quick look at a domain: its subdomains and DNS records
+# system: no
+# output: show
+# command: yes
+# usage: recon DOMAIN
+queryCert -s $1 > subs-$1.txt
+queryDns $1
+@ cat subs-$1.txt | wc -l
+echo "recon of $1 done, subdomains in subs-$1.txt"
+
+# This is an example func. It isn't loaded while its name ends in .sample.
+# To use it, copy it to a name ending in .func:   cp example.func.sample recon.func
+#
+# A func is a named list of ShellCraft commands that runs when you call it:
+#   func run recon example.com    (or just `recon example.com`, because of `command: yes`)
+# $1, $2… are the arguments, $@ all of them, $# how many. It stops at the first step that fails.
+#
+# The header lines at the top (# key: value) describe it:
+#   func         its name (the file name wins)
+#   description  one line for `func list`
+#   system       yes if it runs OS programs (needs `settings system_commands on`)
+#   output       show: every step's output prints. quiet: only echo/printf and steps starting with @
+#   command      yes: typing its name runs it
+#   usage        how to call it
+#
+# Funcs in this folder work in every profile. A profile's own go in
+# ~/.shellcraft/profiles/NAME/funcs/. The manual: docs/funcs.md, or `man func`.

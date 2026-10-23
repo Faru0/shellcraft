@@ -1,5 +1,5 @@
 # shellcraft: background, restart
-"""Example background startup script: copy it to ~/.shellcraft/startup/ (and drop `.example`).
+"""Example background startup script. It runs once its name ends in .py: cp 30-watcher.py.sample 30-watcher.py
 
 `# shellcraft: background` starts it as a subshell the moment the prompt appears, so it never
 slows the start down; it shows in the subshell panel (Ctrl-] N or a click attaches to it, Ctrl-] x

@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Starter files in `~/.shellcraft`**, the way Linux fills a new home folder from `/etc/skel`:
+  an `rc` and an `aliases` file that are all comments with ready lines to uncomment, an example func
+  (`funcs/example.func.sample`) and two example startup scripts with a README
+  (`startup/*.py.sample`). Each is written once, the first time the shell starts without it, so
+  existing setups get them too and a file you delete stays deleted. `shellcraft --init` writes
+  any that are missing (never over your files); `--init --force` refreshes the examples. They
+  replace `templates/startup/`.
+
 - **A loading line while the shell starts**, under the banner and in a `sub shellcraft` subshell
   (which used to show a black screen): a progress bar with the step it's on, measured against the
   last start, or a spinner (`settings loader bar|spinner`, bar by default). It vanishes the moment

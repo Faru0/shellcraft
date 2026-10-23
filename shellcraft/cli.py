@@ -52,8 +52,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         "`expose = false` is never offered)")
     p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
     p.add_argument("--brief", type=Path, metavar="FILE", help=argparse.SUPPRESS)  # an AI-opened subshell's brief
+    p.add_argument("--init", action="store_true",
+                   help="write the starter files (a commented rc and aliases, example funcs and startup scripts) "
+                        "into ~/.shellcraft where they are missing; never overwrites your files")
+    p.add_argument("--force", action="store_true", help="with --init: also refresh the .sample and README files")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p.parse_args(argv)
+
+
+def _init(force: bool) -> int:
+    """`shellcraft --init`: the starter files, and what happened to each."""
+    from shellcraft import skel
+    from shellcraft.config import config_dir
+
+    try:
+        report = skel.init(force=force)
+    except OSError as exc:
+        print(f"shellcraft: --init: {exc}", file=sys.stderr)
+        return 1
+    home = config_dir()
+    for rel, what in report:
+        print(f"{what:<9}  {home / rel}")
+    print("Nothing in rc or aliases runs until you remove a #; rename a .sample file to use it.")
+    return 0
 
 
 def _mcp_installed() -> bool:
@@ -95,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_main(argv[1:], prog="shellcraft ingest")  # new modules go to ~/.shellcraft/modules
     args = _parse_args(argv)
+    if args.init:
+        return _init(args.force)
     if args.timing:
         os.environ[timing.ENV] = "1"  # subshells started from this shell report theirs too
     timing.mark("arguments")
@@ -113,6 +136,10 @@ def main(argv: list[str] | None = None) -> int:
             save_config(config)
     except OSError:
         pass  # they keep working from config.json
+    if not (args.mcp or args.mcp_http or args.lite):
+        from shellcraft import skel
+
+        skel.seed(config)  # the commented rc and aliases and the examples, each written once (`--init` again)
     # A profile (--profile, or the one the parent ShellCraft runs in) layers its config on the base.
     from shellcraft import profiles
 

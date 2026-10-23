@@ -1,0 +1,37 @@
+# ~/.shellcraft/rc: runs every time the interactive shell starts, like ~/.bashrc in bash.
+#
+# Each line is a ShellCraft command, run as if you typed it at the prompt. Lines starting with #
+# are comments, so as it comes this file does nothing. Remove the # in front of a line to use it.
+# A line that fails is reported with its line number, and the rest still run.
+#
+# Rerun it any time with:  source ~/.shellcraft/rc
+# Skip it for one start:    shellcraft --no-startup
+# The manual: docs/startup.md, or `man startup` inside ShellCraft.
+
+# ── Look and place ──────────────────────────────────────────────────────────
+# theme nord
+# cd ~/projects
+
+# ── Environment variables ───────────────────────────────────────────────────
+# Modules, subshells and programs started from ShellCraft all see these. `env` lists them.
+# env set PROJECT_ROOT=~/projects
+# env set -s GITHUB_TOKEN               # a secret: asked with hidden typing at every start
+
+# ── Ask something when the shell starts ─────────────────────────────────────
+# name = input("What is your name? ")
+# echo "Welcome back, $name"
+
+# ── Functions for this session ──────────────────────────────────────────────
+# backup() { cp -r "$1" "$1.bak" && echo "saved $1.bak"; }
+
+# ── Start something in the background ───────────────────────────────────────
+# It shows in the footer; Ctrl-] N switches to it.
+# sub find ~/projects -name "*.log" -mtime -1
+
+# ── Split your setup into several files ─────────────────────────────────────
+# A file that doesn't exist is skipped.
+# [ -f ~/.shellcraft/rc.work ] && source ~/.shellcraft/rc.work
+# for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
+
+# ── Say hello ───────────────────────────────────────────────────────────────
+# alert -l info "shell ready"

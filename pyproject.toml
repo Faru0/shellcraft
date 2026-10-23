@@ -38,6 +38,7 @@ packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "
 
 [tool.setuptools.package-data]
 "shellcraft.bundled_modules" = ["*.md", "*.skill"]
+"shellcraft" = ["starters/*", "starters/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

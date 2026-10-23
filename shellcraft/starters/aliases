@@ -1,0 +1,15 @@
+# ~/.shellcraft/aliases: your shortcuts, one per line, written like ~/.bash_aliases in bash.
+#
+# An alias replaces the first word of a command, and anything you type after it is added at the
+# end. Lines starting with # are comments. Remove the # in front of a line to use it.
+# Changes apply to the next command you type: no restart needed.
+#
+# From the prompt, `alias NAME='COMMAND'` adds a line here and `unalias NAME` removes it.
+# A leading backslash skips an alias for one command: \ls
+# The manual: docs/aliases-and-history.md, or `man alias` inside ShellCraft.
+
+# alias ll='ls -l'
+# alias la='ls -a -l'
+# alias errors='grep -i error'
+# alias today='date +%Y-%m-%d'
+# alias myjson='curl -s -H "Accept: application/json"'
