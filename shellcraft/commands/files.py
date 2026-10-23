@@ -89,11 +89,11 @@ def _list_dir(directory: Path, show_all: bool, link: bool = False) -> list[tuple
     return entries
 
 
-def _long_table(entries, human: bool) -> tuple[Table, list[str]]:
-    table = Table(box=None, show_header=False, pad_edge=False, padding=(0, 1))
-    for _ in range(4):
-        table.add_column()
-    table.columns[1].justify = "right"
+def _long_table(entries, human: bool) -> tuple[Text, list[str]]:
+    """The long listing as one Text with hand-aligned columns (mode, size right-aligned, time,
+    name). A Rich Table measured every cell of every row, which took longer than reading the
+    folder once it had a thousand entries."""
+    rows = []
     plain = []
     for name, styled, st in entries:
         if st is None:
@@ -102,9 +102,18 @@ def _long_table(entries, human: bool) -> tuple[Table, list[str]]:
             mode = stat.filemode(st.st_mode)
             size = _human(st.st_size) if human else str(st.st_size)
             mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-        table.add_row(Text(mode, style="sc.muted"), size, Text(mtime, style="sc.muted"), styled)
+        rows.append((mode, size, mtime, styled))
         plain.append(f"{mode} {size:>8} {mtime} {name}")
-    return table, plain
+    widths = [max((len(row[i]) for row in rows), default=0) for i in range(3)]
+    text = Text()
+    for n, (mode, size, mtime, styled) in enumerate(rows):
+        if n:
+            text.append("\n")
+        text.append(f"{mode:<{widths[0]}} ", style="sc.muted")
+        text.append(f"{size:>{widths[1]}} ")
+        text.append(f"{mtime:<{widths[2]}} ", style="sc.muted")
+        text.append_text(styled)
+    return text, plain
 
 
 @builtin("ls", "List directory contents", "ls [-a] [-l] [-h] [-1] [-t] [-S] [-r] [-R] [-d] [PATH...]",

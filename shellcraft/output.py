@@ -33,6 +33,7 @@ SPINNER_DELAY = 0.15  # seconds before a spinner appears; fast commands never fl
 SPINNER_ELAPSED_AFTER = 3.0  # seconds after which the spinner shows how long it has been
 SPINNER_HINT_AFTER = 10.0  # ... and that Ctrl-C cancels
 PAGER_DIRECT_LINES = 5_000  # plain text this tall goes straight to the pager, skipping Rich
+_PLAIN = re.compile(r"[\x20-\x7e\n]*\Z")  # printable ASCII and newlines: Rich would print it as it is
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # OSC sequences (hyperlinks from the `links` setting): the pager draws its own screen, so they
 # are removed before it parses the colors; prompt_toolkit's ANSI parser would show them as text.
@@ -122,6 +123,23 @@ def spinner_label(label: str, elapsed: float) -> str:
     return text
 
 
+def write_plain(console: Any, text: str, soft: bool = False) -> bool:
+    """Write text straight to the console's file when Rich would print it unchanged: printable
+    ASCII with no escape codes, tabs or wide characters, and no line the terminal would fold
+    (unless `soft`, where the terminal folds it anyway). Rich costs about 10 ms per thousand
+    lines, which a big `cat`, `grep -r` or `ls` felt; this path is a plain write. False means
+    the caller should print it through Rich as usual."""
+    if not _PLAIN.match(text) or console.record or getattr(console, "_buffer_index", 0):
+        return False  # a recording console, or one inside console.capture(), sees only Rich prints
+    if not soft:
+        width = console.width
+        if any(len(line) > width for line in text.split("\n")):
+            return False
+    console.file.write(text if text.endswith("\n") else text + "\n")
+    console.file.flush()
+    return True
+
+
 def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> None:
     """Print a command's final output; a Paged value with page=True (a man page, `cmd | less`)
     opens the viewer instead, unless the `pager` setting is off. Tall output is never paged by
@@ -143,6 +161,9 @@ def show(ui: UI, value: Any, pager: bool = True, title: str | None = None) -> No
     if isinstance(value, str) and value.count("\n") > PAGER_DIRECT_LINES and console.is_terminal \
             and pager and forced:
         page(ui, value.rstrip("\n"), title)  # too big to run through Rich first
+        return
+    if isinstance(value, str) and (not console.is_terminal or not pager or not forced) \
+            and write_plain(console, value.rstrip("\n"), soft):
         return
     renderable = Text.from_ansi(value.rstrip("\n")) if isinstance(value, str) else value
     if not console.is_terminal or not pager or not forced:

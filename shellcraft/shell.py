@@ -44,7 +44,7 @@ from shellcraft.context import CommandError, ShellContext, ShellExit, set_width_
 from shellcraft.footer import MARK, Footer, panel_lines, parse_mouse, wheel_up
 from shellcraft.highlight import KEYWORDS, ShellLexer
 from shellcraft.jobs import JobTable, depth
-from shellcraft.output import make_spinner_runner, show, show_error
+from shellcraft.output import make_spinner_runner, show, show_error, write_plain
 from shellcraft.parser import ParseError
 from shellcraft.pipeline import STATUS_INTERRUPTED, STATUS_SYNTAX, PipelineError, run_line
 from shellcraft.watch import ModuleWatcher
@@ -329,6 +329,8 @@ class Shell:
         if isinstance(item, Styled):
             item = item.renderable
         if isinstance(item, str):
+            if write_plain(console, item[:-1] if item.endswith("\n") else item):
+                return
             item = Text.from_ansi(item[:-1] if item.endswith("\n") else item)
         console.print(item, markup=False, highlight=False)
         console.file.flush()
