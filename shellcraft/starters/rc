@@ -33,9 +33,10 @@
 # sub find ~/projects -name "*.log" -mtime -1
 
 # ── Split your setup into several files ─────────────────────────────────────
-# A file that doesn't exist is skipped.
+# Files ending in .sc in ~/.shellcraft/startup/ run automatically after this one, in name order:
+# one file per job (10-vpn.sc, 20-project.sc). See startup/README.txt there.
+# You can also pull in a file yourself; one that doesn't exist is skipped:
 # [ -f ~/.shellcraft/rc.work ] && source ~/.shellcraft/rc.work
-# for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
 
 # ── Say hello ───────────────────────────────────────────────────────────────
 # alert -l info "shell ready"

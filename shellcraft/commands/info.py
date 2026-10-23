@@ -249,6 +249,8 @@ def _env_set(ctx: ShellContext, args: list[str]) -> Any:
         raise CommandError(f"env set: expected NAME=VALUE or NAME VALUE, got: {' '.join(args)}")
     lines = []
     for name, value in pairs:
+        if value.startswith("~"):  # `env set ROOT=~/work`: the home folder, as bash expands it
+            value = os.path.expanduser(value)
         if not envvars.valid(name):
             raise CommandError(f"env set: '{name}': not a valid name (letters, digits and _, not first a digit)")
         entry = envvars.set_var(ctx, name, value, secret=secret)

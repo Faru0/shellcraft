@@ -4,7 +4,7 @@
 
 How command lines work in ShellCraft: pipes and redirection, variables, loops and conditions,
 functions, and exit status. Aliases and history have [their own page](aliases-and-history.md),
-and so do [the rc file and startup scripts](startup.md).
+and so do [the rc file and startup files](startup.md).
 
 ## Pipes and redirection
 

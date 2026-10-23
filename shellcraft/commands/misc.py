@@ -712,7 +712,7 @@ def export(ctx: ShellContext, args: list[str], stdin: str) -> str:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
             raise CommandError(f"export: '{name}': not a valid identifier")
         if sep:
-            ctx.variables[name] = value
+            ctx.variables[name] = os.path.expanduser(value) if value.startswith("~") else value  # as bash does
         elif name not in ctx.variables:
             if name in os.environ:
                 ctx.variables[name] = os.environ[name]

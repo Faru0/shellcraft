@@ -722,12 +722,12 @@ def test_lite_shell_skips_startup_watchers_and_mcp(tmp_path, monkeypatch, starte
 
     home = tmp_path / "home"
     (home / "startup").mkdir(parents=True)
-    (home / "startup" / "10-x.py").write_text("print('hi')\n")
+    (home / "startup" / "10-x.sc").write_text("echo hi\n")
     monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
     assert cli.main(["--lite", "--modules", str(tmp_path)]) == 0
-    assert started[-1].lite and started.startup_runs == 0
+    assert started[-1].lite and started[-1].startup_results == {}
     assert cli.main(["--no-banner", "--modules", str(tmp_path)]) == 0
-    assert not started[-1].lite and started.startup_runs == 1
+    assert not started[-1].lite and len(started[-1].startup_results) == 1
     # the real shell, lite
     monkeypatch.undo()
     monkeypatch.setenv("SHELLCRAFT_HOME", str(home))

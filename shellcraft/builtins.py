@@ -1437,174 +1437,132 @@ builtin(".", "Run a file of ShellCraft commands (same as source)", "source FILE"
 
 STARTUP_DOC = """# startup
 
-Python scripts that run when the interactive shell starts, before the first prompt: set
-environment variables for everything ShellCraft starts later, mount or sync something, check a
-VPN, print a reminder.
+What runs when the interactive shell starts, before the first prompt: your `~/.shellcraft/rc`,
+then the files in `~/.shellcraft/startup/`, like bash's `~/.bashrc` and `~/.bashrc.d/`.
 
 ## Usage
 
 ```
-startup                  # the startup scripts, in order, with their last result
-startup run [NAME]       # run them again now (or just NAME)
+startup                  # the rc file and the startup files, in order, with their last result
+startup run              # run the startup files again now
+startup run NAME         # just one (10-vpn or 10-vpn.sc)
 startup --folder         # where they live
-startup stop [NAME]      # stop a background script (or all of them): no restart
-startup start NAME       # start a background script again
-startup restart NAME     # stop it and start it
 ```
 
-## Writing one
+## The files
 
-Put a `.py` file in `~/.shellcraft/startup/`. Every file there runs once, in name order, so number
-them: `10-env.py`, `20-mounts.py`. Files named `_name.py` are helpers the others can import.
+A startup file is a `.sc` file in `~/.shellcraft/startup/`: ShellCraft commands, one per line,
+the same as the rc file. Each one runs as if you typed it at the prompt, so anything you can type
+works: `env set`, `cd`, `theme`, modules, loops, `sub`, and questions with `input()` or `read`.
 
-A script runs as its own process, so changing `os.environ` inside it does not reach the shell. To
-set variables for the shell and everything it starts later (subshells, modules, OS programs,
-`mcp start`), append `NAME=value` lines to the file named in `$SHELLCRAFT_ENV_FILE`:
-
-```python
-import os
-
-with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
-    f.write("PROJECT_ROOT=/srv/app\n")
-    f.write("OLD_VAR=\n")          # NAME= with nothing after it unsets the variable
-```
-
-The variables apply only if the script exits with status 0, and a later script sees those of the
-earlier ones. What a script prints is shown under the banner. A script that fails, or runs longer
-than 30 seconds, is reported in one line and the shell starts anyway.
-
-## Header lines: background, restart, timeout
-
-Lines at the top of a script, before its first line of code, change how it runs:
-
-```python
-# shellcraft: background        start it as a subshell when the prompt appears; never waited for
-# shellcraft: restart           start it again if it exits with an error
-# shellcraft: timeout=120       a normal script may take this long (default 30 s)
-```
-
-A **background** script (a watcher, a tunnel, a periodic check) starts the moment the prompt is
-ready, so the shell starts as fast as without it. It is a subshell like `sub python FILE`: listed
-in the panel as `startup: NAME.py`, Ctrl-] N or a click attaches to it, **Ctrl-] x** ends it,
-`jobs -k N` stops it, and it is stopped when you leave ShellCraft. `alert` is on its PATH, and its
-alerts say which script sent them. It can't set variables for the shell (it starts after the
-shell is ready): put those in a normal script, which runs first.
-
-With **restart**, a script that exits with an error is started again after 2, 4, 8… up to 60
-seconds; after 5 crashes in 10 minutes it is left stopped and a red alert says so. A clean exit
-(status 0), or a stop by you, is never restarted. `startup` shows each background script's state.
-
-Scripts run in name order (`10-env.py` before `20-watcher.py`); there are no dependency
-declarations and no arguments. A failing script never stops the shell from starting.
-
-## The rc file: ShellCraft commands
-
-After the scripts, the shell runs `~/.shellcraft/rc`, a file of ShellCraft command lines, like
-bash's `~/.bashrc`. Each line runs as if you typed it at the prompt, so anything you can type works:
+Keep one file per job and number them, because they run in name order after the rc file:
 
 ```
-# ~/.shellcraft/rc
-theme nord
-env set PROJECT_ROOT=~/projects   # environment variables for modules and programs (man env)
-env set -s GITHUB_TOKEN           # a secret: asked with hidden typing at each start
-cd ~/projects
-alert -l info "welcome back"
-sub find ~/projects -name "*.log" -mtime -1
-for h in web1 web2; do myip $h; done
+~/.shellcraft/startup/10-vpn.sc
+~/.shellcraft/startup/20-project.sc
 ```
 
-A line can ask you something, Python style, and later lines use the answer as a variable:
-`name = input("What is your name? ")`, then `echo hello $name` (`man read`).
+They all run in your shell, so what one sets, the next one and your prompt see:
 
-Output is shown under the banner; a failing line is reported with its line number and the rest
-still run. `source ~/.shellcraft/rc` runs it again (`man source`). It never runs for `--mcp` /
-`--mcp-http`: AI clients get a clean shell.
+```
+# 10-project.sc
+project = input("Which project? ")
+env set PROJECT_ROOT=~/work/$project
 
-`settings startup off`, or `shellcraft --no-startup` for one session, skips both the scripts and
-the rc file.
+# 20-go.sc
+cd $PROJECT_ROOT
+```
+
+A file whose name starts with `_`, like `_common.sc`, is never run on its own: the others pull it
+in with `source ~/.shellcraft/startup/_common.sc`. Lines starting with `#` are comments, and so is
+a ` # note` after a command.
+
+A line that fails is reported with its file and line number (`✗ 20-go.sc:1: …`), and the rest
+still run. Ctrl-C skips the rest of that file. To keep something running, start it in the
+background from a file: `sub tail -f /var/log/syslog`.
+
+## In a profile
+
+A profile can have its own: `~/.shellcraft/profiles/NAME/startup/*.sc` runs after that profile's
+rc, when you start in the profile and when you switch to it with `profile use`.
+
+## The rc file
+
+`~/.shellcraft/rc` runs first, with the same rules. `source ~/.shellcraft/rc` runs it again.
+
+Nothing here runs for `--mcp` / `--mcp-http`, or in a `sub shellcraft` subshell.
+`settings startup off`, or `shellcraft --no-startup` for one session, skips the rc file and the
+startup files.
+
+Python startup scripts (`.py`) from older versions aren't run any more: `startup` lists any it
+finds. Move their commands into a `.sc` file, or start one from a `.sc` file with
+`sub python FILE.py`.
 """
 
 
-def _startup_control(ctx: ShellContext, action: str, name: str | None) -> Any:
-    """startup stop [NAME] / start NAME / restart NAME: the background startup scripts."""
-    supervisor = ctx.supervisor
-    if supervisor is None or not ctx.interactive:
-        raise CommandError(f"startup {action}: only in the interactive shell")
-    if action != "stop" and not name:
-        raise CommandError(f"usage: startup {action} NAME (startup lists them)")
-    try:
-        if action == "stop":
-            if name is not None and name not in supervisor.scripts:
-                raise KeyError(name)
-            done = supervisor.stop(name)
-            names = ", ".join(m.path.name for m in done) or "nothing to stop"
-            return Text(f"✓ stopped: {names}", style="sc.success")
-        managed = supervisor.start(name) if action == "start" else supervisor.restart(name)
-    except KeyError:
-        raise CommandError(f"startup {action}: no background script named {name} "
-                           "(a startup script with a `# shellcraft: background` line; startup lists them)") from None
-    return Text(f"✓ {action}ed {managed.path.name} as subshell [{managed.job.number}]", style="sc.success")
+def _startup_rows(ctx: ShellContext) -> list[tuple[Any, str]]:
+    """(startup folder, label) for the main folder and the active profile's."""
+    from shellcraft import profiles
+    from shellcraft import startup as startupmod
+
+    rows = [(startupmod.folder(), "")]
+    active = profiles.active(ctx.config)
+    if active:
+        rows.append((profiles.folder(active) / startupmod.FOLDER, f"profile:{active}"))
+    return rows
 
 
-@builtin("startup", "List or rerun the startup scripts",
-         "startup [run [NAME] | stop [NAME] | start NAME | restart NAME]", stateful=True,
-         doc=STARTUP_DOC)
+@builtin("startup", "List or rerun the rc file and the startup files",
+         "startup [run [NAME] | --folder]", stateful=True, doc=STARTUP_DOC)
 def _startup(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import startup as startupmod
 
     if args in (["--folder"], ["-f"]):
         return f"{startupmod.folder()}\n"
-    if args[:1] in (["stop"], ["start"], ["restart"]):
-        return _startup_control(ctx, args[0], args[1] if len(args) > 1 else None)
-    if args[:1] == ["run"]:
+    if args[:1] == ["run"] and len(args) <= 2:
         only = args[1] if len(args) > 1 else None
-        results = startupmod.run_all(only=only)
+        results = []
+        for where, label in _startup_rows(ctx):
+            results += startupmod.run_folder(ctx, where, label or None, only=only)
         if only is not None and not results:
-            raise CommandError(f"startup: no startup script named {only} (startup lists them)")
-        ctx.startup_results.update({r.name: r for r in results})
+            raise CommandError(f"startup: no startup file named {only} (startup lists them)")
         lines = Text()
         for r in results:
             lines.append(f"⚙ {r.name}  {r.label} ({r.seconds:.1f}s)\n", style="sc.success" if r.ok else "sc.warning")
-            if r.output.strip():
-                lines.append(r.output.rstrip("\n") + "\n", style="sc.muted")
-        return lines if results else Text("no startup scripts", style="sc.muted")
+        return lines if results else Text(f"no startup files in {startupmod.folder()}", style="sc.muted")
     if args:
-        raise CommandError("usage: startup [run [NAME] | stop [NAME] | start NAME | restart NAME"
-                           " | --folder]")
-    found = startupmod.scripts()
+        raise CommandError("usage: startup [run [NAME] | --folder]")
     rc = startupmod.rc_path()
-    rc_note = (f"rc file: {rc} ({len(startupmod.logical_lines(rc.read_text(encoding='utf-8', errors='replace')))} "
-               "commands; source it to run it again)") if rc.is_file() else f"no rc file ({rc}): man startup"
-    if not found:
-        return Text(f"no startup scripts in {startupmod.folder()}\n{rc_note}", style="sc.muted")
-    table = Table(title="Startup scripts", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
-    for col in ("#", "script", "last run", "set"):
+    rc_count = len(startupmod.logical_lines(rc.read_text(encoding="utf-8", errors="replace"))) if rc.is_file() else 0
+    rc_note = (f"rc file: {rc} ({rc_count} command{'s' if rc_count != 1 else ''}; source it to run it again)"
+               if rc.is_file() else f"no rc file ({rc}): man startup")
+    table = Table(title="Startup files", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    for col in ("#", "file", "last run"):
         table.add_column(col)
-    plain = []
-    supervisor = ctx.supervisor
-    for i, script in enumerate(found, 1):
-        r = ctx.startup_results.get(script.stem)
-        info = startupmod.header(script)
-        if info["background"]:
-            managed = supervisor.scripts.get(script.stem) if supervisor is not None else None
-            job = managed.job if managed is not None else None
-            if job is None:
-                last = Text("background · not started", style="sc.muted")
-            else:
-                stopped = managed.stopped and not job.running
-                state = "gave up" if managed.gave_up else "stopped" if stopped else job.label
-                restarts = " · restarts" if managed.restart else ""
-                last = Text(f"background · [{job.number}] {state}{restarts}",
-                            style="sc.success" if job.running else "sc.warning")
-            table.add_row(str(i), Text(script.name, style="sc.path"), last, "")
-            plain.append(f"{i}\t{script.name}\t{last.plain}\t")
-            continue
-        last = Text("not run this session", style="sc.muted") if r is None else \
-            Text(f"{r.label} ({r.seconds:.1f}s)", style="sc.success" if r.ok else "sc.warning")
-        sets = ", ".join(sorted(n for n, v in (r.env if r else {}).items() if v is not None))
-        table.add_row(str(i), Text(script.name, style="sc.path"), last, sets)
-        plain.append(f"{i}\t{script.name}\t{last.plain}\t{sets}")
-    return Styled(Group(table, Text(rc_note, style="sc.muted")), "\n".join(plain) + f"\n{rc_note}\n")
+    plain: list[str] = []
+    notes: list[str] = []
+    number = 0
+    for where, label in _startup_rows(ctx):
+        for path in startupmod.scripts(where):
+            number += 1
+            r = ctx.startup_results.get(str(path))
+            last = Text("not run this session", style="sc.muted") if r is None else \
+                Text(f"{r.label} ({r.seconds:.1f}s)", style="sc.success" if r.ok else "sc.warning")
+            shown = f"{label}/{path.name}" if label else path.name
+            table.add_row(str(number), Text(shown, style="sc.path"), last)
+            plain.append(f"{number}\t{shown}\t{last.plain}")
+        for py in startupmod.leftover_python(where):
+            notes.append(f"{py.name} is a Python startup script, which isn't run any more: move its commands "
+                         f"into a .sc file, or start it from one with `sub python {py.name}`")
+    if not number:
+        found = Text(f"no startup files in {startupmod.folder()} (man startup)\n{rc_note}", style="sc.muted")
+        for note in notes:
+            found.append(f"\n⚠ {note}", style="sc.warning")
+        return found
+    extra = Text(rc_note, style="sc.muted")
+    for note in notes:
+        extra.append(f"\n⚠ {note}", style="sc.warning")
+    return Styled(Group(table, extra), "\n".join(plain) + f"\n{rc_note}\n" + "".join(f"⚠ {n}\n" for n in notes))
 
 
 JOBS_DOC = """# jobs

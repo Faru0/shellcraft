@@ -1,16 +1,19 @@
-# Startup: the rc file and startup scripts
+# Startup: the rc file and startup files
 
 ← [Manual](README.md)
 
-Two things run every time the interactive shell starts, before your first prompt:
+When the interactive shell starts, it runs your setup before the first prompt, the way bash runs
+`~/.bashrc` and then the files in `~/.bashrc.d/`:
 
-- **`~/.shellcraft/rc`**: ShellCraft commands, like `~/.bashrc` in bash. Use it for your theme, a
-  starting folder, environment variables, functions, anything you'd type at the prompt.
-- **`~/.shellcraft/startup/`**: Python scripts, for what a command can't do. Use them to check a VPN
-  or a mount, work out a variable, or keep a watcher running in the background.
+1. **`~/.shellcraft/rc`**: your main setup. ShellCraft commands, one per line.
+2. **`~/.shellcraft/startup/*.sc`**: more files of the same kind, one per job, in name order.
+3. In a [profile](profiles.md), that profile's own `rc`, then its own `startup/*.sc`.
 
-Neither runs for `shellcraft --mcp`, or in a ShellCraft subshell. To skip both for one start, use
-`shellcraft --no-startup`. To turn them off for good, `settings startup off`.
+Every file holds the same thing: commands you could type at the prompt. They all run in your
+shell, so whatever one file sets, the next file and your prompt can use.
+
+None of this runs for `shellcraft --mcp`, or in a `sub shellcraft` subshell. To skip it for one
+start, use `shellcraft --no-startup`. To turn it off for good, `settings startup off`.
 
 ## The rc file
 
@@ -46,112 +49,90 @@ source ~/.shellcraft/rc
 
 If a line fails, ShellCraft tells you which one (`✗ rc:4: …`) and runs the rest.
 
-### Ask a question when the shell starts
+## Startup files
 
-The rc file can ask you something and use the answer later:
-
-```
-name = input("What is your name? ")
-echo "hello $name"
-
-count = int(input("How many servers? "))      # asks again until it gets a whole number
-read -s -p "API token: " token                # the bash way; -s hides what you type
-```
-
-### Secrets
-
-`env set -s NAME` in the rc file asks for the value with hidden typing every time the shell
-starts. The value is never written to a file or to your history:
+Once your rc file grows, split it into a folder of small files: `~/.shellcraft/startup/`. Each
+file ends in `.sc` and does one job. They run right after the rc file, in name order, so number
+them:
 
 ```
-env set -s GITHUB_TOKEN
+~/.shellcraft/startup/10-vpn.sc
+~/.shellcraft/startup/20-project.sc
+~/.shellcraft/startup/30-reminders.sc
 ```
 
-### Split it into several files
-
-As in bash, the rc file can pull in other files. A file that doesn't exist is skipped:
+A startup file is written exactly like the rc file. Here's a pair that work together:
 
 ```
-[ -f ~/.shellcraft/rc.work ] && source ~/.shellcraft/rc.work
+# 10-project.sc
+project = input("Which project today? ")
+env set PROJECT_ROOT=~/work/$project
 
-for f in ~/.shellcraft/rc.d/*.rc; do
-  [ -f "$f" ] && source "$f"
-done
+# 20-go.sc
+cd $PROJECT_ROOT
+echo "working on $project"
 ```
 
-That way you can keep one file per project and switch one on by adding a line.
+`20-go.sc` can use `$project` and `$PROJECT_ROOT` because `10-project.sc` ran first, in the same
+shell. When the prompt appears, you're in that folder with both set.
 
-## Startup scripts
-
-Every `.py` file in `~/.shellcraft/startup/` runs once at startup, in name order. Number them to
-control the order: `10-env.py`, `20-vpn.py`. A file named `_name.py` is a helper the others can
-import. What a script prints shows up under the banner.
-
-The folder comes with two examples that don't run while their names end in `.sample`. To try one:
+To start, copy the example that came with the folder:
 
 ```bash
 cd ~/.shellcraft/startup
-cp 10-example.py.sample 10-example.py
+cp 10-example.sc.sample 10-project.sc
 ```
 
-### Set variables for the shell
+### Helper files
 
-A startup script runs as its own process, so changing `os.environ` inside it doesn't reach the
-shell. Instead, write `NAME=value` lines to the file named in `$SHELLCRAFT_ENV_FILE`:
+A file whose name starts with an underscore, like `_common.sc`, never runs on its own. Pull it into
+the files that need it:
 
-```python
-import os
-
-with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
-    f.write("PROJECT_ROOT=/srv/app\n")
-    f.write("OLD_SETTING=\n")          # nothing after the = removes the variable
+```
+source ~/.shellcraft/startup/_common.sc
 ```
 
-The shell, every subshell and every module then see `PROJECT_ROOT`. The variables apply only if
-the script finishes without an error.
+### When a file fails
 
-### When something goes wrong
+A line that fails is reported with its file and line number, such as `✗ 20-go.sc:1: …`, and the
+rest still run. Ctrl-C skips the rest of that file and moves on to the next.
 
-A script that fails, or takes longer than 30 seconds, is reported in one line and the shell starts
-anyway. To give a slow script more time, put this line at the top:
+### Something that keeps running
 
-```python
-# shellcraft: timeout=120
+A startup file runs once and finishes. To keep a watcher, a tail or a tunnel running, start it in
+the background from a file with `sub`. It shows in the footer, and Ctrl-] and its number switch
+to it:
+
 ```
-
-### Scripts that keep running
-
-A watcher, a tunnel or a periodic check should start in the background so the shell never waits
-for it. Put this line at the top of the script:
-
-```python
-# shellcraft: background, restart
+sub tail -f /var/log/syslog
 ```
-
-It then runs as a subshell, shown in the footer as `startup: 30-watcher.py`. Press Ctrl-] and its
-number to look at it. `restart` starts it again if it crashes, giving up after 5 crashes in 10
-minutes. A background script can't set variables for the shell, because it starts after the shell
-is ready. It can send alerts: the `alert` command is on its `PATH`.
-
-`30-watcher.py.sample` in the startup folder is a complete example.
 
 ### Manage them from the prompt
 
 ```
-startup                  # the scripts, in order, with their last result
+startup                  # every startup file, with how it went the last time it ran
 startup run              # run them all again now
-startup run 10-env.py    # just one
+startup run 20-go        # just one
 startup --folder         # where they live
-startup stop NAME        # stop a background script
-startup start NAME       # start it again
-startup restart NAME
 ```
+
+## A profile's own
+
+A profile can have its own startup folder, `~/.shellcraft/profiles/NAME/startup/`. Its `.sc` files
+run after that profile's rc, both when you start in the profile and when you switch to it with
+`profile use NAME`. `profile export`, `import`, `copy` and `save` carry them along.
 
 ## What runs, in order
 
-1. The startup scripts in `~/.shellcraft/startup/`, in name order
-2. `~/.shellcraft/rc`, which sees the variables the scripts set
-3. The active [profile](profiles.md)'s own `rc`, if you started in one
-4. The background startup scripts, once the prompt is ready
+1. `~/.shellcraft/rc`
+2. `~/.shellcraft/startup/*.sc`, in name order
+3. The active profile's `rc`, if you started in one
+4. That profile's `startup/*.sc`, in name order
+
+## Python startup scripts
+
+Older versions ran Python files (`.py`) from this folder. They aren't run any more, and `startup`
+lists any it finds. Move their commands into a `.sc` file. If you still need the Python, start it
+from a `.sc` file: `sub python ~/.shellcraft/startup/old-script.py`.
 
 `man startup` inside ShellCraft has every detail.

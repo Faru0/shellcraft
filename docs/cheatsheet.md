@@ -9,7 +9,7 @@ Copy, paste, change the names. Each block links to the page that explains it.
 ```
 ~/.shellcraft/rc                     commands run at every start
 ~/.shellcraft/aliases                alias name='command'
-~/.shellcraft/startup/NN-name.py     Python run at every start
+~/.shellcraft/startup/NN-name.sc     more commands, run after rc
 ~/.shellcraft/funcs/NAME.func        a func
 ~/.shellcraft/modules/NAME.py        a command of your own (+ NAME.md, NAME.skill)
 ~/.shellcraft/profiles/NAME/         a profile: profile.json, rc, aliases, funcs/
@@ -45,18 +45,18 @@ backup() { cp -r "$1" "$1.bak" && echo "saved $1.bak"; }
 
 [More](startup.md)
 
-## A startup script
+## A startup file
 
-`~/.shellcraft/startup/10-env.py`:
+`~/.shellcraft/startup/10-project.sc`, run after rc:
 
-```python
-import os
-
-with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
-    f.write("PROJECT_ROOT=/srv/app\n")
+```
+project = input("Which project today? ")
+env set PROJECT_ROOT=~/work/$project
+cd $PROJECT_ROOT
+sub tail -f app.log              # something that keeps running, in the background
 ```
 
-Keep it running in the background: first line `# shellcraft: background, restart`. [More](startup.md#startup-scripts)
+[More](startup.md#startup-files)
 
 ## A func
 
@@ -188,7 +188,7 @@ prompt name path git status
 
 ```bash
 shellcraft --profile acme        # in a profile
-shellcraft --no-startup          # skip rc and startup scripts
+shellcraft --no-startup          # skip rc and the startup files
 shellcraft --timing              # why is it slow?
 shellcraft --mcp                 # as an MCP server for an AI client
 shellcraft --init                # write missing starter files

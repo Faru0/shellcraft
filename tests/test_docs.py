@@ -119,7 +119,7 @@ def test_the_finished_ghrepo_module_passes_the_strict_checker(tmp_path):
 def test_the_cheat_sheet_code_runs(tmp_path):
     text = (ROOT / "docs" / "cheatsheet.md").read_text(encoding="utf-8")
     blocks = re.findall(r"^```python\n(.*?)^```", text, re.M | re.S)
-    assert len(blocks) >= 4
+    assert len(blocks) >= 3
     for code in blocks:
         compile(code, "cheatsheet", "exec")
     module = next(code for code in blocks if 'ArgParser("mycmd")' in code and "items" in code)

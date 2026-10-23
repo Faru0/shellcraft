@@ -31,7 +31,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--profile", metavar="NAME",
                    help="start in a profile (`profile list`); every start is the default setup without it")
     p.add_argument("--no-banner", action="store_true", help="skip the startup banner")
-    p.add_argument("--no-startup", action="store_true", help="don't run the scripts in ~/.shellcraft/startup/")
+    p.add_argument("--no-startup", action="store_true",
+                   help="don't run ~/.shellcraft/rc and the files in ~/.shellcraft/startup/")
     p.add_argument("--lite", action="store_true",
                    help="a lightweight shell, what `sub shellcraft` runs inside ShellCraft: builtins, modules and "
                         "settings, without the banner, the startup scripts, the alert watcher, hot reload or "
@@ -53,7 +54,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
     p.add_argument("--brief", type=Path, metavar="FILE", help=argparse.SUPPRESS)  # an AI-opened subshell's brief
     p.add_argument("--init", action="store_true",
-                   help="write the starter files (a commented rc and aliases, example funcs and startup scripts) "
+                   help="write the starter files (a commented rc and aliases, an example func and startup file) "
                         "into ~/.shellcraft where they are missing; never overwrites your files")
     p.add_argument("--force", action="store_true", help="with --init: also refresh the .sample and README files")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
@@ -343,16 +344,14 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
             if not args.no_startup and not args.lite and settings.get(config, "startup"):
                 from shellcraft import startup
 
-                if startup.scripts():
-                    shell.run_startup()  # ~/.shellcraft/startup/*.py, before the first prompt (shellcraft.startup)
-                    timing.mark("startup scripts")
                 if startup.rc_path().is_file():
                     shell.run_rc()  # ~/.shellcraft/rc: ShellCraft lines, as if typed (never for --mcp)
                     timing.mark("rc file")
+                if startup.scripts(startup.folder()):
+                    startup.run_folder(ctx, startup.folder())  # then ~/.shellcraft/startup/*.sc, like ~/.bashrc.d
+                    timing.mark("startup files")
                 if profile_name:
-                    profiles.run_rc(ctx, profile_name)  # then the profile's rc
-                if startup.background_scripts():
-                    shell.start_background()  # `# shellcraft: background` scripts: subshells, never waited for
+                    profiles.run_rc(ctx, profile_name)  # then the profile's rc and its startup/*.sc
             if ctx.brief is not None and hasattr(shell, "show_brief"):
                 shell.show_brief(ctx.brief)  # what the AI that opened this subshell wants read first
         except KeyboardInterrupt:

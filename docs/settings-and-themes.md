@@ -33,7 +33,7 @@ the profile instead of your main setup.
 | `mouse` | on | Click and scroll in the completion menu and the pager; the terminal keeps the mouse at other times. |
 | `mouse_always` | off | Keep the mouse on at the prompt: click to place the cursor, click prompt segments and the toolbar, wheel through history. Hold Shift to select text. |
 | `links` | off | File names from `ls`, `tree`, `find`, `du` and `grep` are hyperlinks: Ctrl-click opens them. |
-| `startup` | on | Run `~/.shellcraft/startup/*.py` and `~/.shellcraft/rc` when the interactive shell starts. |
+| `startup` | on | Run `~/.shellcraft/rc` and the `.sc` files in `~/.shellcraft/startup/` when the interactive shell starts. |
 | `footer_mouse` | on | While the footer lists a subshell or an alert, the shell has the mouse at the prompt: its lines, an alert's ✖ and the badge are clickable, text is selected with Shift, and the wheel hands the mouse back to the terminal. Off: the terminal keeps the mouse at the prompt. |
 | `scroll_view` | off | A turn of the wheel at the prompt (while the shell has the mouse) opens the scroll view of the session's output instead of handing the mouse to the terminal. |
 | `editor` | `$EDITOR`, else nano | The editor `func edit` and `profile edit` open: `settings editor code` (VS Code, waited for), `vim`, `nano`… See [the editor](funcs.md#the-editor). |

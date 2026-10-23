@@ -49,10 +49,6 @@ def started(monkeypatch):
         def banner(self, *warnings):
             pass
 
-        def run_startup(self, only=None):
-            contexts.startup_runs += 1  # type: ignore[attr-defined]
-            return []
-
         def run_rc(self):
             contexts.rc_runs += 1  # type: ignore[attr-defined]
 
@@ -70,7 +66,6 @@ def started(monkeypatch):
 class _Contexts(list):
     """The contexts cli.main() gave the stand-in shell, and how often it ran the startup scripts."""
 
-    startup_runs = 0
     rc_runs = 0
     briefs: list = []
 

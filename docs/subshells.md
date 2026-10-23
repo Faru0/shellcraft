@@ -85,7 +85,7 @@ mouse to your terminal at the prompt, and `settings footer off` removes the foot
 ## A light ShellCraft: sub shellcraft
 
 `sub shellcraft` opens a light ShellCraft, with your commands, modules, settings, aliases and
-history, but without the banner, startup scripts, hot reload or the MCP server. Its prompt shows
+history, but without the banner, startup files, hot reload or the MCP server. Its prompt shows
 `⚡shellcraft [1]`.
 
 There's only one level of subshells. Typing `sub htop` or `make &` inside a light ShellCraft asks

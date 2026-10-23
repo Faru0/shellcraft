@@ -20,10 +20,9 @@ export SHELLCRAFT_HOME=~/dotfiles/shellcraft
 ├── rc                       commands that run every time the shell starts
 ├── aliases                  your shortcuts
 ├── history                  the commands you typed
-├── startup/                 Python scripts that run at start
+├── startup/                 more files like rc, one per job, run after it
 │   ├── README.txt
-│   ├── 10-example.py.sample
-│   └── 30-watcher.py.sample
+│   └── 10-example.sc.sample
 ├── funcs/                   named lists of commands you run on demand
 │   └── example.func.sample
 ├── modules/                 your own commands (Python)
@@ -48,9 +47,8 @@ The first time ShellCraft starts without them, it writes these for you:
 | `rc` | A walkthrough in comments, with ready lines you can switch on by removing the `#` |
 | `aliases` | A few example aliases, all commented out |
 | `funcs/example.func.sample` | A complete example func |
-| `startup/README.txt` | How startup scripts work |
-| `startup/10-example.py.sample` | A startup script that sets variables |
-| `startup/30-watcher.py.sample` | A startup script that keeps running in the background |
+| `startup/README.txt` | How startup files work |
+| `startup/10-example.sc.sample` | A startup file that asks a question and sets up a project |
 
 Nothing in them does anything as they come. A line starting with `#` is a comment, and a file
 ending in `.sample` is never loaded. To use an example, copy it to a name without `.sample`:
@@ -78,7 +76,7 @@ shellcraft --init --force    # also refreshes the .sample and README files
 | `rc` | ShellCraft commands, run at every start | any editor | at the next start, or now with `source ~/.shellcraft/rc` |
 | `aliases` | `alias name='command'` lines | `alias` and `unalias`, or any editor | at the next command |
 | `history` | Everything you typed | `history -c` clears it | at once |
-| `startup/*.py` | Python scripts, run at every start | any editor | at the next start, or now with `startup run` |
+| `startup/*.sc` | More files like rc, one per job, run after it | any editor | at the next start, or now with `startup run` |
 | `funcs/*.func` | Funcs that work in every profile | `func new`, `func edit`, or any editor | at once |
 | `modules/*.py` | Your own commands | any editor, or `ingest` | at once (hot reload) |
 | `profiles/NAME/` | One profile's own settings, rc, aliases, history and funcs | `profile` commands, or any editor | when you switch to it, or with `profile reload` |
@@ -104,8 +102,9 @@ shell instead (in `~/.bashrc`, for example). ShellCraft never stores those.
 
 ### rc and startup/
 
-Both run when the interactive shell starts. `rc` holds ShellCraft commands, the same lines you'd
-type at the prompt. `startup/` holds Python scripts for anything a command can't do.
+Both run when the interactive shell starts, and both hold ShellCraft commands, the same lines
+you'd type at the prompt. `rc` runs first. `startup/` holds more `.sc` files like it, one per job,
+run after it in name order.
 [Startup](startup.md) covers both, with examples.
 
 ### aliases and history

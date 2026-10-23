@@ -31,7 +31,7 @@ shellcraft/
 │   ├── stdio.py            # is_console() (not isatty) and UTF-8 stdout/stderr for pipes and files
 │   ├── parser.py           # quote-aware tokenizer ($name, $'…', $(( )), $( ), globs, \ continuations) → Pipeline(segments, redirects)
 │   ├── skel.py             # starter files for ~/.shellcraft (written once each; shellcraft --init)
-│   ├── starters/           # their texts: rc, aliases, funcs/example.func.sample, startup/*.sample + README.txt
+│   ├── starters/           # their texts: rc, aliases, funcs/example.func.sample, startup/10-example.sc.sample + README.txt
 │   ├── loading.py          # the loading line under the banner until the first prompt (settings loader)
 │   ├── termsize.py         # the terminal width before prompt_toolkit loads (the early banner)
 │   ├── curlpaste.py        # a pasted Windows "Copy as cURL (cmd)" line turned into ShellCraft quoting
@@ -50,7 +50,7 @@ shellcraft/
 │   ├── timing.py           # startup phase marks, the process age from the OS, `--timing` and the diag section
 │   ├── editor.py           # `settings editor`: terminal editors in a subshell, window editors waited for
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
-│   ├── startup.py          # startup: ~/.shellcraft/startup/*.py (the $SHELLCRAFT_ENV_FILE hand-back), then ~/.shellcraft/rc via source()
+│   ├── startup.py          # startup: ~/.shellcraft/rc, then startup/*.sc (like ~/.bashrc.d), all via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
 │   ├── aliases.py          # aliases: the ~/.shellcraft/aliases file (parsed, cached by mtime, edited line by line), validation, expansion
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
@@ -276,7 +276,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_cancel.py` | cooperative cancellation: the modkit API, a real Ctrl-C during the spinner wait reaching the module, an MCP timeout cancelling the abandoned thread |
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |
-| `test_startup.py` | startup scripts: order, `_helpers`, variables handed back (and unset), failures and timeouts changing nothing, the `startup` builtin, `--no-startup` and the setting |
+| `test_startup.py` | rc and startup files: `.sc` files in name order sharing what they set, `_helpers`, a failing line naming its file, leftover `.py` not run, the `startup` builtin, `--no-startup` and the setting, a profile's own folder at start and on `profile use`, export / import / copy, `source` |
 | `test_alerts.py` | alerts: severity ordering, the cap, expiry and dismissal, the spool folder (delivery, sender labels, junk and stale files), the command-line client and the subshell shim, the `alert` builtin (local, forwarded from a nested shell), alert lines in the panel with their source, the `send_tui_alert` MCP tool |
 | `test_console.py` | `shellcraft.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |

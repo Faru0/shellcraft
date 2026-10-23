@@ -11,7 +11,7 @@ a checkout, `python main.py` takes the same options as the installed `shellcraft
 shellcraft                       # the interactive shell
 shellcraft --profile recon       # start in a profile
 shellcraft --theme matrix        # a theme for this session only
-shellcraft --no-startup          # skip the startup scripts and the rc file
+shellcraft --no-startup          # skip the rc file and the startup files
 shellcraft --timing              # show how long each part of the start took
 ```
 
@@ -20,7 +20,7 @@ shellcraft --timing              # show how long each part of the start took
 | `--profile NAME` | Start in a [profile](profiles.md). Without it, every start is your main setup |
 | `--theme NAME` | Use a theme for this session only |
 | `--no-banner` | Skip the banner |
-| `--no-startup` | Skip `~/.shellcraft/startup/` and the rc file |
+| `--no-startup` | Skip the rc file and the startup files in `~/.shellcraft/startup/` |
 | `--allow-system` | Let commands run your system's programs, for this session only |
 | `--modules DIR` | Load the bundled modules from DIR instead. Your own folder, `~/.shellcraft/modules`, is still loaded |
 | `--timing` | Print how long each startup step took, just before the first prompt |

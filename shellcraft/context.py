@@ -49,8 +49,7 @@ class ShellContext:
     brief: Any = None  # a lite shell: the brief file an AI left for it to print at start (shellcraft.briefs)
     ai_run: bool = False  # the session grant: an AI may run any command here (settings ai_run, a grant approved)
     console_report: Any = None  # () -> the console / footer diagnostics text; the REPL sets it (`diag`)
-    startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per script
-    supervisor: Any = None  # the background startup scripts (shellcraft.startup.Supervisor); the REPL sets it
+    startup_results: dict[str, Any] = field(default_factory=dict)  # shellcraft.startup.Result per startup file
     stop: Any = None  # a background job's stop flag (streams.StopFlag): every pipeline it runs stops with it
     last_status: int = 0  # exit status of the last command: `$?`, and the prompt's [✗ N]
     # Shell variables (`x=1`, loop variables after a loop) and the ones exported with `export`.

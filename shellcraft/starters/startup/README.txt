@@ -1,32 +1,26 @@
 # How to use this folder
 # ----------------------
-# Startup scripts: Python files that run when the interactive shell starts
+# Startup files: ShellCraft commands that run when the shell starts, like ~/.bashrc.d in bash.
 #
-# Every .py file in this folder runs once at startup, in name order, before the first prompt.
-# Number them to set the order: 10-env.py, 20-mounts.py. Files named _name.py are helpers the
-# others can import. Nothing here runs for `shellcraft --mcp`.
+# Every .sc file in this folder runs once at startup, right after ~/.shellcraft/rc, in name order.
+# Number them to set the order: 10-vpn.sc, 20-project.sc. Keep one file per job.
 #
-# Use them for what a command line can't do: set environment variables for everything ShellCraft
-# starts, check a mount or a VPN, print a reminder. A script that fails, or takes longer than 30
-# seconds, is reported in one line and the shell starts anyway.
+# A .sc file is written exactly like ~/.shellcraft/rc: one ShellCraft command per line, as you'd
+# type it at the prompt. env set, cd, theme, modules, loops, input() questions and sub all work.
+# They run in your shell, so what one file sets, the next one and your prompt see.
 #
-# A script that should keep running (a watcher, a tunnel) starts in the background instead, so the
-# shell never waits for it: put this line at the top of the file:
+# A file named _something.sc is a helper: it never runs on its own, other files pull it in with
+#     source ~/.shellcraft/startup/_something.sc
 #
-#     # shellcraft: background, restart
+# Nothing here runs for `shellcraft --mcp`, or in a `sub shellcraft` subshell.
+# Skip it all for one start: shellcraft --no-startup
 #
-# Two examples come with this folder. They don't run while their names end in .sample:
-#
-#     10-example.py.sample    sets variables for the shell and prints a note
-#     30-watcher.py.sample    a background script that alerts you about new files
-#
-# To try one, copy it to a name ending in .py:
-#
-#     cp 10-example.py.sample 10-example.py
+# 10-example.sc.sample is an example. Copy it to a name ending in .sc to use it:
+#     cp 10-example.sc.sample 10-project.sc
 #
 # Inside ShellCraft:
-#     startup              lists the scripts with their last result
+#     startup              lists the files with their last result
 #     startup run          runs them again now
 #     man startup          the details
 #
-# The manual: docs/startup.md
+# More: docs/startup.md

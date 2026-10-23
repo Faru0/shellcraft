@@ -55,6 +55,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Removed
 
+- **Python startup scripts.** `.py` files in `~/.shellcraft/startup/` aren't run any more, and with
+  them go the `$SHELLCRAFT_ENV_FILE` hand-back, the `# shellcraft: background, restart, timeout`
+  header lines and `startup stop / start / restart`. `startup` lists a leftover `.py` and says
+  what to do: move its commands into a `.sc` file, or start it from one with `sub python FILE.py`.
+
 - **The `fetch` and `filter` modules.** `curl` replaces `fetch` for URLs (`curl URL --jq PATH`,
   `curl -s URL | head -n 20`), and `cat` reads files. `grep` does everything `filter` did, with the
   same switches (`-i`, `-v`, `-c`, `-n`, `-F`, `-m`). A `disabled_modules` entry naming either is
@@ -192,6 +197,14 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **`~/.shellcraft/startup/` is now ShellCraft's `~/.bashrc.d`**: a folder of `.sc` files, each
+  written like the rc file (ShellCraft commands, one per line) and doing one job. They run right
+  after `~/.shellcraft/rc`, in name order, inside your shell, so what one sets (`env set`, `cd`,
+  an `input()` answer) the next one and your prompt see. `_name.sc` files are helpers you `source`.
+  A profile can have its own `profiles/NAME/startup/`, run after its rc at start and on
+  `profile use`, and carried by `profile export / import / copy / save`. `startup` lists the files
+  with their last result; `startup run [NAME]` runs them again.
+
 - **The footer's close button is on the right, and bigger.** An alert's row no longer starts with
   an icon (its color says how serious it is); like a finished subshell's row, it ends with a heavy
   `✖` that closes it. The finished subshell's `×` is now the same, more visible `✖`.
@@ -259,6 +272,9 @@ and the project uses [semantic versioning](https://semver.org/).
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
 
 ### Fixed
+
+- `env set NAME=~/path` and `export NAME=~/path` store your home folder's path, as bash does, instead
+  of a literal `~`.
 
 - The SOC starter profile's `top10` alias held a pipe, which aliases can't, so it was skipped. It is
   now a function in the profile's rc.

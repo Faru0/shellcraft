@@ -450,6 +450,9 @@ def _save(ctx: ShellContext, args: list[str]) -> Any:
         raise CommandError(f"profile save: '{name}' exists already (-f replaces it)")
     profiles.create(name, data, rc, aliases_text, overwrite=True)
     profiles.write_funcs(name, profiles.session_funcs(ctx))
+    active = profiles.active(ctx.config)
+    if active and active != name:  # the active profile's startup files come along, as its rc does
+        profiles.write_startup(name, profiles.export_bundle(active).get("startup") or {})
     return Text.assemble(("✓ ", "sc.success"), "saved as profile ", (name, "sc.path"),
                          (f"  (profile use {name}; profile show {name})", "sc.muted"))
 

@@ -412,7 +412,7 @@ class JobTable:
         else:
             self.notifications.append(f"[{job.number}] {job.label}: {job.title}")
         self._changed()
-        for hook in list(self.on_done):  # the startup Supervisor restarts what asked for it
+        for hook in list(self.on_done):  # whoever asked to hear when a job ends
             try:
                 hook(job)
             except Exception:  # noqa: BLE001 — a hook must not kill the reader thread

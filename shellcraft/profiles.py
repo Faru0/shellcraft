@@ -406,15 +406,21 @@ BUNDLE = "shellcraft-profile"
 
 
 def export_bundle(name: str) -> dict[str, Any]:
-    """One JSON document: profile.json, rc and aliases (no history; secrets are never in a profile)."""
+    """One JSON document: profile.json, rc, aliases, funcs and startup files (no history; secrets are
+    never in a profile)."""
     data = load(name)
     data.pop("used", None)
     funcs_dir = folder(name) / "funcs"
     funcs = {}
     if funcs_dir.is_dir():
         funcs = {p.stem: p.read_text(encoding="utf-8") for p in sorted(funcs_dir.glob("*.func"))}
+    startup_dir = folder(name) / "startup"
+    startup = {}
+    if startup_dir.is_dir():
+        startup = {p.name: p.read_text(encoding="utf-8") for p in sorted(startup_dir.glob("*.sc"))}
     return {"format": BUNDLE, "version": SCHEMA, "name": name, "profile": data,
-            "rc": read_text(name, "rc"), "aliases": read_text(name, "aliases"), "funcs": funcs}
+            "rc": read_text(name, "rc"), "aliases": read_text(name, "aliases"), "funcs": funcs,
+            "startup": startup}
 
 
 def import_bundle(bundle: Any, name: str | None = None, overwrite: bool = False) -> str:
@@ -424,7 +430,21 @@ def import_bundle(bundle: Any, name: str | None = None, overwrite: bool = False)
     create(target, bundle["profile"], str(bundle.get("rc") or ""), str(bundle.get("aliases") or ""),
            overwrite=overwrite)
     write_funcs(target, bundle.get("funcs") if isinstance(bundle.get("funcs"), dict) else {})
+    write_startup(target, bundle.get("startup") if isinstance(bundle.get("startup"), dict) else {})
     return target
+
+
+_STARTUP_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*\.sc$")
+
+
+def write_startup(name: str, texts: dict[str, str]) -> None:
+    """Put startup files (file name → text) into a profile's startup folder; a name that isn't a
+    plain `NAME.sc` (a path, for one) is skipped."""
+    target = folder(name) / "startup"
+    for file_name, text in texts.items():
+        if _STARTUP_NAME.match(str(file_name)):
+            target.mkdir(parents=True, exist_ok=True)
+            (target / str(file_name)).write_text(str(text), encoding="utf-8")
 
 
 def write_funcs(name: str, texts: dict[str, str]) -> None:
@@ -513,11 +533,13 @@ def missing_modules(ctx: Any, name: str) -> list[str]:
 
 
 def run_rc(ctx: Any, name: str) -> None:
+    """The profile's rc, then its startup/*.sc files, in name order (at start and on `profile use`)."""
+    from shellcraft import startup
+
     rc = text_file(name, "rc")
     if rc.is_file():
-        from shellcraft import startup
-
         startup.source(rc, ctx, label=f"profile:{name}")
+    startup.run_folder(ctx, folder(name) / startup.FOLDER, label=f"profile:{name}")
 
 
 def apply_config(ctx: Any, disabled_before: set[str]) -> list[str]:

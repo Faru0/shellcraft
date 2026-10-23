@@ -24,7 +24,7 @@ also names the command that does the same from the prompt.
 
 - [Your ~/.shellcraft folder](your-shellcraft-folder.md): what every file and folder is for, and when it's read
 - [Aliases and history](aliases-and-history.md): your shortcuts, and the commands you typed
-- [Startup](startup.md): the `rc` file and startup scripts that run when the shell starts
+- [Startup](startup.md): the `rc` file and the startup files that run when the shell starts
 - [Funcs](funcs.md): named lists of commands you run when you need them
 - [Profiles](profiles.md): separate setups for different kinds of work
 - [Settings and themes](settings-and-themes.md): every setting, API keys, colors and the prompt

@@ -1,0 +1,30 @@
+# How to use this file
+# --------------------
+# This is an example startup file. It doesn't run while its name ends in .sample.
+# To use it, copy it to a name ending in .sc:
+#
+#     cp 10-example.sc.sample 10-project.sc
+#
+# A startup file holds ShellCraft commands, one per line, the same as ~/.shellcraft/rc. Every .sc
+# file in this folder runs when the shell starts, right after rc, in name order: 10-… before 20-….
+# They all run in your shell, so what one file sets, the next file and your prompt can use.
+#
+# Lines starting with # are comments, and so is a note after a command with a space before and
+# after the #. A line that fails is reported with its file and line number, and the rest still run.
+#
+# Inside ShellCraft: `startup` lists the files, `startup run` runs them again.
+# More: `man startup`, or docs/startup.md.
+
+# Ask a question; the answer is $project from here on, in this file and the ones after it.
+project = input("Which project today? ")
+
+# Set it up: modules, programs and later startup files all see these.
+env set PROJECT_ROOT=~/work/$project
+mkdir -p $PROJECT_ROOT
+cd $PROJECT_ROOT
+
+# Run a module or any command you'd type at the prompt.
+echo "working on $project in $PROJECT_ROOT"
+
+# Start something that keeps running, in the background (it shows in the footer).
+# sub tail -f ~/work/$project/app.log

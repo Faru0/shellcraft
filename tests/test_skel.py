@@ -5,8 +5,7 @@ import json
 from shellcraft import aliases, funcs, skel, startup
 from shellcraft.config import load_config
 
-EXPECTED = {"rc", "aliases", "funcs/example.func.sample", "startup/README.txt",
-            "startup/10-example.py.sample", "startup/30-watcher.py.sample"}
+EXPECTED = {"rc", "aliases", "funcs/example.func.sample", "startup/README.txt", "startup/10-example.sc.sample"}
 
 
 def test_the_starter_set():
@@ -38,7 +37,7 @@ def test_the_starters_do_nothing_until_you_change_them(tmp_path, registry):
     found, bad = aliases.parse_file((tmp_path / "aliases").read_text())
     assert found == {} and bad == []
     assert funcs.load_dir(tmp_path / "funcs", "default") == {}  # the example is a .sample
-    assert startup.scripts(tmp_path) == []  # so are the startup examples
+    assert startup.scripts(tmp_path / "startup") == []  # so is the startup example
     ran, failed = startup.source(tmp_path / "rc", ShellContext(registry=registry, config={}))
     assert failed == 0
 
@@ -48,9 +47,11 @@ def test_the_examples_work_once_renamed(tmp_path):
     (tmp_path / "funcs" / "example.func.sample").rename(tmp_path / "funcs" / "recon.func")
     recon = funcs.load_dir(tmp_path / "funcs", "default")["recon"]
     assert recon.command and len(recon.steps) == 4
-    (tmp_path / "startup" / "10-example.py.sample").rename(tmp_path / "startup" / "10-example.py")
-    assert [p.name for p in startup.scripts(tmp_path)] == ["10-example.py"]
-    compile((tmp_path / "startup" / "30-watcher.py.sample").read_text(), "30-watcher.py", "exec")
+    assert startup.scripts(tmp_path / "startup") == []  # the .sc example doesn't run as it comes
+    (tmp_path / "startup" / "10-example.sc.sample").rename(tmp_path / "startup" / "10-project.sc")
+    assert [p.name for p in startup.scripts(tmp_path / "startup")] == ["10-project.sc"]
+    lines = [line for _, line in startup.logical_lines((tmp_path / "startup" / "10-project.sc").read_text())]
+    assert lines[0].startswith("project = input(") and "env set PROJECT_ROOT=~/work/$project" in lines
 
 
 def test_an_interactive_start_seeds_and_a_lite_one_does_not(tmp_path, monkeypatch, started):

@@ -53,7 +53,8 @@ A profile is a folder: `~/.shellcraft/profiles/NAME/`. Every file in it is optio
 ├── rc               commands to run when you switch to it
 ├── aliases          aliases added on top of your main ones
 ├── history          its own command history (ShellCraft writes this)
-└── funcs/           its own funcs
+├── funcs/           its own funcs
+└── startup/         more .sc files like rc, run after it
 ```
 
 ### profile.json
@@ -107,6 +108,12 @@ alias whereis='ip2geo'
 ### funcs/
 
 Funcs that only exist in this profile. See [Funcs](funcs.md).
+
+### startup/
+
+More files like the profile's rc, ending in `.sc`, one per job. They run after the profile's rc,
+in name order, when you start in the profile and when you switch to it. See
+[Startup files](startup.md#startup-files).
 
 After editing a profile's files, apply them to the running shell with `profile reload`. Or open
 one in your editor straight from the prompt with `profile edit NAME rc` (or `aliases`, `config`).

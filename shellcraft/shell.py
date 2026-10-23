@@ -220,10 +220,6 @@ class Shell:
         ctx.jobs = JobTable(config_dir() / "jobs")
         ctx.jobs.on_change = self._jobs_changed
         self._cleanup.callback(self._stop_jobs)
-        from shellcraft.startup import Supervisor
-
-        ctx.supervisor = Supervisor(ctx.jobs, ctx.alerts)
-        self._cleanup.callback(ctx.supervisor.close)  # runs after _stop_jobs: nothing restarts at exit
         # The tab bar on the terminal's last row: this shell and its subshells. Enabled by loop()
         # (after the banner), redrawn after every prompt render, gone at exit.
         # Alerts from subshells, nested shells and MCP clients arrive through the spool folder
@@ -336,40 +332,6 @@ class Shell:
             item = Text.from_ansi(item[:-1] if item.endswith("\n") else item)
         console.print(item, markup=False, highlight=False)
         console.file.flush()
-
-    def run_startup(self, only: str | None = None) -> list[Any]:
-        """Run the startup scripts and print one line each (and their output, if any)."""
-        from shellcraft import startup
-
-        if not startup.scripts():
-            return []
-        with self.ui.console.status(Text("running startup scripts…", style="sc.accent"), spinner="dots12",
-                                    spinner_style="sc.accent"):
-            results = startup.run_all(only=only)
-        self.ctx.startup_results = {r.name: r for r in results}
-        for r in results:
-            env = f", set {', '.join(sorted(n for n, v in r.env.items() if v is not None))}" if r.ok and r.env else ""
-            style = "sc.success" if r.ok else "sc.warning"
-            self.ui.console.print(Text.assemble(("⚙ ", style), (f"startup {r.name}", "sc.accent"),
-                                                (f"  {r.label} ({r.seconds:.1f}s{env})", style)),
-                                  markup=False, highlight=False)
-            if r.output.strip():
-                self.ui.console.print(Text(r.output.rstrip("\n"), style="sc.muted"), markup=False, highlight=False)
-        return results
-
-    def start_background(self) -> list[Any]:
-        """Start the background startup scripts as subshells (never waits for them)."""
-        if self.ctx.supervisor is None:
-            return []
-        started = self.ctx.supervisor.start_all()
-        for managed in started:
-            if managed.job is not None:
-                where = f"  in the background as [{managed.job.number}]"
-                where += ", restarts if it crashes" if managed.restart else ""
-                line = Text.assemble(("⚙ ", "sc.success"), (f"startup {managed.name}", "sc.accent"),
-                                     (where, "sc.muted"))
-                self.ui.console.print(line, markup=False, highlight=False)
-        return started
 
     def run_rc(self) -> None:
         """Source ~/.shellcraft/rc, as if each line were typed (shellcraft.startup.source)."""
