@@ -1,9 +1,10 @@
-# Pipes, scripting and startup
+# Pipes and scripting
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
 How command lines work in ShellCraft: pipes and redirection, variables, loops and conditions,
-functions, exit status and history, aliases, and the files that run at startup.
+functions, and exit status. Aliases and history have [their own page](aliases-and-history.md),
+and so do [the rc file and startup scripts](startup.md).
 
 ## Pipes and redirection
 
@@ -58,7 +59,7 @@ ShellCraft's value wins over your shell's; `env unset` brings your shell's back,
 `unset NAME` removes the variable for the session. Variables set with `export` are listed too.
 
 They last for the session. To set them at every start, put the lines in `~/.shellcraft/rc`
-(below): `env` then shows them as coming `from rc`, and `settings` lists them under
+([Startup](startup.md)): `env` then shows them as coming `from rc`, and `settings` lists them under
 "Environment (this session)". `man env` has the details.
 
 ## Loops and conditions
@@ -153,96 +154,9 @@ greet() { echo "hello ${1:-stranger}"; }
 - The prompt shows `⏱ 4.2s` after a command that took more than two seconds; `time CMD` prints
   the exact time of one command.
 
-## Aliases
+## Aliases and startup files
 
-```
-alias ll='ls -l'        # a shorter name for a command you type often
-alias ls='ls -a -l'     # or change what a command does by default
-alias                   # list your aliases
-unalias ll              # remove one (unalias -a removes all)
-\ls                     # a leading backslash skips the alias
-```
+These have their own pages now:
 
-An alias replaces the first word of a command, and anything you type after it is added at the end.
-Aliases work in every step of a pipeline and apply in the shell, never to AI clients over MCP.
-`which ls` shows whether a name is an alias.
-
-They are kept in **`~/.shellcraft/aliases`**, a plain text file like bash's `~/.bash_aliases`:
-
-```
-# my shortcuts
-alias ll='ls -l'
-alias errors='grep -i error'
-```
-
-Edit it in any editor and the change applies to the next command, no restart needed. `alias` and
-`unalias` edit the same file and leave your comments alone, `alias --file` prints its path, and a
-line that can't be used (a `|` in the value, an unclosed quote) is skipped and listed by `alias`
-with its line number. Aliases from older versions, saved in `config.json`, move into the file the
-first time the new version starts.
-
-## Startup: the rc file and scripts
-
-**`~/.shellcraft/rc`** is ShellCraft's `~/.bashrc`: a file of ShellCraft command lines that run when
-the interactive shell starts, as if you typed them. Anything you can type works there:
-
-```
-theme nord
-env set PROJECT_ROOT=~/projects
-env set -s GITHUB_TOKEN              # a secret, asked with hidden typing at each start
-cd ~/projects
-sub find ~/projects -name "*.log" -mtime -1
-alert -l info "shell ready"
-```
-
-It can also ask you something, Python style, and use the answer later:
-
-```
-name = input("What is your name? ")
-echo "hello $name"
-count = int(input("How many servers? "))   # asks again until it gets a whole number
-for n in $(seq $count); do echo server-$n; done
-read -s -p "API token: " token      # the bash spelling; -s hides what you type
-```
-
-As in bash, the rc file can pull in other files, so you can keep one per use case:
-
-```
-if [ -f ~/.shellcraft/rc.work ]; then
-    . ~/.shellcraft/rc.work
-fi
-for f in ~/.shellcraft/rc.d/*.rc; do [ -f "$f" ] && source "$f"; done
-```
-
-A failing line is reported with its line number (`✗ rc:4: …`) and the rest still run.
-`source FILE` runs any such file by hand (`source ~/.shellcraft/rc` reruns it). It never runs for
-`--mcp` / `--mcp-http`. `templates/startup/rc.template` is a short starter (a question, a variable, `myip`, a loop) and `templates/startup/rc.example` a longer commented one.
-
-For things a command line can't do, Python scripts in **`~/.shellcraft/startup/`** run when the interactive shell starts, in name order
-(`10-env.py`, `20-mounts.py`), before the first prompt. Use them to set environment variables for
-everything ShellCraft starts later, check a mount or a VPN, or print a reminder. A script is its own
-process, so it hands variables back by appending `NAME=value` lines to the file named in
-`$SHELLCRAFT_ENV_FILE`:
-
-```python
-import os
-with open(os.environ["SHELLCRAFT_ENV_FILE"], "a") as f:
-    f.write("PROJECT_ROOT=/srv/app\n")
-```
-
-The shell, every subshell and every module then see `PROJECT_ROOT`. A script that fails or runs
-longer than 30 s is reported in one line and the shell starts anyway. They run before the rc file,
-so its lines see their variables. `startup` lists them with their last result, `startup run` runs
-them again, `settings startup off` or `--no-startup` skips both the scripts and the rc file.
-
-A script that should keep running (a watcher, a tunnel, a periodic check) starts in the
-background instead, with a header line, so the shell never waits for it:
-
-```python
-# shellcraft: background, restart
-```
-
-It becomes a subshell (`startup: 30-watcher.py` in the panel; Ctrl-] N attaches, **Ctrl-] x** ends
-it), `restart` starts it again after a crash (giving up after 5 crashes in 10 minutes, with an
-alert), and `startup stop / start / restart NAME` control it. `# shellcraft: timeout=120` gives a
-normal script more than 30 s. `templates/startup/30-watcher.example.py` is an example. `templates/startup/10-example.py` is a commented example; `man startup` has the details.
+- [Aliases and history](aliases-and-history.md): shortcuts, the aliases file, and your command history
+- [Startup](startup.md): the rc file and the Python scripts that run when the shell starts

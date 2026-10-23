@@ -226,7 +226,8 @@ In a pipe (`help | grep dns`) each command is one `name  summary` line.
 """
 
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
-SCRIPT_HINT = "⚠ needs run() to work properly! see templates/README.md"  # a module file without run()
+# A module file without run(): shown after its help summary.
+SCRIPT_HINT = "⚠ needs run() to work properly! ingest it, or see docs/modules/first-module.md"
 KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
 
 
@@ -538,7 +539,7 @@ theme --sub --clear    # subshells start with the main theme again (also: theme 
 ```
 
 Themes made for a **light** terminal background: `solarized-light`, `catppuccin-latte`. Your own
-themes go in `~/.shellcraft/config.json` (see docs/settings.md): any color left out comes from `base`,
+themes go in `~/.shellcraft/config.json` (see docs/settings-and-themes.md): any color left out comes from `base`,
 and `light = true` picks light menu surfaces.
 """
 
@@ -754,13 +755,13 @@ ingest check --all [--strict] [--network]
 | `--name NAME` | The command name (asked for when left out). |
 | `--modules DIR` | Where the module goes (default: your modules folder, `~/.shellcraft/modules`). |
 | `--model MODEL` | The AI model to use for the conversion, instead of the default. |
-| `check --all` | Every module in the modules folder. |
+| `check --all` | Every module this shell loads: the bundled ones and yours. |
 | `check --strict` | Warnings fail too (good for CI). |
 | `check --network` | Also run the tests that need the internet. |
 
 Your original script is never modified. The wizard talks to you on the terminal, so it only
-runs in the interactive shell, never over MCP. The module guide (templates/README.md) has the
-rules and a reference module.
+runs in the interactive shell, never over MCP. The manual's docs/modules/ingest.md walks through
+it, and docs/modules/reference.md has every rule.
 """
 
 

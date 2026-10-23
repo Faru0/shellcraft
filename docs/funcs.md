@@ -1,27 +1,34 @@
 # Funcs
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
-A func is a named script of ShellCraft lines that runs when you call it: like your rc file, on
-demand. `func run recon example.com` runs its steps one after another in your shell, as if you
-typed them (a `cd` or `env set` stays), with `$1`, `$@` and `$#` set to the arguments. It stops at
-the first step that fails and says which. A func is not a pipe stage: it runs on its own line.
+A func is a named list of ShellCraft commands that runs when you call it. Think of it as a small
+script, or as an rc file you run on demand. Use one for any routine you type the same way every
+time: a recon pass on a domain, a release checklist, setting up a project folder.
 
 ```
-func new recon --save                  # guided: a few questions, then the steps one per line
-func                                   # the funcs you can run
-func show recon                        # its header and steps, numbered and highlighted
-func run recon example.com             # run it
-recon example.com                      # the same, when its header says `command: yes`
+func run recon example.com
 ```
 
-## The file
+The steps run one after another in your shell, as if you typed them, so a `cd` or `env set` in a
+func stays in effect afterwards. `$1`, `$2`… are the arguments, `$@` is all of them and `$#` how
+many. The func stops at the first step that fails and tells you which one.
 
-`~/.shellcraft/funcs/recon.func`:
+## Write one by hand
+
+A func is a text file in `~/.shellcraft/funcs/`, named after the func. ShellCraft put an example
+there for you. Copy it to see how it works:
+
+```bash
+cd ~/.shellcraft/funcs
+cp example.func.sample recon.func
+```
+
+Here's what `recon.func` contains:
 
 ```
 # func: recon
-# description: Quick domain recon: certificates, DNS, owners
+# description: Quick look at a domain: its subdomains and DNS records
 # system: no
 # output: show
 # command: yes
@@ -29,68 +36,114 @@ recon example.com                      # the same, when its header says `command
 queryCert -s $1 > subs-$1.txt
 queryDns $1
 @ cat subs-$1.txt | wc -l
-echo "recon of $1 done"
+echo "recon of $1 done, subdomains in subs-$1.txt"
 ```
 
-| Header | Meaning |
+The `# key: value` lines at the top are the header. Every line after them is one step. Save the
+file and the func works at once:
+
+```
+func run recon example.com
+recon example.com            # the same, because the header says command: yes
+```
+
+### The header
+
+| Line | What it means |
 | --- | --- |
-| `description` | One line, shown by `func list` |
-| `system` | `yes`: it runs OS programs, so it is refused while OS commands are off (`settings system_commands on`) |
-| `output` | `show`: each step's output prints. `quiet`: only `echo` / `printf` steps and steps starting with `@` print. Errors always do |
-| `command` | `yes`: typing `recon example.com` runs it, besides `func run recon example.com`. A builtin or module with the same name wins |
-| `usage` | How to call it, shown by `func list` and `func show` |
+| `# func: NAME` | Its name. The file name wins if they differ |
+| `# description: TEXT` | One line, shown by `func list` |
+| `# system: yes` | It runs OS programs, so it needs `settings system_commands on` |
+| `# output: show` | Every step's output is printed. `quiet` prints only `echo`, `printf` and steps starting with `@` |
+| `# command: yes` | Typing its name runs it, like a command. A builtin or module with the same name still wins |
+| `# usage: TEXT` | How to call it, shown by `func list` and `func show` |
 
-The command lines themselves are never printed, as in a bash script; a muted line ends the run:
-`✓ recon: 4 steps, 2.3 s`, or `✗ recon: step 2 failed (queryDns example.com): …`. A step is a
-whole command, so a `for … done` written over several lines is one step. Other `#` lines are
-comments.
+All of them are optional. Other lines starting with `#` after the header are comments. A
+`for … done` loop written over several lines counts as one step.
 
-## Running
+### Another example
+
+A release checklist that stops at the first problem:
+
+```
+# func: release
+# description: Test, tag and push a release
+# system: yes
+# output: quiet
+# usage: release VERSION
+@ echo "releasing $1"
+pytest -q
+git tag v$1
+git push origin v$1
+@ echo "v$1 is out"
+```
+
+With `output: quiet`, the test output stays hidden unless something fails, and the `@` lines
+report progress.
+
+## What you see
+
+ShellCraft doesn't print the commands themselves, the same as a bash script. When the func
+finishes you get one muted line:
+
+```
+✓ recon: 4 steps, 2.3 s
+```
+
+or, if a step failed:
+
+```
+✗ recon: step 2 failed (queryDns example.com): …
+```
+
+## Run it other ways
 
 | Command | What it does |
 | --- | --- |
-| `func run NAME [ARG...]` | Run it in your shell, as if typed |
-| `func run -i NAME …` | Isolated: afterwards the directory, shell variables, environment variables, aliases, theme and settings are put back, and nothing is saved while it runs |
-| `func run -b NAME …` | In the background, as a job in the footer (`jobs N` shows its output). It runs in the job's own context, so steps that change the shell (`cd`, `env set`) are refused there |
-| `func run -q` / `-v NAME …` | Quiet or show, this time, whatever the header says |
+| `func run NAME ARGS` | Run it in your shell, as if typed |
+| `func run -i NAME ARGS` | Isolated: afterwards your folder, variables, aliases, theme and settings are put back |
+| `func run -b NAME ARGS` | In the background, as a job in the footer. Steps that change the shell, like `cd`, are refused there |
+| `func run -q NAME ARGS` | Quiet this time, whatever the header says (`-v` shows everything) |
 
-## Making and changing funcs
+## Make and change funcs from the prompt
+
+If you'd rather not edit files, `func` does it all from the prompt:
 
 | Command | What it does |
 | --- | --- |
-| `func new NAME` | Guided: the description, whether it runs OS commands, show or quiet, whether its name is a command, a usage line, then the steps (`step 1 ❯`, an empty line ends) |
-| `func new NAME -e` | Write it in your editor instead ([the editor](#the-editor)) |
-| `func new NAME 'CMD' 'CMD'…` | All at once, with `-d DESC`, `--system`, `--quiet`, `--command` |
-| `--save` / `-g` | Keep it on disk: the active profile's folder, or with `-g` the default setup's. Without `--save` it lasts until you leave ShellCraft |
-| `func save NAME [-g]` | Put a session func on disk |
+| `func new NAME` | Asks a few questions, then the steps one per line. An empty line ends |
+| `func new NAME -e` | Opens your editor instead (see [the editor](#the-editor)) |
+| `func new NAME 'CMD' 'CMD'` | All at once. Add `-d DESC`, `--system`, `--quiet`, `--command` |
+| `--save` | Keep it on disk. Without it, the func lasts until you leave ShellCraft |
+| `-g` | With `--save`: keep it with your main setup instead of the active profile |
+| `func` or `func list` | The funcs you can run |
+| `func show NAME` | Its header and numbered steps |
 | `func edit NAME` | Open it in your editor |
-| `func add NAME 'CMD'` · `insert NAME N 'CMD'` · `rm NAME N` · `move NAME FROM TO` | Change the steps |
-| `func set NAME FIELD VALUE` | `description`, `system` (yes/no), `output` (show/quiet), `command` (yes/no), `usage` |
-| `func rename OLD NEW` · `copy SRC DST [-g]` · `delete NAME [-y]` | Manage them |
-| `func export NAME\|--all [FILE]` · `import FILE [-f] [-g]` | Share them as one JSON file |
-| `func path [NAME]` | Where it lives |
+| `func add NAME 'CMD'`, `insert NAME N 'CMD'`, `rm NAME N`, `move NAME FROM TO` | Change the steps |
+| `func set NAME FIELD VALUE` | Change a header line: `description`, `system`, `output`, `command`, `usage` |
+| `func rename OLD NEW`, `copy SRC DST`, `delete NAME` | Manage them |
+| `func export NAME FILE`, `func import FILE` | Share them as one JSON file |
+| `func path NAME` | Where its file is |
 
 ## Where funcs live
 
-- `~/.shellcraft/funcs/` holds the default setup's funcs, which work in every profile.
-- `~/.shellcraft/profiles/NAME/funcs/` holds a profile's own; one with the same name as a
-  default func wins while the profile is active, and `func list` says `(hides default)`.
-- A func made without `--save` lives in the session, in every profile, until you leave.
+- `~/.shellcraft/funcs/` holds funcs that work in every profile.
+- `~/.shellcraft/profiles/NAME/funcs/` holds a profile's own. While that profile is active, one of
+  its funcs wins over a main one with the same name, and `func list` says `(hides default)`.
+- A func made at the prompt without `--save` lives only in the session.
 
-`profile export` / `import` carry a profile's funcs, and `profile save` copies the active
-profile's funcs and the session's. Funcs are never available to AI clients over MCP.
+AI clients can't run funcs.
 
 ## The editor
 
-`func edit`, `func new -e` and `profile edit` open files in the editor set with
-`settings editor`:
+`func edit`, `func new -e` and `profile edit` open the editor you choose:
 
 ```
 settings editor                 # the one in use, and the editors found on this machine
-settings editor code            # VS Code; also codium, subl, vim, nvim, nano, micro… or any command line
+settings editor code            # VS Code. Also subl, vim, nvim, nano, micro, or any command
 settings reset editor           # back to $VISUAL, then $EDITOR, then nano (notepad on Windows)
 ```
 
-A terminal editor (vim, nano…) opens in a subshell with the whole terminal. A window editor
-(VS Code, Sublime…) opens its own window; ShellCraft adds its "wait" switch (`code --wait`) and
-reads the file back when you close the tab. The setting is shared by every profile.
+A terminal editor like vim or nano opens in a subshell with the whole screen. A window editor like
+VS Code opens its own window, and ShellCraft waits until you close the tab, then reads the file
+back.

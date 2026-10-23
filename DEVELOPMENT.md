@@ -1,7 +1,7 @@
 # Developing ShellCraft
 
-This guide is for working on ShellCraft itself. To *use* the shell, see [README.md](README.md) and the guide in [docs/](docs/README.md). To
-write a module, see [templates/README.md](templates/README.md).
+This guide is for working on ShellCraft itself. To use the shell or write a module, see
+[the manual](docs/README.md).
 
 ## Setup
 
@@ -103,7 +103,7 @@ shellcraft/
 │       ├── ingest_AI.py    # all of ingest's AI: Claude / OpenAI over requests, the prompts, the wizard's AI steps
 │       ├── ui.py           # the wizard's one console (the shell's own inside ShellCraft), ask / confirm
 │       └── check.py        # the module checker
-├── docs/                   # the user guide, one page per topic (index: docs/README.md), and the demo recording
+├── docs/                   # the manual (index: docs/README.md; modules/ for module authors), and the demo recording
 ├── ai/                     # agents and skills for an AI co-pilot (Claude Code), not part of the package
 ├── tests/                  # pytest suite
 ├── .gitlab-ci.yml          # CI: lint, module checker, pytest (Linux + Windows, 3.11–3.14), packaging smoke test
@@ -298,6 +298,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_usage.py` | completion guided by a command's usage line |
 | `test_review.py` | the review loop: the spool, `mark`, `review`, the MCP tools, the shell's alerts |
 | `test_mainlink.py` | the main shell's link: publishing, handlers, stale files |
+| `test_docs.py` | the manual: every link and anchor resolves, no em dashes, every page is in the index, the module tutorial's code gives the output it shows and passes the strict checker, the cheat sheet's code runs, the folder page lists every starter file |
 | `test_skel.py` | the starter files: the set, written once each, a deleted one stays deleted, yours kept, harmless as they come, the examples work once renamed, seeded on an interactive start but not a lite one, `--init` and `--force` |
 | `test_loading.py` | the loading line: bar and spinner frames, the estimate from the last start, the width cut, `settings loader`, a slowed real start (and `--lite`) drawing it and erasing it before the prompt |
 | `test_startup_speed.py` | no heavy package (markdown, mcp, requests…) before the prompt, `keyring` never imported and a module-count ceiling, the banner without prompt_toolkit, the lazy prompt style, `man` still rendering Markdown, keyring keys read in the background, the `--timing` report in a pty |
@@ -313,3 +314,27 @@ which removes the keys from the environment for the test and restores them after
 
 For the `queryCensys` module and its tests against the real SDK types, install the extra:
 `pip install -e ".[dev,censys]"`. Without it, those few checks are skipped.
+
+## Writing docs
+
+The manual is `docs/`, with `docs/README.md` as its front page. `README.md` stays short: a pitch,
+install, a quick start and a table into the manual. Put new material in the page it belongs to,
+and add the page to `docs/README.md` if it's new:
+
+- **Tutorials** (`getting-started.md`, `modules/first-module.md`): one path, start to finish, every
+  step something to type or copy and what you'll see.
+- **How-to pages** (aliases, startup, funcs, profiles, ingest, adding modules): one task each, the
+  files first, the commands that do the same second.
+- **Reference** (`modules/reference.md`, `settings-and-themes.md`, `command-line.md`, `cheatsheet.md`):
+  tables and copy-paste blocks, no story.
+
+How to write them:
+
+- Write the way you'd explain it to a colleague: "you", short sentences, one idea each, the reason
+  before the rule.
+- No em dashes. No stacked parentheses. No marketing words ("powerful", "seamless", "simply").
+- Start each page with what the reader will be able to do after reading it.
+- Every code block runs as shown. Module code in `docs/modules/first-module.md` is marked with
+  `<!-- file: NAME -->` and checked by `tests/test_docs.py`, as are the links and anchors.
+- Prefer a sentence to a table, except for reference material.
+

@@ -220,3 +220,11 @@ def test_cli_starts_in_a_profile_and_a_subshell_inherits_it(monkeypatch, tmp_pat
     assert cli.main(["--no-startup", "--modules", str(tmp_path)]) == 0
     assert started[-1].config.profile is None  # every start is the default
     assert cli.main(["--profile", "nope", "--modules", str(tmp_path)]) == 2
+
+
+def test_every_starter_alias_is_usable():
+    from shellcraft import aliases, profiles
+
+    for name, starter in profiles.STARTERS.items():
+        _, bad = aliases.parse_file(starter["aliases"])
+        assert bad == [], (name, bad)

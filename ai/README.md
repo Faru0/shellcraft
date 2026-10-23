@@ -1,5 +1,7 @@
 # ShellCraft as a co-pilot: agents and skills for your AI
 
+← [The manual](../docs/README.md) · [MCP and the AI co-pilot](../docs/mcp-and-ai.md)
+
 ShellCraft's MCP server lets an AI work next to you in your terminal: read what is on your
 screen, open a subshell with its findings, stage a command for you to paste, run commands (read-only
 ones at once, the rest with your say-so), and ask you to approve risky actions. This folder holds

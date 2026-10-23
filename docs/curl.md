@@ -1,6 +1,6 @@
 # curl
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
 ShellCraft's `curl` takes curl's command line and makes the request with Python's `requests`, so
 it works the same on Linux, macOS and Windows, with or without curl installed. A command from an

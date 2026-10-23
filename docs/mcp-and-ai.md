@@ -1,41 +1,22 @@
-# MCP server and the AI co-pilot
+# MCP and the AI co-pilot
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
-ShellCraft's MCP server: modules as typed tools for AI clients, alerts, the review loop, and
-the co-pilot tools that read your shell and run commands in it. The [ai/](../ai/README.md) folder
-has agents and skills that teach an AI client to use them.
+ShellCraft can be an MCP server, so an AI client such as Claude Code or Claude Desktop can use
+your modules as tools, read what's on your screen, and run commands in your shell, with your
+approval. This page shows how to connect a client, what it can do, and how you stay in control.
+The [ai/](../ai/README.md) folder has agents and skills that teach an AI client to work this way.
 
-## Running the server
+> [!WARNING]
+> A connected AI client can read any file your user account can read, through commands like
+> `cat`, `grep` and `curl`, and `curl` can send a file's contents anywhere. While your shell runs,
+> it can also read the screen, your subshells' output and your command history, and run the
+> commands you approve. Modules that use your API keys spend your quota when the AI calls them.
+> Only connect AI clients you trust.
 
-`python main.py --mcp` starts an MCP server over stdio; `python main.py --mcp-http 127.0.0.1:38765`
-serves the same tools over streamable HTTP at `http://127.0.0.1:38765/mcp` (this machine only, with
-DNS-rebinding protection).
+## Connect a client
 
-The HTTP server requires a **bearer token** on every request, because any local user or process
-can reach a loopback port: pass `--token TOKEN` (or set `SHELLCRAFT_MCP_TOKEN`), let it generate
-one (printed at startup), or turn it off with `--no-token`.
-
-To keep using the shell while the HTTP server runs, start it from inside the shell instead:
-`mcp start [HOST:PORT]` runs it in the background as a child process (Ctrl-C at the prompt doesn't
-stop it, and the prompt shows `● mcp :38765` while it runs) and prints the
-`claude mcp add … --header "Authorization: Bearer …"` line to use. The token is made once and
-**saved** in `config.json` (owner-only), and so is the address: every
-`mcp start`, in any session, uses the same ones, so a client added once keeps working. `mcp show`
-prints the token and the `claude mcp add` line again; `mcp token rotate` makes a new token (a
-running server restarts with it) and prints `claude mcp remove shellcraft` and the new `claude mcp
-add` line to run. `mcp` shows the status, `mcp log` the log, and `mcp stop` stops it. It also stops when you leave the
-shell, even if the shell is killed outright. See `man mcp`.
-
-- **One tool per module that has a `.skill` file** (a module without one is a shell command only), with typed parameters from it, e.g. `{"pattern": "error", "ignore_case": true, "stdin": "..."}`.
-- **`send_tui_alert`** shows a short alert in the running shell's status panel (`message`, `severity`: info / warn / crit, `timeout_seconds`, optional `content`: a payload you copy with a right-click and paste with Alt-v), so a model can flag a finished task or a risk where you will see it, and hand you a path or a command along with it.
-- **The review loop:** `get_flagged_items`, `request_human_review`, `get_review_status` and `resolve_review_item`, plus the `shellcraft://review/queue` resource. See **Reviewing with an AI** below.
-- **The co-pilot tools** reach your **interactive** shell through its private link, published in `~/.shellcraft/mainlink.json` (readable by you only, removed when the shell exits), from the `mcp start` server and a client's own `--mcp` server alike: `get_recent_output` (your screen), `get_jobs` / `get_job_output`, `get_history` (keys redacted), `get_clip` / `set_clip` (what Alt-v pastes: the AI stages a command for you), `open_subshell` (a lite ShellCraft named `✦ AI · finding` in the footer that prints the AI's brief first, with an alert pointing to it), `run_in_shell` (read-only commands run at once with their trace above your prompt; the rest waits for `review approve`, or runs at once after `settings ai_run on`) and `request_session_grant` (the AI asks for that grant once). The `ai/` folder has agents and skills that teach an AI to use them: [ai/README.md](../ai/README.md).
-- **`shellcraft_pipeline`** runs a whole command line, such as `{"command": "cat notes.txt | grep -i todo | sort"}`, using the read-only builtins. It **cannot** redirect to files, change files, read environment variables, change the shell's state or settings, or run OS programs (unless you start the server with `--allow-system`).
-- **Man pages as resources** at `shellcraft://man/<name>`.
-- **Hot reload:** editing, adding or removing a module updates connected clients' tool lists.
-- **Limits:** a call that runs longer than `SHELLCRAFT_MCP_TIMEOUT` seconds (default 120) is abandoned with an error, and stdin and output are capped (10 MB in, 2 MB out).
-- **Local-only modules:** `expose = false` in a module's `.skill` keeps it out of the tool list and out of `shellcraft_pipeline`; `--expose NAME,...` offers only the modules named.
+The simplest setup: the AI client starts its own ShellCraft server whenever it needs one.
 
 **Claude Code**
 
@@ -43,7 +24,7 @@ shell, even if the shell is killed outright. See `man mcp`.
 claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shellcraft/main.py --mcp
 ```
 
-**Claude Desktop** (or any client with an `mcpServers` config)
+**Claude Desktop**, or any client with an `mcpServers` setting:
 
 ```json
 {
@@ -56,64 +37,107 @@ claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shell
 }
 ```
 
-Use absolute paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
-Over HTTP: `claude mcp add --transport http shellcraft http://127.0.0.1:38765/mcp --header "Authorization: Bearer TOKEN"`.
-To poke at the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
+Use full paths. On Windows, the Python path is `C:\\path\\to\\shellcraft\\.venv\\Scripts\\python.exe`.
 
-> [!WARNING]
-> Connected AI clients can read any file your user account can read (through `curl`, `cat`,
-> `grep`, …), and `curl` can request any URL (and send a file's contents with `-d @FILE`); while your interactive shell runs they can also read
-> its screen, its subshells' output and your command history, and run the commands you approve
-> (or any command after `settings ai_run on`). Modules that use your API keys (`queryDns`,
-> `queryCensys`) spend your quota when an AI calls them. Only connect AI clients you trust.
+To try the server by hand: `npx @modelcontextprotocol/inspector .venv/bin/python main.py --mcp`.
 
----
+## Or run the server from your shell
+
+`mcp start` runs an HTTP server in the background of your interactive shell, so you keep working
+while the AI connects to it:
+
+```
+mcp start             # start it, and print the `claude mcp add` line to use
+mcp                   # is it running?
+mcp show              # the token and the `claude mcp add` line again
+mcp log               # its log
+mcp stop              # stop it
+mcp token rotate      # a new token; prints the lines to update your client
+```
+
+The prompt shows `● mcp :38765` while it runs, and it stops when you leave ShellCraft. Its address
+and token are saved in `config.json`, so a client you add once keeps working across sessions.
+
+Every request must carry the token, because any program on your machine can reach a local port.
+From a terminal, the same server is `shellcraft --mcp-http 127.0.0.1:38765`, with `--token TOKEN`
+or `--no-token`.
+
+## What the AI can do
+
+| Tool | What it's for |
+| --- | --- |
+| One tool per module | Every module with a `.skill` file, with typed parameters. A module without one stays a shell command only |
+| `shellcraft_pipeline` | Run a whole command line, such as `cat notes.txt \| grep -i todo \| sort`, using the read-only commands |
+| `send_tui_alert` | Show an alert in your footer, optionally with data you can copy with a right-click |
+| `get_recent_output` | Read your screen |
+| `get_jobs`, `get_job_output` | Your subshells and background commands, and their output |
+| `get_history` | Your command history, with secrets hidden |
+| `get_clip`, `set_clip` | Read the clip register, or put a command there for you to paste with Alt-v |
+| `open_subshell` | Open a light ShellCraft in your footer, named `✦ AI · finding`, that shows its findings |
+| `run_in_shell` | Run a command in your shell. See [Commands the AI runs](#commands-the-ai-runs) |
+| `request_human_review` and friends | Ask you before doing something risky. See [Reviewing with an AI](#reviewing-with-an-ai) |
+
+The screen, jobs, history and clip tools need your interactive shell to be running. They work
+with both kinds of server.
+
+Limits that protect you:
+
+- `shellcraft_pipeline` can't write files, change settings, read environment variables or run
+  your system's programs, unless you start the server with `--allow-system`.
+- A tool call that takes longer than 120 seconds is stopped (`SHELLCRAFT_MCP_TIMEOUT` changes it).
+- `expose = false` in a module's `.skill` file keeps it away from AI clients entirely, and
+  `--expose NAME,...` offers only the modules you name.
+
+Man pages are available to the AI too, at `shellcraft://man/NAME`. When you add, change or remove a
+module, connected clients see the change at once.
 
 ## Reviewing with an AI
 
-A two-way queue between you and an AI client, shared through files in `~/.shellcraft/review/`
-(readable by you only), so it works with the `mcp start` server and with every client's own
-`--mcp` server alike.
+You and the AI share a queue of messages, kept in `~/.shellcraft/review/` where only you can
+read them.
 
-- **You talk to the AI** with `tell`: `tell look at the last 50 lines of auth.log` (or pipe text
-  into it). It is a flag of type `message`, read with `get_flagged_items`; the `monitor` agent in
-  `ai/` watches for them and reports them to the orchestrating AI.
-- **You flag things for the AI** with `mark`: what you pipe in, files, or a diff.
-  ```
-  pytest | mark --type test-failure -p high
-  mark --file app.log --file config.toml -m "startup crash"
-  mark --diff old.py new.py
-  git diff | mark --type diff
-  ```
-  The AI reads them with `get_flagged_items` (or the `shellcraft://review/queue` resource) and
-  closes them with `resolve_review_item`, saying what it did. Each piece keeps its last 256 KB.
-  What you mark is stored as is, so mark only what an AI may read.
-- **The AI asks you before destructive actions** with `request_human_review` (a title, a
-  description, the commands or diffs involved, a priority). It shows in the footer as an alert,
-  `info`, `warn` or `crit` for a low, medium or high priority, until you answer:
-  ```
-  review                       # what is pending
-  review show r-…a1b2c3        # one item in full (the last characters of the id are enough)
-  review approve a1b2c3 go ahead
-  review reject a1b2c3 not on Fridays
-  ```
-  The AI either waits for your answer (`wait_seconds`, up to a little under the call timeout)
-  or asks again with `get_review_status`, and goes ahead only on `approved`. This is advisory:
-  ShellCraft's server instructions tell the AI to ask, but it can't stop what the AI does with
-  its own tools.
-- **The AI runs commands in your shell** with `run_in_shell`, in three tiers. A **read-only**
-  command (grep, cat, jq, sort, the query modules; no redirection, no file changes, no `&`) runs
-  at once as a background job named `✦ AI: command`, and its trace shows above your prompt like
-  any `cmd &`. With the **session grant** everything runs at once: `settings ai_run on` (never
-  saved; `✦ run` shows in the prompt while it is on), or the AI asks once with
-  `request_session_grant` and you answer `review approve`. Anything else waits in the queue as
-  `AI wants to run: command`:
-  ```
-  review show a1b2c3           # the command and the AI's reason
-  review approve a1b2c3        # runs it here, now, with your permissions; the AI gets the output
-  review reject a1b2c3 no      # it never runs
-  ```
+### Tell the AI something
 
-Connected clients are told when the queue changes (a resource-updated notification for
-`shellcraft://review/queue`). Items that are done are deleted after 7 days; pending ones stay
-until answered.
+```
+tell look at the last 50 lines of auth.log
+```
+
+### Flag something for it to look at
+
+```
+pytest | mark --type test-failure -p high
+mark --file app.log --file config.toml -m "startup crash"
+mark --diff old.py new.py
+git diff | mark --type diff
+```
+
+The AI reads these and closes each one, saying what it did. Everything you mark is stored as it
+is, so mark only what an AI may read.
+
+### The AI asks before risky actions
+
+When the AI wants your approval, it shows in the footer as an alert until you answer:
+
+```
+review                         # what's waiting
+review show a1b2c3             # one item in full (the end of its id is enough)
+review approve a1b2c3 go ahead
+review reject a1b2c3 not on Fridays
+```
+
+This is advisory. ShellCraft tells the AI to ask, but it can't stop what the AI does with its own
+tools.
+
+## Commands the AI runs
+
+`run_in_shell` works in three tiers:
+
+1. **Read-only commands** such as `grep`, `cat`, `jq` and the query modules run at once, as a
+   background job named `✦ AI: command`. You see what ran above your prompt.
+2. **Anything else waits for you** in the review queue as `AI wants to run: command`.
+   `review approve` runs it in your shell with your permissions and gives the AI the output.
+   `review reject` means it never runs.
+3. **A session grant** lets everything run at once: `settings ai_run on`, or approve the AI's own
+   request for it. It's never saved, and `✦ run` shows in the prompt while it's on.
+
+Finished review items are deleted after 7 days. Pending ones stay until you answer them.

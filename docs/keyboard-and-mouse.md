@@ -1,38 +1,52 @@
 # Keyboard and mouse
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
-Typing helpers, the viewer for long output, and every keyboard shortcut and mouse action by
-where it works, with what differs between Linux and Windows. In the shell, `hotkeys` prints the
-shortcut tables and `man hotkeys` opens them in the viewer.
+Everything you can do with the keyboard and the mouse: what helps you type, the viewer for long
+output, and every shortcut. Inside the shell, `hotkeys` prints the shortcut tables.
 
-## Typing helpers
+## While you type
 
-- **Syntax highlighting:** known commands are green, unknown ones red, operators in the accent color, quotes, switches and `$variables` in their own colors (`settings highlight off` turns it off).
-- **The toolbar** under the prompt shows the usage of the command you are typing, or says it is not found (`settings toolbar off`).
-- **Ghost text:** start typing a command you've used before, and a faint suggestion appears. Press **→** to accept it. **Ctrl-R** searches the history as you type.
-- **Tab** completes command names and aliases, **switches** for every command (`grep -<Tab>` shows what each one does), **switch values** (`ip2geo -o <Tab>`, `find . -type <Tab>`), **positional values** from a module's `.skill` (`queryCensys <Tab>` → `host cert search`), arguments for `help`, `man`, `theme`, `prompt`, `settings`, `modules` and `unalias`, commands inside `for` / `if` blocks, and paths everywhere else. A name with spaces is quoted for you, and completion works inside quotes.
-- **Completion follows the usage line** of each command and module (its `usage`, as `help` shows it): what may come next is offered, not file names. `cut <Tab>` offers `-f` and `-c`, which it can't run without; `mcp <Tab>` its actions, and `mcp token <Tab>` → `rotate`; `time <Tab>` a command; `grep foo <Tab>` the files. Where only a free value fits (`grep <Tab>`: a PATTERN) Tab on an empty word offers nothing, and the usage toolbar shows what to type. A module gets this from the `usage` in its `.skill`, with no code.
-- **The mouse** works in the completion menu: the entry under the mouse is highlighted as you move, a click picks it, the wheel moves through the list. ShellCraft asks the terminal for the mouse only while a menu is open (and in the pager), so selecting text and wheel-scrolling the scrollback work as usual the rest of the time. `settings mouse off` turns it off; most terminals also let you select text under any program by holding **Shift**.
-- **`settings mouse_always on`** keeps the mouse on at the prompt: click to place the cursor, click a prompt segment (`⚡` → `help`, the path → `ls`, `⎇ branch` → `git status`, `● mcp` → `mcp log`, `[✗ N]` → the last error again), click the toolbar to open the man page of the command you are typing, and roll the wheel over the input line to move through the history (or through the matches during Ctrl-R). The command runs above the prompt and what you typed stays. The cost: the terminal needs **Shift** for text selection and wheel scrollback, which is why it is off by default.
-- **Clickable paths:** file names printed by `ls`, `tree`, `find`, `du` and `grep` can be terminal hyperlinks: `settings links on`, then Ctrl-click (Cmd-click on macOS) opens the file or folder, in Windows Terminal, GNOME Terminal, kitty, WezTerm, iTerm2 and others. Off by default, so a stray click in a listing opens nothing.
-- **Ctrl-C** cancels the current line or a running command, as many times as you like: it never closes ShellCraft (a module that ignores it keeps running in the background, where Python can't stop it). Only **Ctrl-D** on an empty line, or `exit`, leaves the shell. On Windows, Ctrl-Break works like Ctrl-C. If ShellCraft ever hits an unexpected error, it says so and keeps going; the details are in `~/.shellcraft/crash.log` (and in `diag`) for a bug report.
-- A line that ends inside `{ … }` or `( … )` asks for another line (`┆ …`); the whole command is saved to the history as one line.
-- `banner` shows the welcome banner again (`banner -c` clears the screen first). `settings clear_on_start off` keeps the screen at startup.
-- **The prompt** shows `user@host`, the directory, `⎇ branch` in a git repository, `● mcp :38765` while `mcp start` runs, `[✗ N]` after a failure and `⏱` after a slow command. `prompt name path git status` picks the segments, `prompt -r clock` adds a right-hand clock, `prompt reset` goes back (`man prompt`). `settings transient_prompt on` collapses the two-line prompt to `❯ command` after Enter, so the scrollback stays dense.
+- **Colors.** Commands ShellCraft knows are green and unknown ones red. Switches, quotes and
+  `$variables` get their own colors. `settings highlight off` turns this off.
+- **The toolbar** under the prompt shows how to use the command you're typing.
+  `settings toolbar off` hides it.
+- **Grey suggestions.** Start typing a command you've used before and the rest appears in grey.
+  Press **→** to take it. **Ctrl-R** searches everything you've typed.
+- **Tab** completes command names, switches (with a description of each), switch values, file
+  names, and the arguments of commands like `man`, `theme` and `settings`. A name with spaces is
+  quoted for you.
+- **Tab follows each command's usage line.** It offers what can come next, not just file names:
+  `cut <Tab>` offers `-f` and `-c`, `mcp <Tab>` its actions. Where only a value you make up fits,
+  like grep's pattern, Tab offers nothing and the toolbar shows what to type. Your own modules get
+  this from the `usage` line in their `.skill` file.
+- **An unfinished line** that ends inside `{ … }` or `( … )`, or with a `\`, asks for the next line.
+- **Ctrl-C** drops the line or stops the running command. It never closes ShellCraft. Only
+  **Ctrl-D** on an empty line, or `exit`, does.
+
+## The mouse
+
+ShellCraft only takes the mouse while there's something to click: the completion menu, the
+viewer, or the footer. The rest of the time your terminal keeps it, so selecting text and scrolling
+work as usual.
+
+- In the completion menu, the entry under the mouse is highlighted, a click picks it, and the
+  wheel moves through the list.
+- `settings mouse_always on` keeps the mouse at the prompt too. Then you can click to place the
+  cursor, click parts of the prompt (the path runs `ls`, the git branch runs `git status`), and use
+  the wheel to move through your history. The cost: selecting text then needs **Shift**.
+- `settings links on` makes file names from `ls`, `tree`, `find`, `du` and `grep` into links.
+  Ctrl-click (Cmd-click on macOS) opens them.
+- `settings mouse off` turns all of this off.
 
 ## Long output
 
-`man <command>` opens in a scrollable viewer (`man -p <command>` prints it instead), and so does
-anything you pipe into **`less`** (`ls -l | less`, `cat big.log | less`, `less FILE`; `more` is the
-same). Nothing else pages by itself: long output just prints, so you can scroll back through it.
-In the viewer: `↑`/`↓` or `j`/`k` scroll, `PgUp`/`PgDn`/`space`
-page, `d`/`u` half a page, `g`/`G` jump to the top or end, `←`/`→` scroll sideways through long
-lines and `w` wraps them instead, `/` searches (matches are highlighted), `n`/`N` step through
-matches, the mouse wheel scrolls, `?` lists the keys, and `q` closes it. The status bar names the
-command whose output you are reading, and its keys (`/`, `n`, `w`, `?`, `q`) can be clicked; the bar
-on the right is a scrollbar you can click or drag, and a click on a line marks it so `n` / `N`
-search on from there. Turn the viewer off with `settings pager off`.
+`man` opens a scrollable viewer, and so does anything you pipe into `less` (`cat big.log | less`).
+Other output just prints, so you can scroll back through it in your terminal.
+
+In the viewer, the arrow keys and the wheel scroll, `/` searches, `n` jumps to the next match, `w`
+wraps long lines, `?` lists the keys and `q` closes it. The full list is
+[below](#the-viewer-man-less-the-scroll-view). `settings pager off` prints `man` pages instead.
 
 ## At the prompt: editing
 
@@ -132,9 +146,4 @@ the mouse wheel and clicks.
 
 ## A slow start
 
-ShellCraft prints its banner before loading the prompt library, so something shows at once, and
-the prompt follows (about 0.15 s on a typical Linux machine). If the start feels slow, run
-`python main.py --timing`: just before the prompt it prints how long each phase took, starting
-with the time the process existed before ShellCraft's own code ran (the Python interpreter, its
-packages, and on Windows antivirus scanning the files). `diag` keeps the last start's table, to
-paste into a bug report.
+See [Troubleshooting](troubleshooting.md#the-start-is-slow).

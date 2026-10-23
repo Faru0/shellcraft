@@ -384,9 +384,11 @@ STARTERS: dict[str, dict[str, Any]] = {
                  "color": "#f6c177", "theme": "gruvbox", "settings": {"jobs_autoclear": False},
                  "env": {"SOC_LOGS": "/var/log"}},
         "rc": ("# SOC profile\n# review                      # what the AI flagged or asks about\n"
-               "# sub tail -f $SOC_LOGS/auth.log   # watch a log in the background\n"),
+               "# sub tail -f $SOC_LOGS/auth.log   # watch a log in the background\n"
+               "# the ten most common lines of whatever is piped in (an alias can't hold a pipe)\n"
+               "top10() { sort | uniq -c | sort -rn | head -10; }\n"),
         "aliases": ("alias fails=\"grep -i -E 'fail|denied|invalid'\"\nalias errs='grep -i error'\n"
-                    "alias top10='sort | uniq -c | sort -rn | head -10'\nalias flag='mark -p high'\n"),
+                    "alias flag='mark -p high'\n"),
     },
 }
 

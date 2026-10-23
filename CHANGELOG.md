@@ -7,6 +7,15 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A real user manual** in `docs/`, with a front page that says where to start. New pages:
+  Getting started, Your ~/.shellcraft folder (every file, what it's for, when it's read),
+  Aliases and history, Startup, Settings and themes, Command line, Cheat sheet, Troubleshooting,
+  and for module authors Your first module (from three lines to a web API client, step by step),
+  Ingest a script (the wizard's real questions and what it writes where), Add modules you already
+  have, and the Module reference. Funcs, profiles, subshells, keyboard and MCP were rewritten in
+  the same plain voice. The README is now short: a pitch, install, a quick start and where to go.
+  `tests/test_docs.py` checks every link, and runs the tutorial's code.
+
 - **Starter files in `~/.shellcraft`**, the way Linux fills a new home folder from `/etc/skel`:
   an `rc` and an `aliases` file that are all comments with ready lines to uncomment, an example func
   (`funcs/example.func.sample`) and two example startup scripts with a README
@@ -241,6 +250,9 @@ and the project uses [semantic versioning](https://semver.org/).
   is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
 
 ### Fixed
+
+- The SOC starter profile's `top10` alias held a pipe, which aliases can't, so it was skipped. It is
+  now a function in the profile's rc.
 
 - **ingest: a variable your script fills in now starts fresh on every run.** A top-level
   `counts = {}` (or `total = 0`) that the moved code changes (`counts[w] += 1`, `items.append(x)`,

@@ -1,23 +1,62 @@
-# ShellCraft documentation
+# The ShellCraft manual
 
-← [README](../README.md)
+← [Back to the README](../README.md)
 
-| Page | What it covers |
+This manual covers everything ShellCraft does, from your first command to writing your own. Every
+page stands on its own, so jump to the one you need. Inside the shell, `man NAME` has the manual
+for any command, and `help` lists them all.
+
+## Where to start
+
+| You want to | Read |
 | --- | --- |
-| [Pipes, scripting and startup](scripting.md) | Pipes and redirection, variables, loops and conditions, functions, exit status and history, aliases, the rc file and startup scripts |
-| [Funcs](funcs.md) | Named scripts of commands, run on demand: `func` to make, run, edit and share them; `settings editor` |
-| [Profiles](profiles.md) | Named setups (bug bounty, OSINT, SOC…): `profile` to create, switch, save, edit and share them |
-| [curl](curl.md) | HTTP requests with curl's options, pasting a browser's "Copy as cURL", `command curl`, what is not supported yet |
-| [Subshells, alerts and the clip](subshells.md) | `sub`, `jobs`, the footer, `&`, alerts, the clip register |
-| [Keyboard and mouse](keyboard-and-mouse.md) | Typing helpers, the viewer, every shortcut and mouse action, Linux vs Windows, `diag` |
-| [Settings, API keys and themes](settings.md) | Every setting, API keys, OS commands, themes, command-line options |
-| [MCP server and the AI co-pilot](mcp-and-ai.md) | The MCP server, its tools, the review loop, `mark` / `tell` / `review`, the co-pilot |
+| Try ShellCraft for the first time | [Getting started](getting-started.md) |
+| Know where your settings, aliases and history live | [Your ~/.shellcraft folder](your-shellcraft-folder.md) |
+| Make your own command out of a Python script | [Your first module](modules/first-module.md) |
+| Turn a script you already have into a command | [Ingest a script](modules/ingest.md) |
+| Copy and paste the common setups, no reading | [Cheat sheet](cheatsheet.md) |
+| Fix something that isn't working | [Troubleshooting](troubleshooting.md) |
 
-Every command also has a manual in the shell: `man NAME` (`man -p NAME` prints it).
+## Make it yours
 
-| Elsewhere | For |
+These pages show how to customize ShellCraft by editing plain files in `~/.shellcraft`. Each one
+also names the command that does the same from the prompt.
+
+- [Your ~/.shellcraft folder](your-shellcraft-folder.md): what every file and folder is for, and when it's read
+- [Aliases and history](aliases-and-history.md): your shortcuts, and the commands you typed
+- [Startup](startup.md): the `rc` file and startup scripts that run when the shell starts
+- [Funcs](funcs.md): named lists of commands you run when you need them
+- [Profiles](profiles.md): separate setups for different kinds of work
+- [Settings and themes](settings-and-themes.md): every setting, API keys, colors and the prompt
+
+## Write your own commands
+
+A module is a Python file that becomes a ShellCraft command. It works in pipes, has a manual
+page, completes with Tab, and AI clients can call it.
+
+- [Your first module](modules/first-module.md): from a three-line file to a small web API client, step by step
+- [Ingest a script](modules/ingest.md): the wizard that converts a script you already have
+- [Add modules you already have](modules/adding-modules.md): drop the files in, several at once
+- [Module reference](modules/reference.md): every rule, file and option in one place
+
+## Using ShellCraft
+
+- [Pipes and scripting](scripting.md): pipes, redirects, variables, loops, conditions and functions
+- [curl](curl.md): web requests, and pasting a browser's "Copy as cURL"
+- [Subshells, alerts and the clip](subshells.md): running programs side by side, the footer, alerts
+- [Keyboard and mouse](keyboard-and-mouse.md): shortcuts, completion, the viewer
+- [MCP and the AI co-pilot](mcp-and-ai.md): letting AI clients use your shell
+
+## Reference
+
+- [Cheat sheet](cheatsheet.md): copy and paste blocks for everything on one page
+- [Command line](command-line.md): `shellcraft` options and environment variables
+- [Troubleshooting](troubleshooting.md): a slow start, Windows, a module that won't load, bug reports
+
+## Elsewhere
+
+| Document | For |
 | --- | --- |
-| [templates/README.md](../templates/README.md) | Writing and testing your own modules |
-| [ai/README.md](../ai/README.md) | Agents and skills for an AI client |
+| [ai/README.md](../ai/README.md) | Agents and skills that teach an AI client to work in ShellCraft |
 | [DEVELOPMENT.md](../DEVELOPMENT.md) | Working on ShellCraft itself |
-| [CHANGELOG.md](../CHANGELOG.md) | What changed in each release |
+| [CHANGELOG.md](../CHANGELOG.md) | What changed in each version |

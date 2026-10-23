@@ -1,94 +1,62 @@
 # Profiles
 
-← [README](../README.md) · [All docs](README.md)
+← [Manual](README.md)
 
-Named setups for different kinds of work (bug bounty, OSINT, SOC…), switched in the running
-shell with `profile use NAME`. A profile layers on top of your default setup and keeps only what
-it changes: the theme, settings, prompt, modules on or off, environment variables, aliases, an rc
-file, and its own command history. Your API keys, the MCP token, the prefix key and your base
-aliases and rc are shared by every profile.
+A profile is a named setup for one kind of work: bug bounty, OSINT, a client project. Switching
+to it changes the theme, settings, modules, environment variables, aliases, rc file and command
+history all at once, in the running shell. Switching back undoes all of it.
 
-ShellCraft always starts in the default setup; `shellcraft --profile NAME` (or
-`python main.py --profile NAME`) starts in a profile.
-
-## Quick start
+A profile only holds what it changes. Everything else comes from your main setup. Your API keys,
+the MCP token, the prefix key, and your main aliases and rc file are shared by every profile.
 
 ```
-profile starters                       # bugbounty, osint, soc: ready-made starting points
-profile new recon --template osint     # a profile from a starter
-profile new acme                       # or the wizard: it asks what the profile should set
-profile use recon                      # switch now: theme, settings, modules, variables, aliases, history
-profile                                # the list; ● marks the active one
-profile off                            # back to the default setup
+profile use recon        # switch to it now
+profile off              # back to your main setup
+profile                  # the list; ● marks the active one
 ```
 
-## The commands
+ShellCraft always starts in your main setup. To start in a profile:
 
-| Command | What it does |
-| --- | --- |
-| `profile` / `profile list` | The profiles: description, theme, variables, aliases, modules ±, history, last used |
-| `profile show [NAME]` | Everything a profile sets, and its rc (the active profile by default) |
-| `profile use NAME` / `profile switch NAME` | Switch to it now; `profile use default` or `profile off` goes back |
-| `profile new NAME` | The wizard (below). `--template T` starts from a starter, `--from P` copies a profile, `--empty` sets nothing, `-d DESC` a description, `--use` switches to it |
-| `profile save [NAME]` | This session's setup as a profile: asks the name, shows what it will write, asks before replacing one |
-| `profile edit [NAME] [rc\|aliases\|config]` | Opens a profile file in your `$EDITOR` (in a subshell), then applies it again if it is active |
-| `profile set NAME KEY VALUE` | `description`, `color` (`#rrggbb`), `theme`, `history` (`own` / `shared`) |
-| `profile env NAME [set VAR VALUE \| unset VAR]` | A profile's plain environment variables |
-| `profile diff [A] [B]` | What differs: the active profile (or A) against the default, or A against B, rc lines included |
-| `profile copy SRC DST` · `rename OLD NEW` · `delete NAME [-y]` | Manage them; the active one can't be renamed or deleted |
-| `profile reload` | Apply the active profile again after editing its files |
-| `profile export NAME [FILE]` · `import FILE [NAME] [-f]` | One JSON file to back up or share: no history, no secrets |
-| `profile path [NAME]` | The folder |
+```bash
+shellcraft --profile recon
+```
 
-## The wizard
+## Start from a ready-made one
 
-`profile new NAME` with no `--template`, `--from` or `--empty` asks one question at a time; Enter
-keeps the value in brackets and Ctrl-C stops without creating anything:
+Three starters come with ShellCraft: `bugbounty`, `osint` and `soc`. Make a profile from one, then
+change what you like:
 
-1. a description;
-2. what to start from: nothing, the current setup, a starter or another profile;
-3. the theme;
-4. modules to turn off, and modules to turn on;
-5. environment variables: `NAME=VALUE`, or just `NAME` for a secret (asked when the profile starts,
-   with hidden typing);
-6. aliases: `NAME=COMMAND`;
-7. its own command history or the shared one, and the color of its prompt badge;
+```
+profile starters                       # what each one sets
+profile new recon --template osint
+profile use recon
+```
 
-then it shows what it will write, creates it, and offers to switch to it.
+Or answer a few questions instead:
 
-## `profile save`
+```
+profile new acme
+```
 
-Customize a session the usual way (`theme`, `settings`, `modules disable`, `env set`, `prompt`),
-then `profile save NAME` keeps it: the theme, the settings that differ from their defaults, the
-prompt, the modules off, the variables set with `env set` / `export` / an rc, and the active
-profile's rc and aliases. A secret is saved as an `env set -s NAME` line in the rc, never as a
-value: it is asked for with hidden typing when the profile starts.
+The wizard asks for a description, what to start from, the theme, modules to switch on or off,
+environment variables, aliases, and whether it keeps its own history. Press Enter to keep the value
+shown in brackets, and Ctrl-C to stop without creating anything. Then it shows what it will write
+and offers to switch to it.
 
-## While a profile is active
+## Write one by hand
 
-- The prompt shows `◆ NAME` in the profile's color (the `profile` segment), and the banner names it.
-- `theme`, `settings KEY on|off`, `prompt`, `alias` and `modules enable/disable` change **the
-  profile**, not the default setup. `alias -g` / `unalias -g` change the shared aliases; API keys
-  (`settings NAME VALUE`) and the MCP token are always shared. `settings` says which profile it
-  is changing in its title.
-- `env` lists the profile's variables as `from profile:NAME`. Switching away removes them and
-  brings back any value your shell had; variables you set yourself with `env set` stay.
-- `history`, ↑, Ctrl-R and the grey suggestions use the profile's own history, so a target name
-  typed in one engagement never shows up in another (`profile set NAME history shared` to share).
-- Processes ShellCraft starts (`sub shellcraft`, `cmd &`, `mcp start`) run in the same profile.
-  A server or subshell already running keeps its profile: `mcp restart` moves the server.
+A profile is a folder: `~/.shellcraft/profiles/NAME/`. Every file in it is optional.
 
-## On disk
+```
+~/.shellcraft/profiles/recon/
+├── profile.json     what it changes
+├── rc               commands to run when you switch to it
+├── aliases          aliases added on top of your main ones
+├── history          its own command history (ShellCraft writes this)
+└── funcs/           its own funcs
+```
 
-`~/.shellcraft/profiles/NAME/`:
-
-| File | Holds |
-| --- | --- |
-| `profile.json` | `description`, `color`, `history` (`own` / `shared`), and what it changes: `theme`, `sub_theme`, `prompt`, `settings` (only those it changes), `modules` (`enable` / `disable`), `env` (plain variables; `~` and `$VARS` are expanded) |
-| `rc` | ShellCraft lines run after `~/.shellcraft/rc` when the profile starts |
-| `aliases` | Aliases added on top of `~/.shellcraft/aliases`; a profile alias wins |
-| `history` | Its own command history |
-| `funcs/` | Its own [funcs](funcs.md), added to the default setup's |
+### profile.json
 
 ```json
 {
@@ -103,5 +71,84 @@ value: it is asked for with hidden typing when the profile starts.
 }
 ```
 
-The files are plain text and JSON: edit them in any editor (`profile edit NAME config`), then
-`profile reload`.
+| Key | What it does |
+| --- | --- |
+| `description` | One line, shown by `profile list` |
+| `color` | The color of its `◆ NAME` badge in the prompt, as `#rrggbb` |
+| `theme` | The theme while it's active (`sub_theme` for its subshells) |
+| `prompt` | The prompt segments while it's active, as `prompt` sets them |
+| `settings` | Only the settings it changes, such as `{"links": true}` |
+| `modules` | Modules to switch on (`enable`) and off (`disable`) |
+| `env` | Environment variables. `~` and `$VARS` are expanded |
+| `history` | `own` (the default) keeps its own history; `shared` uses your main one |
+
+### rc
+
+ShellCraft commands, run when you switch to the profile, after your main rc file. The same
+format as [your main rc](startup.md#the-rc-file):
+
+```
+mkdir -p $OSINT_ROOT
+cd $OSINT_ROOT
+env set -s SHODAN_API_KEY        # a secret: asked with hidden typing when the profile starts
+```
+
+### aliases
+
+The same format as [your main aliases file](aliases-and-history.md#the-aliases-file). These are
+added on top of your main aliases, and win when both have the same name:
+
+```
+alias certs='queryCert'
+alias subs='queryCert -s'
+alias whereis='ip2geo'
+```
+
+### funcs/
+
+Funcs that only exist in this profile. See [Funcs](funcs.md).
+
+After editing a profile's files, apply them to the running shell with `profile reload`. Or open
+one in your editor straight from the prompt with `profile edit NAME rc` (or `aliases`, `config`).
+
+## Save what you've set up
+
+Set things up the usual way with `theme`, `settings`, `modules disable`, `env set` and `prompt`,
+then keep it as a profile:
+
+```
+profile save acme
+```
+
+It saves the theme, the settings that differ from the defaults, the prompt, the modules you
+switched off, and the variables you set. A secret is saved as an `env set -s NAME` line in the
+profile's rc, never as its value, so it's asked for when the profile starts.
+
+## While a profile is active
+
+- The prompt shows `◆ NAME` in the profile's color.
+- `theme`, `settings`, `prompt`, `alias` and `modules enable` or `disable` change the profile, not
+  your main setup. `alias -g` changes your main aliases. API keys are always shared.
+- `env` lists the profile's variables as `from profile:NAME`. Switching away removes them.
+- `history`, ↑, Ctrl-R and the grey suggestions use the profile's own history, so a target you typed
+  in one project never shows up in another.
+- Subshells and background commands started from it run in the same profile.
+
+## Every profile command
+
+| Command | What it does |
+| --- | --- |
+| `profile` or `profile list` | The profiles, with what each one sets |
+| `profile show NAME` | Everything a profile sets, and its rc |
+| `profile use NAME` | Switch to it now. `profile off` goes back to your main setup |
+| `profile new NAME` | The wizard. `--template T` starts from a starter, `--from P` copies a profile, `--empty` sets nothing, `-d DESC` a description, `--use` switches to it |
+| `profile starters` | The ready-made starters |
+| `profile save NAME` | This session's setup as a profile |
+| `profile edit NAME [rc\|aliases\|config]` | Open one of its files in your editor |
+| `profile set NAME KEY VALUE` | Change `description`, `color`, `theme` or `history` |
+| `profile env NAME set VAR VALUE` | Set one of its variables (`unset VAR` removes it) |
+| `profile diff A B` | What differs between two profiles, or between one and your main setup |
+| `profile copy SRC DST`, `rename OLD NEW`, `delete NAME` | Manage them |
+| `profile reload` | Apply the active profile again after editing its files |
+| `profile export NAME FILE`, `profile import FILE` | One JSON file to back up or share. No history, no secrets |
+| `profile path NAME` | Its folder |
