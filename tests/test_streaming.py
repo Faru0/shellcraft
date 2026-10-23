@@ -150,3 +150,56 @@ def test_a_module_checking_modkit_cancellation_stops_when_the_pipeline_does(tmp_
     started = time.monotonic()
     out = to_text(run_line("ticker | head -2", ctx).output)
     assert out == "tick 1\ntick 2\n" and time.monotonic() - started < 3
+
+
+# ── batching between segments ────────────────────────────────────────────────
+
+def test_lines_travel_between_segments_in_chunks():
+    import threading
+
+    from shellcraft.streams import BATCH_LINES, Batcher, Channel
+
+    out = Channel(threading.Event())
+    batch = Batcher(out)
+    for n in range(BATCH_LINES + 10):
+        batch.put(f"{n}\n")
+    batch.close()
+    out.end()
+    kinds = []
+    while (entry := out.get(timeout=1)) is not None and entry[0] != "end":
+        kinds.append(entry[1].count("\n"))
+    assert kinds == [BATCH_LINES, 10]
+
+
+def test_a_single_slow_line_is_not_held_back():
+    import threading
+
+    from shellcraft.streams import BATCH_WAIT, Batcher, Channel
+
+    out = Channel(threading.Event())
+    batch = Batcher(out)
+    started = time.monotonic()
+    batch.put("one\n")
+    entry = out.get(timeout=1)
+    assert entry == ("data", "one\n") and time.monotonic() - started < BATCH_WAIT * 10
+    batch.close()
+
+
+def test_a_cancelled_pipeline_stops_the_batching_producer():
+    import threading
+
+    from shellcraft.streams import Batcher, Cancelled, Channel
+
+    cancel = threading.Event()
+    batch = Batcher(Channel(cancel))
+    batch.put("a\n")
+    cancel.set()
+    with pytest.raises(Cancelled):
+        batch.put("b\n")
+
+
+def test_the_last_segment_hands_its_items_on_in_lists(ctx):
+    from shellcraft.context import to_text
+
+    result = run_line("seq 1 2000 | grep 1", ctx)
+    assert to_text(result.output).count("\n") == len([n for n in range(1, 2001) if "1" in str(n)])

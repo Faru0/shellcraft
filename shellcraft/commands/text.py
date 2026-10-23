@@ -364,11 +364,13 @@ def _grep_lines(lines: Any, regex: re.Pattern, opts: Any) -> Any:
                     text.append(match.group(), style="sc.match")
                     yield Styled(text, head + match.group() + "\n")
         else:
-            text = Text(head, style="sc.accent")
-            body = Text(line)
+            text = Text(line)
             if not opts.invert_match:
-                body.highlight_regex(regex, style="sc.match")
-            text.append_text(body)
+                text.highlight_regex(regex, style="sc.match")
+            if head:
+                numbered = Text(head, style="sc.accent")
+                numbered.append_text(text)
+                text = numbered
             yield Styled(text, head + line + "\n")
         if opts.max_count is not None and found >= opts.max_count:
             break

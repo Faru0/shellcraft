@@ -25,12 +25,15 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import weakref
 from collections.abc import Iterator
 from typing import Any
 
 CHANNEL_SIZE = 256  # chunks buffered between two segments before the writer waits
 POLL = 0.05  # seconds between checks of the cancel event while waiting
+BATCH_LINES = 512  # streamed lines a segment collects before handing them on as one chunk
+BATCH_WAIT = 0.02  # seconds a collected line waits at most, so a slow producer still shows live
 
 _local = threading.local()
 
@@ -128,6 +131,19 @@ class Channel:
     def fail(self, error: Exception) -> None:
         self._put(("error", error), may_drop=True)
 
+    def waiting(self) -> tuple[list[Any], tuple[str, Any] | None]:
+        """Every ("data", obj) queued right now, without waiting, and the first other entry met
+        (an end or an error, for the caller to handle next), or None."""
+        objs: list[Any] = []
+        while True:
+            try:
+                kind, value = self._q.get_nowait()
+            except queue.Empty:
+                return objs, None
+            if kind != "data":
+                return objs, (kind, value)
+            objs.append(value)
+
     def get(self, timeout: float | None = None) -> tuple[str, Any] | None:
         """The next item; None when `timeout` passes first. Raises Cancelled when stopped."""
         waited = 0.0
@@ -140,6 +156,75 @@ class Channel:
                 waited += POLL
                 if timeout is not None and waited >= timeout:
                     return None
+
+
+class Batcher:
+    """Collects the items a segment streams and puts them into its channel in chunks: one queue
+    operation per BATCH_LINES items instead of one per item, which was most of a long pipeline's
+    time (a `|` cost half a second per 100,000 lines). Between segments the items are lines of
+    text, joined; the last segment's items reach the caller as they are, in lists. A chunk is sent when it is full or
+    BATCH_WAIT after its first line, whichever comes first, so `tail -f | grep` and a program
+    printing slowly still flow as they did. Only the producing thread calls `put` and `close`;
+    the timer thread only flushes."""
+
+    def __init__(self, out: Channel, join: bool = True):
+        self.out = out
+        self.join = join  # text joined into one chunk; else a list of items under an "items" tag
+        self._buf: list[Any] = []
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._closed = False
+        self._error: BaseException | None = None  # raised by the timer's flush, for the producer
+        self._timer: threading.Thread | None = None
+
+    def put(self, item: Any) -> None:
+        if self._error is not None:
+            raise self._error
+        if self.out.cancel.is_set():
+            raise Cancelled
+        with self._lock:
+            self._buf.append(item)
+            if len(self._buf) >= BATCH_LINES:
+                self._flush_locked()
+                return
+            if len(self._buf) == 1:
+                if self._timer is None:
+                    self._timer = threading.Thread(target=self._run, daemon=True, name="shellcraft:batch")
+                    self._timer.start()
+                self._wake.set()
+
+    def close(self) -> None:
+        """Send what is pending; the timer thread stops on its own."""
+        with self._lock:
+            self._closed = True
+            self._flush_locked()
+        self._wake.set()
+
+    def discard(self) -> None:
+        """Drop what is pending and stop the timer thread (the segment failed or was stopped)."""
+        with self._lock:
+            self._closed = True
+            self._buf = []
+        self._wake.set()
+
+    def _flush_locked(self) -> None:
+        if not self._buf:
+            return
+        items, self._buf = self._buf, []
+        self.out.put("".join(items) if self.join else ("items", items))
+
+    def _run(self) -> None:
+        while not self._closed and not self.out.cancel.is_set():
+            if not self._wake.wait(POLL):
+                continue
+            self._wake.clear()
+            time.sleep(BATCH_WAIT)
+            try:
+                with self._lock:
+                    self._flush_locked()
+            except BaseException as exc:  # noqa: BLE001 — Cancelled or UpstreamFailed: the producer gets it next
+                self._error = exc
+                return
 
 
 class Lines:
@@ -226,6 +311,16 @@ def drain(result: Any) -> Any:
             break
     value = combine([i for i in items if i is not None and i != ""])
     return WithStatus(value, status) if status else value
+
+
+def combinable(items: list[Any]) -> bool:
+    """Whether combine() keeps every item as it is: text, or styled text (not a table)."""
+    from rich.text import Text
+
+    from shellcraft.context import Styled
+
+    return all(isinstance(i, (str, Text)) or (isinstance(i, Styled) and isinstance(i.renderable, Text))
+               for i in items)
 
 
 def combine(items: list[Any]) -> Any:

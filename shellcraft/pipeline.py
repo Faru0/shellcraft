@@ -379,10 +379,11 @@ def _start(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: An
 def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: Any, out: Channel,
              cancel: threading.Event, final: bool) -> None:
     """One segment in its own thread: run it and write what it makes into `out`. The last
-    segment writes ("value", obj) for a whole result and ("item", obj) per streamed item, so the
+    segment writes ("value", obj) for a whole result and ("items", list) for streamed items, so the
     caller can keep a single result as it is (a table, a man page); the others write text."""
     streams.set_cancel(cancel)
     result: Any = None
+    batch: streams.Batcher | None = None
     try:
         try:
             result = _call(cmd, _stdin_for(cmd, upstream), ctx)
@@ -390,6 +391,7 @@ def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: 
             if isinstance(result, WithStatus):
                 status, result = result.status, result.value
             if streams.is_stream(result):
+                batch = streams.Batcher(out, join=not final)
                 while True:
                     try:
                         item = next(result)
@@ -399,7 +401,8 @@ def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: 
                         break
                     if item is None or item == "":
                         continue
-                    out.put(("item", item) if final else streams.item_text(item))
+                    batch.put(item if final else streams.item_text(item))
+                batch.close()
             elif final:
                 out.put(("value", "" if result is None else result))
             else:
@@ -427,6 +430,8 @@ def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: 
     except Cancelled:
         return
     finally:
+        if batch is not None:
+            batch.discard()  # already closed when all went well: this only stops its timer thread
         if streams.is_stream(result) and hasattr(result, "close"):
             try:
                 result.close()
@@ -457,9 +462,20 @@ def _gather(out: Channel, ctx: ShellContext, sink: Any, label: str) -> tuple[Any
         if tag == "value":
             value = obj
         elif printing:
-            sink(obj)
+            # Everything that has arrived meanwhile goes to the sink as one piece: one print for
+            # hundreds of lines when they pour in, still one per line when they trickle.
+            more, pending = out.waiting()
+            batch = [*obj, *(o for t, objs in more if t == "items" for o in objs)]
+            if len(batch) > 1 and streams.combinable(batch):
+                sink(streams.combine(batch))
+            else:
+                for item in batch:
+                    sink(item)
+            if pending is not None:
+                entry = pending
+                continue
         else:
-            items.append(obj)
+            items.extend(obj)
             if sink is not None and deadline is None:
                 deadline = time.monotonic() + LIVE_AFTER
         timeout = None
