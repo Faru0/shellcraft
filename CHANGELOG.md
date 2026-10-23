@@ -16,6 +16,25 @@ and the project uses [semantic versioning](https://semver.org/).
   with `os.scandir` instead of stat-ing every entry again for `-type` and the walk: five times
   faster on a big tree. Nothing looks or behaves differently.
 
+### Fixed
+
+- **Ctrl-C in the first moments of a start** (while prompt_toolkit loads) printed a Python
+  traceback and exited with status 2. It now ends the start quietly with status 130.
+- **Mouse and cursor reports delivered while a command runs** reached the next prompt as text,
+  minus their escape prefix: `<64;10;5M`, `12;34R`. Before each prompt, what the terminal
+  delivered meanwhile is parsed the way the prompt would, the reports are dropped, and typed
+  text, Enter and pastes are kept as typeahead, as in bash.
+- **A Ctrl-C between commands** left its `^C` echo on the line and the prompt started right
+  after it. The prompt now starts on the next line.
+- **An interrupted print** could leave the terminal inside a colored span, mid-line. Colors are
+  reset and the line ended before `^C interrupted`.
+- **Ctrl-Z** inserted a `^Z` character into the line. It does nothing now.
+- The terminal's `NOFLSH` flag is set for the session on Linux and macOS, so a Ctrl-C no longer
+  makes the tty driver discard queued output, which could cut an escape sequence in half and
+  show its tail as text.
+- A stress harness (`tools/stress/`) drives the shell through a pseudo-terminal with Ctrl-C,
+  mouse reports, bad bytes and resizes at random moments; `STRESS-TEST.md` has the findings.
+
 ### Added
 
 - **Every new profile comes with an empty `startup/` folder**, whether it's made by `profile new`,

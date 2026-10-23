@@ -56,6 +56,7 @@ ignore = ["E741", "SIM108", "SIM102", "SIM105", "SIM114", "B007", "B023", "B905"
 [tool.ruff.lint.per-file-ignores]
 "tools/ingest/__main__.py" = ["E402"]  # sys.path is set up before the imports
 "tools/**" = ["E501"]
+"tools/stress/*.py" = ["E401", "E701", "E702", "I001", "F401", "F841", "B018", "SIM", "UP"]  # a compact test driver, not shipped code
 "tests/**" = ["E501"]
 "shellcraft/commands/*.py" = ["E501"]  # man pages hold Markdown tables, whose rows can't wrap
 

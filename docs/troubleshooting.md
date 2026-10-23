@@ -71,6 +71,15 @@ diag keys --raw --mouse      # the same for the mouse
 
 On Linux, Alt-v should show as `escape v`. `settings diagnostics off` hides `diag` again.
 
+## Odd numbers on the line after a Ctrl-C
+
+Something like `<64;10;5M` or `12;34R` at the prompt is a mouse or cursor report the terminal
+sent while a command was running, which older versions handed to the next prompt as text.
+ShellCraft now filters them out of what was typed ahead, and keeps the terminal from cutting
+a color code in half when a command is interrupted. If you still see it, note what was
+running and whether you used the wheel or the mouse at that moment, and report it with the
+output of `diag` (see "Reporting a bug" below).
+
 ## Something crashed
 
 ShellCraft keeps running after an unexpected error and writes the details to

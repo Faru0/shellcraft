@@ -320,6 +320,8 @@ class Shell:
         self.session.default_buffer.on_cursor_position_changed += lambda _buffer: self._take_mouse_back()
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
+        self._interrupt_dropped = False  # a Ctrl-C between commands (see _dropped_interrupt)
+        self._tty_attrs: Any = None  # the terminal's attributes before keep_output_on_interrupt
 
     def _print_live(self, item: Any) -> None:
         """One streamed item of a running pipeline, printed at once (no pager: it is still coming)."""
@@ -673,6 +675,11 @@ class Shell:
             def _fold(event: Any) -> None:
                 self.footer.toggle_collapsed()
 
+        @kb.add("c-z")
+        def _(event: Any) -> None:
+            """Ctrl-Z: ignored. prompt_toolkit would insert a ^Z character; suspending would stop
+            the shell with nothing to resume it when ShellCraft is the terminal's own shell."""
+
         @kb.add("c-s", filter=Condition(lambda: prefix.name() == "ctrl-s"))
         def _prefix_alone(event: Any) -> None:
             pass  # Ctrl-S as the prefix, alone at the prompt: nothing (not prompt_toolkit's forward search)
@@ -820,10 +827,13 @@ class Shell:
         self._cleanup.close()
 
     def __enter__(self) -> Shell:
+        self._tty_attrs = keep_output_on_interrupt()
         return self
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+        restore_tty(self._tty_attrs)
+        self._tty_attrs = None
 
     def _open_history(self) -> Any:
         """The command history of the active profile (its own file), or the base one."""
@@ -1384,10 +1394,24 @@ class Shell:
             self._first_prompt_done = True
             self._startup_report()
         prefill, self.ctx.prefill = self.ctx.prefill, ""  # `clip -i`: the next prompt starts with it
+        self._before_prompt()
         line = self.session.prompt(message, default=prefill) if prefill else self.session.prompt(message)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line
+
+    def _before_prompt(self) -> None:
+        """The terminal, tidied for a prompt: a Ctrl-C that arrived between commands left its
+        `^C` echo on the current line (the prompt would start right after it), and what the
+        terminal delivered meanwhile is kept as typeahead without cursor replies or mouse
+        reports (see shellcraft.typeahead)."""
+        if self._interrupt_dropped:
+            self._interrupt_dropped = False
+            self._quietly(lambda: self.ui.console.file.write("\n"))
+        if self.ui.console.is_terminal:
+            from shellcraft import typeahead
+
+            self._guarded(lambda: typeahead.collect(self.session.input), "the typeahead")
 
     def _startup_report(self) -> None:
         """Before the first prompt: the startup timing, kept for `diag`, and shown with --timing."""
@@ -1489,7 +1513,10 @@ class Shell:
                 with self._interruptible():
                     show(self.ui, result.output, pager=settings.get(self.ctx.config, "pager"), title=line)
             except KeyboardInterrupt:
-                pass
+                # The print stopped wherever it was: inside a colored span, mid-line. Back to
+                # plain text on a fresh line before anything else is written.
+                self._quietly(lambda: self.ui.console.file.write("\x1b[0m\n" if self.ui.console.is_terminal else "\n"))
+                self._interrupted()
         return None
 
     def _plain_input(self) -> Any:
@@ -1556,9 +1583,8 @@ class Shell:
                 except (ValueError, OSError):
                     pass
 
-    @staticmethod
-    def _dropped_interrupt(signum: int, frame: Any) -> None:
-        pass
+    def _dropped_interrupt(self, signum: int, frame: Any) -> None:
+        self._interrupt_dropped = True  # its ^C echo is on the line: the next prompt starts below it
 
     @contextlib.contextmanager
     def _interruptible(self) -> Any:
@@ -1641,6 +1667,38 @@ class Shell:
     def _goodbye(self, code: int) -> int:
         self.ui.console.print(Text("⏻ session closed — stay curious.", style="sc.muted"))
         return code
+
+
+def keep_output_on_interrupt(fd: int | None = None) -> Any:
+    """Set NOFLSH on the terminal: a Ctrl-C then interrupts the command without the tty driver
+    also discarding whatever output it had queued, which could cut an escape sequence in half
+    (the rest of it shows as `;207m` text, and the colors go wrong). Returns what to give
+    restore_tty, or None when there is no POSIX terminal."""
+    if sys.platform == "win32":
+        return None
+    try:
+        import termios
+
+        fd = sys.stdin.fileno() if fd is None else fd
+        before = termios.tcgetattr(fd)
+        after = list(before)
+        after[3] |= termios.NOFLSH
+        termios.tcsetattr(fd, termios.TCSANOW, after)
+        return (fd, before)
+    except Exception:  # noqa: BLE001 — not a terminal, or no termios
+        return None
+
+
+def restore_tty(saved: Any) -> None:
+    if saved is None:
+        return
+    try:
+        import termios
+
+        fd, before = saved
+        termios.tcsetattr(fd, termios.TCSANOW, before)
+    except Exception:  # noqa: BLE001 — the terminal is gone
+        pass
 
 
 def _continued(line: str) -> bool:

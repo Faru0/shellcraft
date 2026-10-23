@@ -184,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
     if profile_name and (args.mcp or args.mcp_http):  # a server in a profile: its variables too
         for var, value in (profiles.load(profile_name).get("env") or {}).items():
             os.environ[str(var)] = profiles.plain(value)
+    if args.mcp or args.mcp_http:
+        _interrupts_as_usual()
     if args.mcp_http:
         from shellcraft.mcp_server import AddressError, parse_http_address, serve_http
 
@@ -302,6 +304,16 @@ def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str |
     return True
 
 
+def _interrupts_as_usual() -> None:
+    """Python's default Ctrl-C handling (KeyboardInterrupt), after main.py's quiet startup exit."""
+    import signal
+
+    try:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+    except (ValueError, OSError):
+        pass
+
+
 def _ctrl_break_is_ctrl_c() -> None:
     """Windows: Ctrl-Break would end the process (Python's default); make it a Ctrl-C."""
     import signal
@@ -321,6 +333,7 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
     from shellcraft import loading, settings
 
     loading.stop()  # erased before the shell writes anything
+    _interrupts_as_usual()  # from here Ctrl-C is a KeyboardInterrupt again (main.py made it a quiet exit)
     with Shell(ctx) as shell:
         timing.mark("shell set up")
         # Only here, never before argument parsing or in --mcp mode: a clear sequence on the MCP

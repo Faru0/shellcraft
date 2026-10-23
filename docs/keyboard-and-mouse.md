@@ -64,6 +64,7 @@ wraps long lines, `?` lists the keys and `q` closes it. The full list is
 | `Ctrl-L` | Clear the screen |
 | `Ctrl-C` | Drop the line (or stop the running command); it never closes ShellCraft |
 | `Ctrl-D` | Leave ShellCraft, on an empty line |
+| `Ctrl-Z` | Nothing. ShellCraft doesn't suspend itself (there may be no shell behind it to bring it back) |
 
 ## The clip register and alerts
 
