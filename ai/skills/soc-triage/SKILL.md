@@ -56,6 +56,14 @@ NEXT:      grep "203.0.113.9" /var/log/auth.log | grep -i accepted
 Containment and clean-up (blocking, killing processes, deleting files, rotating credentials) is
 always the user's decision: propose, don't do.
 
-## 5. Close
+## 5. Record
+
+Keep each finding in the case file (the `case-file` skill): `list_findings` first, then
+`add_finding` with kind, value, a one-line title, the exact lines as evidence, and an honest
+severity and confidence. The WHAT / WHERE / EVIDENCE format above is for the `open_subshell` brief and
+for talking to the user; the case file is for everyone else: other agents, the report. When you work from a task on the
+board, claim it and finish it with the finding ids (the `task-board` skill).
+
+## 6. Close
 
 `resolve_review_item` with a short summary: findings, what you did, what is still open.

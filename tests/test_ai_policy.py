@@ -213,6 +213,8 @@ def test_the_monitor_role_is_offered_only_reading_tools_and_cannot_run(registry,
     assert not names & {"run_in_shell", "open_subshell", "request_session_grant", "set_clip", "shellcraft_pipeline"}
     out = _call(server, lambda c: c.call_tool("run_in_shell", {"command": "ls", "reason": "x"}))
     assert out.is_error and "monitor role may not use this tool" in out.content[0].text
+    entry = ai_audit.tail(1)[0]
+    assert entry["tool"] == "run_in_shell" and entry["tier"] == "denied" and entry["role"] == "monitor"
 
 
 def test_the_shell_checks_the_role_again(registry, real_shell, home):

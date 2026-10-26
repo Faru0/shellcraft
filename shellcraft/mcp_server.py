@@ -662,18 +662,21 @@ class ShellcraftMCP:
         who = f"{client} · {agent}" if agent else client
         policy = ai_policy.load()
         started = time.monotonic()
+        refused = True
         if not ai_policy.role_allows_tool(policy, self.role, params.name):
             result = _error(f"{params.name}: the {self.role} role may not use this tool")
         elif self._over_budget(policy, params.name):
             result = _error(f"{params.name}: the budget of {policy.budget} module calls for this server is used up "
                             f"(`[budget]` in {ai_policy.FILE})")
         else:
+            refused = False
             result = await self._dispatch_tool(request_ctx, params, arguments, who, agent)
         summary = str(arguments.get("command") or arguments.get("title") or arguments.get("message")
                       or arguments.get("args") or arguments.get("reason") or "")
         await anyio.to_thread.run_sync(lambda: ai_audit.record(
             params.name, summary, agent=agent, role=self.role or "", client=client,
-            tier=_tier_of(params.name, result), ok=not result.is_error, seconds=time.monotonic() - started))
+            tier="denied" if refused else _tier_of(params.name, result), ok=not result.is_error,
+            seconds=time.monotonic() - started))
         return result
 
     def _over_budget(self, policy: Any, name: str) -> bool:

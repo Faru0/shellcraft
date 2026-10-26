@@ -17,7 +17,9 @@ and named exactly as here. The interactive shell must be running for the ones th
 | `get_job_output(number, lines=200)` | what a subshell printed | when a job's result matters |
 | `get_history(n=50)` | the last commands typed, keys redacted | only to understand intent; never quote it back, never store it |
 | `get_clip()` | what the user last copied | when they say "the thing I copied" |
-| `get_flagged_items()` | what they marked for you with `mark` | at the start of a session, and when asked |
+| `get_flagged_items()` | what they marked with `mark`, told you with `tell`, or their `watch` triggers raised | at the start of a session, and when asked |
+| `get_events(since, wait_seconds)` | what happened in their shell: each command with its exit status, jobs that ended, Ctrl-C | to follow along; pass back the `cursor`, and wait instead of polling |
+| `search_output(pattern)` | the lines of the screen that match, with the command that printed each | instead of reading 2000 lines to find one |
 
 ## Speaking: pick the channel
 
@@ -29,6 +31,8 @@ and named exactly as here. The interactive shell must be running for the ones th
 | Evidence, analysis, more than three lines | `open_subshell(name, title, text, alert_level)` |
 | A command for the user to run | `set_clip(text)` + an `info` alert: "staged: Alt-v pastes it" |
 | A command you need to run | `run_in_shell(command, reason)` |
+| A decision only they can make | `ask_user(question, choices)` (see `review-loop`) |
+| Work to share with other agents | the task board and case file (`task-board`, `case-file`) |
 | Anything that deletes, overwrites, pushes, blocks, kills | `request_human_review` first, or `run_in_shell` with the risk in `reason` |
 
 `open_subshell`: a **name** of at most 40 characters for the footer (`auth.log brute force`), a
@@ -37,15 +41,22 @@ time), the exact lines that show it, how sure you are, what to do next (commands
 The user opens it with a click or Ctrl-] N and leaves with `exit`. Open **one per finding**; check
 `get_jobs` for one you already opened (origin `ai`).
 
-## Running commands: three tiers
+## Running commands
+
+Access is **on by default** (`settings ai_access`): every command runs at once, with a trace above
+the user's prompt, and `✦ run` shows in their prompt. The user can turn it off (`ai off`), and
+`ai-policy.toml` can deny a command, or make it ask even with access on. When a call comes back as
+`not run`, the policy forbids it: don't look for another way, tell the user what you needed.
+Pass `agent` (your name) on every call: it shows in their footer and in `ai log`. With access
+off there are three tiers:
 
 1. **Read-only runs at once.** `grep`, `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `jq`,
    `find`, `tree`, `diff`, the query modules: anything that only reads, with no `>` or `>>`, no
    `&`, no `sub`, no loop. The answer carries the output and exit status; the user sees the trace
    (`[N] done: ✦ AI: cmd` and the output) above their prompt.
-2. **With the session grant, everything runs at once.** Ask for it **once**, at the start of a
-   working session, with `request_session_grant(reason)` and a one-line reason; the user answers
-   `review approve ID`. They see `✦ run` in their prompt while it is on and can revoke it any time.
+2. **With the session grant, everything runs at once.** With access off, ask for it **once**, at the
+   start of a working session, with `request_session_grant(reason)` and a one-line reason; the user
+   answers `review approve ID`. (With access on it answers `granted` at once.)
 3. **Otherwise the command waits for approval.** The answer has `mode: "approval"` and an
    `item_id`; the user sees `AI wants to run: cmd`, reads your `reason` with `review show`, and
    answers `review approve` or `review reject`. Poll `get_review_status(item_id)`; an approved

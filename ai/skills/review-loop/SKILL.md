@@ -40,6 +40,29 @@ Everything lives in the user's `~/.shellcraft/review/` as items with an id like
   command wait even with access on.
 - Pass `agent` (your name, like `worker-2`) on every call so the user can tell agents apart.
 
+## Questions: `ask_user`
+
+When you need a decision only the user can make, ask instead of guessing or stopping.
+
+- `ask_user(question, choices, details, priority, about, wait_seconds)`. `question` is one line.
+  Give `choices` when the answers are few (up to ten): the user picks by number, or answers in
+  their own words. `details` carries what they need to decide: what you found, what each choice costs.
+  `about` is the id of the flag or request it concerns; the question lands in that item's thread.
+- It shows in their footer as `AI asks: ...`. With `wait_seconds` (default 120) the call returns the
+  answer when they give it: `answered: true` and `answer`. Otherwise `status: "pending"`: poll
+  `get_review_status(item_id)`, or go on with what does not depend on it.
+- They can also reply into any item's thread (`tell -r ID`). `get_flagged_items` and
+  `get_review_status` carry the `thread`; read it before you act on a flag.
+- Ask once, with the options spelled out. Don't ask what you can find out yourself, and don't use it for
+  a progress report: that is an alert.
+
+## Events the user flagged
+
+The user's `watch` triggers turn a failed command, matching output or a dead job into a flag of
+`type: "event"`. It is a flag like any other: read it with `get_flagged_items`, look at the
+`event` and `output` artifacts, and resolve it when you have dealt with it. `get_events` shows
+everything that happened, not only what they flagged, and can wait for the next event.
+
 ## Priorities and levels
 
 `low` → `info` alert, `medium` → `warn`, `high` → `crit` (stays until answered). Use `high` only

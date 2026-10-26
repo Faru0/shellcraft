@@ -56,6 +56,11 @@ and the project uses [semantic versioning](https://semver.org/).
   the AI, usually waiting, gets it at once. `tell -r ID MESSAGE` replies inside any item's thread,
   which `review show` prints and the AI reads. `get_review_status` and `get_flagged_items` now
   carry the answer and the thread.
+- **Agents and skills for working as a team.** `ai/agents/` gains an `orchestrator` (splits a job
+  into tasks, starts workers, merges the case file, asks you when it needs a decision) and a
+  `worker` (claims one task, does it, records findings), and the `monitor` now waits on
+  `get_events` and your `watch` flags instead of polling on a timer. New skills `task-board` and
+  `case-file`; `shellcraft-copilot`, `review-loop` and `soc-triage` cover the new tools.
 - **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
   answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
   The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.
