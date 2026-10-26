@@ -106,7 +106,7 @@ to close it.
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `export` `read` `sleep` `time` `xargs` `test` |
 | Scripting | `for` `while` `until` `if` `case` `select` `function` |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
-| AI and MCP | `mcp` `mark` `tell` `review` `ingest` |
+| AI and MCP | `mcp` `ai` `watch` `tasks` `mark` `tell` `review` `ingest` |
 
 Colored output on screen turns into plain text when you pipe it or write it to a file, so
 `ls | wc -l` and `grep -n TODO *.py > todo.txt` give clean results. `rm` refuses to delete a

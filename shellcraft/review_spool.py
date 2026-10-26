@@ -303,3 +303,10 @@ class _Lock:
 
     def __exit__(self, *exc: object) -> None:
         _remove(self.path)
+
+
+# Public names for the other spools that follow the same rules (shellcraft.tasks, shellcraft.findings).
+load_json = _load
+write_json = _write
+remove_file = _remove
+Lock = _Lock

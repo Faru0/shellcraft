@@ -38,6 +38,11 @@ and the project uses [semantic versioning](https://semver.org/).
   `search_output` searches the screen and says which command printed each match. `watch on-fail`,
   `watch match REGEX` and `watch job-died` (or `[[trigger]]` in `ai-policy.toml`) turn the events
   you care about into flags in the review queue, with a footer alert.
+- **A task board for several AI agents.** An orchestrator puts tasks on it (`create_task`) and
+  workers take them (`claim_task`), report (`update_task`) and give them back (`release_task`).
+  A claim is exclusive and lasts a lease that every update renews, so a dead worker's task
+  frees itself; tasks can wait for others. You see it with `tasks`, the prompt shows `✦ N tasks`,
+  and a blocked or failed task raises an alert. The board is also the resource `shellcraft://tasks`.
 - **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
   answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
   The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.

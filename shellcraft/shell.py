@@ -57,7 +57,7 @@ SEGMENTS: dict[str, str] = {
     "user": "user@host",
     "path": "the working directory (~ for home)",
     "git": "⎇ branch, when the directory is in a git repository",
-    "mcp": "● mcp :PORT while `mcp start` runs",
+    "mcp": "● mcp :PORT while `mcp start` runs; ✦ run while AI access is on; ✦ N tasks while the task board has work",
     "status": "[✗ N] after a command fails",
     "duration": "⏱ 4.2s when the last command took more than 2 seconds",
     "clock": "the time (HH:MM)",
@@ -322,6 +322,8 @@ class Shell:
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
         self._interrupt_dropped = False  # a Ctrl-C between commands (see _dropped_interrupt)
         self._job_events_seen: set[tuple[int, float]] = set()  # finished jobs already recorded as events
+        self._task_counts: dict[str, int] = {}  # open / working / blocked tasks on the board, for the prompt
+        self._task_alerted: set[tuple[str, str, int]] = set()  # blocked or failed tasks already announced
         self._tty_attrs: Any = None  # the terminal's attributes before keep_output_on_interrupt
 
     def _print_live(self, item: Any) -> None:
@@ -367,6 +369,7 @@ class Shell:
         import threading
 
         from shellcraft import review_spool as spool
+        from shellcraft import tasks
 
         stop = threading.Event()
         self._review_alerts: dict[str, Any] = {}
@@ -387,12 +390,13 @@ class Shell:
                         source=str(item.get("created_by", "")), content=f"review show {item_id}")
             for item_id in [i for i in self._review_alerts if i not in pending]:
                 bus.remove(self._review_alerts.pop(item_id))
+            self._check_tasks(bus)
 
         def run() -> None:
             last = None
             while not stop.wait(interval):
                 try:
-                    now = spool.signature()
+                    now = (spool.signature(), tasks.signature())
                     if now != last:
                         last = now
                         check()
@@ -403,6 +407,29 @@ class Shell:
         thread = threading.Thread(target=run, daemon=True, name="shellcraft:review-watcher")
         thread.start()
         self._cleanup.callback(stop.set)
+
+    def _check_tasks(self, bus: Any) -> None:
+        """The task board changed (from the watcher thread): the count in the prompt, and an alert for
+        a task that is blocked (an agent needs you) or has failed."""
+        from shellcraft import tasks
+
+        board = tasks.list_tasks("all")
+        counts: dict[str, int] = {}
+        for task in board:
+            if task["status"] in tasks.ACTIVE:
+                key = "working" if task["status"] in ("claimed", "working") else task["status"]
+                counts[key] = counts.get(key, 0) + 1
+        for task in board:
+            mark = (task["id"], task["status"], task["rev"])
+            if task["status"] in ("blocked", "failed") and mark not in self._task_alerted:
+                self._task_alerted.add(mark)
+                if bus is not None:
+                    why = (task.get("notes") or [{}])[-1].get("text", "")
+                    bus.post(f"AI task {task['status']}: {task['title']}" + (f" · {why[:100]}" if why else ""),
+                             "warn", source=str(task.get("owner") or "tasks"), content=f"tasks show {task['id'][-6:]}")
+        if counts != self._task_counts:
+            self._task_counts = counts
+            self._jobs_changed()
 
     def _sub_recording(self, data: dict[str, Any]) -> None:
         """A subshell started or stopped `record` (from the watcher thread): its line in the
@@ -921,6 +948,10 @@ class Shell:
             parts = [(style, text, self._click("mcp log")) for style, text in self._mcp_marker()]
             if getattr(self.ctx, "ai_run", False):  # the session grant is on: say so until it is off
                 parts.append(("class:mcp", (" " if parts else "") + "✦ run", self._click("settings ai_access off")))
+            if self._task_counts:
+                total, working = sum(self._task_counts.values()), self._task_counts.get("working", 0)
+                text = f"✦ {total} task{'s' if total != 1 else ''}" + (f": {working} working" if working else "")
+                parts.append(("class:mcp", (" " if parts else "") + text, self._click("tasks")))
             return parts
         if name == "status":
             if not self.ctx.last_status:

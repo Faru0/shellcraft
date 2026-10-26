@@ -686,7 +686,7 @@ prompt reset                # back to the default
     ("user", "user@host"),
     ("path", "the working directory (~ for home)"),
     ("git", "⎇ branch, when the directory is in a git repository (read from .git/HEAD, no git needed)"),
-    ("mcp", "● mcp :PORT while `mcp start` runs"),
+    ("mcp", "● mcp :PORT while `mcp start` runs; ✦ run while AI access is on; ✦ N tasks while the board has work"),
     ("status", "[✗ N] after a command fails"),
     ("duration", "⏱ 4.2s when the last command took more than 2 seconds"),
     ("clock", "the time (HH:MM)"),

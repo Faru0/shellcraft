@@ -48,6 +48,83 @@ AGENT_PROPERTY: dict[str, Any] = {
     "type": "string", "maxLength": 40,
     "description": "Optional: your name or role in this session (\"worker-2\"). It shows in the user's footer, "
                    "on the task board and in the audit log, so the user can tell agents apart."}
+CREATE_TASK_TOOL = "create_task"
+LIST_TASKS_TOOL = "list_tasks"
+CLAIM_TASK_TOOL = "claim_task"
+UPDATE_TASK_TOOL = "update_task"
+RELEASE_TASK_TOOL = "release_task"
+TASK_TOOLS = (CREATE_TASK_TOOL, LIST_TASKS_TOOL, CLAIM_TASK_TOOL, UPDATE_TASK_TOOL, RELEASE_TASK_TOOL)
+TASKS_URI = "shellcraft://tasks"
+TASK_SCHEMAS: dict[str, dict[str, Any]] = {
+    CREATE_TASK_TOOL: {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "maxLength": 200, "description": "What is to be done, in one line."},
+            "description": {"type": "string", "maxLength": 20000,
+                            "description": "Everything a worker needs: where to look, what done means."},
+            "parent": {"type": "string", "description": "The task this is a part of."},
+            "depends_on": {"type": "array", "items": {"type": "string"}, "maxItems": 20,
+                           "description": "Task ids that must be done before this one can be claimed."},
+            "source": {"type": "string", "description": "The review item (a flag or a message) this comes from."},
+            "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+        },
+        "required": ["title"],
+        "additionalProperties": False,
+    },
+    LIST_TASKS_TOOL: {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "One task in full (with its notes and result)."},
+            "status": {"type": "string", "default": "active",
+                       "enum": ["active", "all", "open", "claimed", "working", "blocked", "done", "failed",
+                                "cancelled"]},
+            "owner": {"type": "string", "description": "Only this agent's tasks."},
+            "parent": {"type": "string"},
+            "claimable": {"type": "boolean", "default": False, "description": "Only tasks you could claim now."},
+        },
+        "additionalProperties": False,
+    },
+    CLAIM_TASK_TOOL: {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "The task to take; leave it out to take the most urgent "
+                                                           "free one."},
+            "lease_seconds": {"type": "integer", "minimum": 10, "maximum": 3600, "default": 300,
+                              "description": "How long the claim lasts without an update. Every update renews it; "
+                                             "a claim nobody renews can be taken by someone else."},
+        },
+        "additionalProperties": False,
+    },
+    UPDATE_TASK_TOOL: {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string"},
+            "status": {"type": "string", "enum": ["working", "blocked", "done", "failed"]},
+            "note": {"type": "string", "maxLength": 20000, "description": "Progress, or why it is blocked."},
+            "result": {"type": "string", "maxLength": 20000, "description": "What you found or made."},
+            "lease_seconds": {"type": "integer", "minimum": 10, "maximum": 3600, "default": 300},
+        },
+        "required": ["task_id"],
+        "additionalProperties": False,
+    },
+    RELEASE_TASK_TOOL: {
+        "type": "object",
+        "properties": {"task_id": {"type": "string"}, "note": {"type": "string", "maxLength": 20000}},
+        "required": ["task_id"],
+        "additionalProperties": False,
+    },
+}
+TASK_DESCRIPTIONS = {
+    CREATE_TASK_TOOL: "Put a task on the shared board for a worker to claim (an orchestrator splits work this way). "
+                      "It shows in the user's prompt as `✦ N tasks`. Say what done means in the description.",
+    LIST_TASKS_TOOL: "The tasks on the board with their status, owner, notes and what each waits for. Use "
+                     "claimable=true to see what you could take now.",
+    CLAIM_TASK_TOOL: "Take a task so no other agent does: exclusive, for a lease that every update renews. "
+                     "Without task_id you get the most urgent free one. Pass your `agent` name.",
+    UPDATE_TASK_TOOL: "Report on a task you hold: a note, status working, blocked (the user is told), done or "
+                      "failed, and a result. Each call renews your lease.",
+    RELEASE_TASK_TOOL: "Give a task back so another agent can take it.",
+}
 PIPELINE_TOOL = "shellcraft_pipeline"
 ALERT_TOOL = "send_tui_alert"
 ALERT_INPUT_SCHEMA: dict[str, Any] = {
@@ -444,6 +521,8 @@ class ShellcraftMCP:
             tools.append(types.Tool(name=name, description=REVIEW_DESCRIPTIONS[name], input_schema=schema))
         for name in SHELL_TOOLS:
             tools.append(types.Tool(name=name, description=SHELL_DESCRIPTIONS[name], input_schema=SHELL_SCHEMAS[name]))
+        for name in TASK_TOOLS:
+            tools.append(types.Tool(name=name, description=TASK_DESCRIPTIONS[name], input_schema=TASK_SCHEMAS[name]))
         from shellcraft import ai_policy
 
         policy = ai_policy.load()
@@ -500,6 +579,8 @@ class ShellcraftMCP:
             return await self._review_tool(params.name, arguments, who)
         if params.name in SHELL_TOOLS:
             return await self._shell_tool(params.name, arguments, who, agent)
+        if params.name in TASK_TOOLS:
+            return await self._task_tool(params.name, arguments, who, agent)
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -606,6 +687,19 @@ class ShellcraftMCP:
             item = await anyio.to_thread.run_sync(lambda: spool.get(item["id"]))
         return item
 
+    # ── the task board (shellcraft.tasks) ─────────────────────────────────────
+
+    async def _task_tool(self, name: str, arguments: dict[str, Any], who: str, agent: str) -> types.CallToolResult:
+        from shellcraft import tasks
+
+        owner = agent or who  # who holds a claim: the label if given, else the client
+        try:
+            return _json_result(await anyio.to_thread.run_sync(lambda: _task_call(name, arguments, who, owner)))
+        except tasks.TaskError as exc:
+            return _error(f"{name}: {exc}")
+        except (TypeError, ValueError) as exc:
+            return _error(f"{name}: bad arguments: {exc}")
+
     # ── the review loop (shellcraft.review_spool) ─────────────────────────────
 
     async def _review_tool(self, name: str, arguments: dict[str, Any], client: str) -> types.CallToolResult:
@@ -651,16 +745,16 @@ class ShellcraftMCP:
         except (TypeError, ValueError) as exc:
             return _error(f"{name}: bad arguments: {exc}")
 
-    async def notify_reviews_changed(self) -> None:
-        """The review spool changed: the queue resource is to be read again."""
+    async def notify_reviews_changed(self, uri: str = REVIEW_QUEUE_URI) -> None:
+        """A spool changed (the review queue, or the task board): its resource is to be read again."""
         await self.bus.publish(ResourcesListChanged())
-        await self.bus.publish(ResourceUpdated(REVIEW_QUEUE_URI))
+        await self.bus.publish(ResourceUpdated(uri))
         for connection in list(self.connections):
             try:
                 await connection.send_resource_list_changed()
                 send_updated = getattr(connection, "send_resource_updated", None)
                 if send_updated is not None:
-                    await send_updated(REVIEW_QUEUE_URI)
+                    await send_updated(uri)
             except Exception:  # noqa: BLE001 — a closed connection just stops getting notified
                 self.connections.discard(connection)
 
@@ -668,14 +762,20 @@ class ShellcraftMCP:
         """Look at the review spool every `interval`: a new or changed item (the shell's `mark`, the
         user's answer, another client's request) is announced to the connected clients."""
         from shellcraft import review_spool as spool
+        from shellcraft import tasks
 
         last = await anyio.to_thread.run_sync(spool.signature)
+        last_tasks = await anyio.to_thread.run_sync(tasks.signature)
         while True:
             await anyio.sleep(interval)
             now = await anyio.to_thread.run_sync(spool.signature)
             if now != last:
                 last = now
                 await self.notify_reviews_changed()
+            board = await anyio.to_thread.run_sync(tasks.signature)
+            if board != last_tasks:
+                last_tasks = board
+                await self.notify_reviews_changed(TASKS_URI)
 
     # ── resources: man pages ─────────────────────────────────────────────────
 
@@ -698,6 +798,10 @@ class ShellcraftMCP:
                                                     "flagged for you (`mark`) and review requests waiting for "
                                                     "an answer. JSON; read the full items with get_flagged_items.",
                                         mime_type="application/json"))
+        resources.append(types.Resource(uri=TASKS_URI, name="task board", title="Task board",
+                                        description="The tasks on the shared board that are still open, claimed, "
+                                                    "working or blocked. JSON; claim_task and update_task change "
+                                                    "them.", mime_type="application/json"))
         return types.ListResourcesResult(resources=resources)
 
     async def _read_resource(self, request_ctx, params: types.ReadResourceRequestParams) -> types.ReadResourceResult:
@@ -708,6 +812,14 @@ class ShellcraftMCP:
 
             items = await anyio.to_thread.run_sync(lambda: spool.list_items("pending"))
             text = json.dumps([spool.summary(i) for i in items], ensure_ascii=False, indent=1)
+            return types.ReadResourceResult(
+                contents=[types.TextResourceContents(uri=uri, mime_type="application/json", text=text)])
+        if uri == TASKS_URI:
+            from shellcraft import tasks
+
+            board = await anyio.to_thread.run_sync(lambda: tasks.list_tasks("active"))
+            text = json.dumps([{k: v for k, v in t.items() if k not in ("notes", "description")} for t in board],
+                              ensure_ascii=False, indent=1)
             return types.ReadResourceResult(
                 contents=[types.TextResourceContents(uri=uri, mime_type="application/json", text=text)])
         name = uri[len(MAN_URI):] if uri.startswith(MAN_URI) else ""
@@ -786,6 +898,37 @@ async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.C
     if len(text) > MAX_OUTPUT:
         text = text[:MAX_OUTPUT] + f"\n… [output cut after {MAX_OUTPUT} characters]\n"
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
+
+
+def _task_call(name: str, arguments: dict[str, Any], who: str, owner: str) -> Any:
+    """One task-board tool call (runs in a thread: the board is files)."""
+    from shellcraft import tasks
+
+    def text(key: str) -> str:
+        value = arguments.get(key)
+        return "" if value is None else str(value)
+
+    if name == CREATE_TASK_TOOL:
+        depends = arguments.get("depends_on") or []
+        if not isinstance(depends, list):
+            raise ValueError("`depends_on` must be an array of task ids")
+        return tasks.create(text("title"), text("description"), text("parent"), [str(d) for d in depends],
+                            text("source"), text("priority") or "medium", created_by=f"mcp · {who}")
+    if name == LIST_TASKS_TOOL:
+        if text("task_id"):
+            return tasks.find(text("task_id"))
+        listed = tasks.list_tasks(text("status") or "active", text("owner") or None, text("parent") or None,
+                                  bool(arguments.get("claimable")))
+        return [{k: v for k, v in t.items() if k not in ("notes", "description")} | {"notes": len(t["notes"])}
+                for t in listed]
+    if name == CLAIM_TASK_TOOL:
+        return tasks.claim(text("task_id") or None, owner, arguments.get("lease_seconds", tasks.LEASE))
+    if name == UPDATE_TASK_TOOL:
+        return tasks.update(text("task_id"), owner, text("status") or None, text("note"),
+                            arguments.get("result"), arguments.get("lease_seconds", tasks.LEASE))
+    if name == RELEASE_TASK_TOOL:
+        return tasks.release(text("task_id"), owner, text("note"))
+    raise ValueError(f"unknown tool {name}")
 
 
 def _tier_of(tool: str, result: types.CallToolResult) -> str:

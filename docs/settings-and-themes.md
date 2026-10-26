@@ -159,7 +159,7 @@ prompt reset                   # back to the default
 | `user` | you@host |
 | `path` | the folder you're in |
 | `git` | the git branch, inside a repository |
-| `mcp` | the MCP server's port while `mcp start` runs |
+| `mcp` | the MCP server's port while `mcp start` runs, `✦ run` while AI access is on, `✦ N tasks` while the task board has work |
 | `status` | `[✗ N]` after a command fails |
 | `duration` | how long the last command took, if more than 2 seconds |
 | `clock` | the time |

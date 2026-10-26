@@ -79,6 +79,7 @@ or `--no-token`.
 | `get_clip`, `set_clip` | Read the clip register, or put a command there for you to paste with Alt-v |
 | `open_subshell` | Open a light ShellCraft in your footer, named `✦ AI · finding`, that shows its findings |
 | `run_in_shell` | Run a command in your shell. See [Commands the AI runs](#commands-the-ai-runs) |
+| `create_task`, `list_tasks`, `claim_task`, `update_task`, `release_task` | A task board shared by several AI agents. See [The task board](#the-task-board) |
 | `request_human_review` and friends | Ask you before doing something risky. See [Reviewing with an AI](#reviewing-with-an-ai) |
 
 The screen, jobs, history and clip tools need your interactive shell to be running. They work
@@ -117,6 +118,29 @@ When a trigger fires, the event is added to the review queue as a flag, and an a
 your footer. The AI's monitor sees it like anything you `mark`. Triggers set at the prompt last
 for the session. To keep one, add a `[[trigger]]` to `ai-policy.toml`. An AI's own commands never
 fire a trigger, and the same command is flagged at most every 30 seconds.
+
+## The task board
+
+When several AI agents work for you, one of them (the orchestrator) can split the job into tasks
+and the others (workers) can take one each. The board is shared, so no two agents do the same
+task, and you see all of it.
+
+```
+tasks                          # open, claimed, working and blocked tasks
+tasks show a1b2c3              # one task: description, notes, result
+tasks add 'check the certs' -p high --after f4e5d6
+tasks done|fail|cancel a1b2c3  # finish one yourself
+```
+
+While there is work, the prompt shows `✦ 3 tasks: 2 working`. A task that is blocked (the agent
+needs something from you) or has failed raises an alert.
+
+An agent **claims** a task, which is exclusive: a second agent is told who has it. A claim is a
+lease of five minutes that every progress note renews, so if a worker dies its task becomes free
+again and shows as stale. A task can wait for others, and can't be claimed until they are done.
+Agents give their name with `agent` on every call, so you can tell them apart in `tasks`, in the
+footer and in `ai log`. The board is also a resource, `shellcraft://tasks`, that clients are told
+about when it changes.
 
 ## Reviewing with an AI
 
