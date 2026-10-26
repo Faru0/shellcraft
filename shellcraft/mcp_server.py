@@ -142,8 +142,10 @@ SET_CLIP_TOOL = "set_clip"
 OPEN_SUBSHELL_TOOL = "open_subshell"
 RUN_TOOL = "run_in_shell"
 GRANT_TOOL = "request_session_grant"
+EVENTS_TOOL = "get_events"
+SEARCH_TOOL = "search_output"
 SHELL_TOOLS = (RECENT_OUTPUT_TOOL, JOBS_TOOL, JOB_OUTPUT_TOOL, HISTORY_TOOL, GET_CLIP_TOOL, SET_CLIP_TOOL,
-               OPEN_SUBSHELL_TOOL, RUN_TOOL, GRANT_TOOL)
+               OPEN_SUBSHELL_TOOL, RUN_TOOL, GRANT_TOOL, EVENTS_TOOL, SEARCH_TOOL)
 MAX_BRIEF = 64 * 1024
 LINK_TIMEOUT = 5.0  # seconds to wait for the shell's answer
 NO_MAIN_MESSAGE = ("no interactive ShellCraft is running on this machine (start `shellcraft`; it publishes "
@@ -217,6 +219,34 @@ SHELL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["command", "reason"],
         "additionalProperties": False,
     },
+    EVENTS_TOOL: {
+        "type": "object",
+        "properties": {
+            "since": {"type": "integer", "minimum": 0, "default": 0,
+                      "description": "The cursor from your last call (0 the first time): only newer events come back."},
+            "kinds": {"type": "array", "items": {"type": "string", "enum": ["command", "job", "interrupt"]},
+                      "description": "Only these kinds (default: all)."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 120, "default": 0,
+                             "description": "Hold the call until something new happens, up to this long. Use it "
+                                            "instead of polling."},
+            "output_lines": {"type": "integer", "minimum": 0, "maximum": 200, "default": 0,
+                             "description": "Add the last N lines each command printed."},
+        },
+        "additionalProperties": False,
+    },
+    SEARCH_TOOL: {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "maxLength": 500, "description": "A regular expression, case-insensitive."},
+            "context": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0,
+                        "description": "Lines to add around each match."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+            "strip_ansi": {"type": "boolean", "default": True},
+        },
+        "required": ["pattern"],
+        "additionalProperties": False,
+    },
     GRANT_TOOL: {
         "type": "object",
         "properties": {
@@ -250,6 +280,13 @@ SHELL_DESCRIPTIONS = {
               "queue until the user types `review approve ID`, and the answer carries `mode` \"approval\" "
               "with the item id. The result has the output and exit status. Never use it for anything "
               "destructive without saying so in `reason`.",
+    EVENTS_TOOL: "What happened in the user's shell: each command (line, exit status, seconds, folder), each "
+                 "job or subshell that ended, each Ctrl-C, numbered. Pass the `cursor` you got back as `since`. "
+                 "With wait_seconds the call returns as soon as something new happens, so you do not need to "
+                 "poll. The user's own `watch` triggers also put a flag in get_flagged_items when something "
+                 "they care about happens.",
+    SEARCH_TOOL: "Search what is on the user's screen (their commands and output) for a regular expression. "
+                 "Each match says which command printed it. Cheaper than reading 2000 lines of get_recent_output.",
     GRANT_TOOL: "Ask the user once to let you run any command for the rest of this session (`settings ai_run "
                 "on`). Do it at the start of a working session with a one-line reason. Returns granted true "
                 "or false; the user can revoke it any time.",
@@ -501,7 +538,8 @@ class ShellcraftMCP:
             request = link_request(name, arguments, by, self.role, agent)
         except ValueError as exc:
             return _error(f"{name}: {exc}")
-        timeout = LINK_TIMEOUT + (request[1].get("wait", 0) if name == RUN_TOOL else 0)
+        timeout = LINK_TIMEOUT + (request[1].get("wait", 0) if name == RUN_TOOL else
+                                  request[4] if name == EVENTS_TOOL else 0)
         answer = await anyio.to_thread.run_sync(lambda: mainlink.ask(request, _NO_MAIN, timeout=timeout))
         if answer is _NO_MAIN:
             return _error(NO_MAIN_MESSAGE)
@@ -842,6 +880,19 @@ def link_request(name: str, arguments: dict[str, Any], by: str, role: str | None
         if isinstance(arguments.get("cwd"), str):
             spec["cwd"] = arguments["cwd"]
         return ("open-sub", spec)
+    if name == EVENTS_TOOL:
+        kinds = arguments.get("kinds")
+        if kinds is not None and (not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds)):
+            raise ValueError("`kinds` must be a list of strings")
+        return ("events", integer("since", 0, 0, 10**12), kinds, integer("limit", 100, 1, 500),
+                integer("wait_seconds", 0, 0, 120), integer("output_lines", 0, 0, 200))
+    if name == SEARCH_TOOL:
+        pattern = arguments.get("pattern")
+        if not isinstance(pattern, str) or not pattern:
+            raise ValueError("`pattern` is required")
+        if len(pattern) > 500:
+            raise ValueError("`pattern` is over 500 characters")
+        return ("search-output", pattern, integer("context", 0, 0, 10), integer("limit", 50, 1, 200), strip)
     if name == RUN_TOOL:
         command = arguments.get("command")
         if not isinstance(command, str) or not command.strip():

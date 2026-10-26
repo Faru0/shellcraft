@@ -321,6 +321,7 @@ class Shell:
         self._install_mouse()
         self.last_error: tuple[Exception, str] | None = None  # (exception, command line)
         self._interrupt_dropped = False  # a Ctrl-C between commands (see _dropped_interrupt)
+        self._job_events_seen: set[tuple[int, float]] = set()  # finished jobs already recorded as events
         self._tty_attrs: Any = None  # the terminal's attributes before keep_output_on_interrupt
 
     def _print_live(self, item: Any) -> None:
@@ -471,6 +472,8 @@ class Shell:
         link.handle("open-sub", self._link_open_ai_sub)
         link.handle("run", self._link_run)
         link.handle("ai-state", lambda: {"on": bool(self.ctx.ai_run)})
+        link.handle("events", self._link_events)
+        link.handle("search-output", self._link_search_output)
         from shellcraft import briefs
 
         briefs.sweep()  # briefs no subshell ever read
@@ -562,6 +565,33 @@ class Shell:
             value: Any = Paged(text, page=True) if text.count("\n") > 40 else text
             show(self.ui, value, pager=settings.get(self.ctx.config, "pager"), title=f"AI · {data.get('title', '')}")
         console.print(Text(f"(opened by the AI: `exit` returns to main, {prefix.label()} switches)", style="sc.muted"))
+
+    def _link_events(self, since: Any = 0, kinds: Any = None, limit: Any = 100, wait: Any = 0,
+                     output_lines: Any = 0) -> Any:
+        """`get_events` (from the link thread): what happened here after the cursor `since`, waiting up
+        to `wait` seconds for something new; `output_lines` adds the end of each command's output."""
+        from shellcraft import events
+
+        names = [k for k in kinds if k in events.KINDS] if isinstance(kinds, list) else None
+        answer = events.since(_clamp(since, 0, 10**12), names or None, _clamp(limit, 1, 500),
+                              float(_clamp(wait, 0, 120)))
+        n = _clamp(output_lines, 0, 200)
+        if n:
+            for event in answer["events"]:
+                if event["kind"] == "command":
+                    event["output"] = "\n".join(self.scrollback.since(event["first_line"], event["last_line"], limit=n))
+        return answer
+
+    def _link_search_output(self, pattern: Any = "", context: Any = 0, limit: Any = 50, strip_ansi: Any = True) -> Any:
+        """`search_output` (from the link thread): lines of the screen that match a regex, each with
+        the command that printed it."""
+        if not isinstance(pattern, str) or not pattern:
+            return ("error", "search_output needs a pattern")
+        try:
+            hits = self.scrollback.search(pattern, _clamp(context, 0, 10), _clamp(limit, 1, 200), bool(strip_ansi))
+        except re.error as exc:
+            return ("error", f"not a regular expression: {exc}")
+        return {"matches": hits, "count": len(hits)}
 
     def _link_ping(self) -> dict[str, Any]:
         from shellcraft import __version__
@@ -1104,6 +1134,7 @@ class Shell:
         if jobs is None:
             return
         fresh = jobs.unreported()
+        self._quietly(lambda: self._job_events([j for j in jobs if not j.running]))
         for note in jobs.pop_notifications():
             self.ui.console.print(Text(note, style="sc.muted"), markup=False, highlight=False)
         for job in fresh:
@@ -1499,6 +1530,15 @@ class Shell:
         if self.ctx.recording is not None:
             self.ctx.recording.command(line)
 
+        first = self.scrollback.mark()  # the number of the first line this command prints
+        began = time.monotonic()
+        try:
+            return self._execute(line)
+        finally:
+            self._quietly(lambda: self._command_done(line, first, time.monotonic() - began))
+
+    def _execute(self, line: str) -> int | None:
+        """Run one command line and print its result (`_iteration` records the event around it)."""
         self._hot_reload()
         started = time.monotonic()
         try:
@@ -1532,6 +1572,46 @@ class Shell:
                 self._interrupted("its output being printed", line, time.monotonic() - started)
         return None
 
+    def _command_done(self, line: str, first: int, seconds: float) -> None:
+        """A command ended: record the event (what `get_events` returns) and run the triggers."""
+        from shellcraft import events
+
+        names = aliases.get_all(self.ctx.config)
+        shown = settings.redact_line(line, names)  # the same hiding as the history
+        event = events.emit("command", line=shown, status=self.ctx.last_status, seconds=round(seconds, 2),
+                            cwd=os.getcwd(), profile=profiles.active(self.ctx.config) or profiles.DEFAULT,
+                            first_line=first, last_line=self.scrollback.mark())
+
+        def output() -> str:
+            return "\n".join(self.scrollback.since(first, event["last_line"], limit=events.OUTPUT_FOR_TRIGGER))
+
+        self._fire_triggers(event, output)
+
+    def _fire_triggers(self, event: dict[str, Any], output: Any = lambda: "") -> None:
+        from shellcraft import events
+
+        alerts_bus = self.ctx.alerts
+
+        def alert(message: str, level: str) -> None:
+            if alerts_bus is not None:
+                alerts_bus.post(message, level, source="watch")
+
+        events.fire(event, output, alert)
+
+    def _job_events(self, jobs: Any) -> None:
+        """Finished jobs and subshells, once each, as events."""
+        from shellcraft import events
+
+        for job in jobs:
+            key = (job.number, job.started)
+            if key in self._job_events_seen:
+                continue
+            self._job_events_seen.add(key)
+            event = events.emit("job", number=job.number, title=job.title, command=job.command, job_kind=job.kind,
+                                status=job.status, killed=bool(job.killed), origin=job.origin,
+                                seconds=round(job.elapsed, 2))
+            self._fire_triggers(event)
+
     def _plain_input(self) -> Any:
         """The fallback when the prompt keeps failing: Python's input(), so `exit` still works."""
         self._quietly(lambda: self.ui.console.print(Text(
@@ -1549,6 +1629,9 @@ class Shell:
         from shellcraft import interrupts
 
         interrupts.record(where, command, elapsed)
+        from shellcraft import events
+
+        events.emit("interrupt", where=where, line=command, seconds=round(elapsed or 0, 2))
         self.ctx.last_status = STATUS_INTERRUPTED
         self._quietly(lambda: self.ui.console.print(Text("^C interrupted", style="sc.warning")))
 

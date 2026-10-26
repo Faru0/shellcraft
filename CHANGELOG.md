@@ -32,6 +32,12 @@ and the project uses [semantic versioning](https://semver.org/).
   only what the role may use, and the shell checks the role again before it runs a command.
   `monitor`, `orchestrator` and `worker` are built in. Every tool takes an optional `agent` name,
   shown in the footer (`✦ AI worker-2: …`).
+- **The shell tells an AI what happens.** It keeps a numbered record of every command (line, exit
+  status, time, folder), every job that ended and every Ctrl-C. `get_events` reads it after a
+  cursor and can wait for the next event, so a monitor no longer polls the review queue on a timer;
+  `search_output` searches the screen and says which command printed each match. `watch on-fail`,
+  `watch match REGEX` and `watch job-died` (or `[[trigger]]` in `ai-policy.toml`) turn the events
+  you care about into flags in the review queue, with a footer alert.
 - **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
   answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
   The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.

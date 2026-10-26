@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import ai_audit, ai_policy, settings
+from shellcraft import ai_audit, ai_policy, events, settings
 from shellcraft.builtins import builtin
 from shellcraft.context import CommandError, Styled
 from shellcraft.modkit import ArgParser
@@ -183,3 +183,92 @@ def ai(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if action == "roles" and not rest:
         return _roles()
     raise CommandError("usage: ai [on|off | log [-n N] [--agent NAME] [--json] | policy | roles]")
+
+
+WATCH_DOC = """# watch
+
+Tell ShellCraft what is worth waking your AI for. When a **trigger** fires, the event becomes a
+flag in the review queue (type `event`) that your AI's monitor sees at once, and a one-line alert
+shows in your footer. The AI never has to poll: it hears about the events you care about.
+
+## Usage
+
+```
+watch                         # the triggers: those in ai-policy.toml and those from this session
+watch on-fail                 # any command that exits with an error (Ctrl-C does not count)
+watch match 'denied|Traceback'  # any command whose output matches a regex (case-insensitive)
+watch job-died                # a background job or subshell that ends with an error
+watch off ID                  # remove one (w1, w2…); `watch off all` removes this session's
+```
+
+Add `--cmd GLOB` to limit a trigger to command lines that match, such as `--cmd 'make*'`, and
+`-p low|medium|high` to set the flag's priority (the default is medium). Triggers made here last
+for this session. To keep one, put it in `~/.shellcraft/ai-policy.toml`:
+
+```toml
+[[trigger]]
+on = "fail"
+command = "make*"
+priority = "high"
+```
+
+An AI sees every event, fired or not, with `get_events`, and can search your screen with
+`search_output`. Its own commands never fire a trigger. The same command is flagged again at most
+every 30 seconds.
+"""
+
+
+@builtin("watch", "Flag events for your AI: failed commands, output that matches, dead jobs",
+         "watch [on-fail | match REGEX | job-died] [--cmd GLOB] [-p PRIORITY] | watch off ID|all",
+         category="shell", stateful=True, doc=WATCH_DOC)
+def watch(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    if not args:
+        return _triggers()
+    action, rest = args[0], args[1:]
+    if action == "off":
+        if len(rest) != 1:
+            raise CommandError("usage: watch off ID|all")
+        if rest[0] != "all" and rest[0].startswith("p"):
+            raise CommandError("watch: that trigger is in ai-policy.toml; remove it there")
+        gone = events.remove_session(rest[0])
+        if not gone:
+            raise CommandError(f"watch: no trigger {rest[0]} (watch lists them)")
+        return Text.assemble(("✓ ", "sc.success"), f"removed {gone} trigger{'s' if gone != 1 else ''}")
+    on = {"on-fail": "fail", "fail": "fail", "match": "match", "job-died": "job-died"}.get(action)
+    if on is None:
+        raise CommandError("usage: watch [on-fail | match REGEX | job-died] [--cmd GLOB] [-p PRIORITY] | watch off ID")
+    parser = ArgParser("watch")
+    parser.add_argument("--cmd", default="")
+    parser.add_argument("-p", "--priority", default="medium", choices=ai_policy.PRIORITIES)
+    parser.add_argument("words", nargs="*")
+    opts = parser.parse_args(rest)
+    pattern = " ".join(opts.words)
+    if on == "match":
+        if not pattern:
+            raise CommandError("usage: watch match REGEX")
+        import re
+
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise CommandError(f"watch: not a regular expression: {exc}") from None
+    elif pattern:
+        raise CommandError(f"usage: watch {action} [--cmd GLOB] [-p PRIORITY]")
+    trigger = events.add_session(on, pattern, opts.cmd, opts.priority)
+    return Text.assemble(("✓ ", "sc.success"), (trigger.id, "sc.accent"),
+                         f" will flag your AI when {events.describe(trigger)}", ("  (this session; `watch off "
+                                                                                  f"{trigger.id}` removes it)",
+                                                                                  "sc.muted"))
+
+
+def _triggers() -> Any:
+    rows = events.triggers()
+    if not rows:
+        return Text("no triggers. Try: watch on-fail", style="sc.muted")
+    table = Table(title="Triggers", title_style="sc.prompt", border_style="sc.border", header_style="sc.accent")
+    for col in ("id", "when", "priority", "from"):
+        table.add_column(col)
+    for trigger in rows:
+        table.add_row(trigger.id, events.describe(trigger), trigger.priority,
+                      ai_policy.FILE if trigger.id.startswith("p") else "this session")
+    return table

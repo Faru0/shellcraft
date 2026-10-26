@@ -74,6 +74,8 @@ or `--no-token`.
 | `get_recent_output` | Read your screen |
 | `get_jobs`, `get_job_output` | Your subshells and background commands, and their output |
 | `get_history` | Your command history, with secrets hidden |
+| `get_events` | What happened in your shell: each command with its exit status and time, each job that ended, each Ctrl-C. It can wait for the next one, so the AI doesn't poll |
+| `search_output` | Search your screen for a pattern; each match says which command printed it |
 | `get_clip`, `set_clip` | Read the clip register, or put a command there for you to paste with Alt-v |
 | `open_subshell` | Open a light ShellCraft in your footer, named `✦ AI · finding`, that shows its findings |
 | `run_in_shell` | Run a command in your shell. See [Commands the AI runs](#commands-the-ai-runs) |
@@ -92,6 +94,29 @@ Limits that protect you:
 
 Man pages are available to the AI too, at `shellcraft://man/NAME`. When you add, change or remove a
 module, connected clients see the change at once.
+
+## Telling the AI when something happens
+
+Your shell keeps a numbered record of what happened in it: every command (the line, the exit
+status, how long it took, the folder), every background job or subshell that ended, and every
+Ctrl-C. An AI reads it with `get_events`, and it can ask to wait for the next one, so it hears
+about things as they happen without checking on a timer. API keys you set on a command line are
+hidden in it, as they are in your history.
+
+To have an AI woken only for what you care about, set a trigger:
+
+```
+watch on-fail                    # a command exits with an error (Ctrl-C does not count)
+watch match 'denied|Traceback'   # a command's output matches
+watch job-died --cmd 'make*'     # a job ends with an error
+watch                            # list them
+watch off w1                     # remove one
+```
+
+When a trigger fires, the event is added to the review queue as a flag, and an alert shows in
+your footer. The AI's monitor sees it like anything you `mark`. Triggers set at the prompt last
+for the session. To keep one, add a `[[trigger]]` to `ai-policy.toml`. An AI's own commands never
+fire a trigger, and the same command is flagged at most every 30 seconds.
 
 ## Reviewing with an AI
 

@@ -18,6 +18,7 @@ Markdown: copy them into your client, or point it at them.
 | `get_recent_output` | The last lines of your screen (your commands as `❯ cmd`, and their output) |
 | `get_jobs`, `get_job_output` | Your subshells and what each printed |
 | `get_history` | Your last commands (API keys redacted) |
+| `get_events`, `search_output` | What happened in the shell (commands with exit status, jobs, Ctrl-C), waiting for the next event if asked; a regex search of the screen. `watch` makes the user's triggers flag events |
 | `get_clip`, `set_clip` | Read or stage the clip register (`set_clip` + Alt-v hands you a command) |
 | `open_subshell` | A named ShellCraft subshell (`✦ AI · name` in the footer) that prints the AI's brief at start |
 | `run_in_shell` | Run a command in your shell with its trace shown: read-only ones at once, the rest after `review approve` |

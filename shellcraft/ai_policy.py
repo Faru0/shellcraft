@@ -15,6 +15,12 @@ With it you add rules and roles:
     run   = "read-only"            # none | read-only | policy
     tools = ["get_recent_output", "get_jobs", "send_tui_alert"]   # omit for every tool
 
+    [[trigger]]                    # an event worth waking the AI for (watch does the same at the prompt)
+    on      = "fail"               # fail (a command exited nonzero) | match (its output matches) | job-died
+    # match = "denied|Traceback"   # for on = "match": a regex, case-insensitive
+    # command = "make*"            # only for command lines matching this glob
+    # priority = "high"            # low | medium | high
+
     [budget]
     module_calls = 200             # module and pipeline calls per MCP server process
 
@@ -45,6 +51,8 @@ from typing import Any
 FILE = "ai-policy.toml"
 ACTIONS = ("allow", "ask", "deny")
 RUN_MODES = ("none", "read-only", "policy")
+TRIGGER_ON = ("fail", "match", "job-died")
+PRIORITIES = ("low", "medium", "high")
 DEFAULT_CACHE_SECONDS = 300.0
 
 # What a role that only watches may use (tool names; ones that don't exist yet are harmless).
@@ -74,6 +82,15 @@ class Role:
     builtin: bool = False
 
 
+@dataclass(frozen=True)
+class Trigger:
+    on: str  # fail | match | job-died
+    match: str = ""  # a regex on the output, for on = "match"
+    command: str = ""  # a glob on the command line
+    priority: str = "medium"
+    id: str = ""
+
+
 BUILTIN_ROLES = {
     "monitor": Role("monitor", "none", READ_TOOLS, True),
     "orchestrator": Role("orchestrator", "policy", None, True),
@@ -84,6 +101,7 @@ BUILTIN_ROLES = {
 @dataclass
 class Policy:
     rules: list[Rule] = field(default_factory=list)
+    triggers: list[Trigger] = field(default_factory=list)
     roles: dict[str, Role] = field(default_factory=lambda: dict(BUILTIN_ROLES))
     budget: int | None = None
     cache_seconds: float = DEFAULT_CACHE_SECONDS
@@ -131,6 +149,10 @@ def parse(text: str, source: Path | None = None) -> Policy:
         rule = _rule(raw, number, policy.warnings)
         if rule is not None:
             policy.rules.append(rule)
+    for number, raw in enumerate(data.get("trigger") or [], 1):
+        trigger = _trigger(raw, number, policy.warnings)
+        if trigger is not None:
+            policy.triggers.append(trigger)
     roles = data.get("role")
     for name, raw in (roles.items() if isinstance(roles, dict) else ()):
         role = _role(str(name), raw, policy.warnings)
@@ -165,6 +187,30 @@ def _rule(raw: Any, number: int, warnings: list[str]) -> Rule | None:
             warnings.append(f"{FILE}: rule {number}: until is not a date and time")
             return None
     return Rule(action, match.strip(), str(raw.get("role", "") or ""), str(raw.get("cwd", "") or ""), stamp)
+
+
+def _trigger(raw: Any, number: int, warnings: list[str]) -> Trigger | None:
+    if not isinstance(raw, dict):
+        warnings.append(f"{FILE}: trigger {number} is not a table")
+        return None
+    on, match = str(raw.get("on", "")).lower(), str(raw.get("match", "") or "")
+    priority = str(raw.get("priority", "medium") or "medium").lower()
+    if on not in TRIGGER_ON:
+        warnings.append(f"{FILE}: trigger {number}: on must be one of {', '.join(TRIGGER_ON)}")
+        return None
+    if priority not in PRIORITIES:
+        warnings.append(f"{FILE}: trigger {number}: priority must be one of {', '.join(PRIORITIES)}")
+        return None
+    if on == "match":
+        try:
+            re.compile(match)
+        except re.error as exc:
+            warnings.append(f"{FILE}: trigger {number}: match is not a regex ({exc})")
+            return None
+        if not match:
+            warnings.append(f"{FILE}: trigger {number}: on = \"match\" needs a match")
+            return None
+    return Trigger(on, match, str(raw.get("command", "") or ""), priority, f"p{number}")
 
 
 def _time(value: Any) -> float | None:
