@@ -236,13 +236,32 @@ GET_FLAGGED_TOOL = "get_flagged_items"
 REQUEST_REVIEW_TOOL = "request_human_review"
 REVIEW_STATUS_TOOL = "get_review_status"
 RESOLVE_TOOL = "resolve_review_item"
-REVIEW_TOOLS = (GET_FLAGGED_TOOL, REQUEST_REVIEW_TOOL, REVIEW_STATUS_TOOL, RESOLVE_TOOL)
+ASK_USER_TOOL = "ask_user"
+REVIEW_TOOLS = (GET_FLAGGED_TOOL, REQUEST_REVIEW_TOOL, REVIEW_STATUS_TOOL, RESOLVE_TOOL, ASK_USER_TOOL)
+ASK_USER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "question": {"type": "string", "maxLength": 500, "description": "The question, in a line."},
+        "details": {"type": "string", "maxLength": 20000,
+                    "description": "What the user needs to decide: what you found, the options, what each costs."},
+        "choices": {"type": "array", "items": {"type": "string", "maxLength": 120}, "maxItems": 10,
+                    "description": "Ready answers. The user can pick one by number or type their own words."},
+        "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+        "about": {"type": "string", "description": "The review item (a flag, a request) this is about; the "
+                                                  "question is added to its thread."},
+        "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 120,
+                         "description": "Wait up to this long for the answer; 0 returns at once, then use "
+                                        "get_review_status."},
+    },
+    "required": ["question"],
+    "additionalProperties": False,
+}
 GET_FLAGGED_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "resolved", "all"],
+        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "answered", "resolved", "all"],
                    "default": "pending"},
-        "kind": {"type": "string", "enum": ["flag", "review", "all"], "default": "flag"},
+        "kind": {"type": "string", "enum": ["flag", "review", "question", "all"], "default": "flag"},
         "include_artifacts": {"type": "boolean", "default": True},
     },
     "additionalProperties": False,
@@ -288,6 +307,11 @@ REVIEW_DESCRIPTIONS = {
                          "call returns when they answer; otherwise poll get_review_status.",
     REVIEW_STATUS_TOOL: "The status of a review item (pending, approved, rejected, resolved) and the user's "
                         "decision and notes.",
+    ASK_USER_TOOL: "Ask the user a question and get their answer: a decision you need before going on, a choice "
+                   "between options, something only they know. It shows in their footer as `AI asks: ...` "
+                   "and they answer with `review answer`. Prefer it to guessing, or to stopping. Give "
+                   "`choices` when the answers are few. Returns the answer, or status pending if they have "
+                   "not answered yet (poll get_review_status).",
     RESOLVE_TOOL: "Mark a review item as dealt with: a flag you have handled, or a review you have acted on. "
                   "Say what you did in resolution_notes.",
 }
@@ -599,7 +623,8 @@ class ShellcraftMCP:
                                 input_schema=PIPELINE_INPUT_SCHEMA))
         tools.append(types.Tool(name=ALERT_TOOL, description=ALERT_DESCRIPTION, input_schema=ALERT_INPUT_SCHEMA))
         for name, schema in ((GET_FLAGGED_TOOL, GET_FLAGGED_SCHEMA), (REQUEST_REVIEW_TOOL, REQUEST_REVIEW_SCHEMA),
-                             (REVIEW_STATUS_TOOL, GET_REVIEW_STATUS_SCHEMA), (RESOLVE_TOOL, RESOLVE_SCHEMA)):
+                             (REVIEW_STATUS_TOOL, GET_REVIEW_STATUS_SCHEMA), (RESOLVE_TOOL, RESOLVE_SCHEMA),
+                             (ASK_USER_TOOL, ASK_USER_SCHEMA)):
             tools.append(types.Tool(name=name, description=REVIEW_DESCRIPTIONS[name], input_schema=schema))
         for name in SHELL_TOOLS:
             tools.append(types.Tool(name=name, description=SHELL_DESCRIPTIONS[name], input_schema=SHELL_SCHEMAS[name]))
@@ -786,6 +811,32 @@ class ShellcraftMCP:
             return _error(f"{GRANT_TOOL}: {exc}")
         return _json_result({**_status_of(item), "granted": item["status"] == "approved"})
 
+    async def _ask_user(self, arguments: dict[str, Any], by: str) -> types.CallToolResult:
+        """`ask_user`: a question item; the user answers with `review answer`."""
+        from shellcraft import review_spool as spool
+
+        question = " ".join(str(arguments.get("question", "")).split())
+        if not question:
+            return _error(f"{ASK_USER_TOOL}: `question` is required")
+        choices = arguments.get("choices") or []
+        if not isinstance(choices, list):
+            return _error(f"{ASK_USER_TOOL}: `choices` must be an array of strings")
+        about = str(arguments.get("about") or "")
+
+        def make() -> dict[str, Any]:
+            parent = spool.find(about)["id"] if about else ""
+            made = spool.create("question", question[:200], str(arguments.get("details", "")), [],
+                                str(arguments.get("priority") or "medium"), "question", created_by=by,
+                                choices=[str(c) for c in choices], parent=parent)
+            if parent:
+                spool.reply(parent, question, by)
+            return made
+
+        item = await anyio.to_thread.run_sync(make)
+        item = await self._await_decision(item, arguments.get("wait_seconds", 120))
+        return _json_result({**_status_of(item), "answered": item["status"] == "answered",
+                             "answer": (item.get("answer") or {}).get("text")})
+
     async def _await_decision(self, item: dict[str, Any], wait_seconds: Any) -> dict[str, Any]:
         """Poll the item every 0.5 s for up to `wait_seconds` (capped below the call timeout)."""
         from shellcraft import review_spool as spool
@@ -842,6 +893,8 @@ class ShellcraftMCP:
                 item_id, notes = str(arguments.get("item_id", "")), str(arguments.get("resolution_notes", ""))
                 item = await anyio.to_thread.run_sync(lambda: spool.resolve(item_id, notes, by))
                 return _json_result(_status_of(item))
+            if name == ASK_USER_TOOL:
+                return await self._ask_user(arguments, by)
             # request_human_review
             title, description = str(arguments.get("title", "")).strip(), str(arguments.get("description", ""))
             if not title:
@@ -1209,6 +1262,10 @@ def link_request(name: str, arguments: dict[str, Any], by: str, role: str | None
 def _status_of(item: dict[str, Any]) -> dict[str, Any]:
     out = {"item_id": item["id"], "kind": item["kind"], "status": item["status"],
            "decision": item.get("decision"), "resolution": item.get("resolution")}
+    if item.get("kind") == "question":
+        out.update(question=item.get("title"), choices=item.get("choices") or [], answer=item.get("answer"))
+    if item.get("thread"):
+        out["thread"] = item["thread"]
     if item.get("type"):
         out["type"] = item["type"]
     if item.get("result") is not None:

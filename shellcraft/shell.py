@@ -380,15 +380,18 @@ class Shell:
             bus = self.ctx.alerts
             if bus is None:
                 return
-            pending = {i["id"]: i for i in spool.list_items("pending", "review")}
+            pending = {i["id"]: i for i in [*spool.list_items("pending", "review"),
+                                            *spool.list_items("pending", "question")]}
             for item_id, item in pending.items():
                 if item_id not in self._review_alerts:
                     level = self.REVIEW_LEVELS.get(item.get("priority"), "warn")
                     kind = item.get("type")
                     head = ("AI wants to run" if kind == "command" else
-                            "AI asks to run commands for this session" if kind == "grant" else "AI asks for review")
+                            "AI asks to run commands for this session" if kind == "grant" else
+                            "AI asks" if item.get("kind") == "question" else "AI asks for review")
+                    choices = "".join(f"  [{n}] {c}" for n, c in enumerate(item.get("choices") or [], 1))
                     self._review_alerts[item_id] = bus.post(
-                        f"{head}: {item.get('title', '')}", level, timeout=None,
+                        f"{head}: {item.get('title', '')}{choices}", level, timeout=None,
                         source=str(item.get("created_by", "")), content=f"review show {item_id}")
             for item_id in [i for i in self._review_alerts if i not in pending]:
                 bus.remove(self._review_alerts.pop(item_id))

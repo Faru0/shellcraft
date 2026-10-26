@@ -81,6 +81,7 @@ or `--no-token`.
 | `run_in_shell` | Run a command in your shell. See [Commands the AI runs](#commands-the-ai-runs) |
 | `create_task`, `list_tasks`, `claim_task`, `update_task`, `release_task` | A task board shared by several AI agents. See [The task board](#the-task-board) |
 | `add_finding`, `list_findings`, `get_finding`, `update_finding` | A case file shared by the agents. See [The case file](#the-case-file) |
+| `ask_user` | Ask you a question, with choices if it has them, and wait for your answer. See [The AI asks you a question](#the-ai-asks-you-a-question) |
 | `request_human_review` and friends | Ask you before doing something risky. See [Reviewing with an AI](#reviewing-with-an-ai) |
 
 The screen, jobs, history and clip tools need your interactive shell to be running. They work
@@ -206,6 +207,24 @@ review reject a1b2c3 not on Fridays
 
 This is advisory. ShellCraft tells the AI to ask, but it can't stop what the AI does with its own
 tools.
+
+### The AI asks you a question
+
+When an AI needs a decision it can ask you instead of guessing or stopping. The question shows in
+your footer as an alert, with numbered choices if it gave some:
+
+```
+AI asks: Block 203.0.113.9?  [1] block it  [2] watch it  [3] ignore
+```
+
+```
+review answer a1b2c3 1             # pick a choice by its number
+review answer a1b2c3 not yet, ask me after lunch    # or say it in your own words
+```
+
+The AI, which is usually waiting, gets the answer at once. To add context to any item without
+answering it, reply into its thread: `tell -r a1b2c3 it is the CEO's laptop`. `review show` prints
+the thread, and the AI reads it with the item.
 
 ## Commands the AI runs
 

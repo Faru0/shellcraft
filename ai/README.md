@@ -27,6 +27,7 @@ Markdown: copy them into your client, or point it at them.
 | `add_finding`, `list_findings`, `get_finding`, `update_finding` | The case file the agents share: one finding per IP, domain or host, evidence merged, severity and confidence kept. The user reads it with `findings` |
 | `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` and the messages you sent with `tell` |
 | `request_human_review`, `get_review_status` | Approval before something destructive |
+| `ask_user` | A question for the user, with choices if you have them. They answer with `review answer`; the call can wait for it. Replies on any item (`tell -r ID`) arrive in its thread |
 
 The read tools and `open_subshell` / `run_in_shell` reach your **interactive** ShellCraft through its
 private link, published in `~/.shellcraft/mainlink.json` (readable by you only, removed when the

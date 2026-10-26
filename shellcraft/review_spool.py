@@ -15,8 +15,11 @@ Race safety, with no shared memory and several writers:
 - On Windows a rename onto a file another process has open fails for a moment: it is retried.
 
 Lifecycles: a `flag` goes pending -> resolved (the AI); a `review` goes pending -> approved or
-rejected (the user), then optionally -> resolved (the AI). Items that are no longer pending are
-deleted KEEP_DAYS after their last change; pending items never expire.
+rejected (the user), then optionally -> resolved (the AI); a `question` (the AI asking the user)
+goes pending -> answered (the user), then optionally -> resolved (the AI). Every item has a
+`thread` of short messages, where the user replies with `tell -r ID` and the AI with the
+`about` of `ask_user`. Items that are no longer pending are deleted KEEP_DAYS after their last
+change; pending items never expire.
 """
 
 from __future__ import annotations
@@ -33,8 +36,8 @@ from typing import Any
 
 SCHEMA = 1
 FOLDER = "review"
-KINDS = ("flag", "review")
-STATUSES = ("pending", "approved", "rejected", "resolved")
+KINDS = ("flag", "review", "question")
+STATUSES = ("pending", "approved", "rejected", "answered", "resolved")
 PRIORITIES = ("low", "medium", "high")
 ARTIFACT_KINDS = ("text", "diff", "file")
 MAX_ARTIFACT = 256 * 1024  # characters kept per artifact: the end (where failures are)
@@ -46,7 +49,9 @@ TRANSITIONS = {
     "flag": {("pending", "resolved")},
     "review": {("pending", "approved"), ("pending", "rejected"), ("approved", "resolved"),
                ("rejected", "resolved"), ("pending", "resolved")},
+    "question": {("pending", "answered"), ("pending", "resolved"), ("answered", "resolved")},
 }
+MAX_THREAD = 100  # messages kept in an item's thread
 
 
 class SpoolError(Exception):
@@ -174,6 +179,11 @@ def summary(item: dict[str, Any]) -> dict[str, Any]:
     """What the queue resource shows of an item: no artifact contents."""
     keys = ("id", "kind", "status", "type", "title", "priority", "created", "updated", "created_by")
     out = {k: item.get(k) for k in keys}
+    for extra in ("choices", "answer", "parent"):
+        if item.get(extra):
+            out[extra] = item[extra]
+    if item.get("thread"):
+        out["messages"] = len(item["thread"])
     out["artifacts"] = [{"name": a.get("name"), "kind": a.get("kind"), "bytes": a.get("bytes"),
                          "truncated": a.get("truncated")} for a in item.get("artifacts", [])]
     if item.get("decision"):
@@ -187,7 +197,7 @@ def summary(item: dict[str, Any]) -> dict[str, Any]:
 
 def create(kind: str, title: str, description: str = "", artifacts: list[dict[str, Any]] | None = None,
            priority: str = "medium", type_: str = "", created_by: str = "shell", cwd: str | None = None,
-           home: Path | None = None) -> dict[str, Any]:
+           home: Path | None = None, choices: list[str] | None = None, parent: str = "") -> dict[str, Any]:
     if kind not in KINDS:
         raise SpoolError(f"kind must be one of {', '.join(KINDS)}")
     if priority not in PRIORITIES:
@@ -198,6 +208,9 @@ def create(kind: str, title: str, description: str = "", artifacts: list[dict[st
             "priority": priority, "created": stamp, "updated": stamp, "created_by": created_by,
             "cwd": cwd if cwd is not None else os.getcwd(), "artifacts": list(artifacts or []),
             "decision": None, "resolution": None}
+    if kind == "question":
+        item.update(choices=[str(c)[:120] for c in (choices or [])][:10], answer=None, parent=parent)
+    item["thread"] = []
     _write(_path(item["id"], home), item)
     return item
 
@@ -220,6 +233,8 @@ def decide(item_id: str, status: str, notes: str = "", by: str = "user",
         raise SpoolError("a decision is approved or rejected")
 
     def change(item: dict[str, Any]) -> None:
+        if item.get("kind") == "question":
+            raise SpoolError(f"{item['id']} is a question from the AI: answer it with `review answer`")
         if item.get("kind") != "review":
             raise SpoolError(f"{item['id']} is a flag for the AI, not a review request: nothing to approve")
         item["decision"] = {"status": status, "notes": notes, "by": by, "at": now()}
@@ -227,6 +242,44 @@ def decide(item_id: str, status: str, notes: str = "", by: str = "user",
             item["result"] = result
 
     return _update(item_id, status, change, home)
+
+
+def answer(item_id: str, text: str, by: str = "user", home: Path | None = None) -> dict[str, Any]:
+    """The user's answer to a question: free text, or the number of one of its choices."""
+    def change(item: dict[str, Any]) -> None:
+        if item.get("kind") != "question":
+            raise SpoolError(f"{item['id']} is not a question from the AI: nothing to answer "
+                             "(a review is approved or rejected, a flag is for the AI)")
+        said = str(text).strip()
+        if not said:
+            raise SpoolError("an answer needs some words (or the number of a choice)")
+        choices = item.get("choices") or []
+        chosen = int(said) if choices and said.isdigit() and 1 <= int(said) <= len(choices) else None
+        if chosen is not None:
+            said = choices[chosen - 1]
+        stamp = now()
+        item["answer"] = {"text": said[:MAX_ARTIFACT], "choice": chosen, "by": by, "at": stamp}
+        item["thread"] = [*item.get("thread", []),
+                          {"by": by, "text": said[:MAX_ARTIFACT], "at": stamp, "kind": "answer"}][-MAX_THREAD:]
+
+    return _update(item_id, "answered", change, home)
+
+
+def reply(item_id: str, text: str, by: str = "user", home: Path | None = None) -> dict[str, Any]:
+    """Add a message to an item's thread, whatever its kind or status."""
+    said = str(text).strip()
+    if not said:
+        raise SpoolError("a reply needs some words")
+    path = _path(item_id, home)
+    with _Lock(path.with_suffix(".lock")):
+        item = _load(path)
+        if item is None:
+            raise SpoolError(f"no review item {item_id} (review lists them)")
+        item["thread"] = [*item.get("thread", []), {"by": by, "text": said[:MAX_ARTIFACT], "at": now()}][-MAX_THREAD:]
+        item["rev"] = int(item.get("rev", 0)) + 1
+        item["updated"] = now()
+        _write(path, item)
+    return item
 
 
 def resolve(item_id: str, notes: str = "", by: str = "mcp", home: Path | None = None) -> dict[str, Any]:

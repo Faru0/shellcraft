@@ -226,13 +226,14 @@ class ShellCompleter(Completer):
     def _review_values(segment: list[str]) -> dict[str, str]:
         words = [w for w in segment[1:] if not w.startswith("-")]
         if not words:
-            return {"show": "one item in full", "approve": "let the AI go ahead", "reject": "tell it not to"}
-        if len(words) == 1 and words[0] in ("show", "approve", "reject"):
+            return {"show": "one item in full", "approve": "let the AI go ahead", "reject": "tell it not to",
+                    "answer": "answer a question the AI asked"}
+        if len(words) == 1 and words[0] in ("show", "approve", "reject", "answer"):
             from shellcraft import review_spool
 
             try:
-                items = review_spool.list_items("pending" if words[0] != "show" else None,
-                                                "review" if words[0] != "show" else None)
+                kind = {"show": None, "answer": "question"}.get(words[0], "review")
+                items = review_spool.list_items("pending" if words[0] != "show" else None, kind)
             except OSError:
                 return {}
             return {i["id"]: i.get("title", "")[:60] for i in items}

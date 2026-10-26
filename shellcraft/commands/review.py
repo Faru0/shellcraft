@@ -67,7 +67,14 @@ review --all                  # everything still kept (done items go after 7 day
 review show ID                # one item in full
 review approve ID [NOTES...]  # let the AI go ahead
 review reject ID [NOTES...]   # tell it not to
+review answer ID TEXT|N       # answer a question the AI asked (N picks the Nth choice)
 ```
+
+When the AI needs a decision from you it asks (`ask_user`), which shows in the footer as `AI asks:
+QUESTION`, with numbered choices if it gave some. Answer with words, or with the number of a
+choice; the AI, which may be waiting, gets your answer at once. To say more about any item
+without answering it, `tell -r ID MESSAGE` adds to the item's thread, which `review show` prints
+and the AI reads.
 
 An ID can be shortened to its last characters when only one item matches (`review show a1b2c3`),
 and Tab completes them. Only requests from the AI can be approved or rejected, and only while
@@ -214,6 +221,7 @@ grep -c failed auth.log | tell -m "failed count"   # a title for it
 | --- | --- |
 | `-m TITLE`, `--title TITLE` | A title (default: the first words of the message). |
 | `-p LEVEL`, `--priority LEVEL` | `low`, `medium` (default) or `high`. |
+| `-r ID`, `--reply ID` | Not a new message: add this to the thread of an item already in the queue (a flag, a request, a question), so the AI reads it where it asked. |
 
 `review` lists messages with the other items; `review show ID` prints one. A message is stored
 as is: write only what an AI may read.
@@ -221,12 +229,13 @@ as is: write only what an AI may read.
 
 
 @builtin("tell", "Send a message to the AI (a question, an instruction, a note)",
-         "tell [-m TITLE] [-p low|medium|high] MESSAGE... | COMMAND | tell",
+         "tell [-m TITLE] [-p low|medium|high] [-r ID] MESSAGE... | COMMAND | tell",
          category="shell", stateful=True, doc=TELL_DOC)
 def tell(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     parser = ArgParser("tell")
     parser.add_argument("-m", "--title", default="")
     parser.add_argument("-p", "--priority", default="medium", choices=spool.PRIORITIES)
+    parser.add_argument("-r", "--reply", default="")
     parser.add_argument("words", nargs="*")
     opts = parser.parse_args(args)
     message = " ".join(opts.words).strip()
@@ -234,6 +243,12 @@ def tell(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         message = (message + "\n\n" if message else "") + stdin.rstrip("\n")
     if not message:
         raise CommandError("tell: say something: tell MESSAGE, or pipe it in (man tell)")
+    if opts.reply:
+        try:
+            item = spool.reply(spool.find(opts.reply)["id"], message)
+        except (OSError, spool.SpoolError) as exc:
+            raise CommandError(f"tell: {exc}") from None
+        return Text.assemble(("✓ replied on ", "sc.success"), (item["id"], "sc.accent"), (f": {item['title']}", "sc.muted"))
     title = opts.title or " ".join(message.split())[:60]
     try:
         item = spool.create("flag", title, message, [], opts.priority, "message")
@@ -252,7 +267,8 @@ def _age(item: dict[str, Any]) -> str:
 
 
 def _line(item: dict[str, Any]) -> Text:
-    kind = ("message" if item.get("type") == "message" else "→ AI" if item["kind"] == "flag"
+    kind = ("question" if item["kind"] == "question" else "message" if item.get("type") == "message"
+            else "→ AI" if item["kind"] == "flag"
             else "AI runs" if item.get("type") == "command" else "AI grant" if item.get("type") == "grant"
             else "AI asks")
     style = {"high": "sc.error", "medium": "sc.warning", "low": "sc.muted"}.get(item.get("priority"), "")
@@ -269,6 +285,12 @@ def show_text(item: dict[str, Any]) -> str:
              f"from: {item.get('created_by', '')} at {item.get('created', '')} in {item.get('cwd', '')}"]
     if item.get("description"):
         lines += ["", item["description"]]
+    if item.get("choices"):
+        lines += ["", *[f"  {n}. {c}" for n, c in enumerate(item["choices"], 1)]]
+    if item.get("answer"):
+        a = item["answer"]
+        lines.append(f"answer: {a.get('text', '')}" + (f" (choice {a['choice']})" if a.get("choice") else "")
+                     + f" by {a.get('by', '')} at {a.get('at', '')}")
     for key in ("decision", "resolution"):
         if item.get(key):
             d = item[key]
@@ -277,6 +299,9 @@ def show_text(item: dict[str, Any]) -> str:
     for a in item.get("artifacts", []):
         cut = f", the last {_size(spool.MAX_ARTIFACT)} of {_size(a.get('bytes', 0))}" if a.get("truncated") else ""
         lines += ["", f"── {a.get('name')} ({a.get('kind')}{cut}) " + "─" * 20, a.get("content", "").rstrip("\n")]
+    if item.get("thread"):
+        lines += ["", "── thread " + "─" * 20]
+        lines += [f"{m.get('at', '')[11:19]}  {m.get('by', '')}: {m.get('text', '')}" for m in item["thread"]]
     r = item.get("result")
     if r:
         head = f"── result (exit {r.get('status')}, {r.get('seconds')} s" + (f", {r['error']}" if r.get("error") else "")
@@ -286,7 +311,7 @@ def show_text(item: dict[str, Any]) -> str:
 
 
 @builtin("review", "The review queue with an AI: what you marked, what it asks you to approve",
-         "review [--all] | show ID | approve ID [NOTES...] | reject ID [NOTES...]",
+         "review [--all] | show ID | approve ID [NOTES...] | reject ID [NOTES...] | answer ID TEXT|N",
          category="shell", stateful=True, doc=REVIEW_DOC)
 def review(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     try:
@@ -308,6 +333,12 @@ def review(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             if ctx.ui is not None and ctx.interactive and text.count("\n") > 40:
                 return Paged(text, page=True)
             return text
+        if action == "answer" and len(rest) >= 2:
+            item = spool.find(rest[0])
+            decided = spool.answer(item["id"], " ".join(rest[1:]))
+            _audit(decided, "answered")
+            return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"),
+                                 (f" answered: {decided['answer']['text']}", "sc.success"))
         if action in ("approve", "reject") and rest:
             item = spool.find(rest[0])
             notes = " ".join(rest[1:])
@@ -324,4 +355,5 @@ def review(ctx: ShellContext, args: list[str], stdin: str) -> Any:
                                  (f" {decided['status']}: {decided.get('title', '')}", "sc.success"))
     except spool.SpoolError as exc:
         raise CommandError(f"review: {exc}") from None
-    raise CommandError("usage: review [--all] | show ID | approve ID [NOTES...] | reject ID [NOTES...]")
+    raise CommandError("usage: review [--all] | show ID | approve ID [NOTES...] | reject ID [NOTES...] "
+                       "| answer ID TEXT|N")

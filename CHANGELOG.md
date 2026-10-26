@@ -51,6 +51,11 @@ and the project uses [semantic versioning](https://semver.org/).
 - **Module answers are remembered for five minutes.** Two agents asking the same module the same
   question spend one API call. `fresh: true` asks again, errors are never kept, editing a module
   forgets its answers, and `[cache]` in `ai-policy.toml` sets the time or excludes modules.
+- **An AI can ask you a question.** `ask_user` puts a question in your footer (`AI asks: ...`
+  with numbered choices if it gave some); you answer with `review answer ID 2` or in words, and
+  the AI, usually waiting, gets it at once. `tell -r ID MESSAGE` replies inside any item's thread,
+  which `review show` prints and the AI reads. `get_review_status` and `get_flagged_items` now
+  carry the answer and the thread.
 - **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
   answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
   The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.
