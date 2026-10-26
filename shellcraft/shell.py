@@ -324,6 +324,8 @@ class Shell:
         self._job_events_seen: set[tuple[int, float]] = set()  # finished jobs already recorded as events
         self._task_counts: dict[str, int] = {}  # open / working / blocked tasks on the board, for the prompt
         self._task_alerted: set[tuple[str, str, int]] = set()  # blocked or failed tasks already announced
+        self._finding_alerted: set[str] = set()  # high and critical findings already announced
+        self._findings_primed = False  # the first look only notes what is already in the case file
         self._tty_attrs: Any = None  # the terminal's attributes before keep_output_on_interrupt
 
     def _print_live(self, item: Any) -> None:
@@ -368,8 +370,8 @@ class Shell:
         and the alert goes when the request is answered, here or from another shell."""
         import threading
 
+        from shellcraft import findings, tasks
         from shellcraft import review_spool as spool
-        from shellcraft import tasks
 
         stop = threading.Event()
         self._review_alerts: dict[str, Any] = {}
@@ -391,12 +393,13 @@ class Shell:
             for item_id in [i for i in self._review_alerts if i not in pending]:
                 bus.remove(self._review_alerts.pop(item_id))
             self._check_tasks(bus)
+            self._check_findings(bus)
 
         def run() -> None:
             last = None
             while not stop.wait(interval):
                 try:
-                    now = (spool.signature(), tasks.signature())
+                    now = (spool.signature(), tasks.signature(), findings.signature())
                     if now != last:
                         last = now
                         check()
@@ -430,6 +433,24 @@ class Shell:
         if counts != self._task_counts:
             self._task_counts = counts
             self._jobs_changed()
+
+    def _check_findings(self, bus: Any) -> None:
+        """The case file changed (from the watcher thread): an alert for each new high or critical
+        finding. What was there when the shell started is not announced."""
+        from shellcraft import findings
+
+        fresh = self._findings_primed
+        for name in findings.cases():
+            for item in findings.list_findings(name, severity="high"):
+                if item["id"] in self._finding_alerted:
+                    continue
+                self._finding_alerted.add(item["id"])
+                if fresh and bus is not None:
+                    by = f" · {', '.join(item['agents'])}" if item.get("agents") else ""
+                    bus.post(f"AI finding ({item['severity']}): {item['title']}{by}",
+                             "crit" if item["severity"] == "critical" else "warn", source="findings",
+                             content=f"findings show {item['id'][-6:]}")
+        self._findings_primed = True
 
     def _sub_recording(self, data: dict[str, Any]) -> None:
         """A subshell started or stopped `record` (from the watcher thread): its line in the

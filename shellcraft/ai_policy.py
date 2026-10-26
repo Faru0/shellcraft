@@ -26,6 +26,7 @@ With it you add rules and roles:
 
     [cache]
     seconds = 300                  # how long a module's answer is reused (0 turns it off)
+    exclude = ["myip"]             # modules whose answer is never reused
 
 Rules are read top to bottom. `deny` and `ask` match when any command of a line does (a line
 may hold several, joined with ; && || | or &). `allow` needs every command of the line to match an
@@ -105,6 +106,7 @@ class Policy:
     roles: dict[str, Role] = field(default_factory=lambda: dict(BUILTIN_ROLES))
     budget: int | None = None
     cache_seconds: float = DEFAULT_CACHE_SECONDS
+    cache_exclude: frozenset[str] = frozenset()
     warnings: list[str] = field(default_factory=list)
     path: Path | None = None
     exists: bool = False
@@ -165,6 +167,9 @@ def parse(text: str, source: Path | None = None) -> Policy:
     seconds = cache.get("seconds") if isinstance(cache, dict) else None
     if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds >= 0:
         policy.cache_seconds = float(seconds)
+    skip = cache.get("exclude") if isinstance(cache, dict) else None
+    if isinstance(skip, list):
+        policy.cache_exclude = frozenset(str(s) for s in skip)
     return policy
 
 

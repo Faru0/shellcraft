@@ -80,6 +80,7 @@ or `--no-token`.
 | `open_subshell` | Open a light ShellCraft in your footer, named `✦ AI · finding`, that shows its findings |
 | `run_in_shell` | Run a command in your shell. See [Commands the AI runs](#commands-the-ai-runs) |
 | `create_task`, `list_tasks`, `claim_task`, `update_task`, `release_task` | A task board shared by several AI agents. See [The task board](#the-task-board) |
+| `add_finding`, `list_findings`, `get_finding`, `update_finding` | A case file shared by the agents. See [The case file](#the-case-file) |
 | `request_human_review` and friends | Ask you before doing something risky. See [Reviewing with an AI](#reviewing-with-an-ai) |
 
 The screen, jobs, history and clip tools need your interactive shell to be running. They work
@@ -141,6 +142,33 @@ again and shows as stale. A task can wait for others, and can't be claimed until
 Agents give their name with `agent` on every call, so you can tell them apart in `tasks`, in the
 footer and in `ai log`. The board is also a resource, `shellcraft://tasks`, that clients are told
 about when it changes.
+
+## The case file
+
+Agents write what they find into one shared case, so the same IP found by two workers is one
+finding with both workers' evidence, not two. You read it with `findings`:
+
+```
+findings                       # the current case, most severe first
+findings show a1b2c3           # one finding, with its evidence
+findings add ip 203.0.113.9 -s high -t 'Brute force' -n 'from auth.log'
+findings set a1b2c3 --status confirmed
+findings case acme             # switch to another case (made if new)
+findings export report.md      # a report grouped by severity, with the evidence
+```
+
+Adding a finding for something already in the case merges: the evidence of both, the higher
+severity and confidence, and a count of how many times it was seen. A new high or critical finding
+raises an alert in your footer. Each finding has a kind (an IP, a domain, a hash, a user, a host,
+a file…), a severity from info to critical, a confidence, a status (open, confirmed, dismissed),
+tags, and evidence: the command and the lines that show it.
+
+### Module answers are remembered
+
+Two agents asking `queryDns example.com` a minute apart spend one API call, not two. The answer is
+kept for five minutes (`[cache] seconds` in `ai-policy.toml` changes it, `0` turns it off, and
+`exclude` names modules that are never kept). An agent passes `fresh: true` to ask again. Answers
+that failed are never kept, and editing a module forgets what it said.
 
 ## Reviewing with an AI
 

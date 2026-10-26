@@ -3,4 +3,19 @@
 Importing this package registers every command in shellcraft.builtins.BUILTINS.
 """
 
-from shellcraft.commands import ai, cond, curl, diff, files, func, info, jq, misc, profile, review, tasks, text  # noqa: F401
+from shellcraft.commands import (  # noqa: F401
+    ai,
+    cond,
+    curl,
+    diff,
+    files,
+    findings,
+    func,
+    info,
+    jq,
+    misc,
+    profile,
+    review,
+    tasks,
+    text,
+)

@@ -91,6 +91,8 @@ shellcraft/
 │   ├── ai_audit.py         # ~/.shellcraft/ai-audit.jsonl: what AI clients did (`ai log`)
 │   ├── events.py           # the shell's event ring (`get_events`) and the triggers (`watch`)
 │   ├── tasks.py            # the task board agents share: ~/.shellcraft/tasks, claims with a lease (`tasks`)
+│   ├── findings.py         # the case file agents share: ~/.shellcraft/findings, merged by what they are about (`findings`)
+│   ├── modcache.py         # module answers remembered for a few minutes (~/.shellcraft/cache)
 │   ├── briefs.py           # the brief an AI-opened subshell prints at start
 │   ├── review_spool.py     # the review queue shared by the shell and the MCP servers (`mark`, `tell`, `review`)
 │   ├── usage.py            # a command's usage line as a grammar, for Tab completion
@@ -312,6 +314,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets (masked, out of history), the rc origin, the `settings` section |
 | `test_copilot.py` | the co-pilot tools: reading the shell, `open_subshell`, `run_in_shell` tiers, the session grant, `tell` |
 | `test_events.py` | the event ring and cursor, waiting, the numbered screen and its search, commands/jobs/Ctrl-C as events, secrets hidden, the triggers (fail, match, job-died, the policy file, the repeat limit), `get_events` and `search_output` over MCP |
+| `test_findings.py` | the case file: merging the same thing, races, filters, update, cases, the report, the four tools, `findings`, the alert for a high finding; the module-answer memory (hits, `fresh`, errors, exclude, expiry, edits, budget) |
 | `test_tasks.py` | the task board: exclusive claims (even under a race), leases, dependencies, owner-only updates, the user's override, expiry, the five tools, the resource, `tasks`, the prompt count and the blocked alert |
 | `test_ai_policy.py` | `ai_access` on by default and saved, the policy file (rules, roles, budget), the verdicts, `--role`, the `agent` label, the audit log, `ai` |
 

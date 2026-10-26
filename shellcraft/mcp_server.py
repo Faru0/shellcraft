@@ -44,6 +44,9 @@ from shellcraft.watch import ModuleWatcher
 
 log = logging.getLogger("shellcraft.mcp")
 
+FRESH_PROPERTY: dict[str, Any] = {
+    "type": "boolean", "default": False,
+    "description": "Ask the service again instead of reusing an answer from the last few minutes."}
 AGENT_PROPERTY: dict[str, Any] = {
     "type": "string", "maxLength": 40,
     "description": "Optional: your name or role in this session (\"worker-2\"). It shows in the user's footer, "
@@ -124,6 +127,85 @@ TASK_DESCRIPTIONS = {
     UPDATE_TASK_TOOL: "Report on a task you hold: a note, status working, blocked (the user is told), done or "
                       "failed, and a result. Each call renews your lease.",
     RELEASE_TASK_TOOL: "Give a task back so another agent can take it.",
+}
+ADD_FINDING_TOOL = "add_finding"
+LIST_FINDINGS_TOOL = "list_findings"
+GET_FINDING_TOOL = "get_finding"
+UPDATE_FINDING_TOOL = "update_finding"
+FINDING_TOOLS = (ADD_FINDING_TOOL, LIST_FINDINGS_TOOL, GET_FINDING_TOOL, UPDATE_FINDING_TOOL)
+_EVIDENCE_SCHEMA: dict[str, Any] = {
+    "type": "array", "maxItems": 20,
+    "description": "What shows it: each piece is a command and its output, or a note. Quote the exact lines.",
+    "items": {"type": "object",
+              "properties": {"command": {"type": "string"}, "output": {"type": "string"}, "note": {"type": "string"}},
+              "additionalProperties": False}}
+FINDING_SCHEMAS: dict[str, dict[str, Any]] = {
+    ADD_FINDING_TOOL: {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["ip", "domain", "url", "hash", "user", "host", "file", "process",
+                                                "other"], "description": "What sort of thing the finding is about."},
+            "value": {"type": "string", "maxLength": 500,
+                      "description": "The thing itself: the IP, the domain, the hash."},
+            "title": {"type": "string", "maxLength": 200, "description": "What is wrong or notable, in a line."},
+            "summary": {"type": "string", "maxLength": 20000},
+            "evidence": _EVIDENCE_SCHEMA,
+            "severity": {"type": "string", "enum": ["info", "low", "medium", "high", "critical"], "default": "info"},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+            "task_id": {"type": "string", "description": "The board task this came from."},
+            "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+            "case": {"type": "string", "description": "The case to file it in (default: the current one)."},
+        },
+        "required": ["kind", "value"],
+        "additionalProperties": False,
+    },
+    LIST_FINDINGS_TOOL: {
+        "type": "object",
+        "properties": {
+            "case": {"type": "string"},
+            "kind": {"type": "string"},
+            "severity": {"type": "string", "enum": ["info", "low", "medium", "high", "critical"],
+                         "description": "At least this severe."},
+            "status": {"type": "string", "enum": ["open", "confirmed", "dismissed"]},
+            "tag": {"type": "string"},
+            "agent": {"type": "string", "description": "Only what this agent found."},
+            "query": {"type": "string", "description": "Words in the value, title or summary."},
+        },
+        "additionalProperties": False,
+    },
+    GET_FINDING_TOOL: {
+        "type": "object",
+        "properties": {"finding_id": {"type": "string"}},
+        "required": ["finding_id"],
+        "additionalProperties": False,
+    },
+    UPDATE_FINDING_TOOL: {
+        "type": "object",
+        "properties": {
+            "finding_id": {"type": "string"},
+            "title": {"type": "string", "maxLength": 200},
+            "summary": {"type": "string", "maxLength": 20000, "description": "Replaces the summary."},
+            "severity": {"type": "string", "enum": ["info", "low", "medium", "high", "critical"]},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "status": {"type": "string", "enum": ["open", "confirmed", "dismissed"]},
+            "add_tags": {"type": "array", "items": {"type": "string"}},
+            "remove_tags": {"type": "array", "items": {"type": "string"}},
+            "evidence": _EVIDENCE_SCHEMA,
+        },
+        "required": ["finding_id"],
+        "additionalProperties": False,
+    },
+}
+FINDING_DESCRIPTIONS = {
+    ADD_FINDING_TOOL: "Record a finding in the shared case file: something about an IP, domain, hash, user or "
+                      "host, with the evidence. If another agent already recorded the same thing, yours is "
+                      "merged into it (more evidence, the higher severity) and `created` is false, so check "
+                      "list_findings first and add only what is new. The user reads the case with `findings`.",
+    LIST_FINDINGS_TOOL: "The findings in the case, most severe first, without their evidence. Use it before "
+                        "you investigate something, so you do not repeat another agent's work.",
+    GET_FINDING_TOOL: "One finding in full, with all its evidence.",
+    UPDATE_FINDING_TOOL: "Change a finding: its wording, severity, confidence, status (confirmed, dismissed) or "
+                         "tags, or add evidence to it.",
 }
 PIPELINE_TOOL = "shellcraft_pipeline"
 ALERT_TOOL = "send_tui_alert"
@@ -523,14 +605,20 @@ class ShellcraftMCP:
             tools.append(types.Tool(name=name, description=SHELL_DESCRIPTIONS[name], input_schema=SHELL_SCHEMAS[name]))
         for name in TASK_TOOLS:
             tools.append(types.Tool(name=name, description=TASK_DESCRIPTIONS[name], input_schema=TASK_SCHEMAS[name]))
+        for name in FINDING_TOOLS:
+            tools.append(types.Tool(name=name, description=FINDING_DESCRIPTIONS[name],
+                                    input_schema=FINDING_SCHEMAS[name]))
         from shellcraft import ai_policy
 
         policy = ai_policy.load()
         tools = [t for t in tools if ai_policy.role_allows_tool(policy, self.role, t.name)]
+        modules = set(self.tool_names())
         for tool in tools:  # every tool takes the caller's label (the footer, the task board and the audit log show it)
             schema = dict(tool.input_schema)
             props = dict(schema.get("properties") or {})
             props.setdefault("agent", AGENT_PROPERTY)
+            if tool.name in modules:  # a module: its answer may come from the memory
+                props.setdefault("fresh", FRESH_PROPERTY)
             schema["properties"] = props
             tool.input_schema = schema
         return types.ListToolsResult(tools=tools)
@@ -581,6 +669,8 @@ class ShellcraftMCP:
             return await self._shell_tool(params.name, arguments, who, agent)
         if params.name in TASK_TOOLS:
             return await self._task_tool(params.name, arguments, who, agent)
+        if params.name in FINDING_TOOLS:
+            return await self._finding_tool(params.name, arguments, agent)
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -590,6 +680,7 @@ class ShellcraftMCP:
         spec = self.registry.get(params.name)
         if spec is None or not self.exposed(params.name):
             raise MCPError(types.INVALID_PARAMS, f"Unknown tool: {params.name}")
+        fresh = bool(arguments.pop("fresh", False))
         stdin = arguments.pop("stdin", None)
         stdin = "" if stdin is None else str(stdin)
         if len(stdin) > MAX_STDIN:
@@ -604,7 +695,26 @@ class ShellcraftMCP:
             if not isinstance(raw_args, list):
                 return _error("`args` must be an array of strings")
             args = [str(a) for a in raw_args]
-        return await _call(lambda: to_text(spec.run(args, stdin)), self.timeout)
+        return await self._run_module(spec, args, stdin, fresh)
+
+    async def _run_module(self, spec: Any, args: list[str], stdin: str, fresh: bool) -> types.CallToolResult:
+        """Run a module, or answer from the memory of the last few minutes (shellcraft.modcache): two
+        agents asking the same question do not spend two API calls. Errors are never remembered."""
+        from shellcraft import ai_policy, modcache
+
+        policy = ai_policy.load()
+        ttl = 0.0 if fresh or spec.name in policy.cache_exclude else policy.cache_seconds
+        key = modcache.key(spec.name, args, stdin, modcache.version_of(spec.path)) if ttl else ""
+        if ttl:
+            hit = await anyio.to_thread.run_sync(lambda: modcache.get(key, ttl))
+            if hit is not None:
+                self.module_calls = max(0, self.module_calls - 1)  # it spent no API call
+                return types.CallToolResult(content=[types.TextContent(type="text", text=hit[0])],
+                                            meta={"shellcraft": {"cached": True, "age_seconds": round(hit[1], 1)}})
+        result = await _call(lambda: to_text(spec.run(args, stdin)), self.timeout)
+        if ttl and not result.is_error and result.content and isinstance(result.content[0], types.TextContent):
+            await anyio.to_thread.run_sync(lambda: modcache.put(key, spec.name, result.content[0].text, ttl))
+        return result
 
     # ── the co-pilot: questions to the interactive shell (shellcraft.mainlink) ─
 
@@ -686,6 +796,18 @@ class ShellcraftMCP:
             await anyio.sleep(0.5)
             item = await anyio.to_thread.run_sync(lambda: spool.get(item["id"]))
         return item
+
+    # ── the case file (shellcraft.findings) ───────────────────────────────────
+
+    async def _finding_tool(self, name: str, arguments: dict[str, Any], agent: str) -> types.CallToolResult:
+        from shellcraft import findings
+
+        try:
+            return _json_result(await anyio.to_thread.run_sync(lambda: _finding_call(name, arguments, agent)))
+        except findings.FindingError as exc:
+            return _error(f"{name}: {exc}")
+        except (TypeError, ValueError) as exc:
+            return _error(f"{name}: bad arguments: {exc}")
 
     # ── the task board (shellcraft.tasks) ─────────────────────────────────────
 
@@ -898,6 +1020,41 @@ async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.C
     if len(text) > MAX_OUTPUT:
         text = text[:MAX_OUTPUT] + f"\n… [output cut after {MAX_OUTPUT} characters]\n"
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
+
+
+def _finding_call(name: str, arguments: dict[str, Any], agent: str) -> Any:
+    """One case-file tool call (runs in a thread: the case is files)."""
+    from shellcraft import findings
+
+    def text(key: str) -> str | None:
+        value = arguments.get(key)
+        return None if value is None else str(value)
+
+    def listing(key: str) -> list[Any] | None:
+        value = arguments.get(key)
+        if value is not None and not isinstance(value, list):
+            raise ValueError(f"`{key}` must be an array")
+        return value
+
+    if name == ADD_FINDING_TOOL:
+        item, created = findings.add(
+            text("kind") or "", text("value") or "", text("title") or "", text("summary") or "", listing("evidence"),
+            text("confidence") or "medium", text("severity") or "info", agent, text("task_id") or "",
+            listing("tags"), text("case"))
+        return {**item, "created": created}
+    if name == LIST_FINDINGS_TOOL:
+        found = findings.list_findings(text("case"), text("kind"), text("severity"), text("tag"), text("query"),
+                                       text("status"), text("agent"))
+        return [{k: v for k, v in f.items() if k != "evidence"} | {"evidence": len(f.get("evidence", []))}
+                for f in found]
+    if name == GET_FINDING_TOOL:
+        return findings.find(text("finding_id") or "")
+    if name == UPDATE_FINDING_TOOL:
+        item = findings.find(text("finding_id") or "")
+        return findings.update(item["id"], text("title"), text("summary"), text("severity"), text("confidence"),
+                               text("status"), listing("add_tags"), listing("remove_tags"), listing("evidence"),
+                               agent, item["case"])
+    raise ValueError(f"unknown tool {name}")
 
 
 def _task_call(name: str, arguments: dict[str, Any], who: str, owner: str) -> Any:

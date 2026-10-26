@@ -43,6 +43,14 @@ and the project uses [semantic versioning](https://semver.org/).
   A claim is exclusive and lasts a lease that every update renews, so a dead worker's task
   frees itself; tasks can wait for others. You see it with `tasks`, the prompt shows `✦ N tasks`,
   and a blocked or failed task raises an alert. The board is also the resource `shellcraft://tasks`.
+- **A case file the agents share.** `add_finding`, `list_findings`, `get_finding` and
+  `update_finding` keep one finding per IP, domain, hash, user or host: a second agent finding the
+  same thing merges its evidence into it and raises the severity or confidence if it is higher. `findings`
+  reads, adds, rates and exports the case as a Markdown or JSON report, `findings case NAME`
+  keeps separate cases, and a new high or critical finding raises an alert.
+- **Module answers are remembered for five minutes.** Two agents asking the same module the same
+  question spend one API call. `fresh: true` asks again, errors are never kept, editing a module
+  forgets its answers, and `[cache]` in `ai-policy.toml` sets the time or excludes modules.
 - **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
   answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
   The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.

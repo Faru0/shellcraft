@@ -180,7 +180,7 @@ def test_modules_without_params_keep_the_args_array(registry, tmp_path):
     local = ModuleRegistry(tmp_path)
     local.load()
     tools = {t.name: t for t in _call(build_server(local), lambda c: c.list_tools()).tools}
-    assert {k: v for k, v in tools["echoargs"].input_schema["properties"].items() if k != "agent"} \
+    assert {k: v for k, v in tools["echoargs"].input_schema["properties"].items() if k not in ("agent", "fresh")} \
         == MODULE_INPUT_SCHEMA["properties"]
     result = _call(build_server(local), lambda c: c.call_tool("echoargs", {"args": ["-x", "y"]}))
     assert result.content[0].text == "-x y"

@@ -25,6 +25,7 @@ export SHELLCRAFT_HOME=~/dotfiles/shellcraft
 │   └── 10-example.sc.sample
 ├── funcs/                   named lists of commands you run on demand
 │   └── example.func.sample
+├── ai-policy.toml.sample    rules and roles for what an AI may run (copy to ai-policy.toml)
 ├── modules/                 your own commands (Python)
 └── profiles/                one folder per profile
     └── NAME/
@@ -142,6 +143,9 @@ These are working files. You can look at them, but there's no need to edit them.
 | `records/` | Transcripts from `record` and `script` |
 | `alerts/`, `bin/` | Alerts waiting to be shown, and the `alert` helper that scripts can call |
 | `review/`, `briefs/`, `mainlink.json` | Messages between the shell and connected AI clients |
+| `tasks/`, `findings/` | The task board and the case files your AI agents share (`tasks`, `findings`) |
+| `ai-audit.jsonl` | What AI clients did (`ai log`) |
+| `cache/` | Module answers remembered for a few minutes, so two agents asking the same thing don't spend two API calls |
 | `mcp-http.log` | The log of the MCP server started with `mcp start` |
 
 ## Start over
