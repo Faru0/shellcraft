@@ -7,6 +7,13 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **AI access is on by default.** An AI client connected over MCP now runs any command in your
+  shell at once, as a `✦ AI:` job with its trace above your prompt, instead of asking for
+  `review approve` on everything that wasn't read-only. It is the new saved setting
+  `ai_access` (`ai_run` still works as its name). `✦ run` shows in the prompt while it is on, and
+  `settings ai_access off` or `ai off` goes back to asking. `request_session_grant` answers at
+  once when access is already on.
+
 - **Faster where it was felt.** Plain output no longer goes through Rich line by line: 20,000
   lines print in 2 ms instead of 211, and `ls -l` of a thousand entries in 26 ms instead of 196.
   Pipelines move lines between segments in chunks instead of one queue operation per line:
@@ -18,6 +25,16 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A policy for what an AI may run.** `~/.shellcraft/ai-policy.toml` (a commented
+  `ai-policy.toml.sample` is in your folder) holds rules that deny, ask about or allow a command by
+  pattern, for one role, in one folder, until a date; roles with their own limits; a budget of module
+  calls; and how long a module's answer is reused. A server started with `--role NAME` offers
+  only what the role may use, and the shell checks the role again before it runs a command.
+  `monitor`, `orchestrator` and `worker` are built in. Every tool takes an optional `agent` name,
+  shown in the footer (`✦ AI worker-2: …`).
+- **`ai`** shows the state and policy, `ai log` lists every tool call an AI made and how it was
+  answered (read-only, granted, approval, denied), `ai policy`, `ai roles`, `ai on` and `ai off`.
+  The log is `~/.shellcraft/ai-audit.jsonl`; your `review approve` and `reject` answers are in it.
 - **`diag` knows about Ctrl-C and about Windows 11.** A **recent interrupts** section records every
   Ctrl-C of the session: where it landed (a running command, its output being printed, the
   prompt, the gap between commands), what was running and for how long, the console modes at

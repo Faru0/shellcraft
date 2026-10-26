@@ -51,6 +51,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--expose", metavar="NAME,...",
                    help="with --mcp / --mcp-http: offer only these modules as tools (a .skill with "
                         "`expose = false` is never offered)")
+    p.add_argument("--role", metavar="NAME",
+                   help="with --mcp / --mcp-http: serve only what this role may use (monitor, orchestrator, worker, "
+                        "or one from ai-policy.toml); the shell checks the role again before it runs a command")
     p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
     p.add_argument("--brief", type=Path, metavar="FILE", help=argparse.SUPPRESS)  # an AI-opened subshell's brief
     p.add_argument("--init", action="store_true",
@@ -184,6 +187,16 @@ def main(argv: list[str] | None = None) -> int:
     if profile_name and (args.mcp or args.mcp_http):  # a server in a profile: its variables too
         for var, value in (profiles.load(profile_name).get("env") or {}).items():
             os.environ[str(var)] = profiles.plain(value)
+    if args.role and not (args.mcp or args.mcp_http):
+        print("shellcraft: --role goes with --mcp or --mcp-http", file=sys.stderr)
+        return 2
+    if args.role:
+        from shellcraft import ai_policy
+
+        known = ai_policy.load().roles
+        if args.role not in known:
+            print(f"shellcraft: unknown role '{args.role}' (known: {', '.join(sorted(known))})", file=sys.stderr)
+            return 2
     if args.mcp or args.mcp_http:
         _interrupts_as_usual()
     if args.mcp_http:
@@ -198,12 +211,13 @@ def main(argv: list[str] | None = None) -> int:
 
         serve_http(registry, host, port, allow_system=args.allow_system,
                    watch=settings.get(config, "hot_reload"), token=resolve_token(args.token, args.no_token),
-                   expose=expose)
+                   expose=expose, role=args.role)
         return 0
     if args.mcp:
         from shellcraft.mcp_server import serve
 
-        serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"), expose=expose)
+        serve(registry, allow_system=args.allow_system, watch=settings.get(config, "hot_reload"), expose=expose,
+              role=args.role)
         return 0
 
     from shellcraft.themes import all_themes
@@ -260,8 +274,11 @@ def _start_shell(args: Any, config: Any, registry: Any, theme: Any, theme_warnin
     # UI's Rich console on CONOUT$, whatever stdin and stdout are redirected to. Rich takes the
     # terminal size from prompt_toolkit's output, so both agree on Linux and Windows.
     ui = UI(theme, build_console())
+    from shellcraft import settings
+
     ctx = ShellContext(registry=registry, ui=ui, config=config, allow_system=allow_system, lite=args.lite,
-                       brief=args.brief if args.lite else None)
+                       brief=args.brief if args.lite else None,
+                       ai_run=not args.lite and settings.get(config, "ai_access"))
     from shellcraft import crashlog
 
     crashlog.install_thread_hook()  # a background thread's error goes to the log, not over the prompt

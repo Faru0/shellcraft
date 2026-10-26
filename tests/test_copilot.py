@@ -328,16 +328,16 @@ def test_the_session_grant(registry, real_shell, tmp_path):
     sh, ctx = real_shell
     server = build_server(registry)
     assert not ctx.ai_run and not any("✦ run" in t for _s, t, *_ in sh._segment("mcp"))
-    assert "this session only" in to_text(run_line("settings ai_run on", ctx).output)
+    assert "On" in to_text(run_line("settings ai_run on", ctx).output)  # the old name of ai_access
     assert ctx.ai_run and any("✦ run" in t for _s, t, *_ in sh._segment("mcp"))
-    assert "ai_run" in to_text(run_line("settings", ctx).output)
+    assert "ai_access" in to_text(run_line("settings", ctx).output)
     out = _json(_call(server, lambda c: c.call_tool(
         "run_in_shell", {"command": "mkdir granted-dir", "reason": "x", "wait_seconds": 10})))
     assert out["mode"] == "granted" and out["status"] == 0 and (tmp_path / "granted-dir").is_dir()
     assert ctx.jobs.get(out["number"]).title == "✦ AI: mkdir granted-dir"
     run_line("settings ai_run toggle", ctx)
     assert not ctx.ai_run
-    assert ctx.config.get("settings", {}).get("ai_run") is None  # never saved
+    assert ctx.config["settings"]["ai_access"] is False  # saved, like any setting
 
     # the AI asks for the grant; the user approves it
     def approve_soon():

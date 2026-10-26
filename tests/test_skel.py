@@ -5,7 +5,8 @@ import json
 from shellcraft import aliases, funcs, skel, startup
 from shellcraft.config import load_config
 
-EXPECTED = {"rc", "aliases", "funcs/example.func.sample", "startup/README.txt", "startup/10-example.sc.sample"}
+EXPECTED = {"rc", "aliases", "ai-policy.toml.sample", "funcs/example.func.sample", "startup/README.txt",
+            "startup/10-example.sc.sample"}
 
 
 def test_the_starter_set():

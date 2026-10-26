@@ -44,6 +44,10 @@ from shellcraft.watch import ModuleWatcher
 
 log = logging.getLogger("shellcraft.mcp")
 
+AGENT_PROPERTY: dict[str, Any] = {
+    "type": "string", "maxLength": 40,
+    "description": "Optional: your name or role in this session (\"worker-2\"). It shows in the user's footer, "
+                   "on the task board and in the audit log, so the user can tell agents apart."}
 PIPELINE_TOOL = "shellcraft_pipeline"
 ALERT_TOOL = "send_tui_alert"
 ALERT_INPUT_SCHEMA: dict[str, Any] = {
@@ -339,8 +343,10 @@ class ShellcraftMCP:
     """The MCP server plus what it needs to tell connected clients that the modules changed."""
 
     def __init__(self, registry: ModuleRegistry, allow_system: bool = False,
-                 expose: Iterable[str] | None = None, timeout: float | None = None):
+                 expose: Iterable[str] | None = None, timeout: float | None = None, role: str | None = None):
         self.registry = registry
+        self.role = role or None  # pinned with --role: this server offers, and allows, only what the role may use
+        self.module_calls = 0  # against [budget] module_calls of the policy file
         # Which modules clients may use: those whose .skill doesn't say `expose = false`, narrowed
         # further by --expose NAME,... when given. The pipeline tool follows the same rule.
         self.expose_only = None if expose is None else set(expose)
@@ -401,18 +407,62 @@ class ShellcraftMCP:
             tools.append(types.Tool(name=name, description=REVIEW_DESCRIPTIONS[name], input_schema=schema))
         for name in SHELL_TOOLS:
             tools.append(types.Tool(name=name, description=SHELL_DESCRIPTIONS[name], input_schema=SHELL_SCHEMAS[name]))
+        from shellcraft import ai_policy
+
+        policy = ai_policy.load()
+        tools = [t for t in tools if ai_policy.role_allows_tool(policy, self.role, t.name)]
+        for tool in tools:  # every tool takes the caller's label (the footer, the task board and the audit log show it)
+            schema = dict(tool.input_schema)
+            props = dict(schema.get("properties") or {})
+            props.setdefault("agent", AGENT_PROPERTY)
+            schema["properties"] = props
+            tool.input_schema = schema
         return types.ListToolsResult(tools=tools)
 
     async def _call_tool(self, request_ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
+        """Every tool call: the role and the budget are checked, the call is made, and it is written
+        to the audit log (`ai log`)."""
+        import time
+
+        from shellcraft import ai_audit, ai_policy
+
         self._remember(request_ctx)
         arguments = dict(params.arguments or {})
+        agent = " ".join(str(arguments.pop("agent", "") or "").split())[:40]
+        client = _client_name(request_ctx)
+        who = f"{client} · {agent}" if agent else client
+        policy = ai_policy.load()
+        started = time.monotonic()
+        if not ai_policy.role_allows_tool(policy, self.role, params.name):
+            result = _error(f"{params.name}: the {self.role} role may not use this tool")
+        elif self._over_budget(policy, params.name):
+            result = _error(f"{params.name}: the budget of {policy.budget} module calls for this server is used up "
+                            f"(`[budget]` in {ai_policy.FILE})")
+        else:
+            result = await self._dispatch_tool(request_ctx, params, arguments, who, agent)
+        summary = str(arguments.get("command") or arguments.get("title") or arguments.get("message")
+                      or arguments.get("args") or arguments.get("reason") or "")
+        await anyio.to_thread.run_sync(lambda: ai_audit.record(
+            params.name, summary, agent=agent, role=self.role or "", client=client,
+            tier=_tier_of(params.name, result), ok=not result.is_error, seconds=time.monotonic() - started))
+        return result
+
+    def _over_budget(self, policy: Any, name: str) -> bool:
+        if name not in self.tool_names() and name != PIPELINE_TOOL:
+            return False
+        if policy.budget is None:
+            return False
+        self.module_calls += 1
+        return self.module_calls > policy.budget
+
+    async def _dispatch_tool(self, request_ctx, params: types.CallToolRequestParams, arguments: dict[str, Any],
+                             who: str, agent: str) -> types.CallToolResult:
         if params.name == ALERT_TOOL:
-            client = _client_name(request_ctx)
-            return await _call(lambda: _send_alert(arguments, client), self.timeout)
+            return await _call(lambda: _send_alert(arguments, who), self.timeout)
         if params.name in REVIEW_TOOLS:
-            return await self._review_tool(params.name, arguments, _client_name(request_ctx))
+            return await self._review_tool(params.name, arguments, who)
         if params.name in SHELL_TOOLS:
-            return await self._shell_tool(params.name, arguments, _client_name(request_ctx))
+            return await self._shell_tool(params.name, arguments, who, agent)
         if params.name == PIPELINE_TOOL:
             command = str(arguments.get("command", ""))
             if len(command) > MAX_STDIN:
@@ -440,14 +490,15 @@ class ShellcraftMCP:
 
     # ── the co-pilot: questions to the interactive shell (shellcraft.mainlink) ─
 
-    async def _shell_tool(self, name: str, arguments: dict[str, Any], client: str) -> types.CallToolResult:
+    async def _shell_tool(self, name: str, arguments: dict[str, Any], client: str,
+                          agent: str = "") -> types.CallToolResult:
         from shellcraft import mainlink
 
         by = f"mcp · {client}"
         if name == GRANT_TOOL:
             return await self._request_grant(arguments, by)
         try:
-            request = link_request(name, arguments, by)
+            request = link_request(name, arguments, by, self.role, agent)
         except ValueError as exc:
             return _error(f"{name}: {exc}")
         timeout = LINK_TIMEOUT + (request[1].get("wait", 0) if name == RUN_TOOL else 0)
@@ -458,18 +509,22 @@ class ShellcraftMCP:
             return _error(f"{name}: {answer[1]}")
         if name == SET_CLIP_TOOL:
             return _json_result({"set": True, "characters": len(request[1])})
+        if name == RUN_TOOL and isinstance(answer, dict) and answer.get("denied"):
+            return _error(f"{name}: not run: {answer.get('reason') or 'the policy does not allow it'}")
         if name == RUN_TOOL and isinstance(answer, dict) and answer.get("needs_approval"):
-            return await self._run_with_approval(arguments, f"mcp · {client}")
+            return await self._run_with_approval(arguments, by, answer.get("reason") or "")
         if name == GET_CLIP_TOOL:
             return _json_result({"text": answer})
         return _json_result(answer)
 
-    async def _run_with_approval(self, arguments: dict[str, Any], by: str) -> types.CallToolResult:
+    async def _run_with_approval(self, arguments: dict[str, Any], by: str, why: str = "") -> types.CallToolResult:
         """`run_in_shell` for a command the shell would not run on its own: a review item of type
         "command"; `review approve ID` runs it there and stores the output with the decision."""
         from shellcraft import review_spool as spool
 
         command, reason = str(arguments.get("command", "")).strip(), str(arguments.get("reason", ""))
+        if why:
+            reason = f"{reason}\n\n({why})"
         priority = str(arguments.get("priority") or "medium")
         try:
             item = await anyio.to_thread.run_sync(lambda: spool.create(
@@ -484,11 +539,16 @@ class ShellcraftMCP:
                              "waiting for `review approve` in the user's shell; poll get_review_status"})
 
     async def _request_grant(self, arguments: dict[str, Any], by: str) -> types.CallToolResult:
+        from shellcraft import mainlink
         from shellcraft import review_spool as spool
 
         reason = str(arguments.get("reason", "")).strip()
         if not reason:
             return _error(f"{GRANT_TOOL}: `reason` is required")
+        state = await anyio.to_thread.run_sync(lambda: mainlink.ask(("ai-state",), None))
+        if isinstance(state, dict) and state.get("on"):
+            return _json_result({"granted": True, "status": "approved", "item_id": None,
+                                 "note": "the user's ai_access setting is on: commands already run at once"})
         try:
             item = await anyio.to_thread.run_sync(lambda: spool.create(
                 "review", "run any command this session", reason, [], "medium", "grant", created_by=by))
@@ -653,8 +713,8 @@ class ShellcraftMCP:
 
 
 def build_server(registry: ModuleRegistry, allow_system: bool = False, expose: Iterable[str] | None = None,
-                 timeout: float | None = None) -> Server:
-    return ShellcraftMCP(registry, allow_system, expose, timeout).server
+                 timeout: float | None = None, role: str | None = None) -> Server:
+    return ShellcraftMCP(registry, allow_system, expose, timeout, role).server
 
 
 def _run_pipeline(command: str, ctx: ShellContext) -> str:
@@ -688,6 +748,16 @@ async def _call(fn: Callable[[], str], timeout: float = CALL_TIMEOUT) -> types.C
     if len(text) > MAX_OUTPUT:
         text = text[:MAX_OUTPUT] + f"\n… [output cut after {MAX_OUTPUT} characters]\n"
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
+
+
+def _tier_of(tool: str, result: types.CallToolResult) -> str:
+    """For the audit log: how run_in_shell was answered (read-only, granted, approval, denied)."""
+    if tool != RUN_TOOL:
+        return ""
+    try:
+        return str(json.loads(result.content[0].text).get("mode") or "")
+    except (AttributeError, IndexError, ValueError, TypeError):
+        return "denied" if result.is_error and "not run" in str(getattr(result.content[0], "text", "")) else ""
 
 
 def _client_name(request_ctx: Any) -> str:
@@ -727,7 +797,7 @@ def _send_alert(arguments: dict[str, Any], client: str = "mcp client") -> str:
     return f"alert shown ({severity}): {message}" + (" (with content)" if content else "")
 
 
-def link_request(name: str, arguments: dict[str, Any], by: str) -> tuple:
+def link_request(name: str, arguments: dict[str, Any], by: str, role: str | None = None, agent: str = "") -> tuple:
     """The request tuple a co-pilot tool sends over the link (shellcraft.mainlink); ValueError
     for arguments that don't fit."""
     def integer(key: str, default: int, low: int, high: int) -> int:
@@ -781,7 +851,7 @@ def link_request(name: str, arguments: dict[str, Any], by: str) -> tuple:
         if not str(arguments.get("reason", "")).strip():
             raise ValueError("`reason` is required")
         return ("run", {"command": command.strip(), "reason": str(arguments["reason"]), "source": by,
-                        "wait": integer("wait_seconds", 120, 0, 600)})
+                        "wait": integer("wait_seconds", 120, 0, 600), "role": role or "", "agent": agent})
     raise ValueError(f"unknown tool {name}")
 
 
@@ -838,9 +908,9 @@ def _log_startup(app: ShellcraftMCP, watch: bool) -> None:
 
 
 def serve(registry: ModuleRegistry, allow_system: bool = False, watch: bool = True,
-          expose: Iterable[str] | None = None) -> None:
+          expose: Iterable[str] | None = None, role: str | None = None) -> None:
     """Serve over stdio."""
-    app = ShellcraftMCP(registry, allow_system, expose)
+    app = ShellcraftMCP(registry, allow_system, expose, role=role)
     _log_startup(app, watch)
 
     async def main() -> None:
@@ -884,13 +954,14 @@ def require_bearer(asgi: Any, token: str) -> Any:
 
 
 def serve_http(registry: ModuleRegistry, host: str, port: int, allow_system: bool = False,
-               watch: bool = True, token: str | None = None, expose: Iterable[str] | None = None) -> None:
+               watch: bool = True, token: str | None = None, expose: Iterable[str] | None = None,
+               role: str | None = None) -> None:
     """Serve over streamable HTTP at http://HOST:PORT/mcp (loopback addresses only). With a
     `token`, every request must send `Authorization: Bearer <token>`."""
     import uvicorn
     from mcp.server.transport_security import TransportSecuritySettings
 
-    app = ShellcraftMCP(registry, allow_system, expose)
+    app = ShellcraftMCP(registry, allow_system, expose, role=role)
     _log_startup(app, watch)
     shown = f"[{host}]" if ":" in host else host
     log.info("streamable HTTP on http://%s:%d/mcp", shown, port)

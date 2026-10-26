@@ -10,8 +10,10 @@ The [ai/](../ai/README.md) folder has agents and skills that teach an AI client 
 > [!WARNING]
 > A connected AI client can read any file your user account can read, through commands like
 > `cat`, `grep` and `curl`, and `curl` can send a file's contents anywhere. While your shell runs,
-> it can also read the screen, your subshells' output and your command history, and run the
-> commands you approve. Modules that use your API keys spend your quota when the AI calls them.
+> it can also read the screen, your subshells' output and your command history, and **run any
+> command, at once, with your permissions**: `settings ai_access` is on by default. Turn it off
+> with `ai off` to approve each non-read-only command yourself, or add deny and ask rules in
+> `ai-policy.toml`. Modules that use your API keys spend your quota when the AI calls them.
 > Only connect AI clients you trust.
 
 ## Connect a client
@@ -130,14 +132,56 @@ tools.
 
 ## Commands the AI runs
 
-`run_in_shell` works in three tiers:
+By default an AI client can run any command in your shell, at once, with your permissions. That
+is the `ai_access` setting, and it is on. Each command runs as a background job named
+`✦ AI: command`, so you see what ran above your prompt, and `✦ run` shows in your prompt while
+access is on. Turn it off any time with `settings ai_access off` (or `ai off`). It is saved, so it
+stays off until you turn it on, and a profile can set its own.
 
-1. **Read-only commands** such as `grep`, `cat`, `jq` and the query modules run at once, as a
-   background job named `✦ AI: command`. You see what ran above your prompt.
+With access off, `run_in_shell` works in two tiers:
+
+1. **Read-only commands** such as `grep`, `cat`, `jq` and the query modules run at once.
 2. **Anything else waits for you** in the review queue as `AI wants to run: command`.
    `review approve` runs it in your shell with your permissions and gives the AI the output.
-   `review reject` means it never runs.
-3. **A session grant** lets everything run at once: `settings ai_run on`, or approve the AI's own
-   request for it. It's never saved, and `✦ run` shows in the prompt while it's on.
+   `review reject` means it never runs. The AI can also ask for access for the rest of the session
+   (`request_session_grant`), and you grant it with `review approve`.
+
+### Rules and roles
+
+`~/.shellcraft/ai-policy.toml` narrows or widens that, per command. It is optional, and
+`ai-policy.toml.sample` in your ShellCraft folder explains every option.
+
+```toml
+[[rule]]
+action = "deny"          # never runs, and the AI is told why
+match  = "rm -r*"
+
+[[rule]]
+action = "ask"           # waits for review approve, even with access on
+match  = "git push*"
+
+[role.scout]
+run   = "read-only"
+tools = ["get_recent_output", "get_jobs", "send_tui_alert"]
+```
+
+Start a server for one role and it offers only what that role may use. The shell checks the role
+again before it runs anything, so a client can't talk its way past it:
+
+```bash
+claude mcp add shellcraft-monitor -- /path/to/python /path/to/main.py --mcp --role monitor
+```
+
+`monitor` reads and alerts but never runs a command. `orchestrator` and `worker` follow your
+rules. Every tool takes an optional `agent` name, such as `worker-2`, which shows in the footer
+(`✦ AI worker-2: …`) and in the log. A `[budget]` caps module and pipeline calls per server, and
+a `[cache]` reuses a module's answer for a while.
+
+### What the AI did
+
+`ai log` lists every tool call an AI made: when, which tool, which client and agent, the command,
+how it was answered (read-only, granted, approval, denied) and whether it worked. Your
+`review approve` and `review reject` answers are in it too. `ai` shows the state, the policy and
+the last few actions, and `ai policy` and `ai roles` show what is loaded.
 
 Finished review items are deleted after 7 days. Pending ones stay until you answer them.

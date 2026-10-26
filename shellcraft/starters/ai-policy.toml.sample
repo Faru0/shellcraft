@@ -1,0 +1,54 @@
+# How to use this file
+# --------------------
+# This says what an AI client may do in your shell. It isn't loaded while its name ends in
+# .sample. To use it, copy it to ai-policy.toml and remove the # in front of what you want:
+#
+#     cp ai-policy.toml.sample ai-policy.toml
+#
+# `ai policy` shows what is loaded, `ai log` shows what the AI did. Without the copy, the
+# `ai_access` setting decides alone: on (the default) means any command runs at once.
+#
+# Rules are read top to bottom. deny beats ask, ask beats allow. A pattern is a glob on the
+# command line: `rm -r*` matches `rm -rf build`. For a line with several commands (a; b | c),
+# deny and ask match when any one of them does; allow needs every one to match, and never
+# matches a line with a redirection or `$(...)` unless the pattern itself names it.
+
+# Never let an AI run these:
+# [[rule]]
+# action = "deny"
+# match  = "rm -r*"
+#
+# [[rule]]
+# action = "deny"
+# match  = "*sudo *"
+
+# Run them only after you say `review approve`, even though access is on:
+# [[rule]]
+# action = "ask"
+# match  = "git push*"
+
+# Let one command through even with `settings ai_access off`, only for one role,
+# only in one folder, and only until a date:
+# [[rule]]
+# action = "allow"
+# match  = "pytest*"
+# role   = "worker"
+# cwd    = "/home/me/work/*"
+# until  = "2026-12-31 18:00"
+
+# A role is a set of limits for one AI agent. Start a server for it with
+#   shellcraft --mcp --role scout
+# run: none (never runs commands), read-only, or policy (the rules above apply).
+# tools: the only tools it is offered; leave it out for every tool.
+# Built in: monitor (reads and alerts), orchestrator and worker (the rules apply).
+# [role.scout]
+# run   = "read-only"
+# tools = ["get_recent_output", "get_jobs", "send_tui_alert"]
+
+# A cap on module and pipeline calls per MCP server process (they can spend your API quota):
+# [budget]
+# module_calls = 200
+
+# How long a module's answer is reused for the same arguments, in seconds (0 turns it off):
+# [cache]
+# seconds = 300

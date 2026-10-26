@@ -1,12 +1,19 @@
 """What an AI may run in the user's shell without asking (the `run_in_shell` MCP tool).
 
-Three tiers. A **read-only** command line runs at once: every command in it is a builtin that
-neither changes shell state, nor writes files, nor reveals secrets (the same rule the MCP
-sandbox applies to `shellcraft_pipeline`), or a module; no redirection to a file, no `&`, no
-`sub`, no loop or function, no OS program, no alias or shell function (either could hide
-anything). With the **session grant** (`settings ai_run on`, or `request_session_grant`
-approved with `review approve`) everything runs at once. Anything else goes to the review
-queue, one item per command, and runs when the user approves it there.
+Four answers, in this order (shellcraft.ai_policy has the rules and the roles):
+
+- **denied**: the AI's role may not run it, or a `deny` rule in `ai-policy.toml` matches. It is
+  never queued; the AI is told why.
+- **ask** (a matching `ask` rule) goes to the review queue, one item per command, and runs when
+  the user approves it there.
+- **read-only**: every command in the line is a builtin that neither changes shell state, nor
+  writes files, nor reveals secrets (the same rule the MCP sandbox applies to
+  `shellcraft_pipeline`), or a module; no redirection to a file, no `&`, no `sub`, no loop or
+  function, no OS program, no alias or shell function (either could hide anything). It runs at
+  once.
+- **granted**: an `allow` rule matches, or the `ai_access` setting is on (the default; a session
+  grant approved with `review approve` also turns it on). Everything runs at once.
+- Otherwise the command waits in the review queue for `review approve`.
 
 A free run is a background command job named `✦ AI: command` (origin "ai"): the user sees
 its trace (`[N] done: ✦ AI: …` and the output) above the prompt, as for `cmd &`.
@@ -14,9 +21,10 @@ its trace (`[N] done: ✦ AI: …` and the output) above the prompt, as for `cmd
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import os
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-from shellcraft import aliases
+from shellcraft import ai_policy, aliases
 from shellcraft.builtins import BUILTINS
 from shellcraft.parser import ParseError, parse, split_background
 from shellcraft.script import Simple, parse_script
@@ -65,19 +73,42 @@ def _reads_only(name: str, ctx: ShellContext, names: dict[str, str]) -> bool:
     return ctx.registry.get(name) is not None
 
 
-def tier(line: str, ctx: ShellContext) -> str:
-    """"read-only", "granted" (the session grant is on) or "approval" (it has to be asked)."""
-    if read_only(line, ctx):
-        return "read-only"
-    if getattr(ctx, "ai_run", False):
-        return "granted"
-    return "approval"
+class Verdict(NamedTuple):
+    tier: str  # "read-only", "granted", "approval" or "denied"
+    reason: str = ""  # why, for "denied" and for an "approval" a rule asked for
 
 
-def job_name(command: str) -> str:
-    """`✦ AI: grep root auth.log` for the footer and the jobs table."""
+def check(line: str, ctx: ShellContext, role: str | None = None) -> Verdict:
+    """The verdict on `line` for an AI with `role` (see the module doc for the order)."""
+    policy = ai_policy.load()
+    run = ai_policy.role_run(policy, role)
+    if run == "none":
+        return Verdict("denied", f"the {role} role may not run commands")
+    verdict, rule = ai_policy.evaluate(policy, line, role, os.getcwd())
+    if verdict == "deny" and rule is not None:
+        return Verdict("denied", f"the policy denies `{rule.match}` ({ai_policy.FILE})")
+    reads = read_only(line, ctx)
+    if run == "read-only":
+        return Verdict("read-only") if reads else Verdict("denied", f"the {role} role runs read-only commands only")
+    if verdict == "ask" and rule is not None:
+        return Verdict("approval", f"the policy asks about `{rule.match}`")
+    if reads:
+        return Verdict("read-only")
+    if verdict == "allow" or getattr(ctx, "ai_run", False):
+        return Verdict("granted")
+    return Verdict("approval")
+
+
+def tier(line: str, ctx: ShellContext, role: str | None = None) -> str:
+    """"read-only", "granted" (the policy or the ai_access setting allows it), "approval" (it has
+    to be asked) or "denied"."""
+    return check(line, ctx, role).tier
+
+
+def job_name(command: str, agent: str = "") -> str:
+    """`✦ AI: grep root auth.log` (or `✦ AI worker-2: …`) for the footer and the jobs table."""
     short = " ".join(command.split())
-    return f"✦ AI: {short[:MAX_NAME]}{'…' if len(short) > MAX_NAME else ''}"
+    return f"✦ AI{' ' + agent if agent else ''}: {short[:MAX_NAME]}{'…' if len(short) > MAX_NAME else ''}"
 
 
 def output_of(job: Any, limit: int = 256 * 1024) -> dict[str, Any]:

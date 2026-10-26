@@ -414,10 +414,10 @@ class ShellCompleter(Completer):
     def _setting_names(self) -> dict[str, str]:
         keys = {name: entry.label for name, entry in env_settings(self.ctx.registry).items()}
         from shellcraft import loading
-        from shellcraft.builtins import AI_RUN_KEY, AI_RUN_LABEL, LOADER_LABEL, PREFIX_LABEL
+        from shellcraft.builtins import LOADER_LABEL, PREFIX_LABEL
         from shellcraft.prefix import CONFIG_KEY
 
-        return ({k: s.label for k, s in SETTINGS.items()} | {AI_RUN_KEY: f"{AI_RUN_LABEL} (this session)"}
+        return ({k: s.label for k, s in SETTINGS.items()}
                 | {CONFIG_KEY: PREFIX_LABEL, loading.CONFIG_KEY: LOADER_LABEL} | keys)
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:

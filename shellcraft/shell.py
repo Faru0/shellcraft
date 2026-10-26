@@ -470,6 +470,7 @@ class Shell:
         link.handle("history", self._link_history)
         link.handle("open-sub", self._link_open_ai_sub)
         link.handle("run", self._link_run)
+        link.handle("ai-state", lambda: {"on": bool(self.ctx.ai_run)})
         from shellcraft import briefs
 
         briefs.sweep()  # briefs no subshell ever read
@@ -524,10 +525,14 @@ class Shell:
         if self.ctx.jobs is None:
             return ("error", "this shell has no job table")
         command = spec["command"].strip()
-        mode = ai_run.tier(command, self.ctx)
+        role, agent = str(spec.get("role") or "") or None, str(spec.get("agent") or "")
+        verdict = ai_run.check(command, self.ctx, role)
+        mode = verdict.tier
+        if mode == "denied":
+            return {"denied": True, "mode": "denied", "reason": verdict.reason}
         if mode == "approval":
-            return {"needs_approval": True, "mode": "approval"}
-        job = command_job(self.ctx, self.ctx.jobs, command, name=ai_run.job_name(command), origin="ai")
+            return {"needs_approval": True, "mode": "approval", "reason": verdict.reason}
+        job = command_job(self.ctx, self.ctx.jobs, command, name=ai_run.job_name(command, agent), origin="ai")
         wait = _clamp(spec.get("wait", 0), 0, 600)
         deadline = time.monotonic() + wait
         while job.running and time.monotonic() < deadline:
@@ -885,7 +890,7 @@ class Shell:
         if name == "mcp":
             parts = [(style, text, self._click("mcp log")) for style, text in self._mcp_marker()]
             if getattr(self.ctx, "ai_run", False):  # the session grant is on: say so until it is off
-                parts.append(("class:mcp", (" " if parts else "") + "✦ run", self._click("settings ai_run off")))
+                parts.append(("class:mcp", (" " if parts else "") + "✦ run", self._click("settings ai_access off")))
             return parts
         if name == "status":
             if not self.ctx.last_status:

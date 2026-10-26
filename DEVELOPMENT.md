@@ -86,7 +86,9 @@ shellcraft/
 │   ├── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
 │   ├── mcp_child.py        # `mcp start/stop`: the HTTP server as a child process of the shell
 │   ├── mainlink.py         # the main shell's private link (published in ~/.shellcraft/mainlink.json): clip, co-pilot requests
-│   ├── ai_run.py           # `run_in_shell`: which command lines an AI may run without asking
+│   ├── ai_run.py           # `run_in_shell`: the verdict on a command line for an AI (read-only, granted, approval, denied)
+│   ├── ai_policy.py        # ~/.shellcraft/ai-policy.toml: rules, roles, budget, cache
+│   ├── ai_audit.py         # ~/.shellcraft/ai-audit.jsonl: what AI clients did (`ai log`)
 │   ├── briefs.py           # the brief an AI-opened subshell prints at start
 │   ├── review_spool.py     # the review queue shared by the shell and the MCP servers (`mark`, `tell`, `review`)
 │   ├── usage.py            # a command's usage line as a grammar, for Tab completion
@@ -307,6 +309,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_profiles.py` | profiles: create / list / copy / delete, layering, `profile use` and `off` (theme, settings, modules, env, aliases, history), where changes are saved, `profile save`, the wizard, diff, export / import, `--profile` |
 | `test_env_vars.py` | `env`: session variables (set / unset / list / `-a`), who sees them, host override and restore, secrets (masked, out of history), the rc origin, the `settings` section |
 | `test_copilot.py` | the co-pilot tools: reading the shell, `open_subshell`, `run_in_shell` tiers, the session grant, `tell` |
+| `test_ai_policy.py` | `ai_access` on by default and saved, the policy file (rules, roles, budget), the verdicts, `--role`, the `agent` label, the audit log, `ai` |
 
 Tests that need a real OS program use `tests.conftest.OS_UPPER`, which runs the current Python
 interpreter, so they work on every platform. Tests that touch API keys use the `clean_env` fixture,

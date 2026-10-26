@@ -21,7 +21,7 @@ Markdown: copy them into your client, or point it at them.
 | `get_clip`, `set_clip` | Read or stage the clip register (`set_clip` + Alt-v hands you a command) |
 | `open_subshell` | A named ShellCraft subshell (`✦ AI · name` in the footer) that prints the AI's brief at start |
 | `run_in_shell` | Run a command in your shell with its trace shown: read-only ones at once, the rest after `review approve` |
-| `request_session_grant` | Ask once to run anything for the session (`settings ai_run on`; `✦ run` in the prompt while on) |
+| `request_session_grant` | Ask once to run anything for the session. Not needed while `settings ai_access` is on, which is the default |
 | `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` and the messages you sent with `tell` |
 | `request_human_review`, `get_review_status` | Approval before something destructive |
 

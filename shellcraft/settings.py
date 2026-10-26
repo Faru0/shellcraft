@@ -34,6 +34,10 @@ def _apply_system_commands(ctx: ShellContext, value: bool) -> None:
     ctx.allow_system = value
 
 
+def _apply_ai_access(ctx: ShellContext, value: bool) -> None:
+    ctx.ai_run = value
+
+
 def _apply_mouse(ctx: ShellContext, value: bool) -> None:
     if ctx.ui is not None:
         ctx.ui.mouse = value
@@ -51,6 +55,11 @@ SETTINGS: dict[str, Setting] = {
                 "Fall back to programs on PATH (ls, git, cmd.exe built-ins…) when no "
                 "ShellCraft builtin or module matches. Off keeps behavior identical on "
                 "Windows and Linux.", _apply_system_commands),
+        Setting("ai_access", "AI runs commands at once", True,
+                "An AI client connected over MCP may run any command here without asking (its trace shows "
+                "above the prompt, `✦ run` shows in the prompt, `ai log` lists what it did). Off: it runs "
+                "read-only commands at once and asks for the rest in the review queue. `ai-policy.toml` "
+                "adds rules (deny, ask, allow) and roles on top (man ai).", _apply_ai_access),
         Setting("pager", "Pager", True,
                 "Open man pages, and whatever is piped into `less`, in the scrollable viewer. Off: print "
                 "them instead."),

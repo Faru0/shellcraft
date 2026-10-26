@@ -86,10 +86,11 @@ review reject ID [NOTES...]   # it never runs; the AI gets your notes
 ```
 
 Ctrl-C stops an approved command (the AI is told). `review show ID` afterwards prints the output
-under `── result`. To skip the approvals for a session, `settings ai_run on` lets the AI run
-anything at once (`✦ run` shows in the prompt; `off` revokes it, and it is never saved); the AI
-can ask for that itself (`request_session_grant`), which shows as `AI asks to run commands for
-this session` and is granted with `review approve ID`.
+under `── result`. With `settings ai_access` on, which is the default, the AI runs anything at
+once and nothing waits here (`✦ run` shows in the prompt). With it off, the AI can ask for that
+for the session (`request_session_grant`), which shows as `AI asks to run commands for this
+session` and is granted with `review approve ID`. A rule in `ai-policy.toml` can still make a
+command wait here (`man ai`).
 """
 
 
@@ -128,11 +129,22 @@ def _approve_and_run(ctx: ShellContext, item: dict[str, Any], notes: str) -> Any
         error, status = "the command asked the shell to exit; refused", 1
     result_data = spool.result_of(output, status, error, time.monotonic() - started, os.getcwd())
     decided = spool.decide(item["id"], "approved", notes, result=result_data)
+    _audit(decided, "approved", status == 0, time.monotonic() - started)
     lines = output.count("\n") + (1 if output and not output.endswith("\n") else 0)
     return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"), (" approved and run: ", "sc.success"),
                          (command, "sc.accent"),
                          (f"  (exit {status}, {lines} line{'s' if lines != 1 else ''}; the AI gets the output)"
                           if error is None else f"  ({error}; the AI is told)", "sc.muted"))
+
+
+def _audit(item: dict[str, Any], decision: str, ok: bool | None = None, seconds: float | None = None) -> None:
+    """Your answer to something an AI asked for, in the audit log (`ai log`)."""
+    from shellcraft import ai_audit
+
+    what = next((a.get("content", "") for a in item.get("artifacts", []) if a.get("name") == "command"),
+                item.get("title", ""))
+    ai_audit.record("review", what, client=str(item.get("created_by", "")), tier="approval", decision=decision,
+                    ok=ok, seconds=seconds)
 
 
 def _size(n: int) -> str:
@@ -302,11 +314,12 @@ def review(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             if action == "approve" and item.get("type") == "command" and item.get("status") == "pending":
                 return _approve_and_run(ctx, item, notes)
             decided = spool.decide(item["id"], "approved" if action == "approve" else "rejected", notes)
+            _audit(decided, decided["status"])
             if action == "approve" and decided.get("type") == "grant":
                 ctx.ai_run = True
                 return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"),
                                      (" approved: the AI may run commands here for this session", "sc.success"),
-                                     ("  (settings ai_run off revokes it; ✦ run shows in the prompt)", "sc.muted"))
+                                     ("  (settings ai_access off revokes it; ✦ run shows in the prompt)", "sc.muted"))
             return Text.assemble(("✓ ", "sc.success"), (decided["id"], "sc.accent"),
                                  (f" {decided['status']}: {decided.get('title', '')}", "sc.success"))
     except spool.SpoolError as exc:

@@ -46,6 +46,7 @@ The first time ShellCraft starts without them, it writes these for you:
 | --- | --- |
 | `rc` | A walkthrough in comments, with ready lines you can switch on by removing the `#` |
 | `aliases` | A few example aliases, all commented out |
+| `ai-policy.toml.sample` | Rules and roles for what an AI may run, all commented out. Copy it to `ai-policy.toml` to use it |
 | `funcs/example.func.sample` | A complete example func |
 | `startup/README.txt` | How startup files work |
 | `startup/10-example.sc.sample` | A startup file that asks a question and sets up a project |

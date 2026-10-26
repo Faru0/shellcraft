@@ -31,9 +31,14 @@ Everything lives in the user's `~/.shellcraft/review/` as items with an id like
   - `mode: "approval"`: it waits in the queue as `AI wants to run: COMMAND`; the answer has
     `item_id`. Poll `get_review_status`: `approved` carries `result` (`output`, `status`,
     `error`, `seconds`), `rejected` carries the user's notes.
-- `request_session_grant(reason, wait_seconds)` asks once for the session grant; `granted: true`
-  means every later `run_in_shell` runs at once. The user sees `✦ run` in their prompt and can
-  turn it off with `settings ai_run off`.
+  - An error that says `not run`: the policy or your role does not allow it. Do not retry it
+    another way; tell the user what you needed and why.
+- Access is **on by default** (`settings ai_access`), so `run_in_shell` runs at once. The user
+  sees `✦ run` in their prompt and can turn it off with `ai off`; then `request_session_grant`
+  asks once for the session, and `granted: true` means later runs go at once. If access is already
+  on it answers `granted: true` without asking. A deny rule always wins, and an ask rule makes a
+  command wait even with access on.
+- Pass `agent` (your name, like `worker-2`) on every call so the user can tell agents apart.
 
 ## Priorities and levels
 

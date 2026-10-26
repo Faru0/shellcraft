@@ -2722,8 +2722,9 @@ by you only, removed when the shell exits): `get_recent_output` (your screen), `
 `get_job_output`, `get_history` (keys redacted), `get_clip` / `set_clip` (what Alt-v pastes),
 `open_subshell` (a `✦ AI · name` subshell that prints the AI's brief; `man sub`), and
 `run_in_shell`: a read-only command runs at once as a `✦ AI:` background job with its trace above
-your prompt; so does anything while `settings ai_run on` (the AI can ask for it once with
-`request_session_grant`); the rest waits in the review queue until `review approve` (`man review`).
+your prompt; so does everything else while `settings ai_access` is on, which it is unless you turn
+it off. With it off the rest waits in the review queue until `review approve` (`man review`).
+`ai-policy.toml` adds rules and roles, and `ai log` lists what an AI did (`man ai`).
 The `ai/` folder of the repository has agents and skills that teach an AI to use them well.
 
 The address of the last `mcp start` is saved too, for `mcp show` and the next start.
@@ -2988,6 +2989,7 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     keys = settings.env_settings(ctx.registry)
     if not args:
         return _settings_table(ctx, keys)
+    args = [AI_ACCESS_KEY if a == AI_RUN_KEY else a for a in args]  # the old name for ai_access
 
     if args[0] == prefix.CONFIG_KEY or args[:2] == ["reset", prefix.CONFIG_KEY]:
         return _prefix_key(ctx, args)
@@ -3024,16 +3026,6 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError(f"settings: {exc}") from None
         return _store_env(ctx, entry, "set", value.strip())
 
-    if args[0] == AI_RUN_KEY:  # the session grant: never saved
-        if len(args) != 2:
-            raise CommandError(f"usage: settings {AI_RUN_KEY} on|off|toggle")
-        value = not ctx.ai_run if args[1].lower() == "toggle" else settings.parse_bool(args[1])
-        if value is None:
-            raise CommandError(f"settings: expected on, off or toggle, got '{args[1]}'")
-        ctx.ai_run = bool(value)
-        state = ("On", "sc.success") if value else ("Off", "sc.error")
-        note = "  (this session only; ✦ run shows in the prompt while it is on)" if value else "  (this session only)"
-        return Text.assemble(("✓ ", "sc.success"), f"{AI_RUN_LABEL} ", state, (note, "sc.muted"))
     if len(args) != 2:
         key = _setting_key(args[0], keys)
         raise CommandError(f"usage: settings {key} on|off|toggle")
@@ -3169,11 +3161,8 @@ def _editor_setting(ctx: ShellContext, args: list[str]) -> Any:
     return message
 
 
-AI_RUN_KEY = "ai_run"
-AI_RUN_LABEL = "AI runs any command"
-AI_RUN_DESCRIPTION = ("An AI client may run any command here at once (its trace shows above the prompt). "
-                      "Off: it runs read-only commands at once and asks for the rest in the review queue. "
-                      "Never saved: off at every start; the AI can ask for it (request_session_grant).")
+AI_RUN_KEY = "ai_run"  # the old name of ai_access, still accepted
+AI_ACCESS_KEY = "ai_access"
 
 
 def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Table:
@@ -3186,18 +3175,15 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
     table.add_column("description", style="sc.muted")
     rows = list(settings.SETTINGS.values())
     for i, s in enumerate(rows):
-        on = settings.get(ctx.config, s.key)
+        on = bool(ctx.ai_run) if s.key == AI_ACCESS_KEY else settings.get(ctx.config, s.key)  # a grant counts
         value = Text("On", style="sc.success") if on else Text("Off", style="sc.error")
         table.add_row(s.key, s.label, value, s.description)
     table.add_row(prefix.CONFIG_KEY, PREFIX_LABEL, Text(prefix.label(), style="sc.accent"), PREFIX_DESCRIPTION)
     table.add_row(editormod.CONFIG_KEY, EDITOR_LABEL, Text(" ".join(editormod.command(ctx.config)), style="sc.accent",
                                                            overflow="fold"), EDITOR_DESCRIPTION)
-    table.add_row(loading.CONFIG_KEY, LOADER_LABEL, Text(loading.style(ctx.config), style="sc.accent"),
-                  LOADER_DESCRIPTION)
-    on = bool(getattr(ctx, "ai_run", False))
     session_vars = envvars.session(ctx)
-    table.add_row(AI_RUN_KEY, f"{AI_RUN_LABEL} (this session)", Text("On", style="sc.success") if on
-                  else Text("Off", style="sc.error"), AI_RUN_DESCRIPTION, end_section=bool(keys or session_vars))
+    table.add_row(loading.CONFIG_KEY, LOADER_LABEL, Text(loading.style(ctx.config), style="sc.accent"),
+                  LOADER_DESCRIPTION, end_section=bool(keys or session_vars))
     styles = {"set": "sc.success", "environment": "sc.accent", "unset": "sc.muted"}
     last_key = sorted(keys, key=lambda n: (keys[n].module.lower(), n))[-1] if keys else None
     for name in sorted(keys, key=lambda n: (keys[n].module.lower(), n)):
