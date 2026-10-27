@@ -259,7 +259,9 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: b
     if first is not None and not first.name and first.to_stderr:
         data = _to_stderr(first, data, ctx, 1, total)  # `done >&2`: the block's output goes to the error stream
         output = data
-    if segments:  # none: `done |` alone, the loop's output is the output
+    if segments and live and total == 1 and pipeline.redirect is None and _shows_as_it_runs(segments[0][1], ctx):
+        output, status = _run_inline(segments[0][1], data, 1, 1, ctx, live=True)
+    elif segments:  # none: `done |` alone, the loop's output is the output
         sink = ctx.live if live and pipeline.redirect is None else None
         output, status = _run_segments(segments, total, data, ctx, sink)
 
@@ -313,6 +315,17 @@ def _main_thread(cmd: Command, ctx: ShellContext | None = None) -> bool:
     return ctx is not None and _func_command(cmd, ctx) is not None  # a func runs its lines here
 
 
+def _shows_as_it_runs(cmd: Command, ctx: ShellContext) -> bool:
+    """A shell function called on its own line, at the prompt or in a script that prints as it
+    goes: it runs here, like its lines typed one by one, and each one's output shows at once. So a
+    menu's `echo` lines come before its `read`, and a slow step doesn't hide the ones before it.
+    In a pipe, a redirect, `$( … )` or a background job it still runs as one command and its
+    output is collected."""
+    return (ctx.emit is not None and bool(ctx.functions) and not cmd.bypass and cmd.name in ctx.functions
+            and cmd.name not in SPECIAL_BUILTINS and not cmd.to_stderr and cmd.stderr is None
+            and not cmd.merge_stderr)
+
+
 def _func_command(cmd: Command, ctx: ShellContext) -> Any:
     """The func a typed name runs (header `command: yes`), when no builtin or module has the name."""
     if cmd.bypass or not cmd.name or cmd.name in BUILTINS or ctx.registry.get(cmd.name) is not None:
@@ -353,10 +366,12 @@ def _stdin_for(cmd: Command, upstream: Any) -> Any:
     return to_text(upstream)
 
 
-def _run_inline(cmd: Command, upstream: Any, index: int, total: int, ctx: ShellContext) -> tuple[Any, int]:
-    """Run one command on this thread, to completion: (output, status)."""
+def _run_inline(cmd: Command, upstream: Any, index: int, total: int, ctx: ShellContext,
+                live: bool = False) -> tuple[Any, int]:
+    """Run one command on this thread, to completion: (output, status). `live`: a shell function
+    shows its output as it runs (_shows_as_it_runs)."""
     try:
-        result = _call(cmd, _stdin_for(cmd, upstream), ctx)
+        result = _call(cmd, _stdin_for(cmd, upstream), ctx, live=live)
         if streams.is_stream(result):
             result = streams.drain(result)
     except (ShellExit, KeyboardInterrupt, Cancelled):
@@ -634,13 +649,14 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
     return streams.drain(result) if streams.is_stream(result) else result
 
 
-def _call(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
+def _call(cmd: Command, stdin: Any, ctx: ShellContext, live: bool = False) -> Any:
     """Resolve a command (builtin, module, OS program) and call it with `stdin` (a str, or Lines
     for a streaming builtin). May return a value, a WithStatus or an iterator of items."""
     if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
         from shellcraft import script
 
-        result: Any = script.call_function(ctx.functions[cmd.name], cmd.args, streams.text(stdin), ctx, cmd)
+        result: Any = script.call_function(ctx.functions[cmd.name], cmd.args, streams.text(stdin), ctx, cmd,
+                                           live=live)
     else:
         result = _resolve(cmd, stdin, ctx)
     if cmd.to_stderr:  # `>&2`: the output goes to the error stream, the status stays

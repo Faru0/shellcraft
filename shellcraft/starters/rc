@@ -10,7 +10,8 @@
 #
 # Rerun it any time:   source ~/.shellcraft/rc
 # Skip it for a start: shellcraft --no-startup
-# More: `man startup`, or docs/startup.md.
+# More: `man startup`, or docs/startup.md. Loops, menus, questions and functions, with an example
+# for each: docs/scripting/README.md.
 
 # ── Look and place ──────────────────────────────────────────────────────────
 # theme nord
@@ -25,8 +26,20 @@
 # name = input("What is your name? ")
 # echo "Welcome back, $name"
 
+# ── Decide something ────────────────────────────────────────────────────────
+# hour=$(date +%H)
+# if [ $hour -lt 12 ]; then
+#   echo "Good morning"
+# else
+#   echo "Good afternoon"
+# fi
+
 # ── Functions for this session ──────────────────────────────────────────────
 # backup() { cp -r "$1" "$1.bak" && echo "saved $1.bak"; }
+# greet() {
+#   local who=${1:-friend}
+#   echo "Hello, $who"
+# }
 
 # ── Start something in the background ───────────────────────────────────────
 # It shows in the footer; Ctrl-] N switches to it.

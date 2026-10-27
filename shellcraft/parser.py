@@ -353,6 +353,8 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 try:
                     return str(arith.evaluate(line[at + 3:close], variables)), close + 2
                 except arith.ArithError as exc:
+                    if variables is None:  # a first look at the line, without its variables: `$((a / b))`
+                        return line[at:close + 2], close + 2  # would divide by 0 here; it runs with them later
                     raise ParseError(f"$(( )): {exc}", at) from None
             if substitute is not None and line.startswith("$(", at):
                 close = find_closing_paren(line, at + 2)

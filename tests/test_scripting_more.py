@@ -81,6 +81,10 @@ def test_arithmetic_in_a_line(ctx):
     assert out(ctx, "echo $((2 + 3)) $(( 10 / 3 ))") == "5 3\n"
     with pytest.raises(ParseError, match="division by zero"):
         run_line("echo $((1 / 0))", ctx)
+    run_line("a=7; b=2; z=0", ctx)  # dividing by a variable: worked out with its value, not as 0
+    assert out(ctx, 'echo $((a / b)) $((a % b)) "$((14 / $b))"') == "3 1 7\n"
+    with pytest.raises(ParseError, match="division by zero"):
+        run_line("echo $((a / z))", ctx)
 
 
 # ── while / until / case ─────────────────────────────────────────────────────

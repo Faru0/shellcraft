@@ -3,8 +3,10 @@
 ← [Manual](README.md)
 
 How command lines work in ShellCraft: pipes and redirection, variables, loops and conditions,
-functions, and exit status. Aliases and history have [their own page](aliases-and-history.md),
-and so do [the rc file and startup files](startup.md).
+functions, and exit status. This page is the quick reference. To learn scripting step by step,
+with an example for everything, read the [scripting guide](scripting/README.md). Aliases and
+history have [their own page](aliases-and-history.md), and so do
+[the rc file and startup files](startup.md).
 
 ## Pipes and redirection
 
@@ -63,6 +65,9 @@ n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons,
 
 A value with spaces stays one argument on a plain command line (`f="my file"; cat $f`); inside
 bash-style blocks it is split at whitespace unless quoted, as in bash.
+
+[Variables and input](scripting/variables-and-input.md) has more, including asking the user
+with `input()` and `read`.
 
 ## Environment variables
 
@@ -135,9 +140,11 @@ if -py (match(r"^v\d+", ver)) { echo versioned }
   `exists(path)` and a few more; imports and other functions are refused. `status` is `$?`.
 - Inside a `-py` block, nested `for`/`if` use the same syntax without the flag.
 
-In both: `break`/`continue`; a failing command shows its error and the loop goes on, as in bash;
-loop variables and `x=1` assignments outlive the loop. `man for` and `man if` have the details.
-Loops also work over MCP, with the same restrictions.
+In both: `break`/`continue` (also after `&&` / `||`); a failing command shows its error and the
+loop goes on, as in bash; loop variables and `x=1` assignments outlive the loop. `man for`,
+`man if`, `man while`, `man case` and `man select` have the details. Loops also work over MCP,
+with the same restrictions. [Conditions and choices](scripting/conditions.md) and
+[Loops and menus](scripting/loops.md) teach them with examples.
 
 ## Functions
 
@@ -166,7 +173,11 @@ Inside a function, `"$@"` keeps each argument its own word, `shift` drops the fi
 ```
 each() { while [ $# -gt 0 ]; do echo "arg: $1"; shift; done; }
 greet() { echo "hello ${1:-stranger}"; }
+need() { [ -n "$1" ] || return 1; echo "got $1"; }
 ```
+
+[Functions](scripting/functions.md) teaches them step by step.
+
 ## Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

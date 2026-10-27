@@ -57,6 +57,9 @@ def test_echo_flags(ctx):
     assert out("echo -n hi", ctx) == "hi"
     assert out(r"echo -e a\tb\nc", ctx) == "a\tb\nc\n"
     assert out("echo -e café", ctx) == "café\n"
+    # octal and hex escapes, as in bash: \033 and \e are both the escape character (colors)
+    assert out(r'echo -e "\033[1m\x41\e[0m \0101"', ctx) == "\x1b[1mA\x1b[0m A\n"
+    assert out(r"printf '\033[0m\x41\101\n'", ctx) == "\x1b[0mAA\n"
 
 
 def test_head_tail(ctx, files):

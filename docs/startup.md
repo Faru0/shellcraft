@@ -49,6 +49,10 @@ source ~/.shellcraft/rc
 
 If a line fails, ShellCraft tells you which one (`✗ rc:4: …`) and runs the rest.
 
+The [scripting guide](scripting/README.md) shows everything you can write here: variables,
+questions with `input()` and `read`, `if` and `case`, loops, menus and functions. Its
+[complete examples](scripting/examples.md) include whole rc and startup files to copy.
+
 ## Startup files
 
 Once your rc file grows, split it into a folder of small files: `~/.shellcraft/startup/`. Each

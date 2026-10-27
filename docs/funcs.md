@@ -62,6 +62,10 @@ All of them are optional. Other lines starting with `#` after the header are com
 ` # note` after a step (see [Comments](scripting.md#comments)). A `for … done` loop written over
 several lines counts as one step.
 
+A func's steps can be anything from the [scripting guide](scripting/README.md): questions with
+`read`, `if` and `case`, loops and menus. See [a menu func](scripting/examples.md#a-menu-func) and
+[a setup func with arguments](scripting/examples.md#a-setup-func-with-arguments).
+
 ### Another example
 
 A release checklist that stops at the first problem:

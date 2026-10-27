@@ -12,6 +12,7 @@ for any command, and `help` lists them all.
 | --- | --- |
 | Try ShellCraft for the first time | [Getting started](getting-started.md) |
 | Know where your settings, aliases and history live | [Your ~/.shellcraft folder](your-shellcraft-folder.md) |
+| Write an rc file, a startup file or a func with loops, menus and questions | [Scripting guide](scripting/README.md) |
 | Make your own command out of a Python script | [Your first module](modules/first-module.md) |
 | Turn a script you already have into a command | [Ingest a script](modules/ingest.md) |
 | Copy and paste the common setups, no reading | [Cheat sheet](cheatsheet.md) |
@@ -39,9 +40,22 @@ page, completes with Tab, and AI clients can call it.
 - [Add modules you already have](modules/adding-modules.md): drop the files in, several at once
 - [Module reference](modules/reference.md): every rule, file and option in one place
 
+## Write scripts
+
+Your rc file, startup files and funcs are scripts. The scripting guide teaches you to write them,
+with an example for everything.
+
+- [Scripting guide](scripting/README.md): where scripts live, how to try them, and how ShellCraft differs from bash
+- [Variables and input](scripting/variables-and-input.md): variables, quoting, defaults, arithmetic, asking the user
+- [Printing text](scripting/printing.md): `echo`, several lines, `printf` columns, colors, files
+- [Conditions and choices](scripting/conditions.md): `if`, tests, `&&` and `||`, `case`
+- [Loops and menus](scripting/loops.md): `for`, `while`, reading a file, `break`, `select` menus
+- [Functions](scripting/functions.md): arguments, defaults, `local`, `return`, giving back a value
+- [Complete examples](scripting/examples.md): rc files, startup files and funcs to copy
+
 ## Using ShellCraft
 
-- [Pipes and scripting](scripting.md): pipes, redirects, variables, loops, conditions and functions
+- [Pipes and scripting](scripting.md): pipes, redirects, comments, environment variables, exit status, and a summary of the syntax
 - [curl](curl.md): web requests, and pasting a browser's "Copy as cURL"
 - [Subshells, alerts and the clip](subshells.md): running programs side by side, the footer, alerts
 - [Keyboard and mouse](keyboard-and-mouse.md): shortcuts, completion, the viewer

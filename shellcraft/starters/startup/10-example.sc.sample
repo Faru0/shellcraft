@@ -13,7 +13,7 @@
 # after the #. A line that fails is reported with its file and line number, and the rest still run.
 #
 # Inside ShellCraft: `startup` lists the files, `startup run` runs them again.
-# More: `man startup`, or docs/startup.md.
+# More: `man startup`, or docs/startup.md. Scripting with examples: docs/scripting/README.md.
 
 # Ask a question; the answer is $project from here on, in this file and the ones after it.
 project = input("Which project today? ")

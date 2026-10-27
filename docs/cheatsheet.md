@@ -58,6 +58,35 @@ sub tail -f app.log              # something that keeps running, in the backgrou
 
 [More](startup.md#startup-files)
 
+## Scripting
+
+For the rc file, startup files, funcs and the prompt:
+
+```
+name=Ada; echo "hi $name"                        # a variable
+echo "${who:-stranger}" $((2 + 3))               # a default, arithmetic
+name = input("Your name? ")                      # ask, on a line of its own
+read -p "Env? " env                              # ask, anywhere (in loops, functions)
+read -s -p "Token: " token                       # ask without showing it
+echo -e "line 1\nline 2"                         # several lines
+printf "%-10s %5.1f\n" cpu 42.5                  # columns and numbers
+
+if [ $n -gt 3 ]; then echo big; elif [ $n -eq 3 ]; then echo three; else echo small; fi
+[ -f app.log ] && echo found || echo missing
+case $env in dev|test) echo safe ;; prod) echo careful ;; *) echo "?" ;; esac
+
+for f in *.log; do echo $f; done                 # also {1..5}, $(cat list), "a b c"
+for -py line in (cat hosts.txt) { echo $line }   # a file, line by line
+n=0; while [ $n -lt 3 ]; do n=$((n + 1)); done
+select env in dev prod; do echo $env; break; done   # a numbered menu
+
+greet() { local who=${1:-friend}; echo "hi $who"; }
+need() { [ -n "$1" ] || return 1; echo "got $1"; }
+total=$(add 2 3)                                 # a function's output as a value
+```
+
+[More](scripting/README.md)
+
 ## A func
 
 `~/.shellcraft/funcs/recon.func`, then `recon example.com`:

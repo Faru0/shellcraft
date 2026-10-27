@@ -2385,7 +2385,12 @@ Variables that are not `local` are the shell's own, as in bash. A function can c
 and itself, up to 100 calls deep.
 
 A function is a command: `NAME | grep x`, `NAME > file`, `echo text | NAME` (its commands read
-that input) and `NAME && echo ok` all work. Its output is what its commands print.
+that input) and `NAME && echo ok` all work. Its output is what its commands print. Called on a line
+of its own, it shows each command's output as soon as that command finishes, so a menu prints its
+choices before it asks.
+
+`return` (and `break` / `continue` in a loop) work after `&&` and `||` too:
+`[ -n "$1" ] || return 1`.
 
 A function takes precedence over builtins, modules and programs of the same name, as in bash,
 except `exit`, `export`, `unset`, `source`, `local`, `declare`, `alias` and `unalias`, which can't
@@ -2439,6 +2444,94 @@ select env in dev staging prod; do
 done
 ```
 """
+
+CASE_DOC = """# case
+
+Pick one branch by matching a value against patterns, as in bash. Use it for menus, yes / no
+answers, and anything that would otherwise be a long `if … elif … elif`.
+
+## Usage
+
+```
+case WORD in
+  PATTERN) COMMANDS ;;
+  PATTERN|PATTERN) COMMANDS ;;
+  *) COMMANDS ;;
+esac
+```
+
+WORD is usually a variable: `case $answer in`. The patterns are tried from the top, and only the
+first one that matches runs. Each branch ends with `;;`. A pattern is a glob:
+
+| Pattern | Matches |
+| --- | --- |
+| `prod` | Exactly `prod`. |
+| `y\\|yes\\|Y` | Any of these. |
+| `[yY]*` | Anything that starts with y or Y. |
+| `*.log` | Anything that ends in `.log`. |
+| `[0-9]*` | Anything that starts with a digit. |
+| `*` | Anything: put it last, as the fallback. |
+
+When nothing matches, nothing runs and the status is 0. `case` works at the prompt, in
+`~/.shellcraft/rc`, in startup files, in funcs and inside functions and loops.
+
+## Examples
+
+```
+case $env in
+  dev|test) echo "safe to try things" ;;
+  prod) echo "careful: this is production" ;;
+  *) echo "unknown environment: $env" ;;
+esac
+
+read -p "Continue? (y/n) " answer
+case $answer in
+  [yY]*) echo "going ahead" ;;
+  *) echo "stopped" ;;
+esac
+```
+"""
+
+WHILE_DOC = """# while, until
+
+Repeat commands as long as a condition holds (`while`), or until it does (`until`), as in bash.
+
+## Usage
+
+```
+while CONDITION; do COMMANDS; done
+until CONDITION; do COMMANDS; done
+```
+
+The condition is a command, usually a test: `[ $n -lt 5 ]`, `[ -z "$answer" ]`, `grep -q x file`.
+It is checked before each round. `break` leaves the loop and `continue` starts the next round.
+`while true; do … done` runs until a `break`, or until you press Ctrl-C.
+
+Variables changed inside the loop keep their values after it. The loop's output can be piped or
+redirected as a whole: `while …; do …; done | sort`.
+
+## Examples
+
+```
+n=1
+while [ $n -le 3 ]; do
+  echo "round $n"
+  n=$((n + 1))
+done
+
+answer=""
+until [ -n "$answer" ]; do
+  read -p "Project name (required): " answer
+done
+```
+"""
+
+builtin("case", "Pick a branch by matching a value against patterns", "case WORD in PATTERN) …;; esac",
+        doc=CASE_DOC)(_keyword("case"))
+builtin("while", "Repeat commands while a condition holds", "while …; do …; done | until …; do …; done",
+        doc=WHILE_DOC)(_keyword("while"))
+builtin("until", "Repeat commands until a condition holds", "until …; do …; done", doc=WHILE_DOC,
+        hidden=True)(_keyword("until"))
 
 builtin("select", "Ask the user to pick from a numbered menu", "select NAME in WORD...; do …; done",
         doc=SELECT_DOC)(_keyword("select"))

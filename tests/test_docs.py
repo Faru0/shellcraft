@@ -134,3 +134,84 @@ def test_the_folder_page_lists_every_starter_file():
     section = text[text.index("## The starter files"):text.index("## Each file")]
     listed = set(re.findall(r"^\| `([^`]+)` \|", section, re.M))
     assert listed == set(skel.files())
+
+
+# ── the scripting guide: every marked example runs as shown ──────────────────
+#
+#   <!-- run -->                  the code block after it runs (as an rc file would) with no failures
+#   <!-- run: ["Ada", "2"] -->    ... with these answers typed at its prompts
+#   <!-- output -->               the code block after it is exactly what the run before it shows
+
+RUN = re.compile(r"<!-- run(?::\s*(\[.*?\]))? -->\s*\n(`{3,})[^\n]*\n(.*?)^\2[ \t]*$"
+                 r"(?:\s*<!-- output -->\s*\n(`{3,})[^\n]*\n(.*?)^\4[ \t]*$)?", re.M | re.S)
+SCRIPTING = sorted((ROOT / "docs" / "scripting").glob("*.md"))
+
+
+def scripting_examples() -> list[tuple[str, str, list[str], str | None]]:
+    import json
+
+    found = []
+    for page in SCRIPTING:
+        text = page.read_text(encoding="utf-8")
+        for m in RUN.finditer(text):
+            line = text[: m.start()].count("\n") + 1
+            found.append((f"{page.name}:{line}", m.group(3), json.loads(m.group(1) or "[]"), m.group(5)))
+    return found
+
+
+def run_example(code: str, answers: list[str], tmp_path: Path, monkeypatch) -> tuple[str, int]:
+    """Source `code` the way the rc file is run, in an empty folder; the typed answers show after
+    their prompts, as on the screen. Returns what the user sees and how many lines ended non-zero."""
+    import io
+
+    import prompt_toolkit
+    from rich.console import Console
+
+    from shellcraft import startup
+    from shellcraft.context import ShellContext, to_text
+    from shellcraft.loader import ModuleRegistry
+    from shellcraft.themes import UI, all_themes
+
+    home, work = tmp_path / "home", tmp_path / "work"
+    home.mkdir()
+    work.mkdir()
+    monkeypatch.setenv("SHELLCRAFT_HOME", str(home))
+    monkeypatch.chdir(work)
+    seen: list[str] = []
+    queue = list(answers)
+
+    def typed(prompt, is_password=False, **_kw):
+        answer = queue.pop(0)
+        seen.append(f"{to_text(prompt)}{'' if is_password else answer}\n")
+        return answer
+
+    monkeypatch.setattr(prompt_toolkit, "prompt", typed)
+    ctx = ShellContext(registry=ModuleRegistry(tmp_path / "modules"), config={})
+    ctx.interactive = True
+    class Screen(io.StringIO):  # what the shell prints straight to the terminal (a retry message)
+        def write(self, text: str) -> int:
+            seen.append(text)
+            return len(text)
+
+    ctx.ui = UI(all_themes({})["nord"], Console(file=Screen(), width=100, color_system=None))
+    ctx.emit = lambda value: seen.append(to_text(value).rstrip("\n") + "\n" if to_text(value) else "")
+    ctx.emit_error = lambda exc, line: seen.append(f"ERROR {line}: {exc}\n")
+    ctx.emit_stderr = lambda text: seen.append(text if text.endswith("\n") else text + "\n")
+    script = tmp_path / "example.sc"
+    script.write_text(code, encoding="utf-8")
+    _ran, failed = startup.source(script, ctx)
+    assert queue == [], "answers left over"
+    return "".join(seen), failed
+
+
+def test_the_scripting_guide_has_examples_to_run():
+    assert len(scripting_examples()) >= 40
+
+
+@pytest.mark.parametrize("where, code, answers, expected", scripting_examples(),
+                         ids=[e[0] for e in scripting_examples()])
+def test_every_scripting_example_runs_as_shown(where, code, answers, expected, tmp_path, monkeypatch):
+    shown, failed = run_example(code, answers, tmp_path, monkeypatch)
+    assert "ERROR " not in shown, shown  # a line that only ends false (`[ -f x ] && …`) is fine
+    if expected is not None:
+        assert shown == expected

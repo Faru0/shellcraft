@@ -5,6 +5,15 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
+  startup files and funcs, one topic per page: variables and asking the user, printing several
+  lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.
+  It says plainly where ShellCraft differs from bash and what to write instead. The test suite
+  runs every marked example and checks its output, so the pages stay true.
+- **`man case` and `man while`** (and `man until`), next to `man for`, `man if` and `man select`.
+
 ### Changed
 
 - **AI access is on by default.** An AI client connected over MCP now runs any command in your
@@ -76,6 +85,18 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **A function shows its output as it runs.** Called on a line of its own, a function used to print
+  everything only when it returned, so a menu function asked its question before showing the
+  choices. Each command's output now shows as soon as it's done. In a pipe, a redirect or `$( )`
+  the output is still collected.
+- **`return`, `break` and `continue` after `&&` / `||`.** `[ -n "$1" ] || return 1` failed with
+  "command not found: return".
+- **A function line ending in `${1:-default}`.** In a function written over several lines, a line
+  like `local name=${1:-friend}` was taken for the function's closing brace.
+- **Dividing by a variable.** `$((a / b))` failed with "division by zero" even when `b` was set.
+- **Octal and hex escapes.** `echo -e "\033[32m"` printed a NUL byte and `33` instead of the escape
+  character, so colors copied from bash scripts didn't work. `echo -e` now reads `\0NNN` and
+  `\xHH`, and `printf` reads `\NNN` and `\xHH`, as bash does.
 - **The close button is a plain `×`.** Alerts and finished subshells in the footer used `✖`, which
   Cascadia and Consolas don't have, so Windows 11 drew it from an emoji font: a box, or a wide glyph
   that pushed the line out of place and moved its click target. It is now `×`, which every console

@@ -35,7 +35,17 @@ _ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "a": "\a", "b": "\b", "
 
 
 def _unescape(text: str) -> str:
-    return re.sub(r"\\([ntr\\abfve0\"])", lambda m: _ESCAPES[m.group(1)], text)
+    """printf's escapes, `\\033` (octal, 1 to 3 digits) and `\\x1b` (hex) included, as in bash."""
+    return re.sub(r"\\([0-7]{1,3}|x[0-9a-fA-F]{1,2}|[ntr\\abfve\"])", _escape, text)
+
+
+def _escape(m: re.Match[str]) -> str:
+    code = m.group(1)
+    if code[0] in "01234567":
+        return chr(int(code, 8))
+    if code[0] == "x":
+        return chr(int(code[1:], 16))
+    return _ESCAPES[code]
 
 
 def _printf_once(fmt: str, args: list[str]) -> tuple[str, list[str]]:

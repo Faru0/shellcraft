@@ -78,7 +78,7 @@ class Simple:
 class Chain:
     """`a && b || c`: each part runs depending on the status so far, left to right."""
 
-    parts: list[Simple]
+    parts: list[Simple | Jump]  # a Jump only after the first: `[ -f x ] || return 1`
     ops: list[str]
     pos: int
 
@@ -209,6 +209,12 @@ def _incomplete_error(text: str) -> IncompleteError | None:
     return None
 
 
+def _ends_parameter(text: str, i: int) -> bool:
+    """Whether the `}` at `i` closes a `${…}` expansion, not a block."""
+    opened = text.rfind("${", 0, i)
+    return opened >= 0 and "}" not in text[opened:i]
+
+
 def incomplete(text: str) -> str | None:
     """The joiner for a continuation line when `text` is an unfinished script, else None.
     Comments don't count: `for x in a b; do  # loop` is unfinished, `echo { # note` isn't."""
@@ -311,7 +317,8 @@ class _Parser:
                     return stmts, None
                 if end == "}":
                     last = len(self.s.rstrip()) - 1
-                    if self.s[last] == "}" and not self._is_close(last):  # `{break}`: meant to close
+                    if self.s[last] == "}" and not self._is_close(last) and not _ends_parameter(self.s, last):
+                        # `{break}`: meant to close (a line ending in `${1:-x}` is only unfinished)
                         raise self._error("missing '}' — a closing brace must be a word of its own, "
                                           "with a space before it: { echo $x }", last)
                     raise self._incomplete("missing '}'", " ; ")
@@ -347,20 +354,8 @@ class _Parser:
             else:
                 stmt = self._while(until=word == "until")
             return self._maybe_piped(stmt)
-        if word in ("break", "continue"):
-            if not self.loops:
-                raise self._error(f"'{word}' outside a for loop", start)
-            self.i += len(word)
-            return Jump(word, start)
-        if word == "return":
-            if not self.functions:
-                raise self._error("'return' outside a function", start)
-            self.i += len(word)
-            self._skip_blanks()
-            value = ""
-            if not self._at_end() and self.s[self.i] not in ";\n" and not self._is_close(self.i):
-                value = self._word()
-            return Jump("return", start, value)
+        if word in ("break", "continue", "return"):
+            return self._jump(word)
         if word == "function" or (self.mode != "py" and _FUNCTION_DEF.match(self.s, start)):
             return self._function(keyword=word == "function")
         if word in ("elif", "else") and self.mode == "py":
@@ -370,6 +365,24 @@ class _Parser:
             owner = "for" if word in ("do", "done") else "if"
             raise self._error(f"'{word}' without a matching {owner}", start)
         return self._chain()
+
+    def _jump(self, word: str) -> Jump:
+        """`break`, `continue` or `return [N]`, alone or after `&&` / `||` (`[ -f x ] || return 1`)."""
+        start = self.i
+        if word in ("break", "continue"):
+            if not self.loops:
+                raise self._error(f"'{word}' outside a for loop", start)
+            self.i += len(word)
+            return Jump(word, start)
+        if not self.functions:
+            raise self._error("'return' outside a function", start)
+        self.i += len(word)
+        self._skip_blanks()
+        value = ""
+        if (not self._at_end() and self.s[self.i] not in ";\n" and not self._is_close(self.i)
+                and not self.s.startswith(("&&", "||"), self.i)):
+            value = self._word()
+        return Jump("return", start, value)
 
     def _maybe_piped(self, stmt: Stmt) -> Stmt:
         """After `done`, `fi`, `esac` or `}`: a `| …` or `> file` tail pipes the block's output."""
@@ -566,7 +579,8 @@ class _Parser:
 
     def _chain(self) -> Stmt:
         start = self.i
-        parts, ops = [self._pipeline()], []
+        parts: list[Simple | Jump] = [self._pipeline()]
+        ops: list[str] = []
         while True:
             self._skip_blanks()
             op = self.s[self.i:self.i + 2]
@@ -577,7 +591,8 @@ class _Parser:
             if self._at_end():
                 raise self._incomplete(f"missing a command after '{op}'", " ")
             ops.append(op)
-            parts.append(self._pipeline())
+            word = self._bare_word(self.i)
+            parts.append(self._jump(word) if word in ("break", "continue", "return") else self._pipeline())
         return parts[0] if not ops else Chain(parts, ops, start)
 
     def _pipeline(self) -> Simple:
@@ -1285,12 +1300,15 @@ def execute(program: Program, ctx: ShellContext) -> Any:
     return PipelineResult(output=output, status=ctx.last_status)
 
 
-def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None) -> Any:
+def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None,
+                  live: bool = False) -> Any:
     """Run a shell function as a command: `$1`… are `args`, its commands read `stdin`, and what
     it prints is its output (so `fn | grep x` and `fn > file` work). Variables are the shell's
     (as in bash) except those declared `local`, which are put back when it returns. Its status
     is `return N`'s, else the last command's. With `cmd` (the call as parsed), its `2> file` /
-    `2>&1` also take what the body sends to the error stream (`>&2`, failing commands)."""
+    `2>&1` also take what the body sends to the error stream (`>&2`, failing commands). With
+    `live` (a call on its own line, on the main thread) each command's output is shown as it is
+    made, through ctx.emit, and the function returns no output of its own."""
     from shellcraft.context import CommandError, WithStatus
     from shellcraft.pipeline import stderr_file_sink
 
@@ -1300,7 +1318,7 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
         raise CommandError(f"{fn.name}: functions nested more than {MAX_FUNCTION_DEPTH} deep "
                            "(a recursion that never stops?)")
     runner = _Runner(ctx)
-    runner.collect_only = True
+    runner.collect_only = not live
     runner.frame = {}
     runner.stdin = stdin
     if cmd is not None and cmd.stderr is not None:
@@ -1513,11 +1531,16 @@ class _Runner:
         return self.ctx.last_status, output
 
     def run_chain(self, stmt: Chain) -> None:
-        status, output = self.run_simple(stmt.parts[0])
+        first = stmt.parts[0]
+        assert isinstance(first, Simple)  # a Jump only ever follows && / ||
+        status, output = self.run_simple(first)
         if output is not None:
             self.show(output)
         for op, part in zip(stmt.ops, stmt.parts[1:]):
             if (op == "&&") == (status == 0):
+                if isinstance(part, Jump):
+                    self.run_list([part])  # raises: break, continue or return
+                    return
                 status, output = self.run_simple(part)
                 if output is not None:
                     self.show(output)

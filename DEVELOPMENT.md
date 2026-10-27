@@ -348,4 +348,7 @@ How to write them:
 - Every code block runs as shown. Module code in `docs/modules/first-module.md` is marked with
   `<!-- file: NAME -->` and checked by `tests/test_docs.py`, as are the links and anchors.
 - Prefer a sentence to a table, except for reference material.
+- In `docs/scripting/`, mark each example with `<!-- run -->` (or `<!-- run: ["answer", …] -->`
+  for one that asks questions) and follow it with an `<!-- output -->` block when the output is
+  the same every time. `tests/test_docs.py` sources each one as an rc file would and compares.
 

@@ -42,8 +42,18 @@ def match_lines(lines: Iterable[str], regex: re.Pattern, invert: bool = False,
     return found
 
 
-_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "0": "\0", "a": "\a", "b": "\b", "e": "\x1b"}
-_ESCAPE = re.compile(r"\\([ntr\\0abe])")
+_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "a": "\a", "b": "\b", "e": "\x1b"}
+# `\0NNN` is octal (0 to 3 digits, so `\033` is the escape character) and `\xHH` hex, as in bash.
+_ESCAPE = re.compile(r"\\(0[0-7]{0,3}|x[0-9a-fA-F]{1,2}|[ntr\\abe])")
+
+
+def _escape(m: re.Match[str]) -> str:
+    code = m.group(1)
+    if code[0] == "0":
+        return chr(int(code, 8))
+    if code[0] == "x":
+        return chr(int(code[1:], 16))
+    return _ESCAPES[code]
 
 
 # ── echo ─────────────────────────────────────────────────────────────────────
@@ -58,7 +68,7 @@ Write the arguments, separated by spaces, to the output stream.
 | Option | Meaning |
 | --- | --- |
 | `-n` | Do not add the trailing newline. |
-| `-e` | Interpret escapes such as `\\n`, `\\t` and `\\\\`. |
+| `-e` | Interpret escapes such as `\\n`, `\\t`, `\\\\`, `\\e` (the escape character, for colors), `\\0NNN` (octal) and `\\xHH` (hex). |
 
 ## Examples
 
@@ -75,7 +85,7 @@ def echo(ctx: ShellContext, args: list[str], stdin: str) -> str:
         args = args[1:]
     out = " ".join(args)
     if escapes:
-        out = _ESCAPE.sub(lambda m: _ESCAPES[m.group(1)], out)
+        out = _ESCAPE.sub(_escape, out)
     return out + ("\n" if newline else "")
 
 
@@ -882,7 +892,7 @@ _CHAR_CLASSES = {
 
 def _expand_set(spec: str) -> str:
     """Expand ranges (a-z), classes ([:upper:]) and escapes (\\n) in a tr SET."""
-    spec = _ESCAPE.sub(lambda m: _ESCAPES[m.group(1)], spec)
+    spec = _ESCAPE.sub(_escape, spec)
     out: list[str] = []
     i = 0
     while i < len(spec):

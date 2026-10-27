@@ -154,3 +154,37 @@ def test_default_values(ctx):
     run_line("who=Grace", ctx)
     assert out(ctx, 'echo "[${empty:-default}] [${empty-default}] [${nope-fall $who}] [${who:-x}]"') == \
         "[default] [] [fall Grace] [Grace]\n"
+
+
+def test_return_break_and_continue_after_and_or(ctx):
+    run_line("need() { [ -n \"$1\" ] || return 2; echo \"got $1\"; }", ctx)
+    assert out(ctx, "need") == "" and ctx.last_status == 2
+    assert out(ctx, "need x") == "got x\n" and ctx.last_status == 0
+    run_line("seven() { true && return 7; echo never; }", ctx)
+    out(ctx, "seven")
+    assert ctx.last_status == 7
+    run_line("last() { false || return; }", ctx)  # a bare return: the status so far
+    out(ctx, "last")
+    assert ctx.last_status == 1
+    assert out(ctx, "for i in 1 2 3 4; do [ $i -eq 3 ] && break; echo $i; done") == "1\n2\n"
+    assert out(ctx, "for i in 1 2 3; do [ $i -eq 2 ] && continue; echo $i; done") == "1\n3\n"
+
+
+def test_a_function_line_ending_in_a_default_expansion_is_unfinished():
+    # the } of ${1:-friend} is not the function's closing brace: the next lines belong to it
+    text = 'greet() {\n  local name=${1:-friend}\n  echo "Hi $name"\n}\ngreet\n'
+    assert [line for _, line in startup.logical_lines(text)] == [
+        'greet() { local name=${1:-friend} ; echo "Hi $name" ; }', "greet"]
+
+
+def test_a_function_on_its_own_line_shows_each_output_as_it_runs(ctx):
+    shown = []
+    ctx.emit = shown.append
+    run_line("steps() { echo one; echo two; return 3; }", ctx)
+    result = run_line("steps", ctx)
+    assert [to_text(v) for v in shown] == ["one\n", "two\n"]  # one by one, before the next step runs
+    assert to_text(result.output) == "" and ctx.last_status == 3
+    shown.clear()
+    assert out(ctx, "steps | cat") == "one\ntwo\n" and not shown  # piped: collected, as before
+    run_line("x=$(steps)", ctx)
+    assert ctx.variables["x"] == "one\ntwo" and not shown

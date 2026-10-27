@@ -80,7 +80,8 @@ cat app.log | grep ERROR | sort | uniq -c
 grep -i error app.log > errors.txt
 ```
 
-[Pipes and scripting](scripting.md) covers variables, loops and conditions too.
+[Pipes and scripting](scripting.md) has more on pipes, and the [scripting guide](scripting/README.md)
+teaches variables, questions, loops, conditions and functions, with an example for each.
 
 ## Find help
 

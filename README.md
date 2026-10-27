@@ -70,6 +70,7 @@ get you going.
 | Write your own command | [Your first module](docs/modules/first-module.md) |
 | Turn a script you already have into a command | [Ingest a script](docs/modules/ingest.md) |
 | Set up aliases, an rc file, funcs and profiles | [Your ~/.shellcraft folder](docs/your-shellcraft-folder.md) |
+| Write scripts: variables, questions, loops, menus, functions | [Scripting guide](docs/scripting/README.md) |
 | Copy ready-made setups | [Cheat sheet](docs/cheatsheet.md) |
 | Connect Claude or another AI client | [MCP and the AI co-pilot](docs/mcp-and-ai.md) |
 | Read everything | [The manual](docs/README.md) |
