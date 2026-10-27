@@ -182,15 +182,16 @@ next way instead.
 ## Go through a file line by line
 
 `for -py` with the command in `( )` gives you one whole line at a time, spaces and all. This is how
-you'd use `while read line` in bash:
+you'd use `while read line` in bash. It's written in the Python style: the line ends in `:`, and the
+loop is the indented lines under it:
 
 <!-- run -->
 ```
 printf "web1 frontend\nweb2 frontend\n# a comment\n\ndb1 database\n" > hosts.txt
-for -py line in (cat hosts.txt) {
-  if (line == "" or line.startswith("#")) { continue }
-  echo "host and role: $line"
-}
+for -py line in (cat hosts.txt):
+    if line == "" or line.startswith("#"):
+        continue
+    echo "host and role: $line"
 ```
 
 <!-- output -->
@@ -200,8 +201,8 @@ host and role: web2 frontend
 host and role: db1 database
 ```
 
-The block uses `{ }` instead of `do` and `done`, and a nested `if` takes a Python condition.
-Inside it, `$line` is always one word, and `$( )` doesn't run. To take a line apart, hand it to a
+The nested `if` takes a Python condition, and needs no `-py` of its own. Inside the loop, `$line`
+is always one word, and `$( )` doesn't run. To take a line apart, hand it to a
 [function](functions.md), where `cut` can split it:
 
 <!-- run -->
@@ -212,7 +213,7 @@ describe() {
   echo "$host is a $role server"
 }
 printf "web1 frontend\ndb1 database\n" > hosts.txt
-for -py line in (cat hosts.txt) { describe $line }
+for -py line in (cat hosts.txt): describe $line
 ```
 
 <!-- output -->
@@ -222,6 +223,35 @@ db1 is a database server
 ```
 
 `for -py n in 1..10` counts too, and `1..10..2` counts in steps of 2.
+
+## Loops in Python style
+
+Every loop on this page can be written in the Python style. Here are `for` and `while`:
+
+<!-- run -->
+```
+for -py fruit in apple banana:
+    echo "I like $fruit"
+
+countdown=3
+while -py int(countdown) > 0:
+    echo "$countdown..."
+    countdown=$((countdown - 1))
+echo "liftoff!"
+```
+
+<!-- output -->
+```
+I like apple
+I like banana
+3...
+2...
+1...
+liftoff!
+```
+
+`until -py` and `while -py True:` work the same way, and so do `break` and `continue`.
+[Bash style and Python style](python-style.md) shows every loop both ways.
 
 ## Loops inside loops
 
@@ -466,5 +496,32 @@ running the tests
 What now? 3
 ```
 
-Menus need someone at the keyboard, so `select` and `read` only work in the interactive shell, not
-for AI clients over MCP.
+In Python style, `select -py` and `case -py` make the same menu:
+
+<!-- run: ["1", "3"] -->
+```
+PS3="What now? "
+select -py action in "Run tests" "Build" Quit:
+    case $action:
+        "Run tests":
+            echo "running the tests"
+        "Build":
+            echo "building"
+        "Quit":
+            break
+        _:
+            echo "pick a number from the list"
+```
+
+<!-- output -->
+```
+1) Run tests
+2) Build
+3) Quit
+What now? 1
+running the tests
+What now? 3
+```
+
+Menus need someone at the keyboard, so `select`, `read` and `input()` only work in the interactive
+shell, not for AI clients over MCP.

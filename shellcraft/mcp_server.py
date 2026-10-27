@@ -540,6 +540,8 @@ def _pipeline_description(registry: ModuleRegistry, names: list[str] | None = No
         "`if [ \"$x\" = a ]; then …; elif [[ $x == *.gov ]]; then …; else …; fi` (with `test`, `[`, `[[`). "
         "Or with `-py`, where variables are never split and conditions are Python: "
         "`for -py ip in (cat ips.txt) { if (ip.startswith(\"10.\")) { … } else { … } }` "
+        "or in the Python style, with a `:` and an indented body over several lines "
+        "(`for -py ip in (cat ips.txt):` then `    if ip.startswith(\"10.\"):` …) "
         "(see `man for` and `man if`). A failing statement in a script shows as a `✗ name: message` "
         "line and the script goes on.\n\n"
         f"Modules:\n{modules}\n\nBuilt-in commands: {', '.join(_usable_builtins())}"

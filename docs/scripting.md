@@ -122,23 +122,42 @@ for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be 
   `!` and `( … )` inside: `[[ -f $f && ( $x == a || $x == b ) ]]`), `test`, `grep -q`,
   `true`/`false`. `!`, `&&` and `||` work anywhere. `man test` lists the tests.
 
-**`-py`** is ShellCraft's own syntax for when quoting gets in the way: the loop is parsed by
-ShellCraft, `$x` is always **one** argument whatever it contains, and conditions are Python.
+**Python style** (`-py`) is ShellCraft's own syntax for when quoting gets in the way: the loop is
+parsed by ShellCraft, `$x` is always **one** argument whatever it contains, and conditions are
+Python. A header ends in `:` and the block is the indented lines under it:
 
 ```
-for -py ip in (cat ips.txt) {                              # one item per line of output
-  if (ip.startswith("10.")) { echo internal $ip }
-  elif (ip in ("8.8.8.8", "1.1.1.1")) { echo dns $ip }
-  else { ip2geo $ip }
-}
-for -py n in 1..5 { if (int(n) % 2 == 0) { echo even $n } }
-if -py (match(r"^v\d+", ver)) { echo versioned }
+for -py ip in (cat ips.txt):                               # one item per line of output
+    if ip.startswith("10."):
+        echo internal $ip
+    elif ip in ("8.8.8.8", "1.1.1.1"):
+        echo dns $ip
+    else:
+        ip2geo $ip
+for -py n in 1..5: echo $n                                 # a short block on one line
+if -py match(r"^v\d+", ver):                               # if / elif / else, while / until
+    echo versioned
+case -py $f:                                               # "a" | "b":, "*.py":, _: (anything)
+    "*.py":
+        echo python
+    _:
+        echo other
+select -py env in dev prod:                                # a numbered menu
+    break
+def greet(name, greeting="hi"):                            # named arguments, with defaults
+    echo "$greeting $name"
+name = input("Your name? ")                                # asking works in any block
 ```
+
+At the prompt, the next line starts indented for you and an empty line runs the block. The brace
+form is the same thing on one line: `for -py n in 1..5 { if (int(n) % 2 == 0) { echo even $n } }`.
 
 - Python conditions are checked and evaluated by ShellCraft (no `eval`): comparisons,
   `and`/`or`/`not`, `in`, slicing, string methods, `len`, `int`, `match(regex, text)`,
   `exists(path)` and a few more; imports and other functions are refused. `status` is `$?`.
-- Inside a `-py` block, nested `for`/`if` use the same syntax without the flag.
+- Inside a `-py` block, nested `for`/`if` use the same syntax without the flag. Bash lines
+  (`if …; then … fi`) work inside one too, and a Python-style block works inside a bash function.
+- A Python-style condition that isn't Python runs as a command: `if -py grep -q x f:`.
 
 In both: `break`/`continue` (also after `&&` / `||`); a failing command shows its error and the
 loop goes on, as in bash; loop variables and `x=1` assignments outlive the loop. `man for`,
@@ -176,7 +195,9 @@ greet() { echo "hello ${1:-stranger}"; }
 need() { [ -n "$1" ] || return 1; echo "got $1"; }
 ```
 
-[Functions](scripting/functions.md) teaches them step by step.
+`def name(a, b="x"):` writes one in the Python style, with named arguments (each a `local`).
+[Functions](scripting/functions.md) teaches them step by step, and
+[Bash style and Python style](scripting/python-style.md) shows every block both ways.
 
 ## Exit status and history
 

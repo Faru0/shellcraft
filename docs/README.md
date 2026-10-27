@@ -52,6 +52,7 @@ with an example for everything.
 - [Loops and menus](scripting/loops.md): `for`, `while`, reading a file, `break`, `select` menus
 - [Functions](scripting/functions.md): arguments, defaults, `local`, `return`, giving back a value
 - [Complete examples](scripting/examples.md): rc files, startup files and funcs to copy
+- [Bash style and Python style](scripting/python-style.md): every block written both ways, side by side
 
 ## Using ShellCraft
 

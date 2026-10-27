@@ -159,7 +159,8 @@ You'll see `Notes for` and today's date, like `Notes for 2026-10-27`.
 There are two ways to ask a question and keep the answer. Both only work in the interactive shell:
 at the prompt, in the rc file, in startup files and in funcs.
 
-**`input()`** reads like Python. Put it on a line of its own:
+**`input()`** reads like Python. It works on a line of its own, and inside loops, `if` blocks and
+functions:
 
 <!-- run: ["Ada"] -->
 ```
@@ -190,8 +191,8 @@ How old are you? 30
 Next year you'll be 31
 ```
 
-**`read`** works the way it does in bash, and it also works inside `if`, loops, `case` and
-functions, where `input()` doesn't. `-p` sets the question, and the last word is the variable's name:
+**`read`** works the way it does in bash. `-p` sets the question, and the last word is the
+variable's name:
 
 <!-- run: ["staging"] -->
 ```
@@ -244,6 +245,23 @@ Project name (required): website
 Project: website
 ```
 
+The same in Python style, with `input()`:
+
+<!-- run: ["", "website"] -->
+```
+project=""
+while -py project == "":
+    project = input("Project name (required): ")
+echo "Project: $project"
+```
+
+<!-- output -->
+```
+Project name (required): 
+Project name (required): website
+Project: website
+```
+
 ### Ask a yes or no question
 
 `case` checks the answer against a few patterns, so `y`, `Y`, `yes` and `Yes` all count:
@@ -263,6 +281,23 @@ Clear the build folder? (y/n) Yes
 clearing it
 ```
 
+In Python style, check the answer with a Python condition:
+
+<!-- run: ["no"] -->
+```
+answer = input("Clear the build folder? (y/n) ")
+if -py answer.lower() in ("y", "yes"):
+    echo "clearing it"
+else:
+    echo "leaving it alone"
+```
+
+<!-- output -->
+```
+Clear the build folder? (y/n) no
+leaving it alone
+```
+
 There's more on `case` in [Conditions and choices](conditions.md#case-pick-one-of-several-choices), and a
 numbered menu with `select` in [Loops and menus](loops.md#a-numbered-menu-with-select).
 
@@ -277,9 +312,9 @@ ShellCraft fills in `$name`, `${name}` and `${name:-default}`. It doesn't have b
 | One field of a value | `second=$(echo "a,b,c" \| cut -d , -f 2)` |
 | The file name from a path | `file=$(basename $path)` |
 | The folder from a path | `folder=$(dirname $path)` |
-| Check how long it is | `if -py (len(name) > 20) { … }` |
-| Whether it starts with something | `if -py (name.startswith("dev")) { … }` |
-| Whether it contains something | `[[ $name == *test* ]]` or `if -py ("test" in name) { … }` |
+| Check how long it is | `if -py len(name) > 20:` |
+| Whether it starts with something | `if -py name.startswith("dev"):` |
+| Whether it contains something | `[[ $name == *test* ]]` or `if -py "test" in name:` |
 
 <!-- run -->
 ```

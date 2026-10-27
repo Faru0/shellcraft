@@ -105,16 +105,21 @@ def rc_path(home: Path | None = None) -> Path:
     return home / RC_FILE
 
 
-def logical_lines(text: str) -> list[tuple[int, str]]:
+def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]:
     """(first line number, command) for each command in a file of ShellCraft lines: blank lines
     and `#` comments skipped, an unfinished `for` / `if` / `{` joined with the lines after it, as
-    the prompt does. A block still open at the end is returned as is (running it reports why)."""
-    from shellcraft import script
+    the prompt does. A block still open at the end is returned as is (running it reports why).
+    Python-style colon blocks are turned into the brace form first (shellcraft.indent); one that is
+    indented wrongly raises indent.IndentError (with colon_blocks False, the lines are left as
+    they are)."""
+    from shellcraft import indent, script
     from shellcraft.parser import strip_comments
 
     out: list[tuple[int, str]] = []
     pending: tuple[int, str] | None = None
-    for number, raw in enumerate(text.splitlines(), 1):
+    colon = colon_blocks and indent.has_colon_block(text)
+    lines = indent.to_braces(text) if colon else enumerate(text.splitlines(), 1)
+    for number, raw in lines:
         line = strip_comments(raw).strip()  # `# …` lines and `cmd  # note` comments
         if pending is None:
             if not line:
@@ -153,6 +158,7 @@ def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
     ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest. Returns
     (commands run, commands that failed). Raises OSError when the file can't be read. `label` names
     the file for `env` (a profile's rc: `profile:osint`); by default its file name."""
+    from shellcraft.indent import IndentError
     from shellcraft.pipeline import run_line
 
     if _depth[0] >= MAX_SOURCE_DEPTH:
@@ -162,7 +168,14 @@ def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
     _depth[0] += 1
     sourcing.append(label or Path(path).name)
     try:
-        for number, line in logical_lines(text):
+        try:
+            commands = logical_lines(text)
+        except IndentError as exc:  # like Python: a badly indented file doesn't run at all
+            raw = text.splitlines()[exc.line - 1] if 0 < exc.line <= len(text.splitlines()) else ""
+            _report(ctx, exc, f"{Path(path).name}:{exc.line}: {raw.strip()}", raw)
+            ctx.last_status = 2
+            return 0, 1
+        for number, line in commands:
             ran += 1
             where = f"{Path(path).name}:{number}: {line}"
             try:

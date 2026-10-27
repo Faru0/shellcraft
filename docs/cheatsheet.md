@@ -65,8 +65,8 @@ For the rc file, startup files, funcs and the prompt:
 ```
 name=Ada; echo "hi $name"                        # a variable
 echo "${who:-stranger}" $((2 + 3))               # a default, arithmetic
-name = input("Your name? ")                      # ask, on a line of its own
-read -p "Env? " env                              # ask, anywhere (in loops, functions)
+name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks)
+read -p "Env? " env                              # ask, bash style
 read -s -p "Token: " token                       # ask without showing it
 echo -e "line 1\nline 2"                         # several lines
 printf "%-10s %5.1f\n" cpu 42.5                  # columns and numbers
@@ -83,6 +83,29 @@ select env in dev prod; do echo $env; break; done   # a numbered menu
 greet() { local who=${1:-friend}; echo "hi $who"; }
 need() { [ -n "$1" ] || return 1; echo "got $1"; }
 total=$(add 2 3)                                 # a function's output as a value
+```
+
+The same in Python style: a `:` and an indented body (an empty line ends it at the prompt):
+
+```
+if -py int(n) > 3:                               # elif …:  else:
+    echo big
+for -py line in (cat hosts.txt):                 # a file, line by line
+    if line.startswith("#"):
+        continue
+    echo $line
+while -py int(n) < 3:                            # while -py True: … break
+    n=$((n + 1))
+case -py $env:                                   # "a" | "b":   _: (anything else)
+    "prod":
+        echo careful
+    _:
+        echo safe
+select -py env in dev prod:                      # a numbered menu
+    break
+def greet(who, greeting="hi"):                   # named arguments, with defaults
+    echo "$greeting $who"
+for -py n in 1..5: echo $n                       # a short block on one line
 ```
 
 [More](scripting/README.md)

@@ -13,6 +13,24 @@ and the project uses [semantic versioning](https://semver.org/).
   It says plainly where ShellCraft differs from bash and what to write instead. The test suite
   runs every marked example and checks its output, so the pages stay true.
 - **`man case` and `man while`** (and `man until`), next to `man for`, `man if` and `man select`.
+- **Python-style blocks.** Every `-py` block can be written as in Python: the header ends in `:`
+  and the body is the indented lines under it, with no braces and no parentheses around the
+  condition (`for -py line in (cat f):`, `if -py n > 3:`, `elif …:`, `else:`, `while -py …:`). A
+  condition that isn't Python runs as a command (`if -py grep -q x f:`), `pass` does nothing, and
+  a short block fits on one line (`for -py n in 1..3: echo $n`). At the prompt the next line starts
+  indented for you, an empty line runs the block, and ↑ brings it back as typed. A badly indented
+  block is reported with Python's own messages and its line, and doesn't run. Bash lines work
+  inside a Python-style block, and a Python-style block works inside a bash function. The brace
+  form still works.
+- **`case -py`, `select -py` and `def`.** `case -py $x:` with `"a" | "b":` and `_:` choices
+  (quoted patterns keep `*` and `?`), `select -py NAME in ITEM...:` (items like `for -py`), and
+  `def name(a, b="default"):` functions whose parameters are named `local` variables, with
+  `greet: missing argument 'name'` when a required one is left out.
+- **`input()` inside blocks and functions.** `name = input("…")` and `int(input(…))` now work in
+  loops, `if` blocks and functions, not only on a line of their own, and the question can use
+  variables: `input("Age of $who? ")`.
+- **[Bash style and Python style](docs/scripting/python-style.md):** a page that writes every kind
+  of block both ways, side by side, and each page of the scripting guide now shows both.
 
 ### Changed
 

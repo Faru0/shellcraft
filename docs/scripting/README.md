@@ -3,7 +3,8 @@
 ← [Manual](../README.md)
 
 This guide shows you how to write scripts for ShellCraft: your `rc` file, your startup files, your
-funcs, and anything you'd type at the prompt. You'll learn how to keep values in variables, ask the
+funcs, and anything you'd type at the prompt. Every block can be written in **bash style**
+(`do` … `done`) or **Python style** (a `:` and an indented body), and you can mix them. You'll learn how to keep values in variables, ask the
 user a question, print text, make decisions, repeat things, offer a menu, and wrap it all up in a
 function. Every example is a real script you can copy, and the test suite runs each one to make sure
 it still does what the page says.
@@ -16,7 +17,8 @@ it still does what the page says.
 | [Printing text](printing.md) | `echo`, several lines at once, `printf` for columns and numbers, errors, writing to files |
 | [Conditions and choices](conditions.md) | `if`, `elif`, `else`, every test, `&&` and `||`, `case` for picking between choices, Python conditions |
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
-| [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value |
+| [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value, `def` |
+| [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions |
 | [Complete examples](examples.md) | Whole rc files, startup files and funcs you can copy and adapt |
 
 If you're new to this, read them in order. Each page starts simple and builds up.
@@ -50,7 +52,39 @@ rc file or a startup file. If a line fails, ShellCraft prints the file name and 
 `✗ try.sc:4: …`, and carries on with the next line.
 
 You can also type any example straight at the prompt. A `for`, `if`, `case` or function that isn't
-finished yet makes the prompt wait for the next line, so you can paste a whole block.
+finished yet makes the prompt wait for the next line, so you can paste a whole block. After a
+Python-style line ending in `:`, the prompt indents the next line for you, and an empty line runs
+the block.
+
+## Two styles
+
+Here's the same loop both ways. Use whichever you find easier to read:
+
+<!-- run -->
+```
+for n in 1 2 3; do
+  if [ $n -eq 2 ]; then echo "two"; else echo "$n"; fi
+done
+
+for -py n in 1 2 3:
+    if n == "2":
+        echo "two"
+    else:
+        echo "$n"
+```
+
+<!-- output -->
+```
+1
+two
+3
+1
+two
+3
+```
+
+The pages show both. [Bash style and Python style](python-style.md) puts every kind of block side
+by side.
 
 ## ShellCraft is not bash
 
@@ -62,7 +96,7 @@ bash features aren't there, and each one has a ShellCraft way to do the same thi
 | --- | --- | --- |
 | `cat <<EOF` (a heredoc) | `echo -e "line 1\nline 2"`, `printf`, or keep the text in a file and `cat` it | [Printing text](printing.md#several-lines-at-once) |
 | A quoted string over several lines | `echo -e` with `\n`, or one `echo` per line | [Printing text](printing.md#several-lines-at-once) |
-| `while read line; do … done < file` | `for -py line in (cat file) { … }` | [Loops and menus](loops.md#go-through-a-file-line-by-line) |
+| `while read line; do … done < file` | `for -py line in (cat file):` and an indented body | [Loops and menus](loops.md#go-through-a-file-line-by-line) |
 | `read` from a pipe | `read` always asks the person at the keyboard | [Variables and input](variables-and-input.md#ask-the-user) |
 | Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
 | `${#name}`, `${name^^}`, `${name/a/b}` | A Python condition, `tr`, `cut` or a module | [Variables and input](variables-and-input.md#what-you-can-do-with-a-value) |

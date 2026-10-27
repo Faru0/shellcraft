@@ -139,6 +139,9 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
 
                 ctx.ui.console.print(Text(message, style="sc.warning"), markup=False, highlight=False)
 
+        from shellcraft.parser import _expand_simple
+
+        prompt = _expand_simple(prompt, Variables(ctx))  # input("Hello $USER, your age? ")
         try:
             ctx.variables[name] = ask.ask_as(ctx, prompt, kind, say)
         except ask.AskError as exc:

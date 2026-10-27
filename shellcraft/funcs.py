@@ -68,9 +68,13 @@ class Func:
 
     @property
     def steps(self) -> list[str]:
+        from shellcraft.indent import IndentError
         from shellcraft.startup import logical_lines
 
-        return [line for _, line in logical_lines(self.body)]
+        try:
+            return [line for _, line in logical_lines(self.body)]
+        except IndentError:  # badly indented: the steps as written, so running one names the problem
+            return [line for _, line in logical_lines(self.body, colon_blocks=False)]
 
     def set_steps(self, steps: list[str]) -> None:
         self.body = "".join(step.rstrip("\n") + "\n" for step in steps)

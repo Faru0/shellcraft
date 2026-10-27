@@ -298,7 +298,59 @@ Get the newsletter? (y/n) y
 Thanks Ada, you're signed up
 ```
 
-`input()` doesn't work inside a function. Use `read` there.
+`input()` works inside a function too: `answer = input("Your name: ")`.
+
+## Python style: def
+
+`def` writes a function the Python way: the arguments are named in the brackets, the line ends in
+`:`, and the body is indented under it. A parameter with `=` has a default; one without is
+required:
+
+<!-- run -->
+```
+def greet(name, greeting="Hello"):
+    if name == "Ada":
+        echo "Welcome back, Ada"
+    else:
+        echo "$greeting, $name"
+greet Ada
+greet Sam
+greet Sam Hi
+```
+
+<!-- output -->
+```
+Welcome back, Ada
+Hello, Sam
+Hi, Sam
+```
+
+Each parameter is a `local` variable, so the shell's own `name` isn't touched. Calling `greet` with
+no arguments stops with `greet: missing argument 'name'`. Inside, `if` and `for` take Python
+conditions, and `$1`, `$#` and `$@` still work. `return`, `echo` with `$( )`, `read` and `input()`
+work the same as in a bash-style function:
+
+<!-- run -->
+```
+def add(a, b=0):
+    echo $((a + b))
+total=$(add 1200 34)
+echo "the total is $total"
+
+def is_weekend(day):
+    case $day:
+        "Sat" | "Sun":
+            return 0
+        _:
+            return 1
+is_weekend Sun && echo "Sun: time off"
+```
+
+<!-- output -->
+```
+the total is 1234
+Sun: time off
+```
 
 ## Keep your functions
 
@@ -346,5 +398,5 @@ All three give a name to something you type often. Use the one that fits:
 | | Best for | Arguments | Lasts |
 | --- | --- | --- | --- |
 | [Alias](../aliases-and-history.md) | A shorter name for one command with its options: `alias ll='ls -l'` | Added at the end | Saved in `~/.shellcraft/aliases` |
-| Function | Logic: `if`, loops, `read`, several steps that use `$1` | `$1`, `$2`, `$@`, anywhere | The session; put it in your rc file to keep it |
+| Function | Logic: `if`, loops, `read`, several steps that use `$1`; `def` for named arguments | `$1`, `$2`, `$@`, anywhere, or named ones with `def` | The session; put it in your rc file to keep it |
 | [Func](../funcs.md) | A routine you run on demand: a checklist, a recon pass, setting up a project | `$1`, `$2`, `$@` | A file in `~/.shellcraft/funcs/`; it stops at the first step that fails |

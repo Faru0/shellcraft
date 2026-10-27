@@ -20,6 +20,13 @@ Python syntax (`-py`), parsed by ShellCraft itself:
   subset of Python, checked node by node and evaluated by walking the tree (never `eval`).
   Inside a `-py` block, nested `for` / `if` use the Python syntax too.
 
+    select -py NAME in ITEM... { LIST }
+    case -py WORD { PATTERN [| PATTERN] { LIST } … }       `_` matches anything
+    def NAME(PARAM, PARAM="default") { LIST }               parameters are `local` variables
+
+  The Python style (a `:` and an indented body) is turned into these brace forms before parsing,
+  by shellcraft.indent; the parser never sees a colon block.
+
 `{` opens a `-py` block when it starts a word; `}` closes one when it is a word of its own.
 Outside any block a plain command line is parsed exactly as before (no splitting, no `$(…)`),
 so `echo {a} }` still prints its arguments.
@@ -40,7 +47,7 @@ from shellcraft.context import ShellContext, to_text
 from shellcraft.parser import ParseError, find_closing_paren
 
 KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
-            "case", "esac", "select")
+            "case", "esac", "select", "def")
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
@@ -142,6 +149,7 @@ class Function:
     body: list[Stmt]
     text: str  # the definition as typed (for `declare -f` and `type`)
     pos: int
+    params: list[tuple[str, str | None]] | None = None  # `def f(a, b="x")`: (name, default)
 
 
 @dataclass
@@ -193,7 +201,12 @@ class Program:
 
 def parse_script(text: str) -> Program | None:
     """Parse a command line or script; None when it holds no statement. Raises ParseError
-    (IncompleteError when more input could complete it)."""
+    (IncompleteError when more input could complete it). Colon blocks (`for -py x in a b:` and an
+    indented body) are turned into the brace form first (shellcraft.indent)."""
+    from shellcraft import indent
+
+    if indent.has_colon_block(text):
+        text = indent.translate(text)
     stmts, _ = _Parser(text).parse_list(None)
     program = Program(stmts)
     return program if program.stmts else None
@@ -356,6 +369,8 @@ class _Parser:
             return self._maybe_piped(stmt)
         if word in ("break", "continue", "return"):
             return self._jump(word)
+        if word == "def":
+            return self._def()
         if word == "function" or (self.mode != "py" and _FUNCTION_DEF.match(self.s, start)):
             return self._function(keyword=word == "function")
         if word in ("elif", "else") and self.mode == "py":
@@ -424,9 +439,11 @@ class _Parser:
 
     # select
     def _select(self) -> Select:
-        """`select NAME in WORD...; do LIST; done`: the list is read like a bash `for` list."""
+        """`select NAME in WORD...; do LIST; done`: the list is read like a bash `for` list.
+        `select -py NAME in ITEM... { LIST }`: like a `for -py` list, with a -py block."""
         pos = self.i
         self.i += len("select")
+        py = self._py_flag()
         self._skip_space()
         match = _NAME.match(self.s, self.i)
         if not match:
@@ -441,7 +458,7 @@ class _Parser:
         if self._bare_word(self.i) != "in":
             raise self._error(f"select: give the choices: select {var} in WORD...; do …; done")
         self.i += 2
-        loop = self._for_sh(var, pos)
+        loop = self._for_py(var, pos, "select") if py else self._for_sh(var, pos)
         return Select(var, loop.items, loop.body, pos)
 
     # functions
@@ -486,6 +503,42 @@ class _Parser:
             self.loops = saved_loops
         return Function(name, body, self.s[pos:self.i], pos)
 
+    def _def(self) -> Function:
+        """`def NAME(PARAMS) { LIST }`: a function in the Python style. Each parameter is a
+        `local` variable set from `$1`, `$2`… or its default; the body is a -py block."""
+        pos = self.i
+        self.i += len("def")
+        self._skip_blanks()
+        match = _FUNCTION_NAME.match(self.s, self.i)
+        if not match:
+            if self._at_end():
+                raise self._incomplete("def: missing a name", " ")
+            raise self._error("def: expected a name: def greet(name): …")
+        name = match.group()
+        self.i = match.end()
+        if name in KEYWORDS or name in ("function", "return", "select", "in", "def"):
+            raise self._error(f"'{name}' is a shell keyword and can't be a function name", pos)
+        self._skip_blanks()
+        if self._at_end():
+            raise self._incomplete(f"def {name}: missing '('", " ")
+        if self.s[self.i] != "(":
+            raise self._error(f"def {name}: expected '(' and the parameters: def {name}(a, b=\"x\"): …")
+        text, start = self._paren()
+        params = _parse_params(name, text, start)
+        self._skip_space()
+        if self._at_end():
+            raise self._incomplete(f"def {name}: missing '{{'", " ")
+        if not self._is_open(self.i):
+            raise self._error(f"def {name}: expected ':' (or '{{') after the parameters")
+        saved_loops, self.loops = self.loops, 0
+        self.functions += 1
+        try:
+            body = self._in_mode("py", lambda: self._block(f"def {name}"))
+        finally:
+            self.functions -= 1
+            self.loops = saved_loops
+        return Function(name, body, self.s[pos:self.i], pos, params)
+
     # while / until
     def _while(self, until: bool) -> While:
         pos = self.i
@@ -525,6 +578,10 @@ class _Parser:
     def _case(self) -> Case:
         pos = self.i
         self.i += 4
+        self._skip_blanks()
+        flagged = self._bare_word(self.i) == PY_FLAG
+        if flagged:
+            self.i += len(PY_FLAG)
         self._skip_space()
         if self._at_end():
             raise self._incomplete("case: missing a word", " ")
@@ -533,7 +590,11 @@ class _Parser:
             raise self._error("case: expected a word after 'case'")
         self._skip_space()
         if self._at_end():
-            raise self._incomplete("case: missing 'in'", " ")
+            raise self._incomplete("case: missing '{'" if flagged else "case: missing 'in'", " ")
+        if (flagged or self.mode == "py") and self._is_open(self.i):
+            return self._case_py(word, pos)
+        if flagged:
+            raise self._error(f"case -py: expected '{{' after '{word}': case -py $x {{ \"a\" {{ … }} _ {{ … }} }}")
         if self._bare_word(self.i) != "in":
             raise self._error(f"case: expected 'in' after '{word}'")
         self.i += 2
@@ -559,6 +620,44 @@ class _Parser:
             clauses.append((patterns, body))
             if self.s[self.i - 4:self.i] == "esac":
                 return Case(word, clauses, pos)
+
+    def _case_py(self, word: str, pos: int) -> Case:
+        """`case -py WORD { PATTERN [| PATTERN] { LIST } … }`: `_` matches anything, a quoted
+        pattern may still hold `*`, `?` and `[…]`; the first matching choice runs."""
+        self.i += 1
+        self.depth += 1
+        clauses: list[tuple[list[str], list[Stmt]]] = []
+        try:
+            while True:
+                self._skip_space(separators=True)
+                if self._at_end():
+                    raise self._incomplete("case: missing '}'", " ; ")
+                if self._is_close(self.i):
+                    self.i += 1
+                    return Case(word, clauses, pos)
+                start, quote, j = self.i, None, self.i
+                while j < self.n:
+                    ch = self.s[j]
+                    if quote:
+                        if ch == quote:
+                            quote = None
+                    elif ch in ("'", '"'):
+                        quote = ch
+                    elif self._is_open(j) or ch in ";\n":
+                        break
+                    j += 1
+                if j >= self.n:
+                    raise self._incomplete("case: missing '{' after the pattern", " ")
+                if not self._is_open(j):
+                    raise self._error("case -py: expected '{' after the pattern: \"a\" | \"b\" { … }", start)
+                patterns = [_py_pattern(p.strip()) for p in _split_bars(self.s[start:j])]
+                if not all(patterns):
+                    raise self._error("case: empty pattern", start)
+                self.i = j
+                body = self._in_mode("py", lambda: self._block("case"))
+                clauses.append((patterns, body))
+        finally:
+            self.depth -= 1
 
     def _pattern_end(self) -> int | None:
         """The index of the `)` that ends a case pattern (quotes respected)."""
@@ -692,12 +791,30 @@ class _Parser:
         return self.s[start:self.i]
 
     def _py_flag(self) -> bool:
-        """Consume `-py` after for / if; True for the Python syntax (also inherited in -py blocks)."""
+        """Consume `-py` after for / if; True for the Python syntax. Inside a -py block it is
+        inherited, unless the header is bash's (a `do` or `then` before any `{`)."""
         self._skip_blanks()
         if self._bare_word(self.i) == PY_FLAG:
             self.i += len(PY_FLAG)
             return True
-        return self.mode == "py"
+        return self.mode == "py" and not self._bash_header()
+
+    def _bash_header(self) -> bool:
+        """Whether the header from here on is bash's: `do` or `then` as a word before a block `{`."""
+        j, quote = self.i, None
+        while j < self.n:
+            ch = self.s[j]
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ("'", '"'):
+                quote = ch
+            elif self._is_open(j):
+                return False
+            elif self._word_start(j) and self._bare_word(j) in ("do", "then"):
+                return True
+            j += 1
+        return False
 
     # for
     def _for(self) -> For:
@@ -763,12 +880,12 @@ class _Parser:
             self.loops -= 1
         return For(var, items, body, pos, "sh")
 
-    def _for_py(self, var: str, pos: int) -> For:
+    def _for_py(self, var: str, pos: int, what: str = "for") -> For:
         items: list[Item] = []
         while True:
             self._skip_space()
             if self._at_end():
-                raise self._incomplete("for: missing '{'", " ")
+                raise self._incomplete(f"{what}: missing '{{'", " ")
             ch = self.s[self.i]
             if ch == "{" and self._word_start(self.i):
                 break
@@ -791,7 +908,7 @@ class _Parser:
             items.append(Item("word", word, start))
         self.loops += 1
         try:
-            body = self._in_mode("py", lambda: self._block("for"))
+            body = self._in_mode("py", lambda: self._block(what))
         finally:
             self.loops -= 1
         return For(var, items, body, pos, "py")
@@ -885,6 +1002,55 @@ class _Parser:
             raise self._error(f"{what}: missing a condition")
         simple = self._simple(stop_at_open=True)
         return Cond("cmd", simple.text, simple.pos, negate)
+
+
+def _parse_params(name: str, text: str, pos: int) -> list[tuple[str, str | None]]:
+    """`a, b="x", n=3` → [("a", None), ("b", "x"), ("n", "3")]: plain names, and defaults that
+    are text, numbers, True, False or None."""
+    try:
+        tree = ast.parse(f"def f({text}): pass")
+    except SyntaxError as exc:
+        raise ParseError(f"def {name}: invalid parameters ({exc.msg}): ({text})", pos) from None
+    fn = tree.body[0]
+    assert isinstance(fn, ast.FunctionDef)
+    args = fn.args
+    if args.vararg or args.kwarg or args.kwonlyargs or args.posonlyargs:
+        raise ParseError(f"def {name}: only plain parameters are allowed: def {name}(a, b=\"x\")"
+                         " ($@ still has every argument)", pos)
+    defaults: list[str | None] = [None] * (len(args.args) - len(args.defaults))
+    for node in args.defaults:
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, (str, int, float, bool, type(None))):
+            raise ParseError(f"def {name}: a default must be text or a number", pos)
+        value = node.value
+        defaults.append("" if value is None else str(value))
+    return [(arg.arg, default) for arg, default in zip(args.args, defaults)]
+
+
+def _py_pattern(text: str) -> str:
+    """A `case -py` pattern as `run_case` reads it: `_` is anything, and a quoted pattern keeps
+    its `*`, `?` and `[…]` (`"*.py"` matches every .py name)."""
+    if text == "_":
+        return "*"
+    if len(text) >= 2 and text[0] in ("'", '"') and text[-1] == text[0] and text[0] not in text[1:-1]:
+        return text[1:-1] if text[1:-1] else '""'
+    return text
+
+
+def _split_bars(text: str) -> list[str]:
+    """`"a" | b|c` → the parts between `|` outside quotes."""
+    parts: list[str] = []
+    quote, start = None, 0
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "|":
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
 
 
 def _check_substitutions(word: str, offset: int) -> None:
@@ -1327,9 +1493,17 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
         runner.stderr_sink = runner.collected.append  # `fn 2>&1 | grep`: errors join the output
     if runner.stderr_sink is not None:
         ctx.stderr_sinks.append(runner.stderr_sink)
+    if fn.params is not None:
+        missing = [p for k, (p, default) in enumerate(fn.params) if k >= len(args) and default is None]
+        if missing:
+            raise CommandError(f"{fn.name}: missing argument '{missing[0]}' "
+                               f"(usage: {fn.name} {' '.join(p.upper() for p, _ in fn.params)})", 2)
     ctx.positional.append(list(args))
     status: int | None = None
     try:
+        for k, (param, default) in enumerate(fn.params or []):
+            runner.frame.setdefault(param, ctx.variables.get(param))
+            ctx.variables[param] = args[k] if k < len(args) else (default or "")
         runner.run_list(fn.body)
     except _Return as exc:
         status = exc.status
@@ -1513,6 +1687,10 @@ class _Runner:
         expands = stmt.mode in ("sh", "top")
         if stmt.text.split(None, 1)[:1] == ["local"]:
             return self.run_local(stmt)
+        if "input(" in stmt.text:
+            asked = self.run_input(stmt)
+            if asked is not None:
+                return asked, None
         try:
             if assign(stmt.text, self.ctx, self.variables(), self.substitute if expands else None, target=self.vars):
                 self.ctx.last_status = 0
@@ -1529,6 +1707,32 @@ class _Runner:
         if stmt.negate:
             self.ctx.last_status = 0 if self.ctx.last_status else 1
         return self.ctx.last_status, output
+
+    def run_input(self, stmt: Simple) -> int | None:
+        """`name = input("…")` (or `int(input(…))`, `float(input(…))`) inside a block or a
+        function, as on a line of its own; None when the line is something else."""
+        from shellcraft import ask
+        from shellcraft.pipeline import PipelineError
+
+        def say(message: str) -> None:
+            if self.ctx.ui is not None:
+                from rich.text import Text
+
+                self.ctx.ui.console.print(Text(message, style="sc.warning"), markup=False, highlight=False)
+
+        try:
+            asking = ask.parse_ask_line(stmt.text)
+            if asking is None:
+                return None
+            name, prompt, kind = asking
+            prompt = shparser._expand_simple(prompt, self.variables())  # input("Age of $who? ")
+            self.vars[name] = ask.ask_as(self.ctx, prompt, kind, say)
+        except ask.AskError as exc:
+            self.report(PipelineError(1, 1, "input", str(exc), exc.status), stmt.text)
+            self.ctx.last_status = exc.status
+            return exc.status
+        self.ctx.last_status = 0
+        return 0
 
     def run_chain(self, stmt: Chain) -> None:
         first = stmt.parts[0]

@@ -1767,7 +1767,12 @@ class Shell:
 
     def _read_continuation(self, line: str) -> str | None:
         """While a `{` or `(` is still open, read more lines (with a `┆ …` prompt) and join them
-        into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing."""
+        into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing. A colon
+        header (`for -py x in a b:`) reads a Python-style block instead (_read_block)."""
+        from shellcraft import indent
+
+        if indent.opens_block(line):
+            return self._read_block(line)
         while script.incomplete(line) is not None or _continued(line):
             try:
                 more = self._ask(self._continuation_prompt)
@@ -1786,6 +1791,42 @@ class Shell:
             elif more.strip():
                 line = script.join_continuation(line, more)  # adds `;` only where one is needed
         return line
+
+    def _read_block(self, line: str) -> str | None:
+        """A Python-style block, as Python's own prompt reads one: each line starts indented like
+        the one before (4 more after a `:`), and an empty line ends the block. The lines stay
+        apart, so the history keeps the block as typed; shellcraft.indent turns it into the brace
+        form when it runs. Ctrl-C drops it; a wrongly indented block is reported, not run."""
+        from shellcraft import indent
+        from shellcraft.parser import strip_comments
+
+        lines = [line]
+        while True:
+            last = lines[-1]
+            lead = last[:len(last) - len(last.lstrip())]
+            if strip_comments(last).rstrip().endswith(":"):
+                lead += "    "
+            self.ctx.prefill = lead
+            try:
+                more = self._ask(self._continuation_prompt)
+            except KeyboardInterrupt:
+                self.ctx.prefill = ""
+                self.ctx.last_status = STATUS_INTERRUPTED
+                return None
+            except EOFError:
+                self.ctx.prefill = ""
+                break
+            if not more.strip():
+                break
+            lines.append(more.rstrip())
+        text = "\n".join(lines)
+        try:
+            indent.to_braces(text)
+        except indent.IndentError as exc:
+            show_error(self.ui, exc, text)
+            self.ctx.last_status = STATUS_SYNTAX
+            return None
+        return text
 
     def _history_lines(self) -> list[str]:
         """Every saved command, oldest first (for `!N` and `!prefix`)."""

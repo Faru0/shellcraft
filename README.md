@@ -25,7 +25,7 @@ client over MCP and it can use your commands too.
 
 - **80+ built in commands.** `ls`, `grep`, `find`, `sort`, `jq`, `curl`, `diff` and the rest, with the switches you know from bash.
 - **Your own commands in plain Python.** A function called `run` is enough. Or let the ingest wizard convert a script you already have.
-- **Real pipelines and scripting.** `a | b > file`, variables, `for`, `while`, `if`, functions, `$?`, `!!`.
+- **Real pipelines and scripting.** `a | b > file`, variables, `for`, `while`, `if`, functions, `$?`, `!!`, written bash style or Python style (`for -py line in (cat f):` and an indented body).
 - **Made to be customized.** An rc file, aliases, startup files, funcs and profiles, all plain files in `~/.shellcraft`.
 - **Subshells side by side.** Run `htop`, `vim` or `ssh` in a subshell and switch between them from a footer.
 - **An AI co-pilot over MCP.** Claude and other AI clients can use your commands, read your screen and run commands you approve.

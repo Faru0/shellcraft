@@ -340,20 +340,24 @@ running the tests
 To keep showing the menu until the user picks Quit, put it in a loop, or use `select`, which numbers
 the choices for you. Both are in [Loops and menus](loops.md#menus-that-keep-asking).
 
-## Python conditions with -py
+## Python style
 
-If you know Python, `if -py` lets you write the condition in Python instead. Variables are used by
-their plain names, without `$`, and the blocks use `{ }`:
+Everything on this page can be written in the Python style too: put `-py` after `if`, end the line
+with `:`, and indent what's inside. The condition is Python, and variables are used by their plain
+names, without `$`:
 
 <!-- run -->
 ```
 name="Ada Lovelace"
 age=36
-if -py (int(age) >= 18 and name.startswith("Ada")) {
-  echo "an adult named Ada"
-}
-if -py ("Love" in name) { echo "the name contains Love" }
-if -py (len(name) > 20) { echo "a long name" } else { echo "a short name" }
+if -py int(age) >= 18 and name.startswith("Ada"):
+    echo "an adult named Ada"
+if -py "Love" in name:
+    echo "the name contains Love"
+if -py len(name) > 20:
+    echo "a long name"
+else:
+    echo "a short name"
 ```
 
 <!-- output -->
@@ -372,14 +376,59 @@ command's exit status. Imports aren't allowed. `man if` lists everything.
 <!-- run -->
 ```
 touch notes.txt
-if -py (exists("notes.txt") and status == 0) { echo "notes.txt is there" }
-if -py (isdir("notes.txt")) { echo "a folder" } elif (isfile("notes.txt")) { echo "a file" }
+if -py isdir("notes.txt"):
+    echo "a folder"
+elif isfile("notes.txt"):
+    echo "a file"
 ```
 
 <!-- output -->
 ```
-notes.txt is there
 a file
 ```
 
-Use whichever style you find easier to read. You can mix them in the same script.
+A condition that isn't Python runs as a command, so tests like `grep -q` work too:
+
+<!-- run -->
+```
+echo "ERROR disk full" > app.log
+if -py grep -q ERROR app.log:
+    echo "the log has errors"
+```
+
+<!-- output -->
+```
+the log has errors
+```
+
+### case in Python style
+
+`case -py` lists the choices as `PATTERN:`, each with its commands indented under it. `|`
+separates alternatives, and `_` is "anything else":
+
+<!-- run: ["2"] -->
+```
+echo "1) Start the dev server"
+echo "2) Run the tests"
+choice = input("Choose 1-2: ")
+case -py $choice:
+    "1":
+        echo "starting the server"
+    "2":
+        echo "running the tests"
+    _:
+        echo "'$choice' isn't on the menu"
+```
+
+<!-- output -->
+```
+1) Start the dev server
+2) Run the tests
+Choose 1-2: 2
+running the tests
+```
+
+A short block fits on one line after the `:`: `if -py n == "3": echo three`. The brace form,
+`if -py (n == "3") { echo three }`, also still works. Use whichever style you find easier to read,
+and mix them in the same script. [Bash style and Python style](python-style.md) shows every
+example both ways.

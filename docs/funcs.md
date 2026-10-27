@@ -60,10 +60,11 @@ recon example.com            # the same, because the header says command: yes
 
 All of them are optional. Other lines starting with `#` after the header are comments, and so is a
 ` # note` after a step (see [Comments](scripting.md#comments)). A `for … done` loop written over
-several lines counts as one step.
+several lines counts as one step, and so does a Python-style block (a line ending in `:` and the
+indented lines under it).
 
-A func's steps can be anything from the [scripting guide](scripting/README.md): questions with
-`read`, `if` and `case`, loops and menus. See [a menu func](scripting/examples.md#a-menu-func) and
+A func's steps can be anything from the [scripting guide](scripting/README.md), in bash style or
+Python style: questions with `read` or `input()`, `if` and `case`, loops and menus. See [a menu func](scripting/examples.md#a-menu-func) and
 [a setup func with arguments](scripting/examples.md#a-setup-func-with-arguments).
 
 ### Another example

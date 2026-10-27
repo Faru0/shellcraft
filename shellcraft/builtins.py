@@ -2239,7 +2239,8 @@ def _banner(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 FOR_DOC = """# for
 
 Run commands once for each item of a list. Two syntaxes: **bash** (the default), and
-**`-py`**, ShellCraft's own, where nothing needs quoting and conditions are Python.
+**`-py`**, ShellCraft's own, where nothing needs quoting and conditions are Python. A `-py`
+loop is written in the Python style, with a `:` and an indented body, or with braces.
 
 ## Bash syntax
 
@@ -2273,12 +2274,29 @@ ranges, globs, and `(COMMAND)` (one item per non-empty output line). Conditions 
 `if (python-expression) { … }` or `if COMMAND { … }` (see `man if`). Inside a `-py` block,
 nested `for` and `if` use this syntax too. Braces must be words of their own: `{ echo $x }`.
 
+## Python style
+
+The same `-py` loop, written as in Python: the header ends in `:`, and the body is the indented
+lines under it. A nested `if` / `for` needs no `-py`, and its condition needs no parentheses.
+
+```
+for -py line in (cat hosts.txt):
+    if line == "" or line.startswith("#"):
+        continue
+    echo "host: $line"
+
+for -py n in 1..3: echo "one line: $n"
+```
+
+The block ends at the first line indented less. At the prompt, the next line starts indented
+for you, and an empty line runs the block. `pass` does nothing. Bash lines (`if …; then`,
+`for …; do`) can go inside, and a Python-style block can go inside a bash function.
+
 ## Both
 
 - `break` leaves the loop, `continue` goes on to the next item.
 - A command that fails shows its error and the loop goes on (`$?` is set), as in bash.
-- Redirect inside the body to collect output: `… >> out.txt`. A whole loop can't be piped or
-  redirected yet (`done | sort`).
+- Redirect inside the body to collect output: `… >> out.txt`, or the whole loop: `done | sort`.
 - A line that ends inside a loop (no `done` / `}` yet) asks for more lines (`┆ …`); the whole
   loop is saved to the history as one line. Ctrl-C cancels it, or stops it while it runs.
 - Environment variables (`$HOME`) are not expanded, and variables can't be assigned (`x=1`);
@@ -2345,6 +2363,26 @@ Imports, other attributes, other calls and names starting with `_` are refused. 
 that fails to evaluate (an unknown name, comparing text with a number) stops the whole script.
 
 Inside a `-py` block, a nested `if` uses this syntax without the flag.
+
+## Python style
+
+Write the `-py` form as in Python: a `:` after the condition and the body indented under it. The
+parentheses are optional. A condition that isn't Python runs as a command, so a test like
+`grep -q` still works.
+
+```
+if -py int(age) >= 18:
+    echo adult
+elif age == "":
+    echo "no age given"
+else:
+    echo minor
+
+if -py grep -q ERROR app.log:
+    echo "the log has errors"
+
+if -py name == "Ada": echo "hello Ada"
+```
 """
 
 
@@ -2392,6 +2430,28 @@ choices before it asks.
 `return` (and `break` / `continue` in a loop) work after `&&` and `||` too:
 `[ -n "$1" ] || return 1`.
 
+## Python style: def
+
+```
+def NAME(PARAM, PARAM="default"):
+    COMMANDS
+```
+
+Each parameter is a `local` variable, set from the arguments in order or from its default; a
+parameter without a default is required (`greet: missing argument 'name'`, status 2). `$1`, `$#`
+and `$@` still work, so extra arguments aren't lost. The body is a `-py` block: conditions are
+Python and a nested `if` / `for` needs no flag. The brace form is `def NAME(PARAMS) { … }`.
+
+```
+def greet(name, greeting="Hello"):
+    if name == "Ada":
+        echo "Welcome back, Ada"
+    else:
+        echo "$greeting, $name"
+greet Ada
+greet Sam Hi
+```
+
 A function takes precedence over builtins, modules and programs of the same name, as in bash,
 except `exit`, `export`, `unset`, `source`, `local`, `declare`, `alias` and `unalias`, which can't
 be replaced. `\NAME` runs the builtin or module itself, skipping both aliases and functions.
@@ -2434,6 +2494,9 @@ leaves the menu; Ctrl-D does too, and Ctrl-C leaves it with status 130.
 Only the interactive shell can ask, so `select` is refused over MCP and anywhere without a
 terminal. It works in functions and in `~/.shellcraft/rc`.
 
+`select -py NAME in ITEM...:` takes its items like `for -py` (`(COMMAND)` gives one per line) and
+its body in the Python style, indented under the `:` (or in braces).
+
 ## Example
 
 ```
@@ -2475,6 +2538,24 @@ first one that matches runs. Each branch ends with `;;`. A pattern is a glob:
 When nothing matches, nothing runs and the status is 0. `case` works at the prompt, in
 `~/.shellcraft/rc`, in startup files, in funcs and inside functions and loops.
 
+## Python style
+
+`case -py WORD:` lists the choices as `PATTERN:`, each with its commands indented under it. `|`
+separates alternatives, `_` matches anything, and a quoted pattern keeps its `*` and `?`
+(`"*.py"` matches every .py name). The brace form is `case -py WORD { PATTERN { … } … }`.
+
+```
+case -py $choice:
+    "1":
+        echo "starting"
+    "q" | "Q":
+        echo "bye"
+    "*.py":
+        echo "a Python file"
+    _:
+        echo "not on the menu"
+```
+
 ## Examples
 
 ```
@@ -2507,6 +2588,16 @@ The condition is a command, usually a test: `[ $n -lt 5 ]`, `[ -z "$answer" ]`, 
 It is checked before each round. `break` leaves the loop and `continue` starts the next round.
 `while true; do … done` runs until a `break`, or until you press Ctrl-C.
 
+`while -py` takes a Python condition (or a command), with the body in braces or in the Python
+style, indented under a `:` (see `man if`):
+
+```
+n=0
+while -py int(n) < 3:
+    echo "round $n"
+    n=$((n + 1))
+```
+
 Variables changed inside the loop keep their values after it. The loop's output can be piped or
 redirected as a whole: `while …; do …; done | sort`.
 
@@ -2538,6 +2629,9 @@ builtin("select", "Ask the user to pick from a numbered menu", "select NAME in W
 
 builtin("function", "Define a shell function: NAME() { …; }", "NAME() { COMMANDS; } | function NAME { COMMANDS; }",
         doc=FUNCTION_DOC)(_keyword("function"))
+
+builtin("def", "Define a Python-style function: def NAME(PARAMS):", "def NAME(PARAM, PARAM=\"x\"): …",
+        doc=FUNCTION_DOC, hidden=True)(_keyword("def"))
 
 builtin("for", "Loop over items (bash syntax, or -py)",
         "for NAME in WORD...; do …; done | for -py NAME in ITEM... { … }", doc=FOR_DOC)(_keyword("for"))

@@ -3,7 +3,9 @@
 ← [Scripting guide](README.md)
 
 Whole scripts you can copy into your rc file, a startup file or a func, then change to fit. Each
-one puts together the pieces from the other pages of this guide. The marked ones run in the test
+one puts together the pieces from the other pages of this guide. Most are in bash style, and the
+last two are in Python style; [Bash style and Python style](python-style.md) shows how to turn one
+into the other. The marked ones run in the test
 suite, so they work as shown.
 
 ## A friendly rc file
@@ -268,3 +270,95 @@ echo "created ~/work/$1"
 A func stops at the first step that fails. Without a name, the first step prints the usage and
 ends with `false`, so that step fails and nothing after it runs. With a name, you end up in the new
 folder, because a func runs in your shell.
+
+## A Python-style to-do list
+
+The to-do list from above, written in the Python style: `def` with named arguments, `if -py` and a
+`for -py` loop over the lines of the file. Put it in a startup file, like
+`~/.shellcraft/startup/30-todo.sc`:
+
+<!-- run -->
+```
+todo_file=todo.txt
+
+def todo_add(item):
+    echo "$*" >> $todo_file
+    echo "added: $*"
+
+def todo_list():
+    if not isfile(todo_file):
+        echo "nothing to do"
+        return 0
+    number=0
+    for -py item in (cat $todo_file):
+        number=$((number + 1))
+        echo "$number. $item"
+
+def todo_done(which):
+    rm $todo_file
+    echo "all done"
+
+todo_list
+todo_add buy milk
+todo_add write the report
+todo_list
+todo_done all
+```
+
+<!-- output -->
+```
+nothing to do
+added: buy milk
+added: write the report
+1. buy milk
+2. write the report
+all done
+```
+
+`$*` is every argument as one piece of text, so `todo_add buy milk` saves `buy milk`. `item` is
+required, so `todo_add` on its own stops with `todo_add: missing argument 'item'`.
+
+## A Python-style setup menu
+
+A startup file that asks a few questions when the shell starts, then sets things up from the
+answers. It uses `input()`, `int(input())` that keeps asking until it gets a number, a `case -py`
+menu, and a loop that checks each answer:
+
+<!-- run: ["2", "abc", "3"] -->
+```
+echo "1) website"
+echo "2) api"
+echo "3) none"
+pick = input("Which project? ")
+case -py $pick:
+    "1":
+        project=website
+    "2":
+        project=api
+    _:
+        project=none
+
+if -py project != "none":
+    windows = int(input("How many terminals for $project? "))
+    for -py n in 1..$windows:
+        echo "terminal $n: ready for $project"
+else:
+    echo "no project today"
+```
+
+<!-- output -->
+```
+1) website
+2) api
+3) none
+Which project? 2
+How many terminals for api? abc
+'abc' is not a whole number; try again
+How many terminals for api? 3
+terminal 1: ready for api
+terminal 2: ready for api
+terminal 3: ready for api
+```
+
+In a real startup file, put `cd ~/work/$project` or `env set PROJECT=$project` where the `echo`
+lines are.
