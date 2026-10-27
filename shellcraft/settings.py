@@ -100,7 +100,7 @@ SETTINGS: dict[str, Setting] = {
                 _apply_mouse_always),
         Setting("footer_mouse", "Clickable footer at the prompt", True,
                 "While the footer lists a subshell or an alert, the shell has the mouse at the prompt: "
-                "the footer's lines, an alert's ✖ and the badge can be clicked, and text is selected "
+                "the footer's lines, an alert's × and the badge can be clicked, and text is selected "
                 "with Shift and a drag. The wheel hands the mouse back to the terminal, so its turns "
                 "scroll the terminal's own history until the next key press. Off: the terminal keeps "
                 "the mouse at the prompt and the footer answers the keys (Ctrl-] N, ↓, Ctrl-] c, "

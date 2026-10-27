@@ -233,7 +233,7 @@ def test_the_prompt_takes_the_mouse_only_while_something_is_clickable(repl_shell
     sh, ctx = repl_shell
     assert not sh._mouse_wanted()  # nothing to click: the terminal keeps it (its wheel, its selection)
     ctx.alerts.post("disk", "warning")
-    assert sh._mouse_wanted() and sh.session.app.mouse_support() is True  # clicking the ✖, the badge
+    assert sh._mouse_wanted() and sh.session.app.mouse_support() is True  # clicking the ×, the badge
     ctx.config.setdefault("settings", {})["footer_mouse"] = False
     assert not sh._mouse_wanted()  # off: the terminal keeps it, the keys still work
     del ctx.config["settings"]["footer_mouse"]

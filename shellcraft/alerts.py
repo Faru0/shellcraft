@@ -134,7 +134,7 @@ class AlertBus:
         return gone
 
     def remove(self, alert: Alert) -> bool:
-        """Drop this alert (a click on its ✖, or a right-click): whether it was still there."""
+        """Drop this alert (a click on its ×, or a right-click): whether it was still there."""
         with self._lock:
             found = any(a is alert for a in self.alerts)
             self.alerts = [a for a in self.alerts if a is not alert]

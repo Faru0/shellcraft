@@ -40,15 +40,15 @@ output.
 Every subshell gets a numbered line in the footer, under `main`:
 
 ```
- Payment API is down · from mcp · claude-code                            crit  ✖
+ Payment API is down · from mcp · claude-code                            crit  ×
  ● main ▾                                                         ● 1  ● 1  ● 1 ▸
  ○ 1  bash --norc  ● Disk /home at 91%
- ○ 2  find / -name "*.log"                                                done  ✖
+ ○ 2  find / -name "*.log"                                                done  ×
 ```
 
 - **●** marks the shell you're in.
 - A running line is plain. A finished one turns green (`done`) or red (`exit 2`, `killed`), with
-  a **✖** on the right that removes it.
+  a **×** on the right that removes it.
 - **Click a line**, or press **Ctrl-]** and its number, to switch to it. Click `main`, or press
   **Ctrl-]** alone, to go back to the prompt.
 - **↓** on an empty prompt moves into the footer: ↑ and ↓ walk it, Enter switches, `x` stops the
@@ -110,7 +110,7 @@ alert -c                              # close them all (alert -c N closes one)
 
 The **badge** at the right of the `main` line counts alerts by level. Click it to show one line per
 alert, most severe first, with where it came from and how long it stays. Click again to fold them.
-A critical alert always keeps its own line, so it can't be missed. Click the **✖** at the right end
+A critical alert always keeps its own line, so it can't be missed. Click the **×** at the right end
 of a line to close it.
 
 An alert sent from a subshell also shows on that subshell's line, after its command.

@@ -74,7 +74,7 @@ wraps long lines, `?` lists the keys and `q` closes it. The full list is
 | `Esc` then `Ctrl-V` | The same paste (Ctrl+Alt+v: what AltGr+v sends) |
 | `Alt-c` | Copy the top alert's content |
 | Right-click an alert | Copy its content (`clip -a N` from the keyboard) |
-| Click an alert's `✖` | Dismiss it (`alert -c N` from the keyboard) |
+| Click an alert's `×` | Dismiss it (`alert -c N` from the keyboard) |
 | Click the badge on `main` | Show / fold the alert rows |
 | `clip -i [N]` | Start the next prompt with copy N, no key chord at all |
 
@@ -91,7 +91,7 @@ wraps long lines, `?` lists the keys and `q` closes it. The full list is
 | `↓` on an empty line | at the prompt | Into the footer: `↑` `↓`, `Enter` switches, `x` stops, `Esc` leaves |
 | Click a line | anywhere | Switch to that shell |
 | Click `▾` / `▸` after `main` | anywhere | Fold / unfold the subshell lines |
-| Click the `✖` of a finished line or an alert | anywhere | Remove it from the footer |
+| Click the `×` of a finished line or an alert | anywhere | Remove it from the footer |
 
 `Ctrl-]` is the default prefix key. `settings prefix_key` lists the others (`ctrl-b`, `ctrl-a`,
 `ctrl-t`, `ctrl-g`, `ctrl-s`) and what each one shadows; `settings prefix_key ctrl-b` switches

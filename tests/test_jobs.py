@@ -652,7 +652,7 @@ def test_alert_mouse_at_the_prompt_with_windows_releases(repl_shell):
     ctx.alerts = AlertBus()
     assert not sh._mouse_wanted()  # no subshell, no alert: the terminal keeps the mouse
     warn = ctx.alerts.post("disk", "warning", content="/var/log/app.log")
-    assert sh._mouse_wanted()  # an alert shows: its ✖, the right-click and the badge work at the prompt
+    assert sh._mouse_wanted()  # an alert shows: its ×, the right-click and the badge work at the prompt
     # the keyboard ways: Alt-c copies the top alert, clip -a N alert N
     binding = next(b for b in sh.session.key_bindings.bindings if [str(k) for k in b.keys] == ["Keys.Escape", "c"])
     binding.handler(None)
@@ -709,9 +709,9 @@ def test_footer_mouse_with_windows_releases(tmp_path):
     assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;9;22")) == ("handled", None)
     assert bus.clip == "df -h" and warn in bus.current()  # copied on the release that said NONE
     footer.mouse("move", 10, 23, "none")
-    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;22")) == ("handled", None)  # column 79: the ✖
+    assert footer.mouse(*parse_mouse("LEFT;MOUSE_DOWN;78;22")) == ("handled", None)  # column 79: the ×
     assert footer.mouse(*parse_mouse("NONE;MOUSE_UP;78;22")) == ("handled", None)
-    assert not bus.current()  # the ✖ took the left click
+    assert not bus.current()  # the × took the left click
     bus.close()
 
 
@@ -889,16 +889,16 @@ def test_finished_line_has_a_close_mark_and_rows_fill_the_width(tmp_path, repl_s
     assert _wait(lambda: not done.running)
     rows = panel_lines(list(table), 0, width=60, stack=True)
     assert all(get_cwidth(r.text) == 60 for r in rows)  # every row's color runs to the right edge
-    assert rows[1].text.rstrip().endswith("done  ✖") and rows[1].spans[-1][3] == "close-job"
+    assert rows[1].text.rstrip().endswith("done  ×") and rows[1].spans[-1][3] == "close-job"
     assert rows[2].text.rstrip().endswith("sleep") and not any(role == "close-job" for *_, role in rows[2].spans)
     footer = Footer(sh.ui, table, alerts=None)
     footer.size = lambda: (24, 60)
     footer.enabled = True
     footer.sequence()
     row = footer.rows[1]
-    col = row.text.rindex("✖") + 1  # 1-based terminal column of the ✖
+    col = row.text.rindex("×") + 1  # 1-based terminal column of the ×
     assert footer.mouse("up", col, 24 - len(footer.rows) + 2, "left") == ("handled", None)
-    assert table.get(done.number) is None and len(table) == 1  # the ✖ forgot the finished job
+    assert table.get(done.number) is None and len(table) == 1  # the × forgot the finished job
     footer.remove_job(running.number)  # a running one is not removed
     assert len(table) == 1
     table.kill(running)

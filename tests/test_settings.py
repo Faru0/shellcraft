@@ -66,9 +66,7 @@ def test_cli_override_and_saved_setting(tmp_path, monkeypatch, started):
 
 
 def test_there_is_no_one_shot_mode(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(["-c", "echo hi"])
-    assert exc.value.code == 2  # argparse: unrecognized arguments
+    assert main(["-c", "echo hi"]) == 2  # unrecognized arguments: main() returns, it doesn't exit
     assert "unrecognized arguments: -c" in capsys.readouterr().err
 
 

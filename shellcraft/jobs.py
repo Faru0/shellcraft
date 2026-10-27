@@ -1265,7 +1265,7 @@ def nested_shellcraft(args: list[str]) -> tuple[list[str], dict[str, str]]:
     env["PYTHONPATH"] = os.pathsep.join(p for p in (root, env.get("PYTHONPATH")) if p)
     env["SHELLCRAFT_DEPTH"] = str(depth() + 1)
     env.update(MAIN_LINK_ENV)  # the key to the main shell's channel: only lite subshells get it
-    env.setdefault("PYTHONUTF8", "1")  # its glyphs (● ○ ✖) reach the pseudo-terminal as UTF-8 on Windows too
+    env.setdefault("PYTHONUTF8", "1")  # its glyphs (● ○ ▸) reach the pseudo-terminal as UTF-8 on Windows too
     return [sys.executable, "-m", "shellcraft.cli", "--lite", *args], env
 
 

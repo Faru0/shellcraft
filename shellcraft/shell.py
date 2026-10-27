@@ -1068,7 +1068,7 @@ class Shell:
             return False
         if self.ui.mouse_always or self.session.default_buffer.complete_state is not None:
             return True
-        # While the footer lists a subshell or an alert, its lines, an alert's ✖ and the badge
+        # While the footer lists a subshell or an alert, its lines, an alert's × and the badge
         # are clickable (footer_mouse, on by default): the shell has the mouse, so text is
         # selected with Shift and the wheel opens the scroll view. Otherwise the terminal keeps it.
         return settings.get(self.ctx.config, "footer_mouse") and self._clickable()
@@ -1320,7 +1320,7 @@ class Shell:
         return handler
 
     def _close_job_handler(self, number: int | None) -> Callable[[MouseEvent], Any]:
-        """The ✖ on a finished subshell's line: a click forgets that job."""
+        """The × on a finished subshell's line: a click forgets that job."""
         def handler(event: MouseEvent) -> Any:
             if event.event_type == MouseEventType.MOUSE_UP and self._released(event) == "left":
                 self.footer.remove_job(number)

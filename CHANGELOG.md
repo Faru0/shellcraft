@@ -76,6 +76,15 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **The close button is a plain `×`.** Alerts and finished subshells in the footer used `✖`, which
+  Cascadia and Consolas don't have, so Windows 11 drew it from an emoji font: a box, or a wide glyph
+  that pushed the line out of place and moved its click target. It is now `×`, which every console
+  font has, and the space on either side of it takes the click too.
+- **A bad option is one line.** `shellcraft --testingoption` (or `sub shellcraft --testingoption`)
+  prints `shellcraft: unrecognized arguments: ...` on stderr and exits with 2, instead of argparse's
+  usage block and its own exit.
+- **The early banner on Windows.** It is drawn with the shell's own console setup
+  (`build_console`) at the terminal's width, instead of a separate Rich console.
 - **Ctrl-C in the first moments of a start** (while prompt_toolkit loads) printed a Python
   traceback and exited with status 2. It now ends the start quietly with status 130.
 - **Mouse and cursor reports delivered while a command runs** reached the next prompt as text,

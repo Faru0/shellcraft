@@ -7,7 +7,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from shellcraft import __version__, timing  # timing first: it notes when startup began
 
@@ -17,8 +17,18 @@ DEFAULT_MODULES_DIR = (_INSTALLED_MODULES if _INSTALLED_MODULES.is_dir()
                        else Path(__file__).resolve().parent.parent / "modules")
 
 
+class ArgsError(Exception):
+    """A bad command line. main() prints it as one `shellcraft: ...` line on stderr and returns 2,
+    instead of argparse printing the usage and calling sys.exit itself."""
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        raise ArgsError(message)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.",
+    p = _ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.",
                                 epilog="shellcraft ingest [SCRIPT.py | check ...] turns a Python script into a "
                                        "module, or checks modules (shellcraft ingest --help).")
     p.add_argument("--mcp", action="store_true", help="run as an MCP server over stdio")
@@ -119,7 +129,11 @@ def main(argv: list[str] | None = None) -> int:
         from tools.ingest.__main__ import main as ingest_main
 
         return ingest_main(argv[1:], prog="shellcraft ingest")  # new modules go to ~/.shellcraft/modules
-    args = _parse_args(argv)
+    try:
+        args = _parse_args(argv)
+    except ArgsError as exc:
+        print(f"shellcraft: {exc} (shellcraft --help lists the options)", file=sys.stderr)
+        return 2
     if args.init:
         return _init(args.force)
     if args.timing:
@@ -299,17 +313,15 @@ def _early_banner(theme: Any, registry: Any, warnings: list[str], profile: str |
     if not sys.stdout.isatty():
         return False
     try:
-        from rich.console import Console
-
         from shellcraft import termsize
         from shellcraft.banner import render_banner
+        from shellcraft.console import build_console
         from shellcraft.themes import UI
 
         restore = termsize.enable_vt()
         try:
             # The width the shell will use (Rich alone would trust COLUMNS or fall back to 80 columns).
-            console = Console(highlight=False, force_terminal=True, legacy_windows=False, color_system="truecolor",
-                              width=termsize.columns())
+            console = build_console(width=termsize.columns())
             if clear:  # home, clear the screen and the scrollback, as `clear` does
                 console.file.write("\x1b[H\x1b[2J\x1b[3J")
             console.print(render_banner(UI(theme, console), registry, warnings, profile))

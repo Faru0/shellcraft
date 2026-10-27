@@ -185,3 +185,12 @@ def test_the_early_banner_is_as_wide_as_the_terminal(tmp_path):
     text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", out.decode("utf-8", "replace"))
     top = next(line for line in text.splitlines() if line.startswith("╭") and line.rstrip().endswith("╮"))
     assert len(top.rstrip()) == 150
+
+
+def test_a_bad_option_is_one_line_on_stderr_and_exit_2(capsys):
+    from shellcraft import cli
+
+    assert cli.main(["--testingoption"]) == 2
+    out, err = capsys.readouterr()
+    assert out == "" and err.startswith("shellcraft: unrecognized arguments: --testingoption")
+    assert err.count("\n") == 1  # no usage block, no traceback, no SystemExit out of main()
