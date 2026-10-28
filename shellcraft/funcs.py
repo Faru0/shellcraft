@@ -348,7 +348,7 @@ def _snapshot(ctx: Any) -> dict[str, Any]:
         "cwd": os.getcwd(), "variables": dict(ctx.variables), "exported": dict(ctx.exported),
         "env_vars": copy.deepcopy(ctx.env_vars), "environ": dict(os.environ),
         "config": copy.deepcopy(dict(ctx.config)), "aliases": texts, "funcs": dict(ctx.funcs),
-        "functions": dict(ctx.functions),
+        "functions": dict(ctx.functions), "options": set(ctx.options),
     }
     if hasattr(ctx.config, "frozen"):
         snap["frozen"] = ctx.config.frozen
@@ -363,7 +363,7 @@ def _restore(ctx: Any, snap: dict[str, Any]) -> None:
         os.chdir(snap["cwd"])
     except OSError:
         pass
-    for name in ("variables", "exported", "funcs", "functions"):
+    for name in ("variables", "exported", "funcs", "functions", "options"):
         current = getattr(ctx, name)
         current.clear()
         current.update(snap[name])

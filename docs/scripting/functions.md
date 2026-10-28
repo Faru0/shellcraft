@@ -352,6 +352,143 @@ the total is 1234
 Sun: time off
 ```
 
+## Stop on errors with set -e
+
+Normally a command that fails is reported and the next line runs anyway. When later steps depend
+on earlier ones, you want the script to stop instead. `set -e` does that. After it, the first
+command that fails stops the function it is in, the line that called it, and the rest of the
+file:
+
+<!-- run -->
+```
+set -e
+check_settings() {
+  echo "checking"
+  [ -f settings.conf ]
+  echo "settings found"
+}
+check_settings
+echo "this line doesn't run"
+```
+
+<!-- output -->
+```
+checking
+✗ example.sc:7: check_settings (set -e: the rest of the file was skipped)
+```
+
+`set -e` never closes ShellCraft. It stops what is running: the line you typed at the prompt, a
+function, a `source`d file, your rc file, a startup file or a func. `$?` keeps the status of the
+command that failed. `set +e` turns it off again.
+
+A failure doesn't stop anything when it is a question rather than an error: the test of an `if`,
+`while` or `until`, a command before `&&` or `||`, and a command after `!`. So the usual checks
+still work:
+
+<!-- run -->
+```
+set -e
+[ -f settings.conf ] && echo "found it"
+if [ -f settings.conf ]; then
+  echo "using settings.conf"
+else
+  echo "no settings.conf, using the defaults"
+fi
+echo "still running"
+```
+
+<!-- output -->
+```
+no settings.conf, using the defaults
+still running
+```
+
+The same goes for a function used as a test: `if check_settings; then` runs the whole function,
+because its failure is the answer you asked for.
+
+`def` functions behave the same way:
+
+<!-- run -->
+```
+set -e
+def check_settings():
+    echo "checking"
+    [ -f settings.conf ]
+    echo "settings found"
+
+check_settings
+echo "this line doesn't run"
+```
+
+<!-- output -->
+```
+checking
+✗ example.sc:7: check_settings (set -e: the rest of the file was skipped)
+```
+
+### Other options
+
+`set` has three more options that help when you write a script:
+
+| Option | What it does |
+| --- | --- |
+| `set -u` | Using a variable that isn't set is an error that stops the script, so a typo like `$fiel` doesn't quietly become nothing. `${name:-default}` is still fine |
+| `set -x` | Show each command, with its variables filled in, before it runs. Good for finding out what a script really does |
+| `set -o pipefail` | A pipe fails when any part of it fails, not only the last one |
+
+You can turn on several at once, as in bash: `set -euo pipefail`. `set -o` shows which ones are
+on, and `+` turns one off (`set +x`).
+
+With `set -u`, a typo stops the script with a message:
+
+```
+set -u
+file=notes.txt
+echo "saving $fiel"         # fiel: unbound variable
+```
+
+`set -x` prints each command to the error stream, starting with `+`:
+
+<!-- run -->
+```
+set -x
+name=world
+echo "hello $name"
+set +x
+echo "no trace"
+```
+
+<!-- output -->
+```
++ name=world
++ echo 'hello world'
+hello world
++ set +x
+no trace
+```
+
+`grep` finds nothing here, but `wc` works, so the pipe succeeds until `pipefail` is on:
+
+<!-- run -->
+```
+printf "apple\nbanana\n" | grep cherry | wc -l
+echo "status: $?"
+set -o pipefail
+printf "apple\nbanana\n" | grep cherry | wc -l
+echo "status: $?"
+```
+
+<!-- output -->
+```
+0
+status: 0
+0
+status: 1
+```
+
+`set -- A B C` replaces the arguments: after it, `$1` is `A` and `$#` is 3. See `man set` for
+everything.
+
 ## Keep your functions
 
 A function lasts until you leave ShellCraft. To have it in every session, put it in

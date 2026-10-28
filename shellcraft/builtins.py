@@ -266,7 +266,7 @@ HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
-    ("Scripting", "test true false read unset export sleep time xargs"),
+    ("Scripting", "test true false read set unset export sleep time xargs"),
     ("System", "date env hostname uname whoami"),
 )
 CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "System"}
@@ -1452,7 +1452,7 @@ def _source(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     except RecursionError as exc:
         raise CommandError(str(exc)) from None
     if failed:
-        return WithStatus("", 1)
+        return WithStatus("", ctx.last_status or 1)
     return ""
 
 

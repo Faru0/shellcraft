@@ -47,7 +47,10 @@ To run it again without restarting:
 source ~/.shellcraft/rc
 ```
 
-If a line fails, ShellCraft tells you which one (`✗ rc:4: …`) and runs the rest.
+If a line fails, ShellCraft tells you which one (`✗ rc:4: …`) and runs the rest. Put `set -e`
+at the top to stop at the first line that fails instead: the rest of the rc file is skipped, and
+the shell still starts. The option stays on afterwards, at the prompt too, so make `set +e` the
+last line if you only want it for the file.
 
 The [scripting guide](scripting/README.md) shows everything you can write here: variables,
 questions with `input()` and `read`, `if` and `case`, loops, menus and functions. Its
@@ -99,7 +102,8 @@ source ~/.shellcraft/startup/_common.sc
 ### When a file fails
 
 A line that fails is reported with its file and line number, such as `✗ 20-go.sc:1: …`, and the
-rest still run. Ctrl-C skips the rest of that file and moves on to the next.
+rest still run. With `set -e` in the file, the first failing line skips the rest of that file.
+Ctrl-C skips the rest of that file and moves on to the next.
 
 ### Something that keeps running
 

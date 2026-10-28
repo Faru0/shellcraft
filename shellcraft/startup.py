@@ -11,9 +11,10 @@ Like bash's `~/.bashrc` followed by `~/.bashrc.d/*`:
 3. In a profile, its own `rc` and then its `startup/*.sc` (shellcraft.profiles.run_rc), at start
    and on `profile use`.
 
-A failing line is reported with its file and line number and the rest still run; Ctrl-C skips the
-rest of that file. Never for `--mcp` or a lite subshell; `--no-startup` or `settings startup off`
-skip it all. `startup` lists the files and their last result, `startup run [NAME]` runs them again.
+A failing line is reported with its file and line number and the rest still run (after `set -e`,
+the rest of that file is skipped); Ctrl-C skips the rest of that file. Never for `--mcp` or a lite
+subshell; `--no-startup` or `settings startup off` skip it all. `startup` lists the files and their
+last result, `startup run [NAME]` runs them again.
 """
 
 from __future__ import annotations
@@ -135,6 +136,7 @@ def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]
     return out
 
 
+SKIPPED = " (set -e: the rest of the file was skipped)"
 _depth = [0]
 sourcing: list[str] = []  # the files being sourced, innermost last (`env set` records where it ran)
 
@@ -155,11 +157,12 @@ def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
 
 def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
     """Run every command of a file in `ctx` as if typed at the prompt: output and errors go to
-    ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest. Returns
+    ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest, unless `set -e`
+    is on (or `set -u` met an unset variable): then the rest of the file is skipped. Returns
     (commands run, commands that failed). Raises OSError when the file can't be read. `label` names
     the file for `env` (a profile's rc: `profile:osint`); by default its file name."""
     from shellcraft.indent import IndentError
-    from shellcraft.pipeline import run_line
+    from shellcraft.pipeline import UnboundError, errexit, run_line
 
     if _depth[0] >= MAX_SOURCE_DEPTH:
         raise RecursionError(f"source: nested more than {MAX_SOURCE_DEPTH} deep (a file sourcing itself?)")
@@ -189,12 +192,21 @@ def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
                 break
             except Exception as exc:  # noqa: BLE001 — a failing line (or a bug) must not stop the file
                 failed += 1
-                _report(ctx, exc, where, line)
+                stop = errexit(ctx) or isinstance(exc, UnboundError)
+                _report(ctx, exc, f"{where}{SKIPPED if stop else ''}", line)
+                if stop:
+                    break
                 continue
             if result is not None and ctx.emit is not None and result.output not in (None, ""):
                 ctx.emit(result.output)
             if ctx.last_status:
                 failed += 1
+            if result is not None and result.stopped:
+                if ctx.emit is not None:  # the failing command has said why: just say where
+                    from rich.text import Text
+
+                    ctx.emit(Text(f"✗ {where}{SKIPPED}", style="sc.warning"))
+                break
     finally:
         _depth[0] -= 1
         sourcing.pop()

@@ -806,6 +806,121 @@ def shift(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
+SET_DOC = """# set
+
+Shell options, as in bash, and the arguments (`$1`, `$2`…).
+
+## Usage
+
+```
+set -e                     # stop at the first command that fails (errexit)
+set -u                     # an unset $name is an error (nounset)
+set -x                     # show each command before it runs (xtrace)
+set -o pipefail            # a pipe fails when any part of it fails
+set +e                     # + turns an option off again
+set -eu                    # several at once; set -euo pipefail works too
+set -o errexit             # the long names: errexit, nounset, xtrace, pipefail
+set -o                     # list the options and whether they are on
+set +o                     # the same, as commands that turn them back on
+set -- A B C               # replace the arguments: $1 is A, $# is 3
+set --                     # no arguments
+set                        # list the shell variables
+```
+
+## -e: stop on errors
+
+After `set -e`, a command that fails stops what is running: the rest of the line typed at the
+prompt, the function, the `for` / `if` / `while` block, a file run with `source`, the rc file, a
+startup script or a func. It never closes the shell. `$?` keeps the failing command's status.
+
+A failure doesn't stop anything when it is an answer rather than an error:
+
+- the test of an `if`, `elif`, `while` or `until` (and the `-py` conditions);
+- a command before `&&` or `||` (`[ -f x ] && echo found`), only the last one counts;
+- a command after `!`.
+
+```
+set -e
+backup() { cp notes.txt /backup/; echo "saved"; }    # no "saved" if cp fails
+```
+
+## -u: unset variables
+
+After `set -u`, `$name` or `${name}` for a variable that isn't set is an error,
+`NAME: unbound variable` (status 1), and it stops what is running as `-e` does.
+`${name:-default}`, `$?`, `$#`, `$@` and `$1`… never are. It catches typos such as `$fiel`.
+
+## -x: trace
+
+After `set -x`, each command is shown on the error stream before it runs, with its variables
+expanded: `+ echo hello world`. `set +x` turns it off.
+
+## -o pipefail
+
+Normally a pipe's status is its last command's: `grep x missing.txt | sort` succeeds because
+`sort` does. With `set -o pipefail` it is the status of the last part that failed, so the
+failure shows (and `set -e` stops on it).
+
+Options last for the session (or until you turn them off). `func run -i` puts them back when
+the func ends. Put `set -e` in your rc file to stop it at the first failing line.
+"""
+
+_SET_LETTERS = {"e": "errexit", "u": "nounset", "x": "xtrace"}
+SET_OPTIONS = ("errexit", "nounset", "pipefail", "xtrace")
+
+
+@builtin("set", "Shell options (-e, -u, -x, -o pipefail) and the arguments", "set [-eux] [-o NAME] [-- ARG...]",
+         category="shell", stateful=True, doc=SET_DOC)
+def set_options(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    if not args:
+        from shellcraft.pipeline import _trace_word
+
+        return lines_out([f"{k}={_trace_word(v)}" for k, v in sorted(ctx.variables.items())])
+    changes: list[tuple[str, bool]] = []
+    listing = ""
+    positional: list[str] | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        i += 1
+        if arg == "--":
+            positional = args[i:]
+            break
+        if len(arg) < 2 or arg[0] not in "-+":
+            positional = args[i - 1:]  # `set a b`: the arguments, as in bash
+            break
+        on = arg[0] == "-"
+        for letter in arg[1:]:
+            if letter == "o":
+                if i >= len(args) or args[i][:1] in ("-", "+"):
+                    listing = "on" if on else "commands"  # `set -o` / `set +o`: list them
+                    continue
+                name = args[i]
+                i += 1
+                if name not in SET_OPTIONS:
+                    raise CommandError(f"set: {name}: unknown option (the options: {', '.join(SET_OPTIONS)})", 2)
+                changes.append((name, on))
+            elif letter in _SET_LETTERS:
+                changes.append((_SET_LETTERS[letter], on))
+            else:
+                raise CommandError(f"set: {arg[0]}{letter}: unknown option (-e, -u, -x, -o NAME)", 2)
+    for name, on in changes:
+        if on:
+            ctx.options.add(name)
+        else:
+            ctx.options.discard(name)
+    if positional is not None:
+        if ctx.positional:
+            ctx.positional[-1][:] = positional  # inside a function or func: its own arguments
+        else:
+            ctx.positional.append(list(positional))
+    if listing == "on":
+        return lines_out([f"{name:<15}{'on' if name in ctx.options else 'off'}" for name in SET_OPTIONS])
+    if listing:
+        return lines_out([f"set {'-' if name in ctx.options else '+'}o {name}" for name in SET_OPTIONS])
+    return ""
+
+
 @builtin("local", "Declare a variable local to a shell function", "local NAME[=VALUE]...", category="shell",
          stateful=True, doc="""\
 # local

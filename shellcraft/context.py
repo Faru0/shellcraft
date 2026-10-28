@@ -66,6 +66,11 @@ class ShellContext:
     # Funcs made in this session without --save (shellcraft.funcs.Func), by name.
     funcs: dict[str, Any] = field(default_factory=dict)
     positional: list[list[str]] = field(default_factory=list)
+    # `set -e` / `-u` / `-x` / `-o pipefail`, by long name: errexit, nounset, xtrace, pipefail.
+    options: set[str] = field(default_factory=set)
+    # Above 0 while `set -e` doesn't apply: an `if` / `while` test, the left side of `&&` / `||`,
+    # a `!` command (and the functions they call), as in bash.
+    errexit_off: int = 0
     # Where a script (`for`, `if`, `a ; b`) sends each statement's output and errors as it runs.
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
     # collected and returned as one text.

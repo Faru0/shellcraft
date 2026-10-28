@@ -199,6 +199,21 @@ need() { [ -n "$1" ] || return 1; echo "got $1"; }
 [Functions](scripting/functions.md) teaches them step by step, and
 [Bash style and Python style](scripting/python-style.md) shows every block both ways.
 
+## Shell options with set
+
+```
+set -e                    # a failing command stops the line, function, sourced file, rc or func
+set -u                    # an unset $name is an error (and stops the same way)
+set -x                    # show each command, expanded, before it runs: + echo hi
+set -o pipefail           # a pipe's status is its last failing part's, not the last part's
+set -euo pipefail         # several at once;  set +x turns one off;  set -o lists them
+set -- a b c              # replace the arguments: $1 is a, $# is 3
+```
+
+`set -e` never closes the shell. It doesn't stop on the test of an `if` / `while`, a command
+before `&&` / `||` or after `!`. See [Stop on errors](scripting/functions.md#stop-on-errors-with-set--e)
+and `man set`.
+
 ## Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

@@ -39,8 +39,9 @@ import glob
 import operator
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Union
+from typing import Any, Callable, Iterator, Union
 
 from shellcraft import parser as shparser
 from shellcraft.context import ShellContext, to_text
@@ -1442,28 +1443,54 @@ class _Return(Exception):
 
 
 class _Abort(Exception):
-    """Stops the whole script (a bad condition would fail the same way on every iteration)."""
+    """Stops the whole script (a bad condition would fail the same way on every iteration).
+    `reported`: the error was already shown (a command that failed under `set -e`). `stops`: a
+    sourced file stops too (`set -e`, `set -u`), not just the line."""
 
-    def __init__(self, error: Exception, text: str):
+    def __init__(self, error: Exception, text: str, reported: bool = False, stops: bool = False):
         super().__init__(str(error))
         self.error = error
         self.text = text
+        self.reported = reported
+        self.stops = stops
+
+
+def _errexit_stop(status: int, text: str) -> _Abort:
+    """What `set -e` raises when a command fails: the command has already said why."""
+    from shellcraft.pipeline import PipelineError
+
+    return _Abort(PipelineError(1, 1, "set -e", f"stopped at: {text.strip()}", status), text,
+                  reported=True, stops=True)
+
+
+@contextmanager
+def _no_errexit(ctx: ShellContext) -> Iterator[None]:
+    """`set -e` doesn't apply in here: a test, the left of `&&` / `||`, a `!` command."""
+    ctx.errexit_off += 1
+    try:
+        yield
+    finally:
+        ctx.errexit_off -= 1
 
 
 def execute(program: Program, ctx: ShellContext) -> Any:
     """Run a parsed script. Each statement's output goes to ctx.emit as it is produced, or is
     collected into the result's text when there is no emit (MCP, tests). A failing statement is
-    reported and the script goes on, as in a POSIX shell; `$?` holds its status."""
+    reported and the script goes on, as in a POSIX shell (with `set -e` it stops there, and the
+    result says so: a sourced file stops too); `$?` holds its status."""
     from shellcraft.pipeline import PipelineError, PipelineResult
 
     runner = _Runner(ctx)
+    stopped = False
     try:
         runner.run_list(program.stmts)
     except _Abort as exc:
         ctx.last_status = exc.error.status if isinstance(exc.error, PipelineError) else 1
-        runner.report(exc.error, exc.text)
+        if not exc.reported:
+            runner.report(exc.error, exc.text)
+        stopped = exc.stops
     output = None if ctx.emit else "".join(runner.collected)
-    return PipelineResult(output=output, status=ctx.last_status)
+    return PipelineResult(output=output, status=ctx.last_status, stopped=stopped)
 
 
 def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None,
@@ -1508,7 +1535,8 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     except _Return as exc:
         status = exc.status
     except _Abort as exc:
-        runner.report(exc.error, exc.text)
+        if not exc.reported:
+            runner.report(exc.error, exc.text)
         status = getattr(exc.error, "status", 1) or 1
     finally:
         ctx.positional.pop()
@@ -1597,36 +1625,63 @@ class _Runner:
             sub.run_list(stmts)
         except (_Break, _Continue):
             pass
+        except _Abort as exc:  # `set -e` stops the substitution's commands, not the line around it
+            if not exc.reported:
+                raise
         return "".join(sub.collected)
 
     def run_list(self, stmts: list[Stmt]) -> None:
         for stmt in stmts:
-            if isinstance(stmt, Simple):
-                _, output = self.run_simple(stmt)
-                if output is not None:
-                    self.show(output)
-            elif isinstance(stmt, Chain):
-                self.run_chain(stmt)
-            elif isinstance(stmt, For):
-                self.run_for(stmt)
-            elif isinstance(stmt, If):
-                self.run_if(stmt)
-            elif isinstance(stmt, While):
-                self.run_while(stmt)
-            elif isinstance(stmt, Case):
-                self.run_case(stmt)
-            elif isinstance(stmt, Piped):
-                self.run_piped(stmt)
-            elif isinstance(stmt, Function):
-                self.define(stmt)
-            elif isinstance(stmt, Select):
-                self.run_select(stmt)
-            elif stmt.kind == "break":
-                raise _Break
-            elif stmt.kind == "return":
-                raise _Return(self.return_status(stmt))
+            try:
+                self.run_stmt(stmt)
+            except shparser.UnboundVariable as exc:  # `set -u`, in a `for` list or a `case` word
+                from shellcraft.pipeline import UnboundError
+
+                self.ctx.last_status = 1
+                raise _Abort(UnboundError(1, 1, exc.name, str(exc)), getattr(stmt, "text", ""),
+                             stops=True) from None
+
+    def run_stmt(self, stmt: Stmt) -> None:
+        if isinstance(stmt, Simple):
+            if stmt.negate:  # `! cmd`: never stopped by `set -e`
+                with _no_errexit(self.ctx):
+                    _, output = self.run_simple(stmt)
             else:
-                raise _Continue
+                status, output = self.run_simple(stmt)
+            if output is not None:
+                self.show(output)
+            if not stmt.negate:
+                self.check_errexit(status, stmt.text)
+        elif isinstance(stmt, Chain):
+            self.run_chain(stmt)
+        elif isinstance(stmt, For):
+            self.run_for(stmt)
+        elif isinstance(stmt, If):
+            self.run_if(stmt)
+        elif isinstance(stmt, While):
+            self.run_while(stmt)
+        elif isinstance(stmt, Case):
+            self.run_case(stmt)
+        elif isinstance(stmt, Piped):
+            self.run_piped(stmt)
+        elif isinstance(stmt, Function):
+            self.define(stmt)
+        elif isinstance(stmt, Select):
+            self.run_select(stmt)
+        elif stmt.kind == "break":
+            raise _Break
+        elif stmt.kind == "return":
+            raise _Return(self.return_status(stmt))
+        else:
+            raise _Continue
+
+    def check_errexit(self, status: int, text: str) -> None:
+        """`set -e`: a command that failed (and isn't a test, the left of `&&` / `||` or `!`)
+        stops the script, the function or the file it is in."""
+        from shellcraft.pipeline import errexit
+
+        if status and errexit(self.ctx):
+            raise _errexit_stop(status, text)
 
     def define(self, stmt: Function) -> None:
         """Run a function definition: keep it for the session (never over MCP)."""
@@ -1660,6 +1715,8 @@ class _Runner:
             return 1, None
         try:
             tokens = shparser.tokenize(rest, self.variables(), substitute=self.substitute)
+        except shparser.UnboundVariable:
+            raise  # `set -u`: run_list stops the script
         except ParseError as exc:
             self.report(exc, stmt.text)
             self.ctx.last_status = 2
@@ -1679,7 +1736,7 @@ class _Runner:
     def run_simple(self, stmt: Simple | str, show_errors: bool = True) -> tuple[int, Any]:
         """Run one pipeline; returns (status, output). Bash-mode statements split unquoted
         expansions into words and run `$( … )` (not inside `[[ … ]]`, as in bash)."""
-        from shellcraft.pipeline import PipelineError, _run_parsed, assign
+        from shellcraft.pipeline import PipelineError, UnboundError, _run_parsed, assign
 
         if isinstance(stmt, str):
             stmt = Simple(stmt, 0, "py")
@@ -1702,6 +1759,8 @@ class _Runner:
         except (ParseError, PipelineError) as exc:
             if show_errors:
                 self.report(exc, stmt.text)
+            if isinstance(exc, UnboundError):  # `set -u`: the script stops here
+                raise _Abort(exc, stmt.text, reported=show_errors, stops=True) from None
             result = None
         output = None if result is None else result.output
         if stmt.negate:
@@ -1735,19 +1794,31 @@ class _Runner:
         return 0
 
     def run_chain(self, stmt: Chain) -> None:
+        """`a && b || c`. Under `set -e` only the last part's failure stops the script, and only
+        when it ran: `false && x` goes on, `x && false` stops."""
         first = stmt.parts[0]
         assert isinstance(first, Simple)  # a Jump only ever follows && / ||
-        status, output = self.run_simple(first)
-        if output is not None:
-            self.show(output)
-        for op, part in zip(stmt.ops, stmt.parts[1:]):
+        last = len(stmt.parts) - 1
+        status = self.run_part(first, last == 0)
+        for k, (op, part) in enumerate(zip(stmt.ops, stmt.parts[1:]), 1):
             if (op == "&&") == (status == 0):
                 if isinstance(part, Jump):
                     self.run_list([part])  # raises: break, continue or return
                     return
+                status = self.run_part(part, k == last)
+
+    def run_part(self, part: Simple, last: bool) -> int:
+        """One part of an `&&` / `||` chain; `set -e` applies to the last one only."""
+        if last and not part.negate:
+            status, output = self.run_simple(part)
+        else:
+            with _no_errexit(self.ctx):
                 status, output = self.run_simple(part)
-                if output is not None:
-                    self.show(output)
+        if output is not None:
+            self.show(output)
+        if last and not part.negate:
+            self.check_errexit(status, part.text)
+        return status
 
     def run_for(self, stmt: For) -> None:
         values = self.items(stmt)
@@ -1872,7 +1943,7 @@ class _Runner:
 
     def run_piped(self, stmt: Piped) -> None:
         """Run the block with its output collected, then feed that to the tail pipeline."""
-        from shellcraft.pipeline import PipelineError, _run_parsed
+        from shellcraft.pipeline import PipelineError, UnboundError, _run_parsed
 
         inner = _Runner(self.ctx, parent=self)
         inner.vars = self.vars  # the same scope: `for … done | sort` is not a subshell for variables
@@ -1884,9 +1955,13 @@ class _Runner:
             inner.run_list([stmt.stmt])
         except (_Break, _Continue):
             pass
+        except _Abort as exc:  # `set -e` stopped the block: its output so far still goes on
+            if not exc.reported:
+                raise
         finally:
             if inner.stderr_sink is not None:
                 self.ctx.stderr_sinks.pop()
+        block_status = self.ctx.last_status
         text = "".join(inner.collected)
         sh = stmt.mode == "sh"
         try:
@@ -1895,9 +1970,15 @@ class _Runner:
                                  live=self.shows_live)
         except (ParseError, PipelineError) as exc:
             self.report(exc, stmt.tail)
+            if isinstance(exc, UnboundError):
+                raise _Abort(exc, stmt.tail, reported=True, stops=True) from None
+            self.check_errexit(self.ctx.last_status, stmt.tail)
             return
         if result is not None and result.output is not None:
             self.show(result.output)
+        if "pipefail" in self.ctx.options and block_status and not self.ctx.last_status:
+            self.ctx.last_status = block_status
+        self.check_errexit(self.ctx.last_status, stmt.tail)
 
     def _block_stderr(self, stmt: Piped, inner: _Runner) -> Callable[[str], None] | None:
         """`done 2> err.txt` / `done 2>&1 | …`: where the block's error stream goes (its `>&2`
@@ -1928,6 +2009,10 @@ class _Runner:
             self.ctx.last_status = 0
 
     def test(self, cond: Cond) -> bool:
+        with _no_errexit(self.ctx):  # a failing test is an answer, not an error (`set -e`)
+            return self._test(cond)
+
+    def _test(self, cond: Cond) -> bool:
         from shellcraft.pipeline import PipelineError
 
         if cond.kind == "list":

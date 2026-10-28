@@ -83,6 +83,10 @@ select env in dev prod; do echo $env; break; done   # a numbered menu
 greet() { local who=${1:-friend}; echo "hi $who"; }
 need() { [ -n "$1" ] || return 1; echo "got $1"; }
 total=$(add 2 3)                                 # a function's output as a value
+
+set -e                                           # stop at the first command that fails
+set -euo pipefail                                # also: unset $vars are errors, pipes fail on any part
+set -x                                           # show each command before it runs (set +x: off)
 ```
 
 The same in Python style: a `:` and an indented body (an empty line ends it at the prompt):

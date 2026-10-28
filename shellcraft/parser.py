@@ -55,6 +55,14 @@ class ParseError(Exception):
         self.pos = pos
 
 
+class UnboundVariable(ParseError):
+    """`$name` for a variable that isn't set, under `set -u` (the shell reports it as an error)."""
+
+    def __init__(self, name: str, pos: int | None = None):
+        super().__init__(f"{name}: unbound variable", pos)
+        self.name = name
+
+
 @dataclass(frozen=True)
 class Token:
     value: str
@@ -141,6 +149,8 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
             return None
         name, end = match.group(), match.end()
     if name not in variables:
+        if getattr(variables, "nounset", False) and not (name.isdigit() or name in "#@*?"):
+            raise UnboundVariable(name, i)  # `set -u`
         return None
     return variables[name], end
 

@@ -19,7 +19,7 @@ from shellcraft import aliases, arith, streams
 from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.modkit import ModuleError
-from shellcraft.parser import Command, ParseError, Pipeline, parse, tokenize
+from shellcraft.parser import Command, ParseError, Pipeline, UnboundVariable, parse, tokenize
 from shellcraft.streams import Cancelled, Channel, Lines, UpstreamFailed
 
 # cmd.exe built-ins that have no executable on PATH.
@@ -44,11 +44,17 @@ class PipelineError(Exception):
         self.status = status  # becomes `$?`
 
 
+class UnboundError(PipelineError):
+    """`$name` for an unset variable under `set -u`: it stops the script, function or file, as
+    `set -e` does."""
+
+
 @dataclass
 class PipelineResult:
     output: Any  # str or a Rich renderable; None when redirected
     redirected_to: Path | None = None
     status: int = 0  # the last segment's exit status (`$?`)
+    stopped: bool = False  # `set -e` (or `set -u`) stopped the line: a sourced file stops too
 
 
 class Variables(Mapping[str, str]):
@@ -58,6 +64,11 @@ class Variables(Mapping[str, str]):
     def __init__(self, ctx: ShellContext, extra: Mapping[str, str] | None = None):
         self.ctx = ctx
         self.extra = extra or {}
+
+    @property
+    def nounset(self) -> bool:
+        """`set -u`: expanding an unset variable is an error (shellcraft.parser.expand_variable)."""
+        return "nounset" in self.ctx.options
 
     def __getitem__(self, name: str) -> str:
         if name == "?":
@@ -157,8 +168,29 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     if program is None:
         return None
     if program.is_simple:
-        return run_simple(line, ctx)
+        result = run_simple(line, ctx)
+        if result is not None and result.status and errexit(ctx):
+            result.stopped = True
+        return result
     return script.execute(program, ctx)
+
+
+def errexit(ctx: ShellContext) -> bool:
+    """Whether a failing command stops the script, function or file it is in (`set -e`) here:
+    not in an `if` / `while` test, on the left of `&&` / `||` or after `!`."""
+    return "errexit" in ctx.options and not ctx.errexit_off
+
+
+def trace(ctx: ShellContext, words: list[str]) -> None:
+    """`set -x`: show a command, its words expanded, on the error stream before it runs."""
+    if "xtrace" in ctx.options and words:
+        write_stderr(ctx, "+ " + " ".join(_trace_word(w) for w in words))
+
+
+def _trace_word(word: str) -> str:
+    if word and not re.search(r"[\s'\"\\|&;<>()$`*?[]", word):
+        return word
+    return "'" + word.replace("'", "'\\''") + "'"
 
 
 def run_simple(line: str, ctx: ShellContext) -> PipelineResult | None:
@@ -192,6 +224,8 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
         raise ParseError(f"{name}={raw.strip()}: quote a value that contains spaces: {name}=\"…\"",
                          match.start(2))
     value = tokens[0].value if tokens else ""
+    if "xtrace" in ctx.options:  # `set -x`
+        write_stderr(ctx, f"+ {name}={_trace_word(value)}")
     store = ctx.variables if target is None else target
     store[name] = value
     if name in ctx.exported:
@@ -205,11 +239,17 @@ def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], spli
                 allow_leading_pipe: bool = False, live: bool = False) -> PipelineResult | None:
     try:
         pipeline = parse(line, variables, split, substitute, glob, allow_leading_pipe)
+    except UnboundVariable as exc:  # `set -u`
+        ctx.last_status = STATUS_ERROR
+        raise UnboundError(1, 1, exc.name, str(exc)) from None
     except ParseError:
         ctx.last_status = STATUS_SYNTAX
         raise
     if pipeline is None:
         return None
+    for cmd in pipeline.segments:
+        if cmd.name:
+            trace(ctx, [cmd.name, *cmd.args])
     try:
         result = run_pipeline(pipeline, ctx, stdin, live=live)
     except PipelineError as exc:
@@ -290,25 +330,38 @@ def _run_segments(segments: list[tuple[int, Command]], total: int, data: Any, ct
     """Start every segment, wire them with channels, and gather the last one's output."""
     cancel = streams.StopFlag(ctx.stop)  # a child of a background job's flag: `jobs -k` stops it too
     upstream: Any = data
+    statuses: dict[int, int] = {}  # the earlier segments' statuses, for `set -o pipefail`
+    threads: list[threading.Thread] = []
     try:
         for index, cmd in segments[:-1]:
             if _main_thread(cmd, ctx):
                 # Shell-state builtins (`history`, `time`, `read`…) run here, on the main thread, as
                 # they always have; their output then feeds the next segment.
-                value, _ = _run_inline(cmd, upstream, index, total, ctx)
+                value, statuses[index] = _run_inline(cmd, upstream, index, total, ctx)
                 upstream = to_text(value)
                 continue
             channel = Channel(cancel)
-            _start(cmd, index, total, ctx, upstream, channel, cancel, final=False)
+            threads.append(_start(cmd, index, total, ctx, upstream, channel, cancel, final=False, statuses=statuses))
             upstream = channel
         index, cmd = segments[-1]
         if _main_thread(cmd, ctx):
-            return _run_inline(cmd, upstream, index, total, ctx)
-        out = Channel(cancel)
-        _start(cmd, index, total, ctx, upstream, out, cancel, final=True)
-        return _gather(out, ctx, sink, _label(segments, ctx))
+            output, status = _run_inline(cmd, upstream, index, total, ctx)
+        else:
+            out = Channel(cancel)
+            _start(cmd, index, total, ctx, upstream, out, cancel, final=True)
+            output, status = _gather(out, ctx, sink, _label(segments, ctx))
+        if "pipefail" in ctx.options and len(segments) > 1:
+            cancel.set()  # a segment still writing stops (no status of its own), the others have one
+            for thread in threads:
+                thread.join(PIPEFAIL_WAIT)
+            status = next((s for s in [status, *(statuses[k] for k in sorted(statuses, reverse=True))] if s),
+                          0)
+        return output, status
     finally:
         cancel.set()  # producers still writing (the last segment finished early, or Ctrl-C) stop
+
+
+PIPEFAIL_WAIT = 2.0  # seconds to wait for an earlier segment's status under `set -o pipefail`
 
 
 def _main_thread(cmd: Command, ctx: ShellContext | None = None) -> bool:
@@ -389,16 +442,24 @@ def _run_inline(cmd: Command, upstream: Any, index: int, total: int, ctx: ShellC
 
 
 def _start(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: Any, out: Channel,
-           cancel: threading.Event, final: bool) -> None:
-    threading.Thread(target=_produce, args=(cmd, index, total, ctx, upstream, out, cancel, final),
-                     daemon=True, name=f"shellcraft:{cmd.name}").start()
+           cancel: threading.Event, final: bool, statuses: dict[int, int] | None = None) -> threading.Thread:
+    thread = threading.Thread(target=_produce, args=(cmd, index, total, ctx, upstream, out, cancel, final, statuses),
+                              daemon=True, name=f"shellcraft:{cmd.name}")
+    thread.start()
+    return thread
 
 
 def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: Any, out: Channel,
-             cancel: threading.Event, final: bool) -> None:
+             cancel: threading.Event, final: bool, statuses: dict[int, int] | None = None) -> None:
     """One segment in its own thread: run it and write what it makes into `out`. The last
     segment writes ("value", obj) for a whole result and ("items", list) for streamed items, so the
-    caller can keep a single result as it is (a table, a man page); the others write text."""
+    caller can keep a single result as it is (a table, a man page); the others write text. An
+    earlier segment records its status in `statuses` (for `set -o pipefail`)."""
+
+    def finished(status: int) -> None:
+        if statuses is not None:
+            statuses[index] = status
+
     streams.set_cancel(cancel)
     result: Any = None
     batch: streams.Batcher | None = None
@@ -427,23 +488,28 @@ def _produce(cmd: Command, index: int, total: int, ctx: ShellContext, upstream: 
                 text = to_text(result)
                 if text:
                     out.put(text if text.endswith("\n") else text + "\n")
+            finished(status)
             out.end(status)
         except Cancelled:
             return
         except UpstreamFailed as up:
-            out.fail(up.error)
+            out.fail(up.error)  # the failing segment upstream has its own status
         except (ShellExit, KeyboardInterrupt) as exc:
+            finished(STATUS_INTERRUPTED if isinstance(exc, KeyboardInterrupt) else STATUS_ERROR)
             out.fail(_as_error(cmd, exc, index, total))
         except Exception as exc:  # noqa: BLE001 — surface module bugs as styled errors
             try:
                 text, status = _failed(cmd, _as_error(cmd, exc, index, total), index, total)
             except PipelineError as error:
+                finished(error.status)
                 out.fail(error)
                 return
             if text:
                 out.put(("value", text) if final else text)
+            finished(status)
             out.end(status)
         except BaseException as exc:  # noqa: BLE001 — SystemExit, GeneratorExit…: the channel must still close
+            finished(STATUS_ERROR)
             out.fail(PipelineError(index, total, cmd.name, f"{type(exc).__name__}: {exc}"))
     except Cancelled:
         return
@@ -639,7 +705,7 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
 # Shell functions take precedence over builtins, modules and programs, as in bash, except for
 # these, which keep the shell in charge of itself (the "special builtins" that matter here).
 SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias",
-                              "shift"})
+                              "shift", "set"})
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:

@@ -35,7 +35,7 @@ It is not a pipe stage: it runs on its own line.
 func                                   # the funcs you can run (same as func list)
 func show NAME                         # its header and every step, numbered (also: func view)
 func run NAME [ARG...]                 # run it
-func run -i NAME [ARG...]              # isolated: the directory, variables, env vars, aliases, theme and settings come back afterwards
+func run -i NAME [ARG...]              # isolated: the directory, variables, env vars, aliases, theme, settings and set options come back afterwards
 func run -b NAME [ARG...]              # in the background, as a job in the footer (always isolated; jobs N shows its output)
 func run -q NAME / -v NAME             # quiet / show this time, whatever its header says
 func new NAME                          # guided: the header, then the steps one per line (an empty line ends)

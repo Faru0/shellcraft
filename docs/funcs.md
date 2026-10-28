@@ -12,7 +12,10 @@ func run recon example.com
 
 The steps run one after another in your shell, as if you typed them, so a `cd` or `env set` in a
 func stays in effect afterwards. `$1`, `$2`… are the arguments, `$@` is all of them and `$#` how
-many. The func stops at the first step that fails and tells you which one.
+many. The func stops at the first step that fails and tells you which one. `set -e` gives
+functions, `source`d files and your rc file the same behaviour (see
+[Stop on errors](scripting/functions.md#stop-on-errors-with-set--e)). Inside a step that is a
+whole block, such as a `for` loop, `set -e` also stops the block at its first failing command.
 
 ## Write one by hand
 
@@ -107,7 +110,7 @@ or, if a step failed:
 | Command | What it does |
 | --- | --- |
 | `func run NAME ARGS` | Run it in your shell, as if typed |
-| `func run -i NAME ARGS` | Isolated: afterwards your folder, variables, aliases, theme and settings are put back |
+| `func run -i NAME ARGS` | Isolated: afterwards your folder, variables, aliases, theme, settings and `set` options are put back |
 | `func run -b NAME ARGS` | In the background, as a job in the footer. Steps that change the shell, like `cd`, are refused there |
 | `func run -q NAME ARGS` | Quiet this time, whatever the header says (`-v` shows everything) |
 
