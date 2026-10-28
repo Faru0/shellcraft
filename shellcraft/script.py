@@ -41,6 +41,7 @@ import operator
 import os
 import re
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Union
 
@@ -134,6 +135,7 @@ class Jump:
     kind: str  # "break", "continue" or "return"
     pos: int
     value: str = ""  # `return N`: the status, as typed (expanded when it runs)
+    tree: ast.Expression | None = None  # `return EXPR` in a `def`: a Python value
 
 
 @dataclass
@@ -282,6 +284,7 @@ class _Parser:
         self.depth = 0  # open -py blocks
         self.loops = 0  # enclosing for loops (for break / continue)
         self.functions = 0  # enclosing function bodies (for return)
+        self.in_def = False  # the innermost function is a `def` (`return EXPR` is Python)
         self.mode = mode  # "top", "sh" or "py": the syntax of the block being parsed
 
     # helpers
@@ -433,6 +436,12 @@ class _Parser:
         value = ""
         if (not self._at_end() and self.s[self.i] not in ";\n" and not self._is_close(self.i)
                 and not self.s.startswith(("&&", "||"), self.i)):
+            if self.mode == "py" and self.in_def:  # `return a + b`, `return True`
+                value = self._tail_text()
+                if "$(" in value:
+                    raise self._error("return: $( … ) is bash: put the command's output in a "
+                                      "variable first (x=$(command))", start)
+                return Jump("return", start, value, compile_condition(value, start, "return", "value"))
             value = self._word()
         return Jump("return", start, value)
 
@@ -530,6 +539,7 @@ class _Parser:
             raise self._error(f"{name}: a function body goes in braces: {name}() {{ echo hi; }}")
         self.i += 1
         saved_loops, self.loops = self.loops, 0  # break / continue can't leave the function
+        saved_def, self.in_def = self.in_def, False
         self.depth += 1
         self.functions += 1
         try:
@@ -538,6 +548,7 @@ class _Parser:
             self.depth -= 1
             self.functions -= 1
             self.loops = saved_loops
+            self.in_def = saved_def
         return Function(name, body, self.s[pos:self.i], pos)
 
     def _def(self) -> Function:
@@ -568,12 +579,14 @@ class _Parser:
         if not self._is_open(self.i):
             raise self._error(f"def {name}: expected ':' (or '{{') after the parameters")
         saved_loops, self.loops = self.loops, 0
+        saved_def, self.in_def = self.in_def, True
         self.functions += 1
         try:
             body = self._in_mode("py", lambda: self._block(f"def {name}"))
         finally:
             self.functions -= 1
             self.loops = saved_loops
+            self.in_def = saved_def
         return Function(name, body, self.s[pos:self.i], pos, params)
 
     # while / until
@@ -1318,6 +1331,11 @@ class ConditionError(Exception):
     pass
 
 
+# How a Python expression calls a shell function (`add(1, 2)`): set by evaluate() for the
+# runner doing the evaluating, so _eval needs no shell context of its own.
+_CALL_FUNCTION: ContextVar[Callable[[str, list[Any]], Any] | None] = ContextVar("_CALL_FUNCTION", default=None)
+
+
 def _number(text: str) -> int | float:
     """A variable's text as a number, for `count += 1`: int, else float."""
     try:
@@ -1390,8 +1408,8 @@ def _vet(node: ast.AST) -> str | None:
     if isinstance(node, ast.Call):
         if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
             return "keyword or * arguments are not allowed"
-        if isinstance(node.func, ast.Name):
-            return None if node.func.id in FUNCTIONS else (
+        if isinstance(node.func, ast.Name):  # a built-in one, or a shell function (looked up when it runs)
+            return None if not node.func.id.startswith("_") else (
                 f"function '{node.func.id}' is not available (use: {', '.join(sorted(FUNCTIONS))})")
         if isinstance(node.func, ast.Attribute):
             return None if node.func.attr in STR_METHODS else f"method '.{node.func.attr}()' is not available"
@@ -1405,7 +1423,11 @@ def _vet(node: ast.AST) -> str | None:
     return None
 
 
-def evaluate(tree: ast.Expression, names: dict[str, Any]) -> Any:
+def evaluate(tree: ast.Expression, names: dict[str, Any],
+             call: Callable[[str, list[Any]], Any] | None = None) -> Any:
+    """The value of a vetted expression. `call(name, args)` runs a shell function the expression
+    calls (`add(1, 2)`); without it, only the built-in functions can be called."""
+    token = _CALL_FUNCTION.set(call)
     try:
         return _eval(tree.body, names)
     except ConditionError:
@@ -1416,6 +1438,8 @@ def evaluate(tree: ast.Expression, names: dict[str, Any]) -> Any:
         raise ConditionError(f"{exc}{hint}") from None
     except (ValueError, ZeroDivisionError, IndexError, KeyError, re.error, OverflowError) as exc:
         raise ConditionError(f"{type(exc).__name__}: {exc}") from None
+    finally:
+        _CALL_FUNCTION.reset(token)
 
 
 def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
@@ -1469,7 +1493,13 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
     if isinstance(node, ast.Call):
         args = [_eval(a, names) for a in node.args]
         if isinstance(node.func, ast.Name):
-            return FUNCTIONS[node.func.id](*args)
+            if node.func.id in FUNCTIONS:
+                return FUNCTIONS[node.func.id](*args)
+            call = _CALL_FUNCTION.get()
+            if call is None:
+                raise ConditionError(f"{node.func.id} is not a function "
+                                     f"(built in: {', '.join(sorted(FUNCTIONS))})")
+            return call(node.func.id, args)
         target = _eval(node.func.value, names)
         if not isinstance(target, str):
             raise ConditionError(f"'.{node.func.attr}()' works on text, not on {type(target).__name__}")
@@ -1487,12 +1517,29 @@ class _Continue(Exception):
     pass
 
 
-class _Return(Exception):
-    """`return [N]` in a function body: N, or None for the status of the last command."""
+_NO_VALUE = object()  # a function that ended without `return EXPR`
 
-    def __init__(self, status: int | None):
+
+class _Return(Exception):
+    """`return [N]` in a function body: N, or None for the status of the last command. In a
+    `def`, `return EXPR` carries EXPR's value instead (status None)."""
+
+    def __init__(self, status: int | None, value: Any = _NO_VALUE):
         super().__init__(status)
         self.status = status
+        self.value = value
+
+
+def _returned(value: Any) -> tuple[str, int]:
+    """What a `def`'s `return EXPR` means when it is called as a command: (text to print, status).
+    0-255 is the status, True / False are 0 / 1, None is 0; anything else is printed."""
+    if isinstance(value, bool):
+        return "", 0 if value else 1
+    if value is None:
+        return "", 0
+    if isinstance(value, int) and 0 <= value <= 255:
+        return "", value
+    return f"{value}\n", 0
 
 
 class _Abort(Exception):
@@ -1584,8 +1631,23 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     is `return N`'s, else the last command's. With `cmd` (the call as parsed), its `2> file` /
     `2>&1` also take what the body sends to the error stream (`>&2`, failing commands). With
     `live` (a call on its own line, on the main thread) each command's output is shown as it is
-    made, through ctx.emit, and the function returns no output of its own."""
-    from shellcraft.context import CommandError, WithStatus
+    made, through ctx.emit, and the function returns no output of its own. A `def`'s `return
+    EXPR` is a status or printed (_returned)."""
+    from shellcraft.context import WithStatus
+
+    output, status, value = _run_function(fn, args, stdin, ctx, cmd, live)
+    if value is not _NO_VALUE:
+        text, status = _returned(value)
+        output += text
+        ctx.last_status = status
+    return WithStatus(output, status) if status else output
+
+
+def _run_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None,
+                  live: bool = False) -> tuple[str, int, Any]:
+    """Run a function's body (see call_function): (its output, its status, the value of its
+    `return EXPR`, or _NO_VALUE)."""
+    from shellcraft.context import CommandError
     from shellcraft.pipeline import stderr_file_sink
 
     if not ctx.allow_aliases:
@@ -1611,6 +1673,7 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     with getopts.fresh(ctx):  # OPTIND=1 for its options; the caller's back after the `local`s
         ctx.positional.append(list(args))
         status: int | None = None
+        value: Any = _NO_VALUE
         try:
             with traps.frame(ctx, runner):  # its own traps; EXIT runs here, before `local`s go
                 try:
@@ -1619,7 +1682,7 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
                         ctx.variables[param] = args[k] if k < len(args) else (default or "")
                     runner.run_list(fn.body)
                 except _Return as exc:
-                    status = exc.status
+                    status, value = exc.status, exc.value
                 except _Abort as exc:
                     if not exc.reported:
                         runner.report(exc.error, exc.text)
@@ -1641,8 +1704,7 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     if status is None:
         status = ctx.last_status
     ctx.last_status = status
-    output = "".join(runner.collected)
-    return WithStatus(output, status) if status else output
+    return "".join(runner.collected), status, value
 
 
 class _Runner:
@@ -1765,6 +1827,8 @@ class _Runner:
         elif stmt.kind == "break":
             raise _Break
         elif stmt.kind == "return":
+            if stmt.tree is not None:
+                raise _Return(None, self.return_value(stmt))
             raise _Return(self.return_status(stmt))
         else:
             raise _Continue
@@ -1788,6 +1852,36 @@ class _Runner:
             return
         self.ctx.functions[stmt.name] = stmt
         self.ctx.last_status = 0
+
+    def return_value(self, stmt: Jump) -> Any:
+        """`return EXPR` in a `def`: EXPR's value. A bad expression is reported, and the
+        function returns status 1."""
+        from shellcraft.pipeline import PipelineError
+
+        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        try:
+            return evaluate(stmt.tree, names, self.call_function) if stmt.tree else None
+        except ConditionError as exc:
+            self.report(PipelineError(1, 1, "return", f"return {stmt.value}: {exc}"), f"return {stmt.value}")
+            raise _Return(1) from None
+
+    def call_function(self, name: str, args: list[Any]) -> Any:
+        """`name(args)` in a Python expression: run the shell function (`def` or bash) with the
+        arguments as text. The value is its `return EXPR`, else what it printed (without the last
+        new line, as `$( )` gives it). Its status goes to `$?`."""
+        from shellcraft.context import CommandError
+
+        fn = self.ctx.functions.get(name)
+        if fn is None:
+            raise ConditionError(f"{name} is not a function (built in: {', '.join(sorted(FUNCTIONS))}; "
+                                 "or define it first with def)")
+        try:
+            output, status, value = _run_function(fn, [str(a) for a in args],
+                                                  self.stdin, self.ctx)
+        except CommandError as exc:
+            raise ConditionError(str(exc)) from None
+        self.ctx.last_status = status
+        return output.rstrip("\n") if value is _NO_VALUE else value
 
     def return_status(self, stmt: Jump) -> int | None:
         if not stmt.value:
@@ -1897,7 +1991,7 @@ class _Runner:
         text = f"{stmt.name} {stmt.op} {stmt.text}"
         names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
         try:
-            value = evaluate(stmt.tree, names)
+            value = evaluate(stmt.tree, names, self.call_function)
             if stmt.op != "=":
                 current = self.vars.get(stmt.name)
                 if current is None:
@@ -2148,7 +2242,7 @@ class _Runner:
             assert cond.tree is not None
             names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
             try:
-                ok = bool(evaluate(cond.tree, names))
+                ok = bool(evaluate(cond.tree, names, self.call_function))
             except ConditionError as exc:
                 raise _Abort(PipelineError(1, 1, "if", f"({cond.text.strip()}): {exc}"), cond.text) from None
             self.ctx.last_status = 0 if ok else 1

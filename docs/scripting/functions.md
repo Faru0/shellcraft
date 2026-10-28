@@ -226,7 +226,7 @@ Sun: time off
 ## Give back a value
 
 `return` only carries a number from 0 to 255. To give back text, or a bigger number, `echo` it and
-catch it with `$( )`:
+catch it with `$( )` (a Python-style `def` can also [return the value](#give-back-a-value-with-return)):
 
 <!-- run -->
 ```
@@ -327,30 +327,89 @@ Hi, Sam
 
 Each parameter is a `local` variable, so the shell's own `name` isn't touched. Calling `greet` with
 no arguments stops with `greet: missing argument 'name'`. Inside, `if` and `for` take Python
-conditions, and `$1`, `$#` and `$@` still work. `return`, `echo` with `$( )`, `read` and `input()`
-work the same as in a bash-style function:
+conditions, and `$1`, `$#` and `$@` still work. `echo` with `$( )`, `read` and `input()` work the
+same as in a bash-style function.
+
+### Give back a value with return
+
+In a `def`, `return` takes a Python value: `return int(a) + int(b)`, `return "Hello, " + name`,
+`return True`. When you call the function as a command, ShellCraft turns that value into what a
+command gives back:
+
+- a number from 0 to 255 is the status, so `return 0` and `return 1` work as in bash;
+- `True` is status 0 and `False` is status 1;
+- `None` is status 0;
+- anything else (text, a bigger number, a decimal) is printed, with status 0.
+
+A bare `return` gives the status of the last command. Anything the function echoed comes first.
+For a check you use in an `if`, write `return True` or `return False`: it reads well, and it
+works both ways.
 
 <!-- run -->
 ```
-def add(a, b=0):
-    echo $((a + b))
-total=$(add 1200 34)
-echo "the total is $total"
+def greet(name):
+    return "Hello, " + name
+greet Ada
+echo "[$(greet Sam)]"
 
 def is_weekend(day):
-    case $day:
-        "Sat" | "Sun":
-            return 0
-        _:
-            return 1
+    return day in ("Sat", "Sun")
 is_weekend Sun && echo "Sun: time off"
+is_weekend Mon || echo "Mon: work day"
 ```
 
 <!-- output -->
 ```
-the total is 1234
+Hello, Ada
+[Hello, Sam]
 Sun: time off
+Mon: work day
 ```
+
+### Call a function from Python
+
+Inside Python code (a condition, `name = …`, another `return`) you can call any function by name,
+with brackets: `add(1, 2)`. The arguments go in as text, as on a command line. What you get back
+is the function's `return` value, as a Python value. A function without `return EXPR` gives what
+it printed instead, without the last new line, like `$( )`. So a bash function that echoes works
+too. Its output is caught, not shown, and its status goes to `$?`.
+
+<!-- run -->
+```
+def add(a, b):
+    return int(a) + int(b)
+
+def is_weekend(day):
+    return day in ("Sat", "Sun")
+
+slug() {
+  echo "$1" | tr "A-Z " "a-z-"
+}
+
+def report(title, a, b):
+    total = add(a, b) * 2
+    file = slug(title) + ".md"
+    echo "$file: $total"
+
+report "My Big Report" 1200 34
+for -py day in Fri Sat:
+    if is_weekend(day):
+        echo "$day: weekend"
+    else:
+        echo "$day: work day"
+```
+
+<!-- output -->
+```
+my-big-report.md: 2468
+Fri: work day
+Sat: weekend
+```
+
+Only functions defined in the shell can be called this way, plus the built-in ones (`len`,
+`int`, `exists` and the rest, see [Python style](python-style.md#comparing-text-and-numbers)).
+Calling a name that isn't a function stops with `NAME is not a function`. Keyword arguments
+(`add(a=1)`) aren't supported. A function can call itself, up to 100 calls deep.
 
 ## Stop on errors with set -e
 

@@ -114,6 +114,11 @@ select -py env in dev prod:                      # a numbered menu
     break
 def greet(who, greeting="hi"):                   # named arguments, with defaults
     echo "$greeting $who"
+def add(a, b):                                   # add 1 2: status 3; add 300 4 prints 304
+    return int(a) + int(b)
+def is_weekend(day):                             # return True / False for a check
+    return day in ("Sat", "Sun")
+if -py is_weekend("Sun"): echo rest              # call a function from Python, with brackets
 for -py n in 1..5: echo $n                       # a short block on one line
 ```
 

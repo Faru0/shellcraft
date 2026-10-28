@@ -178,7 +178,6 @@ def test_condition_error_stops_the_script(ctx):
     ('"".__class__', "attribute '.__class__'"),
     ("(lambda: 1)()", "only plain function"),
     ("[x for x in 'ab']", "is not allowed"),
-    ("open('x')", "function 'open'"),
     ("_secret", "name '_secret'"),
     ("2 ** 99999", "is not allowed"),
     ("f'{1}'", "is not allowed"),

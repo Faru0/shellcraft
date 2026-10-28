@@ -39,6 +39,11 @@ and the project uses [semantic versioning](https://semver.org/).
   `count += 1` work, with `-=`, `*=`, `/=`, `//=` and `%=` too. The value is a Python expression,
   stored as text (`True` / `False` for a yes or no). `x = 5` at the prompt or in a bash block is
   still a command named `x`, and `x=5` works everywhere.
+- **`def` return values.** In a `def`, `return EXPR` gives back a Python value. Called as a
+  command, 0 to 255 is the status, `True` / `False` are 0 / 1, and anything else is printed, so
+  `greet Ada` and `$(greet Ada)` show a returned text. From Python code you can call any shell
+  function with brackets: `total = add(1, 2)`, `if is_weekend(day):`, `file = slug(title)`. You
+  get the `return` value, or what the function printed.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

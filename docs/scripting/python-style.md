@@ -785,7 +785,41 @@ How old is Ada? 40
 Ada is an adult
 ```
 
-`return`, giving back a value with `echo` and `$( )`, and keeping functions in your rc file all
+`return` gives back a Python value. Called as a command, a number from 0 to 255 is the status,
+`True` and `False` are 0 and 1, and anything else is printed. In Python code you call a function
+with brackets and get the value itself, so a check reads like Python:
+
+<!-- run -->
+```
+def add(a, b):
+    return int(a) + int(b)
+
+def is_weekend(day):
+    return day in ("Sat", "Sun")
+
+def plan(day):
+    if is_weekend(day):
+        return day + ": rest"
+    hours = add(4, 4)
+    return day + ": work " + hours + " hours"
+
+plan Sat
+plan Mon
+add 1200 34
+echo "$(add 1200 34)"
+```
+
+<!-- output -->
+```
+Sat: rest
+Mon: work 8 hours
+1234
+1234
+```
+
+A bash function you call from Python gives what it printed, so `slug(title)` works with
+`slug() { echo "$1" | tr "A-Z " "a-z-"; }`. [Functions](functions.md#call-a-function-from-python)
+has the details. Giving back a value with `echo` and `$( )`, and keeping functions in your rc file
 work the same as in [Functions](functions.md).
 
 ## Mixing the styles

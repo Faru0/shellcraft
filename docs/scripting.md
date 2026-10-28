@@ -147,6 +147,10 @@ select -py env in dev prod:                                # a numbered menu
 def greet(name, greeting="hi"):                            # named arguments, with defaults
     msg = greeting.title() + " " + name                    # Python assignment: = += -= *= /= //= %=
     echo "$msg"
+def add(a, b):
+    return int(a) + int(b)                                 # 0-255: the status, True/False: 0/1, else printed
+def is_big(n):
+    return add(n, 1) > 100                                 # call a function from Python: add(), slug()
 name = input("Your name? ")                                # asking works in any block
 ```
 
@@ -155,7 +159,8 @@ form is the same thing on one line: `for -py n in 1..5 { if (int(n) % 2 == 0) { 
 
 - Python conditions are checked and evaluated by ShellCraft (no `eval`): comparisons,
   `and`/`or`/`not`, `in`, slicing, string methods, `len`, `int`, `match(regex, text)`,
-  `exists(path)` and a few more; imports and other functions are refused. `status` is `$?`.
+  `exists(path)` and a few more, plus the shell functions you define (`add(1, 2)`); imports and
+  other functions are refused. `status` is `$?`.
 - Inside a `-py` block, nested `for`/`if` use the same syntax without the flag. Bash lines
   (`if …; then … fi`) work inside one too, and a Python-style block works inside a bash function.
 - A Python-style condition that isn't Python runs as a command: `if -py grep -q x f:`.
@@ -199,6 +204,8 @@ need() { [ -n "$1" ] || return 1; echo "got $1"; }
 ```
 
 `def name(a, b="x"):` writes one in the Python style, with named arguments (each a `local`).
+In a `def`, `return EXPR` gives back a Python value, and Python code can call a function with
+brackets: `total = add(1, 2)`.
 [Functions](scripting/functions.md) teaches them step by step, and
 [Bash style and Python style](scripting/python-style.md) shows every block both ways.
 

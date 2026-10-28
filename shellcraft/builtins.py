@@ -2394,7 +2394,9 @@ these string methods: `startswith endswith lower upper casefold title strip lstr
 rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
 isalpha isalnum isspace islower isupper`, and these functions: `len int float str bool abs min
 max`, `match(PATTERN, TEXT)` (a regex search), `exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
-Imports, other attributes, other calls and names starting with `_` are refused. A condition
+A call to any other name runs the shell function of that name (`if -py (is_weekend(day))`):
+its `return` value, or what it printed (see `man def`). Imports, other attributes and names
+starting with `_` are refused. A condition
 that fails to evaluate (an unknown name, comparing text with a number) stops the whole script.
 
 Inside a `-py` block, a nested `if` uses this syntax without the flag.
@@ -2486,6 +2488,25 @@ def greet(name, greeting="Hello"):
         echo "$greeting, $name"
 greet Ada
 greet Sam Hi
+```
+
+In a `def`, `return EXPR` gives back a Python value. Called as a command (`add 1 2`,
+`$(add 1 2)`), a number from 0 to 255 is the status, `True` / `False` are status 0 / 1, `None`
+is 0, and anything else is printed. A bare `return` keeps the last command's status. Use
+`return True` / `return False` for a check you put in an `if`.
+
+From Python code (a condition, `x = …`, another `return`) call any function by name:
+`total = add(1, 2)`, `if is_weekend(day):`, `name = slug(title)`. The arguments go in as text.
+The result is the `return` value, or else what the function printed (without the last new
+line), so a bash function that echoes works too.
+
+```
+def add(a, b):
+    return int(a) + int(b)
+total = add(1, 2)
+def is_weekend(day):
+    return day in ("Sat", "Sun")
+if -py is_weekend("Sun"): echo "time off"
 ```
 
 A function takes precedence over builtins, modules and programs of the same name, as in bash,

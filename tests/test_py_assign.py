@@ -111,8 +111,8 @@ def test_outside_py_mode_nothing_changes(ctx):
 def test_a_bad_value_is_a_parse_error(ctx):
     with pytest.raises(ParseError, match=r"count \+=: invalid value \(invalid syntax\): 1 \+"):
         script.parse_script("for -py i in 1:\n    count += 1 +")
-    with pytest.raises(ParseError, match="function 'open' is not available"):
-        script.parse_script("for -py i in 1 { x = open(1) }")
+    with pytest.raises(ParseError, match="only plain function and string-method calls"):
+        script.parse_script("for -py i in 1 { x = (lambda: 1)() }")
     with pytest.raises(ParseError, match=r"x=\$\(command\)"):
         script.parse_script("for -py i in 1 { x = $(date) }")
     with pytest.raises(ParseError, match="missing a value"):
