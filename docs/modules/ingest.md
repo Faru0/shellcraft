@@ -2,14 +2,24 @@
 
 ← [Manual](../README.md)
 
-Already have a Python script you run with `python myscript.py`? The ingest wizard turns it into a
-ShellCraft command without rewriting it. It shows you exactly what has to change, makes only
-those changes, writes a manual page and an AI description, and checks the result.
+This page is for you if you already have a Python script you run with `python myscript.py`, and
+you'd like it to be a ShellCraft command instead: something you type by name, that pipes into
+`grep` and `sort`, and that an AI client can call. After reading it you'll know how to convert a
+script with the ingest wizard, what the wizard changes in your code and why, and what to do when it
+says a script can't be converted.
 
-Your original script is never changed, and never moved.
+The wizard turns the script into a [module](first-module.md) without you rewriting it. It shows
+you exactly what has to change, makes only those changes, writes a manual page and an AI
+description, and checks the result.
+
+Your original script is never changed, and never moved. The wizard works on a copy.
+
+If you're starting from nothing, [Your first module](first-module.md) is the better route. If you
+have module files already, see [Add modules you already have](adding-modules.md).
 
 ## Run it
 
+There are three ways to start the wizard. They all do the same thing, so use whichever is handy.
 Inside ShellCraft:
 
 ```
@@ -28,7 +38,8 @@ at the next prompt.
 
 ## A walk through
 
-Here's the script we'll convert, `wordcount.py`. It counts the most common words in a file:
+Here's the script we'll convert, `wordcount.py`. It counts the most common words in a file, a
+typical small tool: it reads its options with `argparse` and prints its results.
 
 ```python
 import argparse
@@ -48,12 +59,19 @@ for word, n in sorted(counts.items(), key=lambda kv: -kv[1])[: args.top]:
     print(f"{n:5}  {word}")
 ```
 
+Why can't ShellCraft run this as it is? It can, in a limited way: a `.py` file without a `run()`
+function is run as a plain script, with `python`. But then every call starts a new Python, and
+`help` lists it with a reminder that it needs `run()` to work properly. A converted module is loaded
+once and called directly, like every other command. The [module reference](reference.md#the-files)
+explains the difference.
+
 The wizard goes through six steps. Wherever it asks something, the answer in brackets is the
 default, and Enter accepts it.
 
 ### 1. Your script
 
-It reads the script and analyzes it. It never runs it at this point.
+It reads the script and analyzes it. It never runs it at this point, so a script that deletes
+files or calls a paid API is safe to point it at.
 
 ### 2. Name
 
@@ -77,6 +95,10 @@ What it found in the script:
   writes files          no
   API keys              none
 ```
+
+"Top-level statements" are the lines that run when Python loads the file, outside any function.
+Those are the ones that have to move into `run()`, because a module must not do its work when it's
+imported, only when it's called. Here 7 of the 9 move; the two imports stay where they are.
 
 If something can't be converted safely, it stops here and lists the lines to fix by hand. See
 [What it can't convert](#what-it-cant-convert).
@@ -125,14 +147,20 @@ Have an AI turn the drafts into finished docs (better wording, examples and test
 ```
 
 It drafts the manual page (`.md`) and the AI description (`.skill`) from your code: the options,
-their defaults, the error messages, any API keys. Lines marked `TODO` need a human touch. You can
-let an AI finish them, or edit them yourself later.
+their defaults, the error messages, any API keys. Lines marked `TODO` need a human touch, because
+the wizard can see what an option is called but not why you'd use it. You can let an AI finish
+them, or edit them yourself later. [Your first module](first-module.md#step-5-give-it-a-manual-page)
+shows what finished ones look like.
 
 ### 6. Check
 
 ```
 Run a quick test call, run([], ""), as part of the check? It executes your code. [y/n] (y):
 ```
+
+The test call runs your new command with no arguments and no input, the way a user who typed only
+its name would. Say no if your script does something with no arguments that you don't want right
+now, such as sending a request.
 
 The [checker](reference.md#the-checker) runs on the new module and reports PASS, WARN or FAIL
 for each thing it checks. Then try your new command:
@@ -179,9 +207,14 @@ For a script with a `main()` function, the change looks like this:
 
 The converted file no longer runs as `python wordcount.py` on its own. Your original still does.
 
+Why `parse_args(argv)` instead of `parse_args()`? With no argument, argparse reads `sys.argv`,
+which is ShellCraft's own command line, not the words you typed after `wordcount`. Passing the list
+explicitly makes it read the right words.
+
 ## What it can't convert
 
-The wizard stops, writes nothing, and points at the lines when the script:
+Some scripts depend on things a command can't have. The wizard stops, writes nothing, and points
+at the lines when the script:
 
 - asks questions with `input()` or `getpass`. A command can run in a pipe or for an AI client,
   where nobody can answer.
@@ -194,7 +227,8 @@ The wizard stops, writes nothing, and points at the lines when the script:
   `signal.signal`.
 - loops forever, or never runs anything at the top level.
 
-Fix those lines in your script and run the wizard again.
+Fix those lines in your script and run the wizard again. The usual fix for `input()` is to turn the
+question into an option: instead of asking "which file?", take the file as an argument.
 
 ## The AI option
 
@@ -209,6 +243,8 @@ All of the AI code is one file, `tools/ingest/ingest_AI.py`: the providers, the 
 prompts and the requests. To use a newer model or change the prompts, edit that file.
 
 ## Options
+
+These are the wizard's own options, for when you want to skip a question or write somewhere else.
 
 | Option | What it does |
 | --- | --- |
@@ -241,6 +277,9 @@ Most people convert once, then keep working on the module file itself. Your orig
 it was, for running outside ShellCraft.
 
 ## Check modules any time
+
+The checker the wizard ran in step 6 is also a command on its own. Run it after you edit a module
+by hand, or on every module before you share them.
 
 ```
 ingest check ~/.shellcraft/modules/wordcount.py     # one module

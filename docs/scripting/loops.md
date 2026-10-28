@@ -2,14 +2,19 @@
 
 ← [Scripting guide](README.md)
 
-This page shows you how to repeat things: once for every item in a list, every file in a folder,
-every line of a file, or as long as a condition holds. It ends with menus that keep asking until
-the user is done.
+This page is for you when you want a script to do the same thing more than once: for every server
+in a list, every file in a folder, every line of a file, or until something is true. After reading
+it you'll be able to write each kind of loop, stop one early, and build a menu that keeps asking
+until the user picks Quit.
+
+If variables are new to you, read [Variables and input](variables-and-input.md) first. Loops use
+them on every line.
 
 ## for: once per item
 
-A `for` loop runs its commands once for every word after `in`. Each time round, the variable holds
-the next word:
+Reach for `for` when you know the list of things up front: three servers, a handful of file names,
+the numbers 1 to 10. The loop runs its body once for every word after `in`. Each time round, the
+variable holds the next word:
 
 <!-- run -->
 ```
@@ -25,8 +30,15 @@ I like banana
 I like cherry
 ```
 
-The parts are: `for`, a variable name, `in`, the list, `; do`, the commands, and `done`. A short
-loop fits on one line:
+Read it piece by piece. `for fruit` names the variable. You choose the name, and you write it
+without a `$` here because you're naming it, not using it. `in apple banana cherry` is the list.
+`; do` says the list is over and the body starts. The indented line is the body, and inside it you
+use the variable with a `$`, as `$fruit`. `done` ends the loop.
+
+The indent is only there to make it easy to read. In bash style, `do` and `done` mark the body, not
+the spaces.
+
+A short loop fits on one line. Put a `;` before `done` so ShellCraft knows the body has ended:
 
 <!-- run -->
 ```
@@ -40,10 +52,27 @@ number 2
 number 3
 ```
 
+### If it doesn't work
+
+A loop with no `do` stops before it starts. If you write `for n in 1 2 3` and put the body on the
+next line without `; do`, ShellCraft says:
+
+```
+for: expected 'do', got 'echo'
+```
+
+and then `'done' without a matching for` for the `done` line. Add `; do` at the end of the `for`
+line, or put `do` on a line of its own.
+
+If you forget `done`, the prompt keeps waiting for more lines. In a file, you get
+`missing 'done'`. `source -n` finds both before you run anything, see
+[Check a script before you run it](README.md#check-a-script-before-you-run-it).
+
 ## Loop over a list
 
-ShellCraft has no arrays. Keep a list in a plain variable, with spaces between the items, and leave
-the variable *unquoted* after `in` so it splits into words:
+Often the list lives in a variable: the servers you check every morning, the folders you back up.
+ShellCraft has no arrays. Keep the list in a plain variable, with spaces between the items, and
+leave the variable *unquoted* after `in` so it splits into words:
 
 <!-- run -->
 ```
@@ -60,10 +89,30 @@ checking web2
 checking db1
 ```
 
-With quotes, `"$servers"` stays one item, and the loop runs once. Inside the loop, quote the
-variable as usual: `"$server"`.
+Inside the loop, quote the variable as usual: `"$server"`. Everywhere else in ShellCraft a variable
+stays one piece, quotes or not. The list after `in` is the one place where an unquoted variable is
+split at its spaces, and that's what makes this work.
 
-To add to a list, put the old value and the new item together:
+With quotes, `"$servers"` stays one item, so the loop runs once with the whole text. This is the
+most common surprise with list loops:
+
+<!-- run -->
+```
+servers="web1 web2 db1"
+for server in "$servers"; do
+  echo "checking $server"
+done
+```
+
+<!-- output -->
+```
+checking web1 web2 db1
+```
+
+If you see every item on one line like that, take the quotes off after `in`.
+
+To add to a list, put the old value and the new item together and store the result back. Start
+with an empty list:
 
 <!-- run -->
 ```
@@ -79,9 +128,14 @@ for task in $todo; do echo "- $task"; done
 - deploy
 ```
 
+The extra space at the front of `todo` doesn't matter, because the loop splits at spaces and skips
+empty pieces.
+
 ## Count with a range
 
-`{1..5}` is the numbers from 1 to 5. A third number is the step, and a leading zero pads them all:
+When you need numbers, like making ten test files or trying something five times, you don't have to
+type them all out. `{1..5}` is the numbers from 1 to 5. A third number is the step, and a leading
+zero pads them all to the same width:
 
 <!-- run -->
 ```
@@ -105,7 +159,12 @@ part b
 part c
 ```
 
-To print several items on one line, build the text in a variable and print it once at the end:
+The first loop counts from 0 to 20 in steps of 5. The second pads to two digits, which keeps file
+names in order when you list them: `file-02` sorts before `file-10`, and `file-2` wouldn't. The
+third shows that letters work too.
+
+To print several items on one line, build the text in a variable and print it once at the end.
+Each `echo` ends its own line, so an `echo` inside the loop would give you five lines:
 
 <!-- run -->
 ```
@@ -120,11 +179,16 @@ echo "$line"
 ```
 
 `{a,b,c}` lists the choices to fill in: `for f in report.{csv,json}` goes through `report.csv` and
-`report.json`. `seq` counts too, and takes variables: `for n in $(seq 1 $count); do … done`.
+`report.json`.
+
+A range with braces only takes plain numbers. `{1..$count}` doesn't count: the loop runs once with
+the text `{1..3}`. When the end comes from a variable, use `seq`, which counts too:
+`for n in $(seq 1 $count); do … done`. In Python style, `for -py n in 1..$count:` works as well.
 
 ## Loop over files
 
-A pattern like `*.log` becomes the matching file names, in order:
+This is the loop you'll write most: do something to every file that matches a pattern. A pattern
+like `*.log` becomes the matching file names, in order:
 
 <!-- run -->
 ```
@@ -140,8 +204,33 @@ found app.log
 found db.log
 ```
 
-When nothing matches, the pattern stays as it is, so the loop runs once with the text `*.log`.
-Skip that case with a test at the top of the loop:
+`notes.txt` doesn't match `*.log`, so the loop never sees it. The `*` means "any text here".
+
+Here's a real job: rename every `.txt` file in a folder to `.md`. `basename` with a second word
+takes that ending off the name, so `notes.txt` becomes `notes`:
+
+<!-- run -->
+```
+touch notes.txt todo.txt
+for file in *.txt; do
+  name=$(basename $file .txt)
+  mv "$file" "$name.md"
+  echo "renamed $file to $name.md"
+done
+```
+
+<!-- output -->
+```
+renamed notes.txt to notes.md
+renamed todo.txt to todo.md
+```
+
+The list is worked out once, before the first round. So renaming files inside the loop doesn't
+confuse it.
+
+When nothing matches, the pattern stays as it is, so the loop runs once with the text `*.log`. If
+your loop then tries to delete or copy a file called `*.log`, you get an error about a file that
+doesn't exist. Skip that case with a test at the top of the loop:
 
 <!-- run -->
 ```
@@ -157,9 +246,13 @@ echo "no backups to remove"
 no backups to remove
 ```
 
+`[ -f "$file" ]` asks "is this a file?". When the answer is no, `||` runs `continue`, which skips
+to the next round. Here there is no next round, so the loop ends quietly.
+
 ## Loop over a command's output
 
-`$(command)` in the list gives you every word that command prints:
+Sometimes the list comes from a command: the names in a file, the output of `ls`, a list a module
+prints. `$(command)` in the list gives you every word that command prints:
 
 <!-- run -->
 ```
@@ -176,14 +269,18 @@ hello beta
 hello gamma
 ```
 
-It splits at every space as well as at line ends. When the lines themselves have spaces, use the
-next way instead.
+It splits at every space as well as at line ends. That's fine for a list of single words. When the
+lines themselves have spaces, like `web1 frontend`, a line would come apart into two rounds. Use
+the next way instead.
 
 ## Go through a file line by line
 
-`for -py` with the command in `( )` gives you one whole line at a time, spaces and all. This is how
-you'd use `while read line` in bash. It's written in the Python style: the line ends in `:`, and the
-loop is the indented lines under it:
+You have a file with one record per line: a host and its role, a name and an email. You want each
+whole line, spaces and all. In bash you'd write `while read line`. In ShellCraft you write
+`for -py` with the command in `( )`, which gives you one whole line at a time.
+
+It's written in the Python style: the line ends in `:`, and the loop body is the indented lines
+under it. There's no `do` or `done`, so here the indent matters:
 
 <!-- run -->
 ```
@@ -201,9 +298,15 @@ host and role: web2 frontend
 host and role: db1 database
 ```
 
-The nested `if` takes a Python condition, and needs no `-py` of its own. Inside the loop, `$line`
-is always one word, and `$( )` doesn't run. To take a line apart, hand it to a
-[function](functions.md), where `cut` can split it:
+The first line writes a small test file with a comment and a blank line in it. In the loop, the
+`if` checks each line with a Python condition: is it empty, or does it start with `#`? If so,
+`continue` skips it. The nested `if` needs no `-py` of its own, because everything inside a
+Python-style block is Python style already. Notice that `line` has no `$` in the condition but
+does in the `echo`. A Python condition uses names like Python does, and a command line uses `$`
+like the shell does.
+
+Inside the loop, `$line` is always one word, and `$( )` doesn't run. To take a line apart, hand it
+to a [function](functions.md), where `cut` can split it:
 
 <!-- run -->
 ```
@@ -222,11 +325,20 @@ web1 is a frontend server
 db1 is a database server
 ```
 
+`describe` gets the whole line as `$1`. `cut -d " " -f 1` splits it at spaces and keeps the first
+field, and `-f 2` keeps the second. `local` keeps `host` and `role` inside the function, so they
+don't overwrite variables with the same names elsewhere in your script. The last line shows that a
+one-line body can go right after the `:`.
+
+If the file isn't there, `cat` reports `cat: hosts.txt: no such file` and the loop runs zero
+times.
+
 `for -py n in 1..10` counts too, and `1..10..2` counts in steps of 2.
 
 ## Loops in Python style
 
-Every loop on this page can be written in the Python style. Here are `for` and `while`:
+Every loop on this page can be written in the Python style, with a `:` and an indented body instead
+of `do` and `done`. Use whichever you find easier to read. Here are `for` and `while`:
 
 <!-- run -->
 ```
@@ -250,6 +362,7 @@ I like banana
 liftoff!
 ```
 
+Every variable holds text, so `int(countdown)` turns it into a number before the comparison.
 Inside a Python-style block, `countdown -= 1` works like `countdown=$((countdown - 1))`. Here's a
 counter that adds up as it goes:
 
@@ -274,9 +387,16 @@ after 4: 10
 `until -py` and `while -py True:` work the same way, and so do `break` and `continue`.
 [Bash style and Python style](python-style.md) shows every loop both ways.
 
+The Python style has two mistakes of its own. If you forget the `:` at the end of the first line,
+ShellCraft doesn't see the start of a block and you get an error like `for: missing '{'`. If the
+body isn't indented, you get `expected an indented block`. Add the `:`, and indent the body by
+four spaces.
+
 ## Loops inside loops
 
-Put one loop inside another to go through every pair. Each loop needs its own `done`:
+When you need every pair, like every service on every environment, put one loop inside another.
+The inner loop runs all the way through for each round of the outer one. Each loop needs its own
+`done`:
 
 <!-- run -->
 ```
@@ -295,10 +415,20 @@ web on prod
 api on prod
 ```
 
+The first `done` closes the inner loop, and the second closes the outer one. Indenting the inner
+loop further makes it easy to see which `done` belongs to which.
+
 ## while: as long as a condition holds
 
-A `while` loop checks its condition before each round, and stops as soon as it fails. Remember to
-change something inside, or it never stops:
+Use `while` when you don't know the number of rounds ahead of time: keep trying until a server
+answers, keep asking until the answer is valid, count down until zero. A `while` loop checks its
+condition before each round, and stops as soon as it fails.
+
+The condition is a command, the same kind `if` uses. Most often it's a test in `[ ]`. "Fails"
+means the command ended with a non-zero exit status. A status of 0 means success, so the loop keeps
+going while the test says 0. [Conditions and choices](conditions.md) has every test you can use.
+
+Remember to change something inside, or it never stops:
 
 <!-- run -->
 ```
@@ -318,7 +448,13 @@ echo "liftoff!"
 liftoff!
 ```
 
-`until` is the opposite: it runs until the condition holds.
+`[ $countdown -gt 0 ]` asks "is countdown greater than 0?". The body prints the number, then
+`countdown=$((countdown - 1))` takes one away. When `countdown` reaches 0, the test fails and the
+loop ends. Without that last line, `countdown` would stay 3 forever. If that happens, press Ctrl-C
+to stop the loop.
+
+`until` is the opposite: it runs until the condition holds. Pick whichever reads more naturally.
+"Until we've tried three times" reads better than "while we've tried fewer than three times":
 
 <!-- run -->
 ```
@@ -338,7 +474,9 @@ attempt 3
 
 ## Stop early with break and continue
 
-`break` leaves the loop right away. `continue` skips the rest of this round and starts the next one:
+Sometimes you want out of a loop before the list ends, because you found what you were looking for
+or hit something bad. `break` leaves the loop right away. `continue` skips the rest of this round
+and starts the next one:
 
 <!-- run -->
 ```
@@ -356,7 +494,11 @@ n is 3
 n is 4
 ```
 
-They work after `&&` and `||` too, which keeps a loop short:
+At 2, `continue` skips the `echo`, so 2 never prints. At 5, `break` ends the loop, so 5 and 6 never
+print.
+
+They work after `&&` and `||` too, which keeps a loop short. `[ $word = skip ] && continue` reads
+as "if the word is skip, continue":
 
 <!-- run -->
 ```
@@ -376,11 +518,12 @@ keep
 In nested loops, `break` and `continue` act on the innermost loop only.
 
 `while true` makes a loop that only stops at a `break`, which is useful when you don't know in
-advance how many rounds you need. Ctrl-C stops any loop.
+advance how many rounds you need. The menus below use it. Ctrl-C stops any loop.
 
 ## Send a whole loop somewhere
 
-Put a pipe or a redirect after `done` and it takes the output of every round together:
+Put a pipe or a redirect after `done` and it takes the output of every round together. That's
+handy when you want to sort what a loop prints, or save a report to a file:
 
 <!-- run -->
 ```
@@ -397,10 +540,16 @@ item 3
 3 lines.txt
 ```
 
+The first loop prints three lines in the order 3, 1, 2, and `sort` puts them in order. The second
+writes its three lines to `lines.txt` instead of the screen, and `wc -l` counts them. With `>`
+after `done`, the file is written once for the whole loop. With `>` on the `echo` inside the loop,
+each round would replace the file and you'd keep only the last line.
+
 ## Menus that keep asking
 
-A menu that comes back after each choice is a `while true` loop with a `case` inside. The Quit
-choice ends it with `break`:
+A menu that comes back after each choice is useful for a small control panel: check the disk, show
+the logs, quit. It's a `while true` loop with a `case` inside. Each round prints the choices, asks,
+and does what was picked. The Quit choice ends it with `break`:
 
 <!-- run: ["1", "9", "2", "q"] -->
 ```
@@ -442,12 +591,18 @@ Choice: q
 bye
 ```
 
+`read -p "Choice: " choice` shows the question and stores the answer in `choice`. `case` compares
+the answer with each pattern in turn. `q|Q)` matches either letter, and `*)` matches anything, so
+it catches every answer that isn't on the menu. Each choice ends with `;;`. Without the `*)` line, a
+wrong answer would do nothing at all, and the user wouldn't know why. [Conditions and
+choices](conditions.md#case-pick-one-of-several-choices) explains `case` in full.
+
 In a real menu, put `date` and `pwd` in place of the `echo` lines.
 
 ### A numbered menu with select
 
-`select` writes the numbered list for you, asks, and puts the chosen word in your variable. The
-menu keeps asking until a `break`:
+`select` saves you writing the menu by hand. It writes the numbered list for you, asks, and puts the
+chosen word in your variable. The menu keeps asking until a `break`:
 
 <!-- run: ["2"] -->
 ```
@@ -466,8 +621,12 @@ done
 you picked banana
 ```
 
+The user typed `2`, and `select` turned that into `banana`. The `break` right after means it only
+asks once.
+
 `$PS3` sets the question, which is `#? ` by default. `$REPLY` is exactly what was typed. When the
-answer isn't one of the numbers, the variable is empty, so check it with `-n`:
+answer isn't one of the numbers, the variable is empty, so check it with `-n` ("is not empty")
+before you use it:
 
 <!-- run: ["5", "3"] -->
 ```
@@ -492,7 +651,12 @@ Deploy to which environment? 3
 deploying to prod
 ```
 
-`select` and `case` work well together. Add a Quit item and `break` on it:
+The first answer, 5, isn't on the list, so `env` is empty, the `if` is skipped, and the message
+uses `$REPLY` to show what was typed. The loop goes round and asks again. The list isn't printed a
+second time, only the question. The second answer, 3, sets `env` to `prod`, and `break` ends it.
+
+`select` and `case` work well together. Add a Quit item and `break` on it. Put quotes around an
+item with a space in it, so it stays one choice:
 
 <!-- run: ["1", "3"] -->
 ```
@@ -544,5 +708,13 @@ running the tests
 What now? 3
 ```
 
+`case _:` is Python's way of saying "anything else", like `*)` in bash style.
+
 Menus need someone at the keyboard, so `select`, `read` and `input()` only work in the interactive
 shell, not for AI clients over MCP.
+
+## Where to go next
+
+Loops that call your own commands are easier to read. [Functions](functions.md) shows you how to
+make them. When a step inside a loop can fail and you want the script to stop or clean up, see
+[Errors and cleanup](errors.md).

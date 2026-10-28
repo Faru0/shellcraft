@@ -2,12 +2,21 @@
 
 ← [Manual](../README.md)
 
-A module is a Python file that becomes a ShellCraft command. This page starts with the smallest
-module that works, three lines long, and builds up step by step to a command that calls a web API.
-Every block of code is a complete file you can copy.
+This page is for you if you know a little Python and want to add your own commands to
+ShellCraft. By the end you'll have written two: `hello`, which greets people, and `ghrepo`, which
+asks GitHub about repositories. You'll know how a module gets its input, how it hands back output,
+how it reports errors, and how to give it a manual page and make it available to AI clients.
+
+A module is a Python file that becomes a ShellCraft command. Why write one instead of a script you
+run with `python`? Because a module is a real command: it shows up in `help`, Tab completes it,
+its output flows through pipes like `| grep` and `> file`, and an AI client can call it.
+
+The page starts with the smallest module that works, two lines long, and builds up step by step.
+Every block of code is a complete file you can copy over the previous one.
 
 You need ShellCraft running and a text editor. You don't need to restart anything: ShellCraft
-notices a new or changed module and loads it at the next prompt.
+notices a new or changed module and loads it at the next prompt. You'll see a line like
+`↻ modules reloaded (hello.py)` when it does.
 
 ## Where modules go
 
@@ -18,7 +27,8 @@ Create the folder if it isn't there yet:
 mkdir -p ~/.shellcraft/modules
 ```
 
-The file name is the command name. `hello.py` becomes the command `hello`.
+The file name is the command name. `hello.py` becomes the command `hello`. ShellCraft looks in this
+folder, and in the folder of modules that come with it, every time a file changes.
 
 ## Step 1: the bare minimum
 
@@ -37,7 +47,9 @@ Now type `hello` at the ShellCraft prompt:
 hello
 ```
 
-That's a working command. Here is everything that matters about it:
+That's a working command. Two lines are enough because ShellCraft does the rest: it finds the
+file, imports it, and calls one function when you type the name. Here is everything that matters
+about it:
 
 - ShellCraft calls a function named **`run`**, with exactly two parameters.
 - **`args`** is a list of the words typed after the command name, already split and unquoted.
@@ -45,6 +57,10 @@ That's a working command. Here is everything that matters about it:
 - **`stdin`** is the text piped into the command, as one string. It's `""` when nothing is piped in.
 - **Return your output** as a string, ending with a newline. Don't `print()` it: ShellCraft needs
   the returned text to send it down a pipe, into a file, or to an AI client.
+
+Printing versus returning is the one idea to take from this step. When you `print()`, the text goes
+straight to the screen and ShellCraft never sees it. When you `return` it, ShellCraft decides where
+it goes: to the screen if the command stands alone, or to the next command if there's a pipe.
 
 Because it returns text, it already works with pipes and redirects:
 
@@ -54,7 +70,27 @@ Because it returns text, it already works with pipes and redirects:
 ❯ hello > greeting.txt
 ```
 
+`wc -c` counts characters, and it says 6: five letters and the newline at the end. The second line
+writes the greeting into `greeting.txt` instead of the screen.
+
+### If it doesn't work
+
+- **`command not found: hello`.** The file isn't in `~/.shellcraft/modules/`, isn't named
+  `hello.py`, or failed to load. Look above the prompt for a line starting with `⚠`, such as
+  `⚠ hello.py: SyntaxError: unterminated string literal (detected at line 2)`. Fix the line it
+  names and save; the module reloads at the next prompt. `reload` also lists every module that
+  failed to load.
+- **`TypeError: run() takes 1 positional argument but 2 were given`.** The function has to take
+  both `args` and `stdin`, even when it doesn't use them.
+- **`hello | wc -c` shows `hello` and then `0`.** The module prints instead of returning. The
+  text went to the screen, and `wc` got nothing. Change `print("hello")` to `return "hello\n"`.
+
 ## Step 2: use the arguments
+
+A command that always says the same thing isn't much use. This step greets whoever you name, and
+falls back to "world" when you don't name anyone. `args` is a plain Python list, so `args[0]` is the
+first word after `hello`. Checking `if args` first matters: on an empty list, `args[0]` raises
+`IndexError: list index out of range`, and that's what you'd see at the prompt.
 
 <!-- file: hello.py step 2 -->
 ```python
@@ -72,9 +108,14 @@ hello Ada
 
 ## Step 3: switches, piped input and errors
 
-Real commands take switches like `-s`. Use `ArgParser` from `shellcraft.modkit` for that. It's
-Python's `argparse` with one difference: a bad argument ends the command with a clean error
-message instead of exiting Python. You also get Tab completion and usage messages for free.
+Real commands take switches like `-s`, read from a pipe when you give them nothing to work on, and
+say clearly what went wrong. This step adds all three.
+
+For switches, use `ArgParser` from `shellcraft.modkit`. It's Python's `argparse` with one
+difference: a bad argument ends the command with a clean error message instead of exiting Python.
+Plain `argparse` would call `sys.exit()`, which in a module would stop the command with
+`exited with status 2 (sys.exit)` instead of a helpful message. You also get usage messages for
+free.
 
 <!-- file: hello.py -->
 ```python
@@ -114,17 +155,26 @@ hello Grace
 ╰─────────────────────────────────────────────╯
 ```
 
-Three new things:
+Walking through it:
 
 - **`SUMMARY`** is the one line `help` shows next to your command.
-- **`stdin.split()`** reads names from the pipe when none are typed, like most Unix tools do.
-- **`raise ModuleError("…")`** is how a module fails. The user sees your message, and the pipeline
-  stops there. Start the message with the command name.
+- **`nargs="*"`** means "zero or more names", so `opts.names` is a list, possibly empty.
+  `action="store_true"` makes `-s` a switch that's either there or not, so `opts.shout` is
+  `True` or `False`.
+- **`opts.names or stdin.split()`** reads names from the pipe when none are typed, like most Unix
+  tools do. That's why `echo Ada Grace | hello` works: `echo` sends `Ada Grace` down the pipe, and
+  it arrives as `stdin`.
+- **`raise ModuleError("…")`** is how a module fails. The user sees your message in a box like the one above, and
+  the pipeline stops there. Start the message with the command name, so someone running a long
+  pipeline knows which command complained.
+- The last line joins the greetings with newlines and adds one at the end. One result per line is
+  what lets `sort`, `grep` and `wc -l` work on your output.
 
 ## Step 4: call a web API
 
-Now a more useful command. `ghrepo` asks GitHub how many stars and forks a repository has. Create
-`~/.shellcraft/modules/ghrepo.py`:
+Now a more useful command. `ghrepo` asks GitHub how many stars and forks a repository has. It's
+the kind of thing you'd otherwise do by opening a browser tab for each repository, and as a command
+you can feed it a whole list and sort the result. Create `~/.shellcraft/modules/ghrepo.py`:
 
 <!-- file: ghrepo.py -->
 ```python
@@ -181,13 +231,20 @@ BurntSushi/ripgrep    69364  5488   Rust
 ❯ cat repos.txt | ghrepo | sort -k2 -n > by-stars.tsv
 ```
 
+The second line reads repository names from `repos.txt`, looks them all up, sorts them by the
+second column (the stars), and saves the result. Your numbers will differ: they're live.
+
 What's new here, and why:
 
 - **`timeout=10`** on the request. Always give network calls a timeout, so a slow server can't
   hang your command. Ctrl-C can't interrupt a request that's waiting.
 - **`check_cancel()`** inside the loop. When you press Ctrl-C, ShellCraft asks the command to stop,
   and this is where it does.
-- **Errors become `ModuleError`s** with a clear message, instead of a long Python traceback.
+- **Errors become `ModuleError`s** with a clear message, instead of a long Python traceback. The
+  `from None` at the end hides the original exception, so the user sees one line, not two.
+- **Status codes are checked.** `requests` doesn't raise on a 404, it returns a reply with
+  `status_code` 404. Checking it lets you say "no repository called X", which is far more useful
+  than a `KeyError` from reading a field that isn't there.
 - **`SPINNER_TEXT`** is shown next to a spinner while the command is slow.
 - **One line per result, separated by tabs.** That's what makes `sort`, `cut`, `grep` and `> file`
   work on your output.
@@ -205,12 +262,19 @@ environment variable:
 GitHub token (GITHUB_TOKEN): ••••••••
 ```
 
-Your code just reads `os.environ`. Never ask for the key with `input()`: a module can't ask
-questions, because it may be running in a pipe or for an AI client.
+Your code reads `os.environ`, nothing more. Never ask for the key with `input()`: a module can't ask
+questions, because it may be running in a pipe or for an AI client, where nobody is there to type.
+
+Notice that `ghrepo` works without a token and uses one when it's there. That's the friendliest
+pattern for an optional key. For a service that requires one, check for it after parsing the
+arguments and raise a `ModuleError` that says how to set it. The [module reference](reference.md#api-keys)
+shows that version.
 
 ## Step 5: give it a manual page
 
-Create `~/.shellcraft/modules/ghrepo.md`. This is what `man ghrepo` shows:
+A command nobody knows how to use isn't finished. The manual page is a Markdown file next to the
+module, and it's what you'll read yourself in six months. Create `~/.shellcraft/modules/ghrepo.md`.
+This is what `man ghrepo` shows:
 
 <!-- file: ghrepo.md -->
 ````markdown
@@ -261,8 +325,11 @@ backticks, because Tab completion reads its help text from there.
 
 ## Step 6: let AI clients use it
 
-Create `~/.shellcraft/modules/ghrepo.skill`. It describes the command to an AI client connected
-over MCP, and lists its parameters with their types:
+An AI client connected to ShellCraft over MCP sees your modules as tools it can call. (MCP is
+explained in [MCP and the AI co-pilot](../mcp-and-ai.md).) But it only sees the ones that have a
+`.skill` file, which tells it what the command does and what to pass. Create
+`~/.shellcraft/modules/ghrepo.skill`. It's a TOML file, a simple `key = value` format, and it lists
+the parameters with their types:
 
 <!-- file: ghrepo.skill -->
 ```toml
@@ -303,8 +370,10 @@ Write it for an AI reader: say what the command returns, when to use it, and whe
 every plain `key = value` line before the first `[[params]]`, or TOML hides it inside that table.
 The `[[tests]]` at the end are run by the checker and are never shown to the AI.
 
-Without a `.skill` file, a module is still a command in your shell. It just isn't offered to AI
-clients.
+Thanks to `[[params]]`, the AI calls the tool with `{"repos": ["python/cpython"]}` and ShellCraft
+turns that into the `args` list your `run()` already parses. You don't write any extra code for it.
+
+Without a `.skill` file, a module is still a command in your shell. It isn't offered to AI clients.
 
 ## Step 7: check it
 
@@ -316,9 +385,15 @@ The checker loads your module the way ShellCraft does and tests everything this 
 …
 ```
 
-A `FAIL` line says what to fix. `--network` also runs the tests that need the internet.
+Each line of the report is a check with PASS, WARN or FAIL. A `FAIL` line says what to fix, for
+example a switch that's in the code but missing from the `.md` Options table. The two skipped
+checks are the `[[tests]]` marked `network = true`: `--network` also runs the tests that need the
+internet. Run the checker whenever you change a module, the way you'd run tests.
 
 ## The rules, in short
+
+Everything above comes down to these rules. Keep them in mind and your modules will behave like
+every other command.
 
 | Do | Don't |
 | --- | --- |

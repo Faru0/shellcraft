@@ -4,12 +4,18 @@
 
 A function gives a name to a few lines of script, so you can run them again by typing that name.
 It works like any other command: it takes arguments, it can be piped, and it can succeed or fail.
-This page shows you how to write one, hand it values, get a result back, and keep it for every
-session.
+This page is for you when you catch yourself typing the same few commands again and again. After
+reading it you'll be able to write a function in bash style or Python style, hand it values, get a
+result back, give it options like `-v`, and keep it for every session.
+
+When a step inside a function can fail, [Errors and cleanup](errors.md) shows you how to stop,
+clean up and carry on.
 
 ## Make a function and call it
 
-Write the name, `()`, and the commands between `{` and `}`. Then call it by its name:
+Say there are two lines you print at the start of every session. Rather than type them each time,
+give them a name. Write the name, `()`, and the commands between `{` and `}`. Then call it by its
+name:
 
 <!-- run -->
 ```
@@ -40,12 +46,22 @@ greet
 Hi there
 ```
 
-Defining a function doesn't run it. Its commands run each time you call it.
+Defining a function doesn't run it. ShellCraft reads the lines between the braces and keeps them
+under that name. Its commands run each time you call it, and only then.
+
+That also means the definition has to come first. Calling a function on a line above the one that
+defines it fails with `command not found: later`, because at that moment there's no `later` yet.
+In a file, put your functions near the top and use them below.
+
+If you forget the space after `{`, as in `greet() {echo hi}`, ShellCraft tells you how it should
+look: `greet: a function body goes in braces: greet() { echo hi; }`.
 
 ## Give it arguments
 
-The words after the function's name are its arguments. Inside, `$1` is the first, `$2` the second,
-and so on. `$#` is how many there are, and `$@` is all of them:
+A function that does the same thing every time is a start, but most of the time you want to tell
+it what to work on: which file, which name, which server. The words after the function's name are
+its arguments. Inside, `$1` is the first, `$2` the second, and so on. `$#` is how many there are,
+and `$@` is all of them:
 
 <!-- run -->
 ```
@@ -64,7 +80,9 @@ Role: engineer
 (2 arguments: Ada engineer)
 ```
 
-Quote an argument that has spaces, so it arrives as one: `introduce "Ada Lovelace" engineer`.
+The arguments are split at spaces, the same way as for any command. So `introduce Ada Lovelace
+engineer` would give `Lovelace` as the role. Quote an argument that has spaces, so it arrives as
+one: `introduce "Ada Lovelace" engineer`.
 
 To go through every argument, loop over `"$@"`, with the quotes. Each argument stays whole:
 
@@ -84,6 +102,10 @@ list milk "brown bread" eggs
 - brown bread
 - eggs
 ```
+
+Without the quotes, `for item in $@` splits every argument again at its spaces, and you'd get
+`brown` and `bread` on two lines. That's the most common slip with `$@`, so make the quotes a
+habit.
 
 `shift` drops the first argument, so `$2` becomes `$1`. It's handy when the first argument is
 special and the rest are a list:
@@ -106,7 +128,8 @@ urgent: notes.txt
 
 ## Default values
 
-`${1:-something}` is the first argument, or `something` when there isn't one:
+Some arguments have an obvious answer when nobody gives one. `${1:-something}` is the first
+argument, or `something` when there isn't one:
 
 <!-- run -->
 ```
@@ -124,10 +147,14 @@ Hello, friend
 Hello, Sam
 ```
 
+The `:-` reads "or, if it's empty". It works for any variable, not only arguments:
+`${editor:-nano}`. [Variables and input](variables-and-input.md) has more of these.
+
 ## Check the arguments
 
-When a function can't work without an argument, check for it first. Print a message to the error
-stream with `>&2`, and stop with `return 1`:
+When a function can't work without an argument, check for it first. Otherwise it goes ahead with
+an empty name and fails somewhere less clear, or does something you didn't mean, like copying a
+file to `.bak`. Print a message to the error stream with `>&2`, and stop with `return 1`:
 
 <!-- run -->
 ```
@@ -156,6 +183,15 @@ backup: missing.txt doesn't exist
 saved notes.txt.bak
 ```
 
+The first call has no argument, so `[ -z "$1" ]` is true ("`$1` is empty") and the function
+prints how to use it. The second gets a name, but `[ ! -f "$1" ]` finds there's no such file. Only
+the third gets past both checks and makes the copy.
+
+Two details are worth knowing. `>&2` sends the message to the error stream, which is where
+problems belong: if someone pipes your function's output into another command, the warning still
+shows on the screen instead of going down the pipe. And `return 1` ends the function there and
+then, with a status that says it failed, so the lines after it don't run.
+
 The short form fits on one line, with `||`. It reads "the argument is there, or stop":
 
 <!-- run -->
@@ -177,8 +213,11 @@ opening website
 ## local variables
 
 A variable you set in a function is the shell's own, so it's still there after the function ends.
-`local` makes it belong to that call only, and puts back the old value when the function returns.
-Use `local` for anything that's only needed inside:
+That surprises people. If a function sets `name` for its own use, it quietly changes the `name`
+your rc file set too.
+
+`local` makes a variable belong to that call only, and puts back the old value when the function
+returns. Use `local` for anything that's only needed inside:
 
 <!-- run -->
 ```
@@ -197,10 +236,17 @@ in the function: inside
 after it: outside
 ```
 
+Inside `show`, `name` is `inside`. When `show` returns, the shell's own `name` comes back as it
+was. Take away the word `local` and the last line would say `after it: inside`. You can declare
+several at once: `local verbose=no file=notes.txt`.
+
 ## Succeed or fail with return
 
-`return 0` means it worked, and any other number means it didn't. Without a `return`, a function
-gives back the status of its last command. That makes a function usable as a condition:
+Every command ends with a number, its exit status: `0` means it worked, and any other number
+means it didn't. A function gets one too. `return 0` says it worked, and `return 1` (or any other
+number) says it didn't. Without a `return`, a function gives back the status of its last command.
+
+That makes a function usable as a condition, the same as `[ -f notes.txt ]` or `grep -q`:
 
 <!-- run -->
 ```
@@ -223,10 +269,19 @@ Sat: weekend
 Sun: time off
 ```
 
+`is_weekend` prints nothing. It only answers yes or no through its status, and `if` and `&&` read
+that answer. [Exit status and $?](errors.md#exit-status-and-) explains the numbers in more detail.
+
 ## Give back a value
 
-`return` only carries a number from 0 to 255. To give back text, or a bigger number, `echo` it and
-catch it with `$( )` (a Python-style `def` can also [return the value](#give-back-a-value-with-return)):
+Here's the part that catches most newcomers. In a bash-style function, `return` isn't how you
+hand back a result. It only carries a status, a number from 0 to 255. `return 300` gives you
+`44`, because the number wraps around past 255, and a text like `return hello` isn't a number at
+all.
+
+To give back text, or a bigger number, print it with `echo` and catch it with `$( )`. `$( )` runs
+the command and puts whatever it printed in its place. A Python-style `def` can also
+[return the value](#give-back-a-value-with-return).
 
 <!-- run -->
 ```
@@ -248,12 +303,22 @@ the total is 1234
 file name: my-big-report.md
 ```
 
+`total=$(add 1200 34)` runs `add`, catches the `1234` it printed, and stores it in `total`. In
+the second part, `$( )` is used right inside a longer text, so the file name is built in one line.
+
 Everything the function prints becomes the value, so leave out other `echo` lines when you use it
-this way.
+this way. If you want to show a message as well, send it to the error stream with `>&2`, which
+`$( )` doesn't catch.
+
+Mind the `$( )`. `who=name` stores the word `name`. `who=$(name)` runs the function `name` and
+stores what it printed.
 
 ## Functions that call functions
 
-A function can call any other function, as long as both are defined by the time it runs:
+Once you have a few functions, you'll want them to use each other. A small `log` function that
+formats a line is a good example: every other function can call it, and when you want a different
+format you change it in one place. A function can call any other function, as long as both are
+defined by the time it runs:
 
 <!-- run -->
 ```
@@ -275,8 +340,9 @@ deploy website
 
 ## Ask the user from a function
 
-`read` works inside a function. A function that runs on its own line shows each command's output
-as it goes, so its questions come in the right order:
+A function can ask questions, which is handy for a setup step you run now and then. `read` works
+inside a function. A function that runs on its own line shows each command's output as it goes,
+so its questions come in the right order:
 
 <!-- run: ["Ada", "y"] -->
 ```
@@ -298,13 +364,15 @@ Get the newsletter? (y/n) y
 Thanks Ada, you're signed up
 ```
 
-`input()` works inside a function too: `answer = input("Your name: ")`.
+`read -p "Your name: " who` shows the prompt and puts what you type in `who`. `input()` works
+inside a function too: `answer = input("Your name: ")`. Both are covered in
+[Variables and input](variables-and-input.md).
 
 ## Python style: def
 
-`def` writes a function the Python way: the arguments are named in the brackets, the line ends in
-`:`, and the body is indented under it. A parameter with `=` has a default; one without is
-required:
+If you know some Python, or you'd rather give arguments real names than count `$1` and `$2`,
+write the function with `def`. The arguments are named in the brackets, the line ends in `:`, and
+the body is indented under it. A parameter with `=` has a default; one without is required:
 
 <!-- run -->
 ```
@@ -325,10 +393,19 @@ Hello, Sam
 Hi, Sam
 ```
 
+You call it the same way as a bash-style function, with the arguments after the name and no
+brackets: `greet Sam Hi`. Each argument fills the next parameter, so `name` is `Sam` and
+`greeting` is `Hi`. When there's no second argument, `greeting` falls back to `Hello`.
+
 Each parameter is a `local` variable, so the shell's own `name` isn't touched. Calling `greet` with
-no arguments stops with `greet: missing argument 'name'`. Inside, `if` and `for` take Python
-conditions, and `$1`, `$#` and `$@` still work. `echo` with `$( )`, `read` and `input()` work the
-same as in a bash-style function.
+no arguments stops with `greet: missing argument 'name' (usage: greet NAME)`. Inside, `if` and
+`for` take Python conditions, and `$1`, `$#` and `$@` still work. `echo` with `$( )`, `read` and
+`input()` work the same as in a bash-style function.
+
+Notice the two ways of reading a parameter. In a Python condition like `name == "Ada"`, you write
+the bare name. In a command like `echo "$greeting, $name"`, you write `$` in front, as for any
+shell variable. The rule is the same everywhere in the Python style: Python code uses names,
+commands use `$`. [Bash style and Python style](python-style.md) has the full picture.
 
 ### Give back a value with return
 
@@ -344,6 +421,10 @@ command gives back:
 A bare `return` gives the status of the last command. Anything the function echoed comes first.
 For a check you use in an `if`, write `return True` or `return False`: it reads well, and it
 works both ways.
+
+So in a `def`, the printing and returning problem from [Give back a value](#give-back-a-value)
+goes away. `return "Hello, " + name` prints the text when you call the function on its own, and
+`$(greet Sam)` catches it like any output:
 
 <!-- run -->
 ```
@@ -368,8 +449,8 @@ Mon: work day
 
 ### Call a function from Python
 
-Inside Python code (a condition, `name = …`, another `return`) you can call any function by name,
-with brackets: `add(1, 2)`. The arguments go in as text, as on a command line. What you get back
+Sometimes you want to use a function's answer inside Python code: a condition, `name = …`, or
+another `return`. There you can call any function by name, with brackets: `add(1, 2)`. The arguments go in as text, as on a command line. What you get back
 is the function's `return` value, as a Python value. A function without `return EXPR` gives what
 it printed instead, without the last new line, like `$( )`. So a bash function that echoes works
 too. Its output is caught, not shown, and its status goes to `$?`.
@@ -406,283 +487,27 @@ Fri: work day
 Sat: weekend
 ```
 
+In `report`, `add(a, b)` gets back the number `1234` from `return`, so `* 2` does arithmetic on
+it. `slug(title)` calls a bash-style function, which has no `return` value, so you get what it
+printed, `my-big-report`, and `+ ".md"` adds to that text. In the loop, `is_weekend(day)` gives
+`True` or `False`, which is what `if` wants.
+
+Two things to watch for. In Python code you use brackets, `add(a, b)`. On a command line you
+don't, `add 1 2`. And the arguments arrive as text, which is why `add` uses `int(a)`: without it,
+`a + b` would join `"1200"` and `"34"` into `"120034"`.
+
 Only functions defined in the shell can be called this way, plus the built-in ones (`len`,
 `int`, `exists` and the rest, see [Python style](python-style.md#comparing-text-and-numbers)).
-Calling a name that isn't a function stops with `NAME is not a function`. Keyword arguments
-(`add(a=1)`) aren't supported. A function can call itself, up to 100 calls deep.
-
-## Stop on errors with set -e
-
-Normally a command that fails is reported and the next line runs anyway. When later steps depend
-on earlier ones, you want the script to stop instead. `set -e` does that. After it, the first
-command that fails stops the function it is in, the line that called it, and the rest of the
-file:
-
-<!-- run -->
-```
-set -e
-check_settings() {
-  echo "checking"
-  [ -f settings.conf ]
-  echo "settings found"
-}
-check_settings
-echo "this line doesn't run"
-```
-
-<!-- output -->
-```
-checking
-✗ example.sc:7: check_settings (set -e: the rest of the file was skipped)
-```
-
-`set -e` never closes ShellCraft. It stops what is running: the line you typed at the prompt, a
-function, a `source`d file, your rc file, a startup file or a func. `$?` keeps the status of the
-command that failed. `set +e` turns it off again.
-
-A failure doesn't stop anything when it is a question rather than an error: the test of an `if`,
-`while` or `until`, a command before `&&` or `||`, and a command after `!`. So the usual checks
-still work:
-
-<!-- run -->
-```
-set -e
-[ -f settings.conf ] && echo "found it"
-if [ -f settings.conf ]; then
-  echo "using settings.conf"
-else
-  echo "no settings.conf, using the defaults"
-fi
-echo "still running"
-```
-
-<!-- output -->
-```
-no settings.conf, using the defaults
-still running
-```
-
-The same goes for a function used as a test: `if check_settings; then` runs the whole function,
-because its failure is the answer you asked for.
-
-`def` functions behave the same way:
-
-<!-- run -->
-```
-set -e
-def check_settings():
-    echo "checking"
-    [ -f settings.conf ]
-    echo "settings found"
-
-check_settings
-echo "this line doesn't run"
-```
-
-<!-- output -->
-```
-checking
-✗ example.sc:7: check_settings (set -e: the rest of the file was skipped)
-```
-
-### Other options
-
-`set` has three more options that help when you write a script:
-
-| Option | What it does |
-| --- | --- |
-| `set -u` | Using a variable that isn't set is an error that stops the script, so a typo like `$fiel` doesn't quietly become nothing. `${name:-default}` is still fine |
-| `set -x` | Show each command, with its variables filled in, before it runs. Good for finding out what a script really does |
-| `set -o pipefail` | A pipe fails when any part of it fails, not only the last one |
-
-You can turn on several at once, as in bash: `set -euo pipefail`. `set -o` shows which ones are
-on, and `+` turns one off (`set +x`).
-
-With `set -u`, a typo stops the script with a message:
-
-```
-set -u
-file=notes.txt
-echo "saving $fiel"         # fiel: unbound variable
-```
-
-`set -x` prints each command to the error stream, starting with `+`:
-
-<!-- run -->
-```
-set -x
-name=world
-echo "hello $name"
-set +x
-echo "no trace"
-```
-
-<!-- output -->
-```
-+ name=world
-+ echo 'hello world'
-hello world
-+ set +x
-no trace
-```
-
-`grep` finds nothing here, but `wc` works, so the pipe succeeds until `pipefail` is on:
-
-<!-- run -->
-```
-printf "apple\nbanana\n" | grep cherry | wc -l
-echo "status: $?"
-set -o pipefail
-printf "apple\nbanana\n" | grep cherry | wc -l
-echo "status: $?"
-```
-
-<!-- output -->
-```
-0
-status: 0
-0
-status: 1
-```
-
-`set -- A B C` replaces the arguments: after it, `$1` is `A` and `$#` is 3. See `man set` for
-everything.
-
-## Clean up with trap
-
-A function that makes a temporary file should remove it, even when a step fails halfway. `trap`
-runs a command when the function ends, however it ends:
-
-<!-- run -->
-```
-set -e
-make_report() {
-  local tmp=report.tmp
-  trap 'rm -f $tmp; echo "removed $tmp"' EXIT
-  echo "draft" > $tmp
-  echo "writing the report"
-  grep -q "final" $tmp
-  echo "report done"
-}
-make_report
-```
-
-<!-- output -->
-```
-writing the report
-removed report.tmp
-✗ example.sc:10: make_report (set -e: the rest of the file was skipped)
-```
-
-`grep` fails, `set -e` stops the function, and the `EXIT` trap still removes the file. The trap
-runs inside the function, so it sees its `local` variables and `$1`. Put the command in single
-quotes, so `$tmp` is filled in when the trap runs, not when you set it.
-
-A trap belongs to the function that set it and goes away when the function ends. A file you run
-with `source` and a func have their own traps too. A trap set at the prompt, in your rc file or
-in a startup script belongs to the session: its `EXIT` trap runs when you leave ShellCraft.
-
-There are three signals:
-
-| Signal | When the command runs |
-| --- | --- |
-| `EXIT` | When the function, file or func ends: at the end, on `return`, when `set -e` stops it, on Ctrl-C |
-| `INT` | When you press Ctrl-C. Then it stops as usual |
-| `ERR` | After a command fails, where `set -e` would stop (not in an `if` test, before `&&` or `\|\|`, or after `!`) |
-
-An `ERR` trap is handy for logging. Inside it, `$?` is the failing command's status:
-
-<!-- run -->
-```
-trap 'echo "failed with status $?"' ERR
-echo "step one"
-grep -q "needle" /dev/null
-echo "step two"
-if grep -q "needle" /dev/null; then echo "found"; fi
-echo "done"
-```
-
-<!-- output -->
-```
-step one
-failed with status 1
-step two
-done
-```
-
-The `grep` inside the `if` is a question, so it doesn't count as an error. When a function has no
-trap of its own for `INT` or `ERR`, the one of whatever called it runs.
-
-`trap` works the same in a `def` function:
-
-<!-- run -->
-```
-def backup(name):
-    trap 'echo "backup of $name finished"' EXIT
-    echo "copying $name"
-    return 0
-
-backup notes.txt
-```
-
-<!-- output -->
-```
-copying notes.txt
-backup of notes.txt finished
-```
-
-`trap` on its own lists the traps set here, `trap - EXIT` removes one, and `trap '' INT` sets one
-that does nothing. See `man trap`.
-
-## Catch failures with try
-
-`set -e` stops everything at the first failure. Sometimes you want to stop only a few steps and
-then do something about it, such as print a message and go on. `try` does that, also in a bash
-function. Put the steps in `try { … }` and what to do on a failure in `except { … }`:
-
-<!-- run -->
-```
-deploy() {
-  try {
-    echo "checking $1"
-    [ -f "$1" ]
-    echo "deploying $1"
-  } except as rc {
-    echo "$1 is missing (status $rc), skipped"
-  } finally {
-    echo "done with $1"
-  }
-}
-touch site.tgz
-deploy site.tgz
-deploy other.tgz
-```
-
-<!-- output -->
-```
-checking site.tgz
-deploying site.tgz
-done with site.tgz
-checking other.tgz
-other.tgz is missing (status 1), skipped
-done with other.tgz
-```
-
-The first command in the `try` block that fails skips the rest of the block and runs `except`.
-`except as NAME` puts the failing status in NAME, and `$?` holds it too. `finally` always runs
-last, also after `return`. Inside a bash function the lines in the blocks stay bash. You need
-`except`, `finally` or both, in that order, and each goes after the `}` before it.
-
-As with `set -e`, a test doesn't count as a failure: an `if` condition, a command before `&&` or
-`||`, or one after `!`. A failure that `except` handles doesn't run the `ERR` trap and doesn't
-stop a `set -e` script. In the Python style you write `try:`, `except:` and `finally:` with an
-indented body, see [Handle errors with try](python-style.md#handle-errors-with-try).
+Calling a name that isn't a function stops with `NAME is not a function`, followed by the list of
+built-in ones. Keyword arguments (`add(a=1)`) aren't supported. A function can call itself, up to 100 calls deep.
 
 ## Options like -v and -f FILE
 
-Commands take options: `ls -l`, `grep -i word`. Your functions can too, with `getopts`. You tell
-it the letters to look for, and each time you call it, it gives you the next option. A letter
-followed by `:` takes a value, so `"vf:"` means `-v` and `-f FILE`:
+Commands take options: `ls -l`, `grep -i word`. Once a function has more than one or two
+arguments, options make it easier to call, because you don't have to remember the order. Your
+functions can take them too, with `getopts`. You tell it the letters to look for, and each time
+you call it, it gives you the next option. A letter followed by `:` takes a value, so `"vf:"`
+means `-v` and `-f FILE`:
 
 <!-- run -->
 ```
@@ -783,9 +608,22 @@ verbose=yes, the rest: monday
 In `match` (and `case -py`), use `case _:` for the mistakes: a quoted `"?"` is a pattern there
 and matches any single letter. See `man getopts`.
 
+## When a step fails
+
+A function stops at `return`, and otherwise runs every line, even after one of them fails. When
+the later lines depend on the earlier ones, you want more than that.
+[Errors and cleanup](errors.md) shows you how:
+
+- [Stop on errors with set -e](errors.md#stop-on-errors-with-set--e), so the first failure stops
+  the function and the script.
+- [Clean up with trap](errors.md#clean-up-with-trap), so a temporary file is removed however the
+  function ends.
+- [Catch failures with try](errors.md#catch-failures-with-try), to handle a failure and carry on,
+  in bash style or Python style.
+
 ## Keep your functions
 
-A function lasts until you leave ShellCraft. To have it in every session, put it in
+A function you type at the prompt lasts until you leave ShellCraft. To have it in every session, put it in
 `~/.shellcraft/rc`, or in a file in `~/.shellcraft/startup/`, such as `20-functions.sc`. Then it's
 ready at the prompt each time the shell starts. See [Startup](../startup.md).
 
@@ -824,7 +662,10 @@ AI clients that use your shell over MCP can't see or run your functions.
 
 ## Functions, aliases or funcs?
 
-All three give a name to something you type often. Use the one that fits:
+All three give a name to something you type often, so it's fair to wonder which to use. In
+short: an alias for a shorter spelling of one command, a function as soon as you need logic or
+arguments in the middle, and a func for a routine you run on purpose now and then. The table has
+the details:
 
 | | Best for | Arguments | Lasts |
 | --- | --- | --- | --- |

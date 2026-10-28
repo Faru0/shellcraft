@@ -2,37 +2,160 @@
 
 ← [Scripting guide](README.md)
 
-Every block in ShellCraft can be written two ways. **Bash style** is the default and looks like
-bash: `do` and `done`, `then` and `fi`. **Python style** looks like Python: the line that starts a
-block ends in `:`, and the lines inside it are indented under it. This page shows every kind of
-block both ways, side by side, so you can pick the one you like or copy whichever is closer to what
-you need.
+This page is for you if you already know Python and want to script ShellCraft without learning
+bash's `then`, `fi` and `esac`. Every block in ShellCraft can be written two ways: **bash style**,
+the default, and **Python style**, where a line ends in `:` and the lines under it are indented.
+After reading this page you'll know how a Python-style block turns into a shell block, where
+Python rules apply and where shell rules still do, and the handful of places where it behaves
+differently from real Python. Each kind of block is shown both ways, so you can also use the page
+to translate a bash example you found somewhere.
 
-## The rules of the Python style
+## How a colon block becomes a shell block
 
-- Start the block with `-py` after the keyword: `for -py`, `if -py`, `while -py`, `case -py`,
-  `select -py`. A function uses `def` instead, and `try:` and `match` need no `-py`.
-- End that line with `:`, and indent the lines inside it. Four spaces is usual; any amount works as
+ShellCraft is a shell, not a Python interpreter. A Python-style block is another way of writing
+the same shell block, and the lines inside it are still shell commands: `echo`, `grep`, `mkdir`.
+What changes is the shape of the block and the language of its condition.
+
+Here is the same loop both ways:
+
+<!-- run -->
+```
+for fruit in apple banana; do
+  echo "I like $fruit"
+done
+
+for -py fruit in apple banana:
+    echo "I like $fruit"
+```
+
+<!-- output -->
+```
+I like apple
+I like banana
+I like apple
+I like banana
+```
+
+The first loop is bash: `do` opens it and `done` closes it. The second is the Python style. The
+`-py` after `for` tells ShellCraft to read the line the Python way, the `:` opens the block, and
+the indented line is its body. When you run it, ShellCraft rewrites it into its own brace form,
+`for -py fruit in apple banana { echo "I like $fruit" }`, and runs that. You never need to write
+the braces yourself, but they're still there if you want a block on one line.
+
+The rules:
+
+- Put `-py` after the keyword that starts the block: `for -py`, `if -py`, `while -py`,
+  `until -py`, `case -py`, `select -py`. Three keywords need no flag because they only exist in
+  the Python style: `def` for a function, `try:` and `match`.
+- End that line with `:` and indent the lines inside it. Four spaces is usual. Any amount works as
   long as the lines of one block line up.
-- The block ends at the first line that's indented less.
-- Blocks inside a Python-style block don't need `-py` again.
-- Conditions are Python: `if -py n > 3:`, with variables named without `$` (`$n` works too). A
-  condition that isn't Python runs as a command, so `if -py grep -q ERROR app.log:` works.
-- Variables are always one word, whatever they hold, so you rarely need quotes around them.
-- `pass` does nothing, as in Python, for a block that has nothing to do yet.
+- The block ends at the first line that's indented less, the way Python's blocks do.
+- Blocks inside a Python-style block don't need `-py` again. A nested `if` or `for` is read the
+  Python way already.
+- `pass` does nothing, for a block you haven't written yet.
 - A short block fits on one line after the colon: `for -py n in 1..3: echo $n`.
-
-The commands inside a block are the same in both styles: `echo`, `read`, `x=1`, `$((n + 1))`.
-Python-style blocks can also set a variable the Python way, `count = 0` and `count += 1` (see
-[Set a variable](#set-a-variable)).
 
 At the prompt, type the first line and press Enter. The next line starts indented for you. Press
 Backspace to go back a level, and press Enter on an empty line to run the block. ↑ brings the whole
 block back, as you typed it.
 
+## Conditions: Python or a command
+
+In bash, the condition of an `if` is always a command. The `if` runs its body when that command
+succeeds, which means it finished with exit status 0. `[ -f notes.txt ]` is a command too: it
+checks something and succeeds when the check is true.
+
+In the Python style, ShellCraft looks at the condition first. If it reads as a Python expression,
+it's evaluated as Python. If it doesn't, it runs as a command, as in bash. So both of these work:
+
+- `if -py int(n) > 3:` is Python, because `int(n) > 3` is a valid expression.
+- `if -py grep -q ERROR app.log:` is a command, because `grep -q ERROR app.log` isn't Python.
+
+`[ … ]`, `[[ … ]]` and `test` are always commands, with or without a `!` in front, even though
+`[ -f x ]` would also read as a Python list. So `if -py [ -f notes.txt ]:` works the way it does in
+bash.
+
+The one place this catches people is a condition that is a single word. A bare word is a valid
+Python name, so ShellCraft reads it as Python and looks for a variable with that name.
+`while -py true:` stops with:
+
+```
+unknown name 'true' (variables here: status; quote text: "true")
+```
+
+Write `True` with a capital T, as in Python. For a command with no arguments, such as `ls`, use the
+bash style or add an argument.
+
+### What a Python condition can use
+
+You get Python's expressions, without imports or your own modules:
+
+- Comparisons, `and`, `or`, `not`, `in`, `not in`, and the `x if test else y` form.
+- Sums with `+`, `-`, `*`, `/`, `//` and `%`.
+- Lists, tuples, indexing and slices: `line.split()[0]`, `name[:3]`.
+- The functions `len`, `int`, `float`, `str`, `bool`, `abs`, `min` and `max`.
+- `match(REGEX, TEXT)`, true when the regular expression is found anywhere in the text.
+- `exists(PATH)`, `isfile(PATH)` and `isdir(PATH)` for files and folders.
+- Text methods: `.lower()`, `.upper()`, `.title()`, `.strip()`, `.split()`, `.replace()`,
+  `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.isdigit()`, `.removeprefix()` and a few
+  more. Anything else, like `.capitalize()`, is refused with
+  `method '.capitalize()' is not available`.
+- `status`, the exit status of the last command.
+- Any function you wrote, called with brackets (see [Functions with def](#functions-with-def)).
+
+`man if` lists everything.
+
+## Variables are text
+
+This is the difference from Python that matters most. A shell variable always holds text, even
+when it looks like a number. In a Python condition, `port` is the text `"8080"`, not the number
+8080, so comparing it to a number quietly gives the wrong answer:
+
+<!-- run -->
+```
+port=8080
+if -py port == 8080:
+    echo "matched"
+else:
+    echo "no match: port is the text '8080'"
+if -py int(port) == 8080:
+    echo "matched once it's a number"
+```
+
+<!-- output -->
+```
+no match: port is the text '8080'
+matched once it's a number
+```
+
+The first `if` compares the text `"8080"` with the number 8080. In Python those are never equal,
+so the `else` runs. The second one turns the text into a number with `int()` first. Do that every
+time you compare or add numbers. A loop variable is text too: in `for -py n in 1..3`, `n` is `"1"`,
+`"2"` and `"3"`, which is why the examples on this page write `n == "2"` or `int(n) == 2`.
+
+`<` and `>` are louder about it. `if -py port > 1000:` stops with:
+
+```
+'>' not supported between instances of 'str' and 'int' (loop variables are text: use int(name) to compare numbers)
+```
+
+And when the text isn't a number at all, `int()` says so:
+`ValueError: invalid literal for int() with base 10: 'abc'`.
+
+You name a variable without `$` in Python: `port`, not `$port`. `$port` works too and means the
+same. A name that has no variable behind it is an error, which also catches typos and text you
+forgot to quote:
+
+```
+unknown name 'nope' (variables here: status; quote text: "nope")
+```
+
 ## Set a variable
 
-Bash style writes `name=value`, with no spaces, and does sums in `$(( ))`:
+You'll want this whenever a loop keeps a running total, or a block works something out to use
+later.
+
+Bash style writes `name=value`, with no spaces around `=`, and does sums in `$(( ))`:
 
 <!-- run -->
 ```
@@ -48,7 +171,7 @@ echo "total: $count"
 total: 6
 ```
 
-Python style writes `name = value`, with a Python value on the right, and `+=` to add to a
+Python style writes `name = value`, with a Python expression on the right, and `+=` to add to a
 variable:
 
 <!-- run -->
@@ -65,15 +188,37 @@ echo "total: $count"
 total: 6
 ```
 
-`-=`, `*=`, `/=`, `//=` and `%=` work too. The value can be anything a Python condition can use:
-`name = name.strip().lower()`, `total = int(a) * 2`, `big = int(n) > 10` (stored as `True` or
-`False`). Variables still hold text, so `int(count)` reads one back as a number; `count += 1` does
-that for you. `/` always gives a fraction (`2.0`), and `//` a whole number.
+The `if` sets `count` to 0 on the first pass. `count += int(n)` reads `count` back as a number,
+adds `n`, and stores the result as text again. After the block, `count` is an ordinary shell
+variable, so `echo "total: $count"` prints it.
 
-This only works inside a Python-style block or a `def`. At the prompt or in a bash block,
-`x = 5` with spaces runs a command named `x`, as in bash. `name=value` works everywhere.
+`-=`, `*=`, `/=`, `//=` and `%=` work too. The value can be anything a Python condition can use:
+`name = name.strip().lower()`, `total = int(a) * 2`, or
+`kind = "even" if int(n) % 2 == 0 else "odd"`. Whatever you assign is stored as text, so
+`int(count)` reads one back as a number; `count += 1` does that for you. `/` always gives a
+fraction (`2.0`), and `//` a whole number.
+
+Some things work differently from Python:
+
+- Assignment only works inside a Python-style block or a `def`. At the prompt or in a bash block,
+  `x = 5` with spaces runs a command named `x`, as it would in bash, and you see
+  `command not found: x`. `name=value` with no spaces works everywhere. The exception is
+  `name = input("…")`, which works anywhere (see [Ask the user](#ask-the-user)).
+- `+=` with text on the right joins the text: `total += size` turns `"0"` into `"0120"`. Write
+  `total += int(size)` to add.
+- `$name` isn't filled in inside a Python string. `msg = "file $n"` stores `file $n` as it is.
+  Join the pieces with `+` instead: `msg = "file " + n`. f-strings are refused.
+- `True` and `False` are stored as the text `"True"` and `"False"`. Any text that isn't empty
+  counts as true, so `if -py ok:` runs even when `ok` holds `"False"`. Compare it instead:
+  `if -py ok == "True":`.
+- `$( )` doesn't run in a Python value. `out = $(date)` is refused with
+  `$( … ) is bash: write out=$(command), with no spaces`. Do what it says:
+  `out=$(date)` works inside any block.
 
 ## if, elif, else
+
+You'll reach for this whenever a script has to choose, such as greeting differently by time of
+day.
 
 Bash style:
 
@@ -112,7 +257,9 @@ else:
 Good afternoon
 ```
 
-Variables are text, so `int(hour)` turns one into a number before comparing it.
+`elif` and `else:` line up with the `if`, as in Python, and don't take `-py`. `int(hour)` turns
+the text into a number before comparing it. [Conditions and choices](conditions.md) explains the
+bash tests in more depth.
 
 ## Comparing text and numbers
 
@@ -155,11 +302,12 @@ starts with Ada
 a short name with Love in it
 ```
 
-`man if` lists everything a Python condition can use: `len`, `int`, `match(REGEX, TEXT)`,
-`exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`, `.lower()`, `.endswith()` and more.
+Notice that the bash version needs quotes around `"$name"` because the value has a space in it,
+and the Python version doesn't, because `name` is one Python value however many spaces it holds.
 
 ## Test a command
 
+Sometimes the question is "did this command work?", such as "does the log contain an error?".
 Bash style puts the command straight after `if`:
 
 <!-- run -->
@@ -175,8 +323,8 @@ fi
 the log has errors
 ```
 
-Python style does the same. A condition that isn't Python runs as a command, and it's true when the
-command succeeds:
+Python style does the same. `grep -q ERROR app.log` isn't Python, so it runs as a command, and the
+condition is true when the command succeeds:
 
 <!-- run -->
 ```
@@ -190,12 +338,13 @@ if -py grep -q ERROR app.log:
 the log has errors
 ```
 
-`status` is the last command's exit status, so you can also run the command first and check it:
-`if -py status != 0:`.
+`status` is the last command's exit status, so you can also run the command first and check it on
+the next line: `if -py status != 0:`.
 
 ## Files and folders
 
-Bash style:
+Before writing a backup, you'd check that the folder is there and that you won't overwrite an old
+one. Bash style:
 
 <!-- run -->
 ```
@@ -223,6 +372,9 @@ if -py isdir("backups") and not exists("backups/latest.tar"):
 ```
 the folder is there, with no backup yet
 ```
+
+The path is quoted here because it's text, not a variable. `isdir(folder)`, with no quotes, would
+check the folder named in the variable `folder`.
 
 ## for: a list of items
 
@@ -257,10 +409,12 @@ I like banana
 I like cherry
 ```
 
+The list after `in` is shell words, not a Python list: no brackets and no commas.
+
 ## for: counting
 
-Bash style counts with `{FIRST..LAST}`, and Python style with `FIRST..LAST`. A third number is the
-step:
+Bash style counts with `{FIRST..LAST}`, and Python style with `FIRST..LAST`. Unlike Python's
+`range()`, the last number is included. A third number is the step:
 
 <!-- run -->
 ```
@@ -285,8 +439,9 @@ step 20
 ## for: files and lines
 
 Both styles take a pattern like `*.log`. To go through a command's output, bash style uses `$( )`,
-which splits it into words. Python style puts the command in `( )`, and gives you one whole line at a
-time, spaces and all:
+which splits it into words. Python style puts the command in `( )`, and gives you one whole line at
+a time, spaces and all. Reach for the Python form when you read a list of servers or a CSV file,
+where a line is the unit you care about:
 
 <!-- run -->
 ```
@@ -313,6 +468,26 @@ line: web2 frontend
 line: db1 database
 ```
 
+The bash loop sees six words, because `$( )` splits at spaces as well as line ends. The Python
+loop sees three lines.
+
+To take a line apart, use `.split()` as you would in Python:
+
+<!-- run -->
+```
+printf "web1 frontend\ndb1 database\n" > hosts.txt
+for -py line in (cat hosts.txt):
+    host = line.split()[0]
+    role = line.split()[1]
+    echo "$host is a $role server"
+```
+
+<!-- output -->
+```
+web1 is a frontend server
+db1 is a database server
+```
+
 Skip comments and blank lines with an `if` and `continue`:
 
 <!-- run -->
@@ -332,7 +507,8 @@ server: db1
 
 ## while and until
 
-Bash style:
+A `while` loop repeats as long as its condition holds, such as counting down or waiting for a file
+to appear. Bash style:
 
 <!-- run -->
 ```
@@ -373,11 +549,12 @@ liftoff!
 
 `until` runs until its condition holds, in both styles: `until [ $n -ge 3 ]; do … done`, or
 `until -py int(n) >= 3:`. `while true` loops until a `break`; in Python style it's
-`while -py True:`.
+`while -py True:`, with a capital T (see [Conditions: Python or a command](#conditions-python-or-a-command)).
 
 ## break and continue
 
-They work the same in both styles. Here they are in Python style:
+They work the same in both styles: `continue` skips to the next pass, and `break` leaves the loop.
+Here they are in Python style:
 
 <!-- run -->
 ```
@@ -419,7 +596,7 @@ web on prod
 api on prod: ask first
 ```
 
-The bash version of the same thing:
+The bash version of the same thing needs a `done` and a `fi` for each block it opens:
 
 <!-- run -->
 ```
@@ -444,7 +621,8 @@ api on prod: ask first
 
 ## match: one of several choices
 
-Bash style:
+When one value can be one of several things, a file type or a menu choice, a chain of `elif`s gets
+long. Bash uses `case` for this:
 
 <!-- run -->
 ```
@@ -486,11 +664,17 @@ photo.jpg: picture
 script.py: something else
 ```
 
-`match file:` and `match $file:` are the same: both read the variable. A pattern can be exact text
-(`"yes"`) or use `*`, `?` and `[ ]` (`"[yY]*"` is anything that starts with y or Y). Only the first
-choice that matches runs, and when none matches, nothing runs. A short choice fits on one line:
-`case "q": echo bye`. Python's `if` guards (`case x if …:`) aren't supported: put an `if` inside
-the choice instead.
+It looks like Python's `match`, but the patterns are shell patterns, the kind you use for file
+names. That's what makes `"*.txt"` work:
+
+- `match file:` and `match $file:` are the same: both read the variable.
+- A pattern can be exact text (`"yes"`) or use `*`, `?` and `[ ]`. `"[yY]*"` is anything that
+  starts with y or Y.
+- Only the first choice that matches runs. When none matches, nothing runs.
+- A short choice fits on one line: `case "q": echo bye`.
+- Python's `if` guards (`case x if …:`) aren't supported, and say
+  `match: no 'if' guards on a choice; test inside it instead`. Put an `if` inside the choice.
+  Class patterns and capture patterns aren't supported either.
 
 The other spelling is `case -py $file:` with bare patterns, `"*.txt" | "*.md":` and `_:`. It works
 the same way:
@@ -511,9 +695,10 @@ a text file
 
 ## Ask the user
 
-Both ways of asking work in both styles. `read -p "QUESTION" NAME` is the bash way, and
-`NAME = input("QUESTION")` is the Python way. `int(input(…))` keeps asking until the answer is a
-whole number.
+Scripts that set something up often need an answer: a name, a yes or no, a number. Both ways of
+asking work in both styles. `read -p "QUESTION" NAME` is the bash way, and
+`NAME = input("QUESTION")` is the Python way. Unlike other Python assignments,
+`name = input(…)` works anywhere, even outside a block.
 
 Bash style:
 
@@ -553,12 +738,13 @@ Get the newsletter? (y/n) y
 Thanks Ada, you're signed up
 ```
 
-`read -s` hides what's typed, for passwords and tokens. The question in `input()` can use
-variables: `input("Age of $name? ")`.
+`.lower()` means "Y", "yes" and "Yes" all count. `read -s` hides what's typed, for passwords and
+tokens. The question in `input()` can use variables, unlike other Python strings:
+`input("Age of $name? ")`.
 
 ### Keep asking until the answer is good
 
-Bash style:
+A required answer can't be empty, so ask again until it isn't. Bash style:
 
 <!-- run: ["", "website"] -->
 ```
@@ -593,7 +779,8 @@ Project name (required): website
 Project: website
 ```
 
-A number in a range:
+For a number in a range, `int(input(…))` does half the work: it keeps asking until the answer is
+a whole number. The `while` does the other half and checks the range:
 
 <!-- run: ["seven", "12", "7"] -->
 ```
@@ -612,9 +799,12 @@ Level (1-10): 7
 Level 7
 ```
 
+"seven" is refused by `int(input(…))` itself, which asks again on the spot. "12" is a whole number,
+so `input` accepts it, but the `while` condition sees it's out of range and goes round again.
+
 ## Menus
 
-A menu that keeps asking until you quit, in bash style:
+A menu that keeps asking until you quit is a loop around a choice. In bash style:
 
 <!-- run: ["1", "q"] -->
 ```
@@ -672,9 +862,11 @@ Choice: q
 bye
 ```
 
+The `break` inside the `case "q"` choice leaves the `while` loop, not the `match`.
+
 ### A numbered menu with select
 
-`select` numbers the choices for you. Bash style:
+`select` numbers the choices for you and puts the one picked in a variable. Bash style:
 
 <!-- run: ["2"] -->
 ```
@@ -718,12 +910,17 @@ Deploy to which environment? 3
 deploying to prod
 ```
 
-`select -py` takes its choices like `for -py`, so `select -py host in (cat hosts.txt):` offers one
-line of the file per choice.
+`PS3` is the question `select` asks. When the answer isn't one of the numbers, `env` is empty and
+`REPLY` holds what was typed, so the `if` explains and asks again. `select -py` takes its choices
+like `for -py`, so `select -py host in (cat hosts.txt):` offers one line of the file per choice.
 
-## Functions
+## Functions with def
 
-Bash style: `name() { … }`, with the arguments in `$1`, `$2` and so on:
+A function gives a name to a few commands you run often, like greeting someone or checking a path.
+
+### Arguments and defaults
+
+Bash style is `name() { … }`, with the arguments in `$1`, `$2` and so on:
 
 <!-- run -->
 ```
@@ -742,8 +939,8 @@ Hello, Ada
 Hi, Sam
 ```
 
-Python style: `def`, with the arguments named in the brackets. A parameter with `=` has a default,
-and one without is required:
+Python style uses `def`, with the arguments named in the brackets. A parameter with `=` has a
+default, and one without is required:
 
 <!-- run -->
 ```
@@ -759,10 +956,14 @@ Hello, Ada
 Hi, Sam
 ```
 
-Typing just `greet` stops with `greet: missing argument 'name'`, because `name` has no default. The
-parameters are `local`: they belong to the call, and the shell's own variables of the same
-name come back afterwards. `$1`, `$#` and `$@` still work, so extra arguments aren't lost. Inside,
-conditions are Python:
+You call it like any shell command, `greet Ada`, with spaces and no brackets. Typing `greet` alone
+stops with `greet: missing argument 'name'`, followed by how to use it, because `name` has no default.
+
+The parameters are local: they belong to that one call, and a shell variable with the same name
+comes back unchanged afterwards. `$1`, `$#` and `$@` still work, so extra arguments aren't lost.
+
+Inside a `def`, conditions are Python with no `-py`, and `return 1` gives a failing status, the
+way a bash function would:
 
 <!-- run -->
 ```
@@ -786,7 +987,12 @@ missing.txt isn't there
 (it returned 1)
 ```
 
-Ask from a function in either style. Here it's `input()` in a `def`:
+`||` runs the command on its right only when the one on its left fails. `$?` is the status the
+function returned.
+
+### Ask from inside a function
+
+Asking works in either style. Here it's `input()` in a `def`:
 
 <!-- run: ["40"] -->
 ```
@@ -805,9 +1011,15 @@ How old is Ada? 40
 Ada is an adult
 ```
 
-`return` gives back a Python value. Called as a command, a number from 0 to 255 is the status,
-`True` and `False` are 0 and 1, and anything else is printed. In Python code you call a function
-with brackets and get the value itself, so a check reads like Python:
+### return gives back a value
+
+In bash, a function's `return` is only a status, a number from 0 to 255, and the way to hand back
+text is to print it. In a `def`, `return` gives back a Python value, and what you get depends on how
+you call the function:
+
+- Called as a command (`add 1200 34`), a number from 0 to 255 becomes the exit status, `True` and
+  `False` become 0 and 1, and anything else is printed. A plain `return` is status 0.
+- Called from Python with brackets (`add(4, 4)`), you get the value itself.
 
 <!-- run -->
 ```
@@ -837,15 +1049,49 @@ Mon: work 8 hours
 1234
 ```
 
-A bash function you call from Python gives what it printed, so `slug(title)` works with
-`slug() { echo "$1" | tr "A-Z " "a-z-"; }`. [Functions](functions.md#call-a-function-from-python)
-has the details. Giving back a value with `echo` and `$( )`, and keeping functions in your rc file
-work the same as in [Functions](functions.md).
+`is_weekend(day)` returns `True` or `False`, so the `if` in `plan` reads like Python. `add(4, 4)`
+returns the number 8, and `hours = …` stores it as the text `"8"`, which is why
+`"…work " + hours` can join it to other text. `add 1200 34` is called as a command, and 1234 is
+more than 255, so it's printed rather than used as a status. `$( )` captures that printed text.
+
+Mind the difference between printing and returning. `echo` inside a function writes to the screen,
+or into `$( )`. `return` hands a value back to the Python code that called it. A Python string
+doesn't fill in `$name`, so build a returned string with `+`, as `plan` does.
+
+### Call a bash function from Python
+
+A bash function called from Python gives back what it printed, with the last newline taken off.
+That lets you use any shell tool inside a Python expression:
+
+<!-- run -->
+```
+slug() { echo "$1" | tr "A-Z " "a-z-"; }
+
+def save_post(title):
+    name = slug(title) + ".md"
+    echo "saving $name"
+
+save_post "Hello World"
+```
+
+<!-- output -->
+```
+saving hello-world.md
+```
+
+`slug` is bash: it pipes its argument through `tr` to make it lower case with dashes. `slug(title)`
+in the `def` runs it and gets `hello-world` back as text. Calling a name that isn't a function
+stops with `foo is not a function`, followed by the list of built-in ones.
+
+[Functions](functions.md#call-a-function-from-python) has the details. Giving back a value with
+`echo` and `$( )`, and keeping functions in your rc file, work the same as in
+[Functions](functions.md).
 
 ## Handle errors with try
 
-Bash style checks each command that might fail. `if ! cmd; then` runs a block when it fails, and
-`cmd || other` runs `other`:
+A script that copies files or edits a config should stop and say so when one step fails, and clean
+up after itself either way. Bash style checks each command that might fail. `if ! cmd; then` runs a
+block when it fails, and `cmd || other` runs `other`:
 
 <!-- run -->
 ```
@@ -861,12 +1107,13 @@ grep -q "^port=" app.conf || echo "no port set"
 no host set
 ```
 
-To stop at the first failure in bash, you turn on `set -e` and clean up in a trap:
-`trap 'rm -f run.lock' EXIT`. See `man set` and `man trap`.
+To stop at the first failure in bash, you turn on [`set -e`](errors.md#stop-on-errors-with-set--e)
+and clean up in a [trap](errors.md#clean-up-with-trap): `trap 'rm -f run.lock' EXIT`.
 
-Python style wraps the commands in `try:`. The first command that fails (its status isn't 0)
-skips the rest of the body and runs `except:`. `except as rc:` puts the failing status in `rc`.
-`finally:` runs at the end whatever happened:
+Python style wraps the commands in `try:`. It looks like Python's, but there are no exceptions
+here: a command fails when its exit status isn't 0. The first command that fails skips the rest of
+the body and runs `except:`. `except as rc:` puts the failing status in `rc`. `finally:` runs at the
+end whatever happened:
 
 <!-- run -->
 ```
@@ -889,28 +1136,31 @@ a setting is missing (status 1)
 check done
 ```
 
-Some things to know:
+The first `grep` finds `name=` and succeeds, so the body goes on. The second finds no `host=` and
+fails with status 1, so `echo "host found"` is skipped and `except` runs with `rc` set to 1.
+`finally` runs last.
+
+The short version of the rules:
 
 - A Python line that goes wrong counts as a failure too, such as a condition with an unknown name.
 - Tests don't count: a command in an `if` or `while` condition, on the left of `&&` or `||`, or
   after `!`.
-- A function you call in the body counts as one command. If it returns a failing status, `except`
-  runs.
+- A function you call in the body counts as one command.
 - You need `except:`, `finally:` or both. There are no error types, so `except ValueError:` is
-  refused.
-- `finally:` also runs when `break`, `continue`, `return` or `exit` leaves the block, so it's a
-  good place to delete a lock file or a temporary folder.
-- When `except:` handles a failure, `set -e` and the ERR trap don't see it. With no `except:`,
-  the failure goes on after `finally:`, as if there were no try.
+  refused with `there are no error types here; use 'except:', or 'except as status:' for the failing status`.
+- `finally:` also runs when `break`, `continue`, `return` or `exit` leaves the block, so it's the
+  place to delete a lock file or a temporary folder.
 
 A short body fits after the colon: `try: grep -q ERROR app.log` and `except: echo "no errors"`.
-In a bash function, use the brace form, `try { … } except as rc { … }`. See
-[Functions](functions.md#catch-failures-with-try) and `man try`.
+In a bash function, use the brace form, `try { … } except as rc { … }`.
+[Catch failures with try](errors.md#catch-failures-with-try) has the full story: the brace form,
+how `try` works with `set -e` and the ERR trap, and what to check when it doesn't catch something.
+`man try` has it too.
 
 ## Mixing the styles
 
-Use whichever reads best for each block. A Python-style block can hold bash lines, and a bash
-function can hold a Python-style block:
+You don't have to pick one style for a whole script. Use whichever reads best for each block. A
+Python-style block can hold bash lines, and a bash function can hold a Python-style block:
 
 <!-- run -->
 ```
@@ -938,14 +1188,39 @@ report line 1
 report line 2
 ```
 
+Inside the `for -py` loop, the `if [ … ]; then … fi` is bash, because it ends in `then` rather
+than `:`. A line keeps the style it's written in. The same goes for variables: one set the Python
+way with `count = 0` is an ordinary shell variable afterwards, and `$count` reads it in a bash line.
+
 The brace form, `for -py n in 1..3 { echo $n }`, is the Python style on one line, and still works
 everywhere.
 
 ## In your rc file, startup files and funcs
 
 Python-style blocks work in `~/.shellcraft/rc`, in `~/.shellcraft/startup/*.sc`, in funcs, with
-`source`, and at the prompt. In a func, a whole block counts as one step. A file with a block that's
-indented wrongly doesn't run at all, and ShellCraft says which line to fix, the way Python does:
+`source`, and at the prompt. In a func, a whole block counts as one step.
+
+## When the indentation is wrong
+
+Indentation is part of the syntax, so a file with a block that's indented wrongly doesn't run at
+all. ShellCraft says which line to fix, the way Python does. For example, this loop forgot to
+indent its body:
+
+```
+for -py n in 1..2:
+echo $n
+```
+
+If that's in a file called `count.sc`, `source -n count.sc` checks it without running anything
+and shows:
+
+```
+count.sc:2: expected an indented block
+1 problem (1 error)
+```
+
+Running the file, or typing it at the prompt, gives the same message with the line it's about.
+The messages you can get:
 
 | Message | What's wrong |
 | --- | --- |
@@ -957,7 +1232,29 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | `try: needs an 'except:' or a 'finally:'` | A `try:` block with nothing after it |
 | `match: each choice is case PATTERN:` | A choice in a `match` block without `case` in front |
 
+## Common mistakes
+
+**You forgot the colon.** `if -py int(n) > 3` with no `:` isn't a Python-style header, so
+ShellCraft reads it as the brace form and stops with `if: missing '{'`. Add the `:`.
+
+**You forgot `-py`.** `if n == "3":` at the top of a script is read as bash, which wants a
+`then`, so it stops with `missing 'then'`. Inside a Python-style block or a `def` you can leave `-py` out, but not on the outer
+block.
+
+**A comparison is always false.** You compared a variable with a number, as in `n == 3`. Variables
+are text, so write `n == "3"` or `int(n) == 3`. See [Variables are text](#variables-are-text).
+
+**`while -py true:` says `unknown name 'true'`.** Python's true is `True`.
+
+**`$name` shows up as it is.** You put it in a Python string, such as `msg = "hi $name"`. Write
+`msg = "hi " + name`.
+
+**`if -py ok:` runs even though `ok` is `False`.** The variable holds the text `"False"`, which
+isn't empty. Write `if -py ok == "True":`.
+
 ## Side by side
+
+Use this table to translate a bash example into Python style or back, one line at a time.
 
 | | Bash style | Python style |
 | --- | --- | --- |
@@ -972,7 +1269,8 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | A file exists | `[ -f x ]` | `isfile("x")` |
 | A list | `for x in a b c; do … done` | `for -py x in a b c:` |
 | Counting | `for n in {1..5}; do` | `for -py n in 1..5:` |
-| Lines of a file | `for -py line in (cat f)` | `for -py line in (cat f):` |
+| Words of a command's output | `for w in $(cat f); do` | (use the line form) |
+| Lines of a file | (no direct form) | `for -py line in (cat f):` |
 | While | `while [ … ]; do … done` | `while -py …:` |
 | Forever | `while true; do` | `while -py True:` |
 | Choices | `case $x in a) … ;; *) … ;; esac` | `match x:` then `case "a":` and `case _:` |
@@ -980,6 +1278,7 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | Ask | `read -p "Q? " x` | `x = input("Q? ")` |
 | Ask for a number | `read -p "N? " n` and a test | `n = int(input("N? "))` |
 | Function | `f() { local a=$1; … }` | `def f(a):` |
+| Give back a value | `echo` it, and `$(f)` | `return value` |
 | Catch a failure | `if ! cmd; then … fi` | `try:` then `except:` |
 | Stop at the first failure | `set -e` | `try:` |
 | Always clean up | `trap 'rm -f lock' EXIT` | `finally:` |

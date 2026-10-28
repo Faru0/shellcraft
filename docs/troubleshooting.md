@@ -2,34 +2,141 @@
 
 ← [Manual](README.md)
 
-Common problems and how to fix them. If yours isn't here, the [bug report](#reporting-a-bug)
-section says what to send.
+This page is for when something didn't do what you expected. It's organised by symptom: find the
+message you're looking at, or the thing that's going wrong, and the fix is right under it. The
+messages are quoted exactly as ShellCraft prints them, so you can search this page for a few
+words of yours.
 
-## "command not found" for a program I have
+If your problem isn't here, the [bug report](#reporting-a-bug) section says what to send.
 
-ShellCraft runs only its own commands and modules until you allow your system's programs:
+## How to read an error
+
+When a command fails, ShellCraft draws a box around the error. The title says what kind of
+failure it was, the first line names the command, and the last line is the message:
+
+```
+╭─ ✗ command failed ────────────╮
+│ cat  (command)                │
+│ cat: nofile.txt: no such file │
+╰───────────────────────────────╯
+```
+
+In a pipe, the title says `✗ pipeline failed` and the first line says which segment broke, such
+as `segment 2/3`. A `✗ parse error` box means ShellCraft couldn't even read the line, so nothing
+ran. It points at the spot with a `^`.
+
+After a failure, the prompt shows `[✗ N]`, where N is the exit status. Zero means success, and
+anything else means something went wrong. `echo $?` prints the last one.
+
+## Commands that aren't found
+
+### `command not found: git (OS commands are off`
+
+The full message ends by telling you to run `settings system_commands on`. You're trying to run a
+program from your system, such as `git`, `python` or `docker`. Out of the box ShellCraft runs only
+its own commands and modules, so a command behaves the same on Windows and Linux. To let it run
+your system's programs too:
 
 ```
 settings system_commands on
 ```
 
-`which -a NAME` shows everything a name could run. See
-[Settings and themes](settings-and-themes.md#your-systems-programs).
+For one session only, start it with `shellcraft --allow-system` instead. `which -a NAME` shows
+everything a name could run. See [Settings and themes](settings-and-themes.md#your-systems-programs).
+
+### `command not found: gti`, with `did you mean 'git'?`
+
+A typo. When a name is close to a command ShellCraft knows, the message ends with a suggestion.
+Fix the spelling. If you make the same typo all the time, an [alias](aliases-and-history.md) can
+catch it.
+
+### `command not found: diag`
+
+`diag` is hidden until you turn diagnostics on:
+
+```
+settings diagnostics on
+```
+
+`settings diagnostics off` hides it again.
+
+### `module 'myip' is disabled`
+
+The full message ends with `run: modules enable myip`. Someone, maybe you or a
+[profile](profiles.md), switched the module off. Switch it back on:
+
+```
+modules enable myip
+```
+
+`modules -a` lists every module with an on or off column, including the ones that are off.
+
+### A full-screen program like `vim` or `top` looks broken
+
+A program that draws on the whole screen needs the whole terminal. Run it in a subshell:
+
+```
+sub vim notes.txt
+```
+
+See [Subshells](subshells.md).
 
 ## My module doesn't show up
 
+You wrote a module, and typing its name gives `command not found: NAME`, or the module fails when
+you run it. Work through these in order:
+
 1. Check where it is. Your modules belong in `~/.shellcraft/modules/`, with the file named after
-   the command: `ghrepo.py` for `ghrepo`.
-2. Run `reload`. It lists any module that failed to load, with the error.
-3. Run the checker on it. It says exactly what's wrong:
+   the command: `ghrepo.py` for `ghrepo`. A name has to start with a letter and use only letters,
+   digits, `-` and `_`.
+2. Run it once. ShellCraft imports a module's code the first time you use it, so an error in the
+   file shows up then, in the error box. For example:
+
+   ```
+   ╭─ ✗ command failed ────────────────────────────────────╮
+   │ ghrepo  (command)                                     │
+   │ SyntaxError: '(' was never closed (ghrepo.py, line 2) │
+   ╰───────────────────────────────────────────────────────╯
+   ```
+
+   A `ModuleNotFoundError: No module named 'requests'` means your module imports a package that
+   isn't installed. Install it with `pip install requests` in the same environment ShellCraft runs
+   in.
+3. Run `reload`. It loads the modules folder again and lists any module that failed, one line
+   each, such as `⚠ ghrepo.py: SyntaxError: '(' was never closed (ghrepo.py, line 2)`. With
+   `settings lazy_modules off` it catches import errors too, because every module is imported at
+   once.
+4. Run the checker on it. It tests everything and says exactly what's wrong:
 
    ```
    ingest check ~/.shellcraft/modules/ghrepo.py
    ```
 
-4. Check that it isn't switched off: `modules -a` shows every module with an on or off column.
-5. Check the name. A module can't have a builtin's name (`ls`, `grep`, `curl`…), because the builtin
-   always wins.
+   Each line is `✓ PASS`, `! WARN` or `✗ FAIL`, with the reason next to it.
+5. Check that it isn't switched off: `modules -a` shows every module with an on or off column.
+6. Check the name. A module can't have a builtin's name, such as `ls`, `grep` or `curl`, because
+   the builtin always wins. The checker says so:
+   `'ls' is a builtin command; builtins win, so the module could never run`. Rename the file.
+
+[Your first module](modules/first-module.md) walks through writing one that works.
+
+## A module asks for a key
+
+Some modules call services that need an account. The message says where to get the key and how
+to save it. For example:
+
+```
+queryDns: no DnsDumpster API key. Get a free one at https://dnsdumpster.com, then run: settings DNSDUMPSTER_API_KEY
+```
+
+```
+queryCensys: no Censys API token. Create a Personal Access Token in the Censys Platform (user icon → API Access), then run: settings CENSYS_API_TOKEN
+```
+
+Run the `settings` line it gives you. It asks for the key with hidden typing, so the key never
+shows on screen or lands in your history. `queryCensys` also needs the Censys SDK. If it's
+missing, the message says `queryCensys: needs the Censys SDK: pip install censys-platform`.
+[API keys](settings-and-themes.md#api-keys) lists where to get each key.
 
 ## An AI client can't see my module
 
@@ -37,16 +144,96 @@ A module is only offered to AI clients when it has a `NAME.skill` file next to i
 doesn't say `expose = false`. A server that was already running needs `mcp restart` to pick up a
 module that's been switched on or off. See [Module reference](modules/reference.md#the-skill-file).
 
+## Mistakes on the command line
+
+### `unterminated ' quote`
+
+A `✗ parse error`. You opened a quote and never closed it, so ShellCraft can't tell where the text
+ends. The `^` under the line points at the quote. Add the missing one:
+
+```
+echo 'it works'
+```
+
+To put an apostrophe inside, use double quotes around the text: `echo "it's fine"`.
+
+### `alias x: an alias must be a single command (no '|', '>' or '>>')`
+
+An alias stands for one command. For several commands joined by a pipe, write a
+[function](scripting/functions.md) or a [func](funcs.md) instead.
+
+### `settings: unknown setting 'NAME'` or `theme: unknown theme 'NAME'`
+
+The name is misspelled. The message lists every name that would work, in brackets after `try:`.
+`settings` and `theme` on their own show the lists too.
+
+### `settings: expected on, off or toggle, got 'maybe'`
+
+An on/off setting takes `on`, `off` or `toggle`. `yes`, `no`, `true`, `false`, `1` and `0` work
+too.
+
+### `profile: no profile 'NAME'` or `func: no func 'NAME'`
+
+There's nothing by that name. The message lists the ones you have, or says
+`none yet (profile new NAME)` when there are none. `profile` and `func list` show them.
+
+### `NAME runs OS commands (system: yes): settings system_commands on`
+
+The func's header says it runs programs from your system, and OS commands are off. Turn them on
+with `settings system_commands on`, or start ShellCraft with `--allow-system`. See
+[Funcs](funcs.md).
+
+## Your rc file or a startup file fails
+
+When a line in a startup file fails, ShellCraft says which file and which line, then shows the
+error box:
+
+```
+✗ rc:2: cd /nonexist
+╭─ ✗ command failed ───────────────╮
+│ cd  (command)                    │
+│ cd: no such directory: /nonexist │
+╰──────────────────────────────────╯
+```
+
+Here `rc:2` means line 2 of `~/.shellcraft/rc`. The rest of the file still runs, so one bad line
+doesn't stop your setup. If the file has `set -e` in it, the line ends with
+`(set -e: the rest of the file was skipped)`, and nothing after it runs.
+
+To fix it, open the file, correct the line, and run it again without restarting:
+
+```
+source ~/.shellcraft/rc
+```
+
+If the shell won't start properly because of a startup file, start without them:
+`shellcraft --no-startup`. [Startup](startup.md) has more, and
+[Errors and cleanup](scripting/errors.md) explains `set -e`.
+
 ## The start is slow
 
 ```bash
 shellcraft --timing
 ```
 
-Just before the prompt, this prints how long each step took. The first line is the time before
+Right before the prompt, this prints how long each step took. The first line is the time before
 ShellCraft's own code started: Python itself, its packages, and on Windows any antivirus that scans
 the files. On a typical Linux machine the whole start takes under a quarter of a second. `diag`
 keeps the last start's report, so you can paste it into a bug report.
+
+## The banner warns about a missing package
+
+Some features need an extra package. When one is missing, the banner says what you lose and how
+to install it. The messages start like this:
+
+| Message | What's missing | Fix |
+| --- | --- | --- |
+| `pyte is not installed: switching between subshells replays their last output instead of redrawing their screen` | A clean redraw when you switch subshells | `pip install pyte` |
+| ``the 'mcp' package is not installed: `mcp start` and --mcp won't work`` | The MCP server for AI clients | `pip install mcp` |
+| ``pywinpty is not installed: `sub PROGRAM` runs in the foreground, with no footer and no job list`` | Windows only: subshells, the footer, the mouse | `pip install pywinpty` |
+
+The banner prints the exact command, with the path of the Python ShellCraft runs in. Use that one,
+so the package goes into the right environment.
 
 ## Windows
 
@@ -69,7 +256,10 @@ diag keys --raw              # what the terminal itself sends
 diag keys --raw --mouse      # the same for the mouse
 ```
 
-On Linux, Alt-v should show as `escape v`. `settings diagnostics off` hides `diag` again.
+On Linux, Alt-v should show as `escape v`. If it doesn't show at all, your terminal is keeping
+the key for itself: Konsole's menu bar takes Alt-v, for example. Press `Esc` then `v` instead.
+`settings diagnostics off` hides `diag` again.
+[Keyboard and mouse](keyboard-and-mouse.md#linux-and-windows) has more on Alt keys.
 
 ## Odd numbers on the line after a Ctrl-C
 
@@ -93,18 +283,34 @@ On Windows, also run `python main.py --timing` once; its last line says the same
 
 ## Something crashed
 
-ShellCraft keeps running after an unexpected error and writes the details to
-`~/.shellcraft/crash.log`. The newest entries are at the end.
+ShellCraft keeps running after an unexpected error. You'll see the error box, then a grey line
+like this one:
+
+```
+(an unexpected error in the prompt; details in /home/you/.shellcraft/crash.log)
+```
+
+That file, `~/.shellcraft/crash.log`, has the full details. The newest entries are at the end.
+Include the last one in a [bug report](#reporting-a-bug).
 
 ## Start fresh
 
-To rule out your own setup, start with an empty home folder for one session:
+When nothing makes sense, check whether your own setup is the cause. This starts ShellCraft with
+an empty home folder for one session, and leaves yours alone:
 
 ```bash
 SHELLCRAFT_HOME=$(mktemp -d) shellcraft
 ```
 
-Or move yours aside to start over for good: `mv ~/.shellcraft ~/.shellcraft.old`.
+If the problem goes away, it's something in your `~/.shellcraft` folder. To skip only your startup
+files, use `shellcraft --no-startup`.
+
+Or move yours aside to start over for good. ShellCraft makes a new folder with fresh starter files
+at the next start:
+
+```bash
+mv ~/.shellcraft ~/.shellcraft.old
+```
 
 ## Reporting a bug
 

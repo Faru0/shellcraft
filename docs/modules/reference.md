@@ -2,14 +2,15 @@
 
 ← [Manual](../README.md)
 
-Every rule, file and option for writing ShellCraft modules, in one place. To learn by doing, start
-with [Your first module](first-module.md). To convert a script you already have, see
-[Ingest a script](ingest.md).
+Every rule, file and option for writing ShellCraft modules, in one place. Come here when you're
+writing or fixing a module and need the exact name of a key, the order of a section, or what the
+checker looks for. To learn by doing, start with [Your first module](first-module.md). To convert
+a script you already have, see [Ingest a script](ingest.md).
 
 ## The files
 
 A module is up to three files with the same name, in `~/.shellcraft/modules/` (or a bundled
-modules folder):
+modules folder). Use this table to see what each file adds, and what happens when one is missing:
 
 | File | Effect |
 | --- | --- |
@@ -30,6 +31,9 @@ careful with modules that delete, overwrite or send data, and consider [`expose 
 
 ## Rules for the .py file
 
+The rules every module's code follows. Most of them exist because a module's output may go to a
+pipe, a file or an AI client rather than your screen.
+
 1. **Name:** the file name is the command name. Use letters, digits, `_` or `-`, and start with a letter. Don't reuse a builtin name (`ls`, `cat`, `grep`, …): builtins win, so your module would never run. The checker catches this.
 2. **Entry point:** `def run(args: list[str], stdin: str) -> str`. (A converted script uses `@script` instead of rules 3–5.)
    - `args` are the words after the command name, already split and unquoted.
@@ -38,7 +42,7 @@ careful with modules that delete, overwrite or send data, and consider [`expose 
 4. **Never call `sys.exit()`.** Parse arguments with `shellcraft.modkit.ArgParser`, which is argparse but raises `ModuleError` instead of exiting.
 5. **Fail with `ModuleError("prog: clear one-line message")`.** Other exceptions still work, but they show up as `TypeError: …` noise.
 6. **Accept stdin and FILE arguments,** like Unix tools. Relative paths resolve against the shell's current directory.
-7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` just work.
+7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` work on it.
 8. **Optional metadata:**
    - `SUMMARY = "..."`: one line for `help` and Tab completion, used when the `.skill` has no `summary`.
    - `SPINNER_TEXT = "..."`: shown while slow calls run.
@@ -73,7 +77,7 @@ def run(args, stdin):
 
 ## API keys
 
-If your module calls a service that needs a key, don't invent your own config file. Declare the
+Copy this when your module needs a key. If your module calls a service that needs a key, don't invent your own config file. Declare the
 environment variable, and read it from `os.environ` when `run()` is called:
 
 ```python
@@ -107,7 +111,7 @@ Rules:
 
 ## The .md file
 
-Use this section order: `# <name>`, a one-sentence description, `## Synopsis` (a code block),
+The manual page that `man NAME` shows. Use this section order: `# <name>`, a one-sentence description, `## Synopsis` (a code block),
 `## Description`, `## Options` (a table with every flag, both forms, and defaults),
 `## Examples` (a code block, with at least one pipe), `## Errors`, `## See also`.
 See `example.md`.
@@ -134,7 +138,7 @@ refuses to run it. `--expose NAME,...` on the server command line narrows the li
 
 ### `[[params]]`: typed parameters
 
-Each `[[params]]` table becomes one typed property of the tool's MCP input schema. An AI calls
+Copy this block once per option or argument. Each `[[params]]` table becomes one typed property of the tool's MCP input schema. An AI calls
 `{"top": 3, "ignore_case": true, "stdin": "…"}`, and ShellCraft turns that back into the CLI args
 your `run()` already parses: `["--top", "3", "--ignore-case"]`. Your module code doesn't change.
 
@@ -174,6 +178,9 @@ text, and it also works on its own. The checker reports how many switches it fou
 
 ### `[[tests]]`: examples that are checked
 
+Tests the checker runs against your module. Use `expect` for the exact output, `contains` for part
+of it, or `error` for a failure you expect.
+
 ```toml
 [[tests]]
 args = ["-n", "2"]
@@ -193,6 +200,9 @@ If any test has `network = true`, the checker treats the whole module as network
 skips its plain smoke calls (`run([], "")`), unless you pass `--network`.
 
 ## The checker
+
+The checker loads a module the way the shell does and tests it against the rules on this page. The
+commands first, then what each part of its report covers:
 
 ```bash
 ingest check ~/.shellcraft/modules/wordfreq.py     # one module (inside ShellCraft)

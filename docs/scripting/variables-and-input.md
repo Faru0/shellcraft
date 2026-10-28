@@ -2,13 +2,17 @@
 
 ← [Scripting guide](README.md)
 
-A variable holds a value so you can use it later. This page shows you how to set one, use it,
-give it a default, do sums with it, and fill it with an answer the user types.
+This page is the place to start if you've never written a script. A variable is a name that holds
+a value, like a project name, a count or a path, so you can use it later without typing it again.
+After reading this page you'll be able to set variables and use them, quote text so it comes out
+the way you meant, give a value a fallback, do sums, keep a command's output, and ask the user a
+question and use the answer.
 
 ## Set a variable and use it
 
-Write the name, an `=` and the value, with no spaces around the `=`. Put a `$` in front of the name
-to use the value:
+Say you type the same project name in five places in your rc file. Put it in a variable once, and
+you only have to change it in one place. Write the name, an `=` and the value, with no spaces
+around the `=`. Put a `$` in front of the name to use the value:
 
 <!-- run -->
 ```
@@ -21,6 +25,10 @@ echo "I'm working on $project"
 I'm working on shellcraft
 ```
 
+Notice that `project` has no `$` when you set it, and does when you use it. The `$` means "fill in
+the value here". When you set a variable you're naming it, not reading it, so there's nothing to
+fill in. Without the `$`, the name is only a word: `echo project` prints `project`.
+
 A variable lasts for the whole session. One set in your rc file is still there at the prompt, and in
 every startup file that runs after it.
 
@@ -30,9 +38,41 @@ Names are letters, digits and `_`, and they can't start with a digit. `my_host`,
 Inside a Python-style block or a `def`, you can also write it the Python way, with spaces and a
 Python value: `count = 0`. See [Python style: name = value](#python-style-name--value).
 
+### If it doesn't work
+
+**Spaces around the `=`.** `name = Ada` doesn't set anything. Outside a Python-style block,
+ShellCraft reads it the way bash does: run a command called `name` with the words `=` and `Ada`.
+There's no such command, so you see:
+
+```
+command not found: name
+```
+
+Write `name=Ada`, with no spaces.
+
+**A variable that was never set.** If you use `$name` before giving it a value, or spell it wrong,
+ShellCraft leaves the text exactly as you typed it. This is different from bash, where it would
+quietly become nothing:
+
+<!-- run -->
+```
+echo "Hello, $user_name"
+```
+
+<!-- output -->
+```
+Hello, $user_name
+```
+
+When you see a `$name` in your output, check the spelling and check that the line setting it ran
+first. To get a fallback instead, see [Default values](#default-values). `set -u` turns this into
+an error that stops the script, see [Errors and cleanup](errors.md).
+
 ## Quoting
 
-Use double quotes when a value has spaces, and around a variable when you use it:
+Quotes tell ShellCraft where a piece of text starts and ends. You need them most when a value has
+spaces. Use double quotes for such a value, and get in the habit of putting them around a variable
+when you use it:
 
 <!-- run -->
 ```
@@ -45,6 +85,18 @@ echo "$greeting"
 ```
 Hello, Ada Lovelace
 ```
+
+Without the quotes on the first line, ShellCraft stops and tells you what to do, and `name` isn't
+set:
+
+```
+name=Ada Lovelace: quote a value that contains spaces: name="…"
+```
+
+In ShellCraft a variable stays one piece wherever you use it, quoted or not, with one exception:
+the list after `in` in a `for` loop, which is split at spaces on purpose (see
+[Loop over a list](loops.md#loop-over-a-list)). Quoting variables anyway costs nothing, and it keeps
+your scripts working if you ever copy them to bash.
 
 The two kinds of quotes do different things:
 
@@ -64,6 +116,11 @@ I want coffee
 I want $item
 ```
 
+Single quotes are what you want when the text has a `$` that isn't a variable, like a price or a
+pattern for `grep`. To put an apostrophe in your text, use double quotes around it:
+`echo "it's done"`. Inside single quotes, `'it's'` ends the quote at the apostrophe, and ShellCraft
+reports `unterminated ' quote`.
+
 When the name runs straight into other text, wrap it in braces so ShellCraft knows where it ends:
 
 <!-- run -->
@@ -77,10 +134,16 @@ echo "${file}_2026.txt"
 report_2026.txt
 ```
 
+Without the braces, `$file_2026` looks like one name, `file_2026`. There's no variable called that,
+so you'd get the text `$file_2026.txt` back. A letter, digit or `_` right after the name needs
+braces. A `.`, `-`, `/` or space doesn't, because it can't be part of a name.
+
 ## Default values
 
+You'll often want "use this value if it's there, otherwise use that one". For example, a startup
+file that works for anyone, greeting them by name if it knows it.
 `${name:-something}` gives you the value of `name`, or `something` when `name` is empty or was
-never set. It's the easy way to have a fallback:
+never set:
 
 <!-- run -->
 ```
@@ -95,8 +158,12 @@ Hello, stranger
 Hello, Sam
 ```
 
+The first `echo` runs before `user_name` is set, so you get the fallback. The second runs after,
+so you get `Sam`.
+
 To give a variable a value only when it doesn't have one yet, assign the default back to it. This
-is handy at the top of a startup file:
+is handy at the top of a startup file, when an earlier file or your profile may already have set
+it:
 
 <!-- run -->
 ```
@@ -109,10 +176,13 @@ echo "role is $ROLE"
 role is dev
 ```
 
+If `ROLE` was already `prod`, it stays `prod`.
+
 ## Arithmetic
 
-Put a sum inside `$(( ))`. You can use `+`, `-`, `*`, `/` (whole numbers), `%` (the remainder) and
-`**` (a power). Inside the brackets, the `$` in front of a variable is optional:
+Every variable holds text, even when the text is a number. To do a sum, put it inside `$(( ))`.
+You can use `+`, `-`, `*`, `/` (whole numbers), `%` (the remainder) and `**` (a power). Inside the
+brackets, the `$` in front of a variable is optional:
 
 <!-- run -->
 ```
@@ -127,6 +197,10 @@ echo "2 to the power of 8 is $((2 ** 8))"
 each gets 3, with 1 left over
 2 to the power of 8 is 256
 ```
+
+`/` drops the fraction, so 7 / 2 is 3, and `%` gives you the 1 that was left over. Dividing by zero
+stops the line with `$(( )): division by zero`. Inside `$(( ))`, a variable that was never set
+counts as 0.
 
 To count, add one to the variable and store it back:
 
@@ -143,11 +217,15 @@ echo "count is $count"
 count is 2
 ```
 
+A common slip is `count=count+1`. With no `$(( ))`, there's no sum: `count` becomes the text
+`count+1`.
+
 ## Python style: name = value
 
 Inside a Python-style block (`for -py`, `if -py`, `while -py` and the rest) and in a `def`, the right
 side of `name = value` is a Python value, the same kind a Python condition uses. Text goes in quotes,
-and other variables go in without a `$`:
+and other variables go in without a `$`. This is handy when you want Python's tools, like `.upper()`
+or a comparison, without leaving the shell:
 
 <!-- run -->
 ```
@@ -165,6 +243,11 @@ for -py n in 1..3:
 2: 20 ADA! True
 3: 30 ADA! True
 ```
+
+Go through it line by line. `int(n)` turns the text in `n` into a number, so `* 10` multiplies
+instead of repeating the text. `first.upper()` is Python's way of putting text in capitals, and
+`+ "!"` adds an exclamation mark. `int(total) > 15` is a yes or no question, so `big` is `True` or
+`False`. The `echo` line is a normal shell line, so there you use `$` to fill the values in.
 
 `count += 1` adds to a variable, and `-=`, `*=`, `/=`, `//=` and `%=` work too. With a number on the
 right, the variable is read as a number. With text on the right, `+=` adds the text to the end:
@@ -189,13 +272,15 @@ echo "$count colours: $names"
 The value is stored as text, as every variable is, so `total` is text again on the next line and
 `int(total)` turns it back into a number. A yes or no is stored as `True` or `False`, and a fraction
 as `2.5`. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
-on a variable that isn't set yet stops with `count: not set, give it a value first`.
+on a variable that isn't set yet stops with `count: not set, give it a value first`. Set it to 0
+before the loop, as the example does.
 
 Outside these blocks, at the prompt or in a bash block, `x = 5` with spaces runs a command called
 `x`, as in bash. The bash form `name=value` works everywhere, Python-style blocks included.
 
 ## Save a command's output
 
+Many values come from a command: today's date, the current folder, the number of lines in a file.
 `$(command)` runs a command and puts what it printed in its place. Store it in a variable to use it
 later:
 
@@ -208,10 +293,16 @@ cat notes.txt
 
 You'll see `Notes for` and today's date, like `Notes for 2026-10-27`.
 
+The command runs once, when the line that sets `today` runs. After that, `$today` is plain text,
+so it won't change if the script runs past midnight. That's usually what you want: every line of
+the script uses the same date.
+
 ## Ask the user
 
-There are two ways to ask a question and keep the answer. Both only work in the interactive shell:
-at the prompt, in the rc file, in startup files and in funcs.
+Sometimes a script needs something only the person at the keyboard knows: which environment to
+deploy to, a project name, a password. There are two ways to ask a question and keep the answer.
+Both only work in the interactive shell: at the prompt, in the rc file, in startup files and in
+funcs.
 
 **`input()`** reads like Python. It works on a line of its own, and inside loops, `if` blocks and
 functions:
@@ -228,8 +319,11 @@ What is your name? Ada
 Nice to meet you, Ada
 ```
 
+The text in the brackets is the question. Leave a space at the end of it, so the answer doesn't
+butt up against the question mark.
+
 Wrap it in `int()` when you need a whole number, or `float()` for any number. ShellCraft keeps
-asking until the answer is one:
+asking until the answer is one, so you don't have to check it yourself:
 
 <!-- run: ["thirty", "30"] -->
 ```
@@ -246,7 +340,7 @@ Next year you'll be 31
 ```
 
 **`read`** works the way it does in bash. `-p` sets the question, and the last word is the
-variable's name:
+variable's name. Note there's no `$` on that name, because you're setting it:
 
 <!-- run: ["staging"] -->
 ```
@@ -259,6 +353,10 @@ echo "Deploying to $env"
 Which environment? staging
 Deploying to staging
 ```
+
+`read` takes one name. `read -p "Name? " first last` stops with `read: unrecognized arguments: last`.
+To split an answer into parts, read it into one variable and take it apart with `cut`, as in
+[What you can do with a value](#what-you-can-do-with-a-value).
 
 Add `-s` for a password or a token. What you type isn't shown, and it never goes into your history:
 
@@ -274,13 +372,15 @@ API token:
 Token saved for this session
 ```
 
+`[ -n "$token" ]` checks that the answer isn't empty, so pressing Enter on its own doesn't count.
+
 `read` always asks the person at the keyboard. It doesn't read from a pipe or a file. To go through
 the lines of a file, see [Go through a file line by line](loops.md#go-through-a-file-line-by-line).
 
 ### Keep asking until the answer is good
 
-Put `read` in a loop that runs until the answer passes a test. This one won't accept an empty
-answer:
+A blank project name would make a mess later, so it's better to refuse it now. Put `read` in a loop
+that runs until the answer passes a test. This one won't accept an empty answer:
 
 <!-- run: ["", "", "website"] -->
 ```
@@ -298,6 +398,11 @@ Project name (required):
 Project name (required): website
 Project: website
 ```
+
+`[ -z "$project" ]` means "project is empty". The first line sets `project` to empty, so the loop
+asks at least once. Each answer replaces `project`, and the loop checks again. Once it's not empty,
+the loop ends. The empty `project=""` at the top matters: without it, `$project` would be left as
+the text `$project`, which isn't empty, and the loop would never ask.
 
 The same in Python style, with `input()`:
 
@@ -318,7 +423,9 @@ Project: website
 
 ### Ask a yes or no question
 
-`case` checks the answer against a few patterns, so `y`, `Y`, `yes` and `Yes` all count:
+Before a script deletes or overwrites something, it's polite to ask. People answer in different
+ways, so accept them all. `case` checks the answer against a few patterns, so `y`, `Y`, `yes` and
+`Yes` all count:
 
 <!-- run: ["Yes"] -->
 ```
@@ -334,6 +441,9 @@ esac
 Clear the build folder? (y/n) Yes
 clearing it
 ```
+
+`[yY]*` means "starts with y or Y, then anything". Any other answer, including pressing Enter on its own,
+falls through to `*)`, so the safe choice is the default.
 
 In Python style, check the answer with a Python condition:
 
@@ -352,13 +462,18 @@ Clear the build folder? (y/n) no
 leaving it alone
 ```
 
+`answer.lower()` turns the answer into small letters, so `YES` and `Yes` match `"yes"`.
+
 There's more on `case` in [Conditions and choices](conditions.md#case-pick-one-of-several-choices), and a
-numbered menu with `select` in [Loops and menus](loops.md#a-numbered-menu-with-select).
+numbered menu with `select` in [Loops and menus](loops.md#a-numbered-menu-with-select). A
+`confirm` function you can put in front of any risky command is in
+[Complete examples](examples.md#ask-before-doing-something-risky).
 
 ## What you can do with a value
 
-ShellCraft fills in `$name`, `${name}` and `${name:-default}`. It doesn't have bash's other
-`${…}` forms, like `${#name}` or `${name^^}`. Use a command or a Python condition instead:
+Bash has a lot of `${…}` tricks for changing a value. ShellCraft fills in `$name`, `${name}` and
+`${name:-default}`. It doesn't have bash's other `${…}` forms, like `${#name}` or `${name^^}`. Use a
+command or a Python condition instead. This table is the list to come back to when you need one:
 
 | You want | Write |
 | --- | --- |
@@ -369,6 +484,8 @@ ShellCraft fills in `$name`, `${name}` and `${name:-default}`. It doesn't have b
 | Check how long it is | `if -py len(name) > 20:` |
 | Whether it starts with something | `if -py name.startswith("dev"):` |
 | Whether it contains something | `[[ $name == *test* ]]` or `if -py "test" in name:` |
+
+Here's a few of them together, pulling apart a path:
 
 <!-- run -->
 ```
@@ -385,13 +502,18 @@ report.txt in capitals is REPORT.TXT
 it lives in /home/ada/projects
 ```
 
+`basename` keeps the part after the last `/`. `tr a-z A-Z` swaps every small letter for its
+capital. The last line shows that `$( )` works right inside a quoted string too.
+
 There are no arrays. A list is a variable with its items separated by spaces, and a `for` loop goes
 through them one by one. See [Loop over a list](loops.md#loop-over-a-list).
 
 ## Environment variables
 
 A plain variable belongs to ShellCraft. Modules, subshells and programs you start from ShellCraft
-don't see it. To hand a value to them, make it an environment variable with `env set` or `export`:
+don't see it. That's usually fine. But when a module needs an API address or a token, it looks in
+the environment, so you have to put the value there. Make it an environment variable with `env set`
+or `export`:
 
 ```
 env set API_URL=https://api.example.test     # this session; `env` lists what you set
@@ -405,7 +527,9 @@ the details.
 
 ## Remove a variable
 
-`unset name` forgets a variable. After that, `$name` is empty:
+`unset name` forgets a variable. You'd do this to tidy up a temporary value, or so that a later
+`${name:-default}` uses its default again. After that, `$name` is left as written, as if it
+had never been set, and `${name:-…}` gives you the fallback:
 
 <!-- run -->
 ```
@@ -418,3 +542,10 @@ echo "temp is now '${temp:-gone}'"
 ```
 temp is now 'gone'
 ```
+
+To keep the variable but make it empty, set it to nothing instead: `temp=""`.
+
+## Where to go next
+
+Now that you can hold values, [Printing text](printing.md) shows you how to show them neatly, and
+[Conditions and choices](conditions.md) shows you how to make decisions with them.

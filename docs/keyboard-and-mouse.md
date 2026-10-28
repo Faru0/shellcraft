@@ -2,10 +2,18 @@
 
 ← [Manual](README.md)
 
-Everything you can do with the keyboard and the mouse: what helps you type, the viewer for long
-output, and every shortcut. Inside the shell, `hotkeys` prints the shortcut tables.
+This page covers everything you can do with the keyboard and the mouse in ShellCraft: the help you
+get while you type, how the mouse behaves, the viewer for long output, and every shortcut. Read the
+first three sections once to learn what's there. The tables after them are for looking up a key
+when you need it.
+
+You don't have to come back here to remember a key. Inside the shell, `hotkeys` prints the
+shortcut tables.
 
 ## While you type
+
+ShellCraft watches the line as you type and helps in a few ways. None of them change what runs, so
+you can ignore any of them, and each one can be switched off.
 
 - **Colors.** Commands ShellCraft knows are green and unknown ones red. Switches, quotes and
   `$variables` get their own colors. `settings highlight off` turns this off.
@@ -16,19 +24,26 @@ output, and every shortcut. Inside the shell, `hotkeys` prints the shortcut tabl
 - **Tab** completes command names, switches (with a description of each), switch values, file
   names, and the arguments of commands like `man`, `theme` and `settings`. A name with spaces is
   quoted for you.
-- **Tab follows each command's usage line.** It offers what can come next, not just file names:
+- **Tab follows each command's usage line.** It offers what can come next, not only file names:
   `cut <Tab>` offers `-f` and `-c`, `mcp <Tab>` its actions. Where only a value you make up fits,
   like grep's pattern, Tab offers nothing and the toolbar shows what to type. Your own modules get
   this from the `usage` line in their `.skill` file.
 - **An unfinished line** that ends inside `{ … }` or `( … )`, or with a `\`, asks for the next line.
+  That's how you type a loop or a function over several lines at the prompt.
 - **Ctrl-C** drops the line or stops the running command. It never closes ShellCraft. Only
-  **Ctrl-D** on an empty line, or `exit`, does.
+  **Ctrl-D** on an empty line, or `exit`, does. So pressing Ctrl-C is always safe when you're not
+  sure what's happening.
+
+A red command name is worth a second look before you press Enter. It means ShellCraft doesn't know
+that name, so you'll get `command not found`. Usually it's a typo, or a program from your system
+while [OS commands](settings-and-themes.md#your-systems-programs) are off.
 
 ## The mouse
 
-ShellCraft only takes the mouse while there's something to click: the completion menu, the
-viewer, or the footer. The rest of the time your terminal keeps it, so selecting text and scrolling
-work as usual.
+A terminal program that uses the mouse takes it away from the terminal. Then you can't select text
+or scroll back the way you're used to. To avoid that, ShellCraft only takes the mouse while there's
+something to click: the completion menu, the viewer, or the footer. The rest of the time your
+terminal keeps it, so selecting text and scrolling work as usual.
 
 - In the completion menu, the entry under the mouse is highlighted, a click picks it, and the
   wheel moves through the list.
@@ -41,14 +56,20 @@ work as usual.
 
 ## Long output
 
+Some output is too long for one screen. You have two ways to read it.
+
 `man` opens a scrollable viewer, and so does anything you pipe into `less` (`cat big.log | less`).
-Other output just prints, so you can scroll back through it in your terminal.
+Other output prints straight to the screen, so you can scroll back through it in your terminal.
 
 In the viewer, the arrow keys and the wheel scroll, `/` searches, `n` jumps to the next match, `w`
 wraps long lines, `?` lists the keys and `q` closes it. The full list is
 [below](#the-viewer-man-less-the-scroll-view). `settings pager off` prints `man` pages instead.
 
 ## At the prompt: editing
+
+These are the same keys as in bash and most other shells, so your fingers may know them already.
+Ctrl-A and Ctrl-E are worth learning first: jumping to the start of a long line to fix a typo
+beats holding the left arrow.
 
 | Keys | What they do |
 | --- | --- |
@@ -68,6 +89,9 @@ wraps long lines, `?` lists the keys and `q` closes it. The full list is
 
 ## The clip register and alerts
 
+The clip register holds text you copied from output or alerts, so you can paste it at the prompt.
+[Subshells, alerts and the clip](subshells.md) explains where the copies come from.
+
 | Keys or mouse | What they do |
 | --- | --- |
 | `Alt-v` | Paste the newest copy (`$CLIP`). Press it again right away for `$CLIP1`, `$CLIP2`… |
@@ -79,6 +103,9 @@ wraps long lines, `?` lists the keys and `q` closes it. The full list is
 | `clip -i [N]` | Start the next prompt with copy N, no key chord at all |
 
 ## The footer and subshells
+
+The footer is the list of running programs at the bottom of the screen. Most of these keys start
+with the prefix key, Ctrl-] by default: press it, let go, then press the second key.
 
 | Keys or mouse | Where | What they do |
 | --- | --- | --- |
@@ -99,6 +126,9 @@ to Ctrl-B everywhere at once, and `settings reset prefix_key` goes back to Ctrl-
 
 ## Mouse: scrolling and selecting
 
+What the wheel and a drag do depends on whether ShellCraft has the mouse at that moment. This table
+sorts it out.
+
 | Mouse | When | What it does |
 | --- | --- | --- |
 | Wheel | nothing to click in the footer | The terminal's own scrolling |
@@ -114,6 +144,8 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 
 ## The viewer (man, less, the scroll view)
 
+The viewer uses the same keys as `less`, plus a few arrows and the mouse.
+
 | Keys | What they do |
 | --- | --- |
 | `↑` `↓` or `j` `k` | One line |
@@ -128,6 +160,9 @@ the mouse to the terminal at the prompt; `settings mouse off` turns ShellCraft's
 | `q` or `Esc` | Close |
 
 ## Linux and Windows
+
+Most keys work the same everywhere. These are the differences, and what to do when a key doesn't
+arrive.
 
 | | Linux | Windows 11 |
 | --- | --- | --- |

@@ -2,9 +2,12 @@
 
 ← [Manual](README.md)
 
-Copy, paste, change the names. Each block links to the page that explains it.
+Copy, paste, change the names. This page is for when you know what you want and only need the
+exact lines. Each block says when you'd use it and links to the page that explains it.
 
 ## Files you edit
+
+Everything you set up lives in one folder. Use this to find the right file.
 
 ```
 ~/.shellcraft/rc                     commands run at every start
@@ -20,7 +23,8 @@ Missing starter files: `shellcraft --init`. [More](your-shellcraft-folder.md)
 
 ## An alias
 
-`~/.shellcraft/aliases`, or `alias errs='grep -i error'` at the prompt:
+For a shorter name for one command you type with the same options every time.
+Put it in `~/.shellcraft/aliases`, or `alias errs='grep -i error'` at the prompt:
 
 ```
 alias ll='ls -l'
@@ -32,7 +36,7 @@ alias api='curl -s -H "Accept: application/json"'
 
 ## The rc file
 
-`~/.shellcraft/rc`:
+For anything you want set up every time the shell starts. `~/.shellcraft/rc`:
 
 ```
 theme nord
@@ -41,12 +45,24 @@ env set PROJECT_ROOT=~/projects
 env set -s GITHUB_TOKEN
 backup() { cp -r "$1" "$1.bak" && echo "saved $1.bak"; }
 [ -f ~/.shellcraft/rc.work ] && source ~/.shellcraft/rc.work
+trap 'echo bye' EXIT                     # runs when you leave the shell
+```
+
+Check it after an edit, and switch on stopping at the first error when later lines depend on
+earlier ones:
+
+```
+source -n ~/.shellcraft/rc               # nothing runs; problems as rc:LINE: …
+set -e                                   # at the top: a failing line skips the rest of the file
+set +e                                   # at the end: so it doesn't stay on at the prompt
+exit 1                                   # ends ShellCraft right there (start with --no-startup to fix)
 ```
 
 [More](startup.md)
 
 ## A startup file
 
+For one setup job kept in its own file, once the rc file gets long.
 `~/.shellcraft/startup/10-project.sc`, run after rc:
 
 ```
@@ -60,7 +76,7 @@ sub tail -f app.log              # something that keeps running, in the backgrou
 
 ## Scripting
 
-For the rc file, startup files, funcs and the prompt:
+The lines you use in the rc file, startup files, funcs and at the prompt. Bash style first:
 
 ```
 name=Ada; echo "hi $name"                        # a variable
@@ -95,7 +111,8 @@ shift $((OPTIND - 1))                            # then $1 is the first word aft
 source -n deploy.sc                              # check a file without running it (func check NAME: a func)
 ```
 
-The same in Python style: a `:` and an indented body (an empty line ends it at the prompt):
+The same in Python style, for when quoting gets in the way: a `:` and an indented body (an empty
+line ends it at the prompt):
 
 ```
 if -py int(n) > 3:                               # elif …:  else:
@@ -131,10 +148,11 @@ finally:                                         # always runs
 for -py n in 1..5: echo $n                       # a short block on one line
 ```
 
-[More](scripting/README.md)
+[More](scripting/README.md) · [Quick reference](scripting.md)
 
 ## A func
 
+For a routine you run on demand that should stop at the first step that fails.
 `~/.shellcraft/funcs/recon.func`, then `recon example.com`:
 
 ```
@@ -152,10 +170,20 @@ From bash or cron, without opening ShellCraft (the exit code is the func's statu
 shellcraft func run recon example.com
 ```
 
+Check it, run it every night, give it options and clean up:
+
+```
+func check recon                                  # nothing runs; problems as recon:LINE: …
+0 2 * * * shellcraft --no-startup func run backup notes >> ~/backup.log 2>&1   # a crontab line
+while getopts "vf:" o; do case $o in v) v=1;; f) f=$OPTARG;; esac; done   # a step: -v -f FILE
+trap 'rm -f bundle.tmp' EXIT                      # a first step: runs however the func ends
+```
+
 [More](funcs.md)
 
 ## A profile
 
+For a separate setup per client or project, with its own theme, settings and history.
 `~/.shellcraft/profiles/acme/profile.json`, then `profile use acme`:
 
 ```json
@@ -175,7 +203,7 @@ Or `profile new acme --template bugbounty`. [More](profiles.md)
 
 ## A module, bare minimum
 
-`~/.shellcraft/modules/hello.py`, then `hello`:
+For a command of your own written in Python. `~/.shellcraft/modules/hello.py`, then `hello`:
 
 ```python
 def run(args, stdin):
@@ -183,6 +211,8 @@ def run(args, stdin):
 ```
 
 ## A module with switches, piped input and errors
+
+When your command takes options, reads what's piped into it, and should fail with a clear message:
 
 ```python
 from shellcraft.modkit import ArgParser, ModuleError
@@ -203,6 +233,8 @@ def run(args, stdin):
 ```
 
 ## A module that calls an API with a key
+
+When your command talks to a web service that needs an API key:
 
 ```python
 import os
@@ -236,6 +268,8 @@ def run(args, stdin):
 
 ## Ingest a script
 
+To turn a Python script you already have into a ShellCraft command:
+
 ```bash
 ingest myscript.py                              # inside ShellCraft
 shellcraft ingest myscript.py --name mycmd      # from a terminal
@@ -246,12 +280,16 @@ printf 'auto\ny\nn\ny\n' | shellcraft ingest myscript.py --name mycmd    # no qu
 
 ## Check modules
 
+After you write or change a module, before you rely on it:
+
 ```bash
 ingest check ~/.shellcraft/modules/mycmd.py
 ingest check --all --strict
 ```
 
 ## Settings you'll want
+
+The settings most people change in the first week:
 
 ```
 settings system_commands on      # run git, python, docker… from your PATH
@@ -266,6 +304,8 @@ prompt name path git status
 [More](settings-and-themes.md)
 
 ## Starting ShellCraft
+
+From your normal terminal, when the default start isn't what you need:
 
 ```bash
 shellcraft --profile acme        # in a profile
