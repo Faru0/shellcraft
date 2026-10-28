@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import getpass
 import os
 import re
@@ -33,7 +34,7 @@ from prompt_toolkit.styles import DynamicStyle
 from rich.rule import Rule
 from rich.text import Text
 
-from shellcraft import aliases, funcs, gitinfo, histexpand, prefix, profiles, script, settings
+from shellcraft import aliases, funcs, gitinfo, histexpand, prefix, profiles, script, settings, traps
 from shellcraft.alerts import AlertBus
 from shellcraft.banner import render_banner
 from shellcraft.builtins import BUILTINS
@@ -348,7 +349,7 @@ class Shell:
 
         path = startup.rc_path()
         try:
-            startup.source(path, self.ctx)
+            startup.source(path, self.ctx, session=True)  # its traps are the session's
         except (OSError, UnicodeDecodeError, RecursionError) as exc:
             self.ui.console.print(Text(f"⚙ {path}: {exc}", style="sc.warning"), markup=False, highlight=False)
 
@@ -1601,12 +1602,15 @@ class Shell:
                 result = run_line(line, self.ctx)
         except ShellExit:
             raise
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
+            self.ctx.last_status = STATUS_INTERRUPTED
+            self._trap(functools.partial(traps.interrupted, self.ctx, exc))  # `trap '…' INT` set at the prompt
             self._interrupted("a running command", line, time.monotonic() - started)
             return None
         except (ParseError, PipelineError) as exc:
             self._quietly(lambda e=exc, text=line: show_error(self.ui, e, text))
             self.last_error = (exc, line)
+            self._trap(lambda: traps.failed(self.ctx, self.ctx.last_status or 1))  # `trap '…' ERR`
             return None
         except Exception as exc:  # noqa: BLE001 — a bug in a command: shown, and logged
             self.last_error = (exc, line)
@@ -1703,6 +1707,14 @@ class Shell:
                                            style="sc.muted"), markup=False, highlight=False)
 
         self._quietly(report)
+
+    def _trap(self, action: Callable[[], Any]) -> None:
+        """Run a trap (shellcraft.traps): Ctrl-C can stop its command, and nothing escapes."""
+        def run() -> None:
+            with self._interruptible():
+                action()
+
+        self._quietly(run)
 
     @staticmethod
     def _quietly(action: Callable[[], Any]) -> None:
@@ -1863,6 +1875,7 @@ class Shell:
         self.ui.console.print(msg)
 
     def _goodbye(self, code: int) -> int:
+        self._trap(lambda: traps.session_exit(self.ctx))  # `trap '…' EXIT` set at the prompt or in rc
         self.ui.console.print(Text("⏻ session closed — stay curious.", style="sc.muted"))
         return code
 

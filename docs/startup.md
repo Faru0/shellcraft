@@ -52,6 +52,19 @@ at the top to stop at the first line that fails instead: the rest of the rc file
 the shell still starts. The option stays on afterwards, at the prompt too, so make `set +e` the
 last line if you only want it for the file.
 
+`exit` in the rc file ends ShellCraft right there, with that status (`exit 1`).
+
+A `trap '…' EXIT` in the rc file or a startup file runs when you leave ShellCraft, with `exit` or
+Ctrl-D. Use it to tidy up after the session:
+
+```
+trap 'rm -rf ~/.cache/myscratch; echo "bye"' EXIT
+```
+
+Traps set here belong to the session, the same as ones you type at the prompt, so an `ERR` or
+`INT` trap here applies at the prompt too. A file you run with `source` has its own traps, which
+run when that file ends. See [Clean up with trap](scripting/functions.md#clean-up-with-trap).
+
 The [scripting guide](scripting/README.md) shows everything you can write here: variables,
 questions with `input()` and `read`, `if` and `case`, loops, menus and functions. Its
 [complete examples](scripting/examples.md) include whole rc and startup files to copy.

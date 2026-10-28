@@ -489,6 +489,92 @@ status: 1
 `set -- A B C` replaces the arguments: after it, `$1` is `A` and `$#` is 3. See `man set` for
 everything.
 
+## Clean up with trap
+
+A function that makes a temporary file should remove it, even when a step fails halfway. `trap`
+runs a command when the function ends, however it ends:
+
+<!-- run -->
+```
+set -e
+make_report() {
+  local tmp=report.tmp
+  trap 'rm -f $tmp; echo "removed $tmp"' EXIT
+  echo "draft" > $tmp
+  echo "writing the report"
+  grep -q "final" $tmp
+  echo "report done"
+}
+make_report
+```
+
+<!-- output -->
+```
+writing the report
+removed report.tmp
+✗ example.sc:10: make_report (set -e: the rest of the file was skipped)
+```
+
+`grep` fails, `set -e` stops the function, and the `EXIT` trap still removes the file. The trap
+runs inside the function, so it sees its `local` variables and `$1`. Put the command in single
+quotes, so `$tmp` is filled in when the trap runs, not when you set it.
+
+A trap belongs to the function that set it and goes away when the function ends. A file you run
+with `source` and a func have their own traps too. A trap set at the prompt, in your rc file or
+in a startup script belongs to the session: its `EXIT` trap runs when you leave ShellCraft.
+
+There are three signals:
+
+| Signal | When the command runs |
+| --- | --- |
+| `EXIT` | When the function, file or func ends: at the end, on `return`, when `set -e` stops it, on Ctrl-C |
+| `INT` | When you press Ctrl-C. Then it stops as usual |
+| `ERR` | After a command fails, where `set -e` would stop (not in an `if` test, before `&&` or `\|\|`, or after `!`) |
+
+An `ERR` trap is handy for logging. Inside it, `$?` is the failing command's status:
+
+<!-- run -->
+```
+trap 'echo "failed with status $?"' ERR
+echo "step one"
+grep -q "needle" /dev/null
+echo "step two"
+if grep -q "needle" /dev/null; then echo "found"; fi
+echo "done"
+```
+
+<!-- output -->
+```
+step one
+failed with status 1
+step two
+done
+```
+
+The `grep` inside the `if` is a question, so it doesn't count as an error. When a function has no
+trap of its own for `INT` or `ERR`, the one of whatever called it runs.
+
+`trap` works the same in a `def` function:
+
+<!-- run -->
+```
+def backup(name):
+    trap 'echo "backup of $name finished"' EXIT
+    echo "copying $name"
+    return 0
+
+backup notes.txt
+```
+
+<!-- output -->
+```
+copying notes.txt
+backup of notes.txt finished
+```
+
+`trap` on its own lists the traps set here, `trap - EXIT` removes one, and `trap '' INT` sets one
+that does nothing. See `man trap`.
+
 ## Keep your functions
 
 A function lasts until you leave ShellCraft. To have it in every session, put it in

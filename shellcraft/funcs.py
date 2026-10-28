@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from shellcraft import traps
+
 SUFFIX = ".func"
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,47}$")
 HEADER = re.compile(r"^#\s*(func|description|system|output|command|usage)\s*:\s*(.*?)\s*$", re.I)
@@ -276,47 +278,52 @@ def run(ctx: Any, func: Func, args: list[str], output: str | None = None, isolat
     saved = _snapshot(ctx) if isolated else None
     outcome = Outcome()
     start = time.monotonic()
+    quiet = outcome.collected if ctx.emit is None else None  # where a trap's output goes without a screen
     ctx.positional.append(list(args))
     _running().append(func.name)
     try:
-        for number, step in enumerate(steps, 1):
-            line, shown = step, mode == "show"
-            if step.startswith("@"):
-                line, shown = step[1:].lstrip(), True
-            elif mode == "quiet" and line.split(maxsplit=1)[0] in SPEAKERS:
-                shown = True
-            live = ctx.live
-            if not shown:
-                ctx.live = None  # a quiet step's output must not stream to the screen either
-            try:
-                result = run_line(line, ctx)
-            except ShellExit:
-                raise
-            except KeyboardInterrupt:  # Ctrl-C: the func stops at this step
-                outcome.status, outcome.failed, outcome.failed_line = 130, number, line
-                outcome.error = "interrupted (Ctrl-C)"
-                break
-            except Exception as exc:  # noqa: BLE001 — a failing step: report it and stop
-                outcome.status = getattr(exc, "status", 1) or 1
-                outcome.failed, outcome.failed_line = number, line
-                outcome.error = getattr(exc, "message", None) or str(exc)
-                if ctx.emit_error is not None:
-                    ctx.emit_error(exc, line)
-                break
-            finally:
-                ctx.live = live
-            outcome.steps = number
-            value = result.output if result is not None else None
-            if shown and value not in (None, ""):
-                if ctx.emit is not None:
-                    ctx.emit(value)
-                else:
-                    outcome.collected.append(value)
-            if ctx.last_status:
-                outcome.status = ctx.last_status
-                outcome.failed, outcome.failed_line = number, line
-                outcome.error = f"exit status {ctx.last_status}"
-                break
+        with traps.frame(ctx, collect=quiet):  # its own traps: EXIT runs when it ends
+            for number, step in enumerate(steps, 1):
+                line, shown = step, mode == "show"
+                if step.startswith("@"):
+                    line, shown = step[1:].lstrip(), True
+                elif mode == "quiet" and line.split(maxsplit=1)[0] in SPEAKERS:
+                    shown = True
+                live = ctx.live
+                if not shown:
+                    ctx.live = None  # a quiet step's output must not stream to the screen either
+                try:
+                    result = run_line(line, ctx)
+                except ShellExit:
+                    raise
+                except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap, and the func stops at this step
+                    outcome.status, outcome.failed, outcome.failed_line = 130, number, line
+                    outcome.error = "interrupted (Ctrl-C)"
+                    ctx.last_status = 130
+                    traps.interrupted(ctx, exc, collect=quiet)
+                    break
+                except Exception as exc:  # noqa: BLE001 — a failing step: report it and stop
+                    outcome.status = getattr(exc, "status", 1) or 1
+                    outcome.failed, outcome.failed_line = number, line
+                    outcome.error = getattr(exc, "message", None) or str(exc)
+                    if ctx.emit_error is not None:
+                        ctx.emit_error(exc, line)
+                    traps.failed(ctx, outcome.status, collect=quiet)  # the ERR trap
+                    break
+                finally:
+                    ctx.live = live
+                outcome.steps = number
+                value = result.output if result is not None else None
+                if shown and value not in (None, ""):
+                    if ctx.emit is not None:
+                        ctx.emit(value)
+                    else:
+                        outcome.collected.append(value)
+                if ctx.last_status:
+                    outcome.status = ctx.last_status
+                    outcome.failed, outcome.failed_line = number, line
+                    outcome.error = f"exit status {ctx.last_status}"
+                    break
     finally:
         ctx.positional.pop()
         _running().pop()

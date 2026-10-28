@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Union
 
 from shellcraft import parser as shparser
+from shellcraft import traps
 from shellcraft.context import ShellContext, to_text
 from shellcraft.parser import ParseError, find_closing_paren
 
@@ -1493,6 +1494,36 @@ def execute(program: Program, ctx: ShellContext) -> Any:
     return PipelineResult(output=output, status=ctx.last_status, stopped=stopped)
 
 
+def run_trap(ctx: ShellContext, command: str, runner: _Runner | None = None) -> str:
+    """Run a trap's command (shellcraft.traps) in the current context. Its output goes through
+    `runner` when given (inside a function: into what the function prints); otherwise it is shown
+    as it runs (ctx.emit) or returned. An error in it is reported, and nothing stops because of it."""
+    try:
+        program = parse_script(command)
+    except ParseError as exc:
+        (runner or _Runner(ctx)).report(exc, command)
+        return ""
+    if program is None:
+        return ""
+    sub = _Runner(ctx)
+    if runner is not None:
+        sub.frame, sub.stdin = runner.frame, runner.stdin
+        sub.collect_only = not runner.shows_live
+    try:
+        sub.run_list(program.stmts)
+    except (_Break, _Continue, _Return):
+        pass
+    except _Abort as exc:
+        if not exc.reported:
+            sub.report(exc.error, exc.text)
+    text = "".join(sub.collected)
+    if runner is not None:
+        if text:
+            runner.show(text)
+        return ""
+    return text
+
+
 def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, cmd: Any = None,
                   live: bool = False) -> Any:
     """Run a shell function as a command: `$1`… are `args`, its commands read `stdin`, and what
@@ -1528,16 +1559,23 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     ctx.positional.append(list(args))
     status: int | None = None
     try:
-        for k, (param, default) in enumerate(fn.params or []):
-            runner.frame.setdefault(param, ctx.variables.get(param))
-            ctx.variables[param] = args[k] if k < len(args) else (default or "")
-        runner.run_list(fn.body)
-    except _Return as exc:
-        status = exc.status
-    except _Abort as exc:
-        if not exc.reported:
-            runner.report(exc.error, exc.text)
-        status = getattr(exc.error, "status", 1) or 1
+        with traps.frame(ctx, runner):  # its own traps; EXIT runs here, before `local`s go
+            try:
+                for k, (param, default) in enumerate(fn.params or []):
+                    runner.frame.setdefault(param, ctx.variables.get(param))
+                    ctx.variables[param] = args[k] if k < len(args) else (default or "")
+                runner.run_list(fn.body)
+            except _Return as exc:
+                status = exc.status
+            except _Abort as exc:
+                if not exc.reported:
+                    runner.report(exc.error, exc.text)
+                status = getattr(exc.error, "status", 1) or 1
+            except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap, then the call stops as before
+                traps.interrupted(ctx, exc, runner)
+                raise
+            finally:
+                ctx.last_status = ctx.last_status if status is None else status  # `$?` in the EXIT trap
     finally:
         ctx.positional.pop()
         if runner.stderr_sink is not None:
@@ -1642,6 +1680,7 @@ class _Runner:
                              stops=True) from None
 
     def run_stmt(self, stmt: Stmt) -> None:
+        traps.new_command(self.ctx)
         if isinstance(stmt, Simple):
             if stmt.negate:  # `! cmd`: never stopped by `set -e`
                 with _no_errexit(self.ctx):
@@ -1676,10 +1715,11 @@ class _Runner:
             raise _Continue
 
     def check_errexit(self, status: int, text: str) -> None:
-        """`set -e`: a command that failed (and isn't a test, the left of `&&` / `||` or `!`)
-        stops the script, the function or the file it is in."""
+        """A command that failed (and isn't a test, the left of `&&` / `||` or `!`) runs the ERR
+        trap; with `set -e` it then stops the script, the function or the file it is in."""
         from shellcraft.pipeline import errexit
 
+        traps.failed(self.ctx, status, self)
         if status and errexit(self.ctx):
             raise _errexit_stop(status, text)
 
@@ -1809,6 +1849,7 @@ class _Runner:
 
     def run_part(self, part: Simple, last: bool) -> int:
         """One part of an `&&` / `||` chain; `set -e` applies to the last one only."""
+        traps.new_command(self.ctx)
         if last and not part.negate:
             status, output = self.run_simple(part)
         else:

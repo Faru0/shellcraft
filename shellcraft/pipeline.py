@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
-from shellcraft import aliases, arith, streams
+from shellcraft import aliases, arith, streams, traps
 from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.modkit import ModuleError
@@ -168,9 +168,19 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     if program is None:
         return None
     if program.is_simple:
+        traps.new_command(ctx)
         result = run_simple(line, ctx)
-        if result is not None and result.status and errexit(ctx):
-            result.stopped = True
+        if result is not None and result.status:
+            collected: list[Any] = []
+            traps.failed(ctx, result.status, collect=collected)  # the ERR trap: shown after the output
+            if collected:
+                text = "".join(collected)
+                if isinstance(result.output, str) or result.output is None or not to_text(result.output):
+                    result.output = to_text(result.output) + text
+                elif ctx.emit is not None:  # a table or other rich output: the trap's text goes first
+                    ctx.emit(text)
+            if errexit(ctx):
+                result.stopped = True
         return result
     return script.execute(program, ctx)
 
@@ -705,7 +715,7 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
 # Shell functions take precedence over builtins, modules and programs, as in bash, except for
 # these, which keep the shell in charge of itself (the "special builtins" that matter here).
 SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias",
-                              "shift", "set"})
+                              "shift", "set", "trap"})
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:

@@ -90,6 +90,27 @@ git push origin v$1
 With `output: quiet`, the test output stays hidden unless something fails, and the `@` lines
 report progress.
 
+### Clean up when a step fails
+
+A func stops at the first step that fails, so a cleanup step at the end may never run. Set a
+`trap` as the first step instead. Its command runs when the func ends, whether it finished,
+failed or you pressed Ctrl-C:
+
+```
+# func: bundle
+# description: Pack the notes into one file
+# usage: bundle NAME
+trap 'rm -f bundle.tmp; echo "cleaned up"' EXIT
+cat notes/*.txt > bundle.tmp
+! grep -q "TODO" bundle.tmp
+cp bundle.tmp $1.txt
+```
+
+When a TODO is left, the `! grep` step fails and the func stops there, and `bundle.tmp` is still
+removed. The trap belongs to the func and
+goes away when it ends. `trap '…' ERR` runs after a step fails, and `trap '…' INT` on Ctrl-C. See
+[Clean up with trap](scripting/functions.md#clean-up-with-trap) and `man trap`.
+
 ## What you see
 
 ShellCraft doesn't print the commands themselves, the same as a bash script. When the func

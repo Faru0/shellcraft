@@ -214,6 +214,19 @@ set -- a b c              # replace the arguments: $1 is a, $# is 3
 before `&&` / `||` or after `!`. See [Stop on errors](scripting/functions.md#stop-on-errors-with-set--e)
 and `man set`.
 
+## Clean up with trap
+
+```
+trap 'rm -f $tmp' EXIT    # when this function, sourced file or func ends (at the prompt: when you leave)
+trap 'echo stopped' INT   # on Ctrl-C, then it stops as usual
+trap 'echo "failed: $?"' ERR   # after a command fails (not in tests, before && / ||, or after !)
+trap - EXIT               # remove it;  trap '' INT does nothing on Ctrl-C;  trap lists them
+```
+
+A trap belongs to the function, sourced file or func that set it. One set at the prompt, in the
+rc file or in a startup file belongs to the session. See
+[Clean up with trap](scripting/functions.md#clean-up-with-trap) and `man trap`.
+
 ## Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

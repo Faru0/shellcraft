@@ -547,7 +547,7 @@ def run_rc(ctx: Any, name: str) -> None:
 
     rc = text_file(name, "rc")
     if rc.is_file():
-        startup.source(rc, ctx, label=f"profile:{name}")
+        startup.source(rc, ctx, label=f"profile:{name}", session=True)
     startup.run_folder(ctx, folder(name) / startup.FOLDER, label=f"profile:{name}")
 
 

@@ -19,10 +19,13 @@ last result, `startup run [NAME]` runs them again.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from shellcraft import traps
 
 FOLDER = "startup"
 SUFFIX = ".sc"
@@ -83,7 +86,8 @@ def run_folder(ctx: Any, where: Path, label: str | None = None, only: str | None
         result = Result(path.name)
         started = time.monotonic()
         try:
-            result.ran, result.failed = source(path, ctx, label=f"{label}/{path.name}" if label else path.name)
+            result.ran, result.failed = source(path, ctx, label=f"{label}/{path.name}" if label else path.name,
+                                               session=True)
         except (OSError, UnicodeDecodeError, RecursionError) as exc:
             result.error = str(exc)
         result.seconds = time.monotonic() - started
@@ -155,12 +159,14 @@ def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
         ctx.emit_error(exc, line)
 
 
-def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
+def source(path: Path, ctx: Any, label: str | None = None, session: bool = False) -> tuple[int, int]:
     """Run every command of a file in `ctx` as if typed at the prompt: output and errors go to
     ctx.emit / ctx.emit_error as they happen; a failing line does not stop the rest, unless `set -e`
     is on (or `set -u` met an unset variable): then the rest of the file is skipped. Returns
     (commands run, commands that failed). Raises OSError when the file can't be read. `label` names
-    the file for `env` (a profile's rc: `profile:osint`); by default its file name."""
+    the file for `env` (a profile's rc: `profile:osint`); by default its file name. The file has its
+    own traps (`trap`, shellcraft.traps), its EXIT trap running when it ends; with `session` (the rc
+    file, startup scripts) they are the session's, as in ~/.bashrc."""
     from shellcraft.indent import IndentError
     from shellcraft.pipeline import UnboundError, errexit, run_line
 
@@ -178,35 +184,40 @@ def source(path: Path, ctx: Any, label: str | None = None) -> tuple[int, int]:
             _report(ctx, exc, f"{Path(path).name}:{exc.line}: {raw.strip()}", raw)
             ctx.last_status = 2
             return 0, 1
-        for number, line in commands:
-            ran += 1
-            where = f"{Path(path).name}:{number}: {line}"
-            try:
-                result = run_line(line, ctx)
-            except KeyboardInterrupt:  # Ctrl-C: this file stops here; the shell goes on
-                failed += 1
-                from shellcraft.context import CommandError
+        with traps.frame(ctx) if not session else contextlib.nullcontext():  # its own traps
+            for number, line in commands:
+                ran += 1
+                where = f"{Path(path).name}:{number}: {line}"
+                try:
+                    result = run_line(line, ctx)
+                except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap; this file stops here; the shell goes on
+                    failed += 1
+                    from shellcraft.context import CommandError
 
-                _report(ctx, CommandError("interrupted (Ctrl-C); the rest of the file was skipped", 130), where, line)
-                ctx.last_status = 130
-                break
-            except Exception as exc:  # noqa: BLE001 — a failing line (or a bug) must not stop the file
-                failed += 1
-                stop = errexit(ctx) or isinstance(exc, UnboundError)
-                _report(ctx, exc, f"{where}{SKIPPED if stop else ''}", line)
-                if stop:
+                    ctx.last_status = 130
+                    traps.interrupted(ctx, exc)
+                    _report(ctx, CommandError("interrupted (Ctrl-C); the rest of the file was skipped", 130),
+                            where, line)
+                    ctx.last_status = 130
                     break
-                continue
-            if result is not None and ctx.emit is not None and result.output not in (None, ""):
-                ctx.emit(result.output)
-            if ctx.last_status:
-                failed += 1
-            if result is not None and result.stopped:
-                if ctx.emit is not None:  # the failing command has said why: just say where
-                    from rich.text import Text
+                except Exception as exc:  # noqa: BLE001 — a failing line (or a bug) must not stop the file
+                    failed += 1
+                    stop = errexit(ctx) or isinstance(exc, UnboundError)
+                    _report(ctx, exc, f"{where}{SKIPPED if stop else ''}", line)
+                    traps.failed(ctx, ctx.last_status or 1)
+                    if stop:
+                        break
+                    continue
+                if result is not None and ctx.emit is not None and result.output not in (None, ""):
+                    ctx.emit(result.output)
+                if ctx.last_status:
+                    failed += 1
+                if result is not None and result.stopped:
+                    if ctx.emit is not None:  # the failing command has said why: just say where
+                        from rich.text import Text
 
-                    ctx.emit(Text(f"✗ {where}{SKIPPED}", style="sc.warning"))
-                break
+                        ctx.emit(Text(f"✗ {where}{SKIPPED}", style="sc.warning"))
+                    break
     finally:
         _depth[0] -= 1
         sourcing.pop()

@@ -87,6 +87,8 @@ total=$(add 2 3)                                 # a function's output as a valu
 set -e                                           # stop at the first command that fails
 set -euo pipefail                                # also: unset $vars are errors, pipes fail on any part
 set -x                                           # show each command before it runs (set +x: off)
+trap 'rm -f $tmp' EXIT                           # clean up when the function, file or func ends
+trap 'echo "failed: $?"' ERR                     # after a command fails;  trap '…' INT on Ctrl-C
 ```
 
 The same in Python style: a `:` and an indented body (an empty line ends it at the prompt):

@@ -921,6 +921,88 @@ def set_options(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return ""
 
 
+TRAP_DOC = """# trap
+
+Run a command when something ends, on Ctrl-C, or after a command fails. Use it to clean up.
+
+## Usage
+
+```
+trap 'COMMANDS' EXIT       # when this function, sourced file or func ends (at the prompt: when you leave)
+trap 'COMMANDS' INT        # when Ctrl-C stops it
+trap 'COMMANDS' ERR        # after a command fails
+trap 'COMMANDS' EXIT INT   # several at once
+trap - EXIT                # remove it
+trap '' INT                # do nothing on Ctrl-C (it still stops)
+trap                       # list the traps set here (trap -p does the same)
+trap -l                    # the signal names
+```
+
+Signal names don't care about case: `exit`, `SIGINT` and `0` (for EXIT) work too.
+
+## Where a trap belongs
+
+A trap belongs to what was running when you set it: a function call (`name() { …; }` or `def`),
+a file run with `source`, a func, or the session (the prompt, the rc file and startup scripts). Each has
+its own, and they go away when it ends.
+
+- **EXIT** runs when that ends, however it ends: at the end, on `return`, when `set -e` stops it,
+  on an error or on Ctrl-C. One set at the prompt, in the rc file or in a startup script belongs
+  to the session: it runs when you leave ShellCraft.
+- **INT** runs when Ctrl-C stops it. Then it stops as it always does (status 130). Without an INT
+  trap of its own, the one of whatever called it runs.
+- **ERR** runs after a command fails, where `set -e` would stop: not in an `if` or `while` test,
+  on the left of `&&` / `||` or after `!`. Without one of its own, the caller's runs. A command
+  that fails inside a trap doesn't run ERR again.
+
+The command runs right there: it sees the variables (`local` ones too) and `$1`. In ERR, `$?` is
+the failing command's status, and it is put back afterwards.
+
+```
+build() {
+    local tmp=build.tmp
+    trap 'rm -f $tmp' EXIT       # removed even when a step fails
+    set -e
+    grep -v '^#' notes.txt > $tmp
+    sort $tmp > sorted.txt
+}
+```
+"""
+
+
+@builtin("trap", "Run a command when a function or file ends, on Ctrl-C or on errors",
+         "trap ['COMMANDS' | - | ''] SIGNAL... | trap [-p | -l]", category="shell", stateful=True, doc=TRAP_DOC)
+def trap(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    from shellcraft import traps
+
+    if args and args[0] == "--":
+        args = args[1:]
+    if not args or args[0] == "-p":
+        wanted = [_trap_signal(word) for word in args[1:]] if len(args) > 1 else None
+        return lines_out(traps.listing(ctx, wanted))
+    if args[0] == "-l":
+        return lines_out(list(traps.SIGNALS))
+    if len(args) < 2:
+        raise CommandError("trap: usage: trap 'COMMANDS' SIGNAL... (EXIT, INT, ERR); trap - SIGNAL removes it", 2)
+    command, signals = args[0], [_trap_signal(word) for word in args[1:]]
+    frame = ctx.traps[-1]
+    for name in signals:
+        if command == "-":
+            frame.pop(name, None)
+        else:
+            frame[name] = command
+    return ""
+
+
+def _trap_signal(word: str) -> str:
+    from shellcraft import traps
+
+    name = traps.signal_name(word)
+    if name is None:
+        raise CommandError(f"trap: {word}: unknown signal (EXIT, INT, ERR)", 2)
+    return name
+
+
 @builtin("local", "Declare a variable local to a shell function", "local NAME[=VALUE]...", category="shell",
          stateful=True, doc="""\
 # local

@@ -13,6 +13,11 @@ and the project uses [semantic versioning](https://semver.org/).
   an error, `set -x` shows each command before it runs, and `set -o pipefail` makes a pipe fail
   when any part fails. `set -euo pipefail` works, `+` turns one off, `set -o` lists them, and
   `set -- A B` replaces the arguments. `func run -i` puts the options back. `man set`.
+- **`trap`.** `trap 'COMMANDS' EXIT` runs them when the function, `source`d file or func ends,
+  however it ends (set at the prompt, in the rc file or a startup file: when you leave
+  ShellCraft). `INT` runs on Ctrl-C and `ERR` after a command fails. `trap - SIG` removes one and
+  `trap` lists them. `exit` in the rc file now ends ShellCraft cleanly instead of showing
+  "startup failed". `man trap`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

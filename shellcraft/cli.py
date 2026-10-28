@@ -360,6 +360,7 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
     from rich.text import Text
 
     from shellcraft import loading, settings
+    from shellcraft.context import ShellExit
 
     loading.stop()  # erased before the shell writes anything
     _interrupts_as_usual()  # from here Ctrl-C is a KeyboardInterrupt again (main.py made it a quiet exit)
@@ -399,6 +400,8 @@ def _interactive(Shell: Any, ctx: Any, ui: Any, config: Any, args: Any, show_ban
         except KeyboardInterrupt:
             with contextlib.suppress(KeyboardInterrupt):
                 ui.console.print(Text("^C startup interrupted; the rest of it was skipped", style="sc.warning"))
+        except ShellExit as exc:  # `exit N` in the rc file or a startup script: ShellCraft ends there
+            return int(shell._goodbye(exc.code))
         except Exception as exc:  # noqa: BLE001
             from shellcraft import crashlog
 

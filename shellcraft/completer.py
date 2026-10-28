@@ -99,6 +99,10 @@ class ShellCompleter(Completer):
             if segment[0] == "func":
                 yield from self._func(segment, word)
                 return
+            if segment[0] == "trap" and len(segment) >= 2:  # after the command: the signals
+                signals = {"EXIT": "when it ends", "INT": "on Ctrl-C", "ERR": "after a command fails"}
+                yield from self._complete(word.upper(), {k: v for k, v in signals.items() if k not in segment[2:]})
+                return
             if len(segment) == 1 and segment[0] in ("man", "theme", "settings", "prompt"):
                 yield from self._arguments(segment[0], word)
                 return

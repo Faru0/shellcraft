@@ -71,6 +71,13 @@ class ShellContext:
     # Above 0 while `set -e` doesn't apply: an `if` / `while` test, the left side of `&&` / `||`,
     # a `!` command (and the functions they call), as in bash.
     errexit_off: int = 0
+    # `trap`: a stack of frames, signal (EXIT, INT, ERR) -> command. The bottom frame is the
+    # session's; a function call, a sourced file and a func each push one (shellcraft.traps).
+    traps: list[dict[str, str]] = field(default_factory=lambda: [{}])
+    # Above 0 while a trap's command runs: a failure in there doesn't fire ERR again.
+    in_trap: int = 0
+    # How deep the frame was where ERR last ran for the command now running (0: it hasn't).
+    err_ran_at: int = 0
     # Where a script (`for`, `if`, `a ; b`) sends each statement's output and errors as it runs.
     # The REPL sets these to print as it goes; when they are None (MCP, tests) the output is
     # collected and returned as one text.

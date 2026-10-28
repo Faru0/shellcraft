@@ -266,7 +266,7 @@ HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
-    ("Scripting", "test true false read set unset export sleep time xargs"),
+    ("Scripting", "test true false read set trap unset export sleep time xargs"),
     ("System", "date env hostname uname whoami"),
 )
 CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "System"}
@@ -1811,7 +1811,8 @@ def command_job(ctx: ShellContext, table: Any, line: str, name: str | None = Non
     stop = StopFlag()  # `jobs -k` sets it: every pipeline the job runs stops
     background = dataclasses.replace(ctx, runner=_direct, interactive=False, allow_stateful=False,
                                      emit=None, emit_error=None, jobs=None, emit_stderr=None,
-                                     stderr_sinks=[errors.append], live=record, stop=stop, positional=[])
+                                     stderr_sinks=[errors.append], live=record, stop=stop, positional=[],
+                                     traps=[{}])
 
     def run() -> tuple[int, str]:
         if work is not None:
