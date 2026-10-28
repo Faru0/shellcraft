@@ -17,7 +17,7 @@ from shellcraft.builtins import builtin
 from shellcraft.commands._io import user_path
 from shellcraft.context import CommandError, ShellContext, Styled, WithStatus
 
-USAGE = ("func [list | show NAME | run [-i] [-b] [-q|-v] NAME [ARG...] | new NAME [-e] [--save] [-g] [-d DESC] "
+USAGE = ("func [list | show NAME | check NAME | run [-i] [-b] [-q|-v] NAME [ARG...] | new NAME [-e] [--save] [-g] [-d DESC] "
          "[--system] [--quiet] [--command] | save NAME [-g] | edit NAME | add NAME COMMAND | insert NAME N COMMAND | "
          "rm NAME N | move NAME FROM TO | set NAME FIELD VALUE | rename OLD NEW | copy SRC DST [-g] | "
          "delete NAME [-y] | export NAME|--all [FILE] | import FILE [-f] [-g] | path [NAME]]")
@@ -34,6 +34,7 @@ It is not a pipe stage: it runs on its own line.
 ```
 func                                   # the funcs you can run (same as func list)
 func show NAME                         # its header and every step, numbered (also: func view)
+func check NAME                        # read it and run nothing: lines that won't parse, unknown commands
 func run NAME [ARG...]                 # run it
 func run -i NAME [ARG...]              # isolated: the directory, variables, env vars, aliases, theme, settings and set options come back afterwards
 func run -b NAME [ARG...]              # in the background, as a job in the footer (always isolated; jobs N shows its output)
@@ -84,6 +85,14 @@ The command lines themselves are never printed (as in a bash script); a muted li
 name. `func new --save` and `func save` write to the active profile (`-g`: the default setup). A
 func made without `--save` lasts until you leave ShellCraft. `func list` shows where each comes
 from.
+
+## Checking a func
+
+`func check NAME` reads the func and runs nothing. Each problem is a line `NAME:LINE: message`,
+where LINE is the line in the func's file (the header lines count), so it matches what
+`func edit` shows. A line that won't parse (a `for` with no `done`, a colon block indented
+wrongly) is an error; a command nothing answers to is a warning. The status is 0 when it is
+clean, 1 for warnings only, 2 for errors. `source -n FILE` does the same for any file.
 
 Funcs are never available to AI clients over MCP.
 
@@ -210,6 +219,18 @@ def _show(ctx: ShellContext, args: list[str]) -> Any:
     body = Group(title, head, Text(""), steps if f.steps else Text("(no steps yet)", style="sc.muted"))
     plain = funcs.render(f)
     return Styled(body, plain)
+
+
+def _check(ctx: ShellContext, args: list[str]) -> Any:
+    """Parse the func and look up its commands; run nothing. Line numbers are its file's."""
+    if len(args) != 1:
+        raise CommandError("func check: usage: func check NAME")
+    f = funcs.find(ctx, args[0])
+    from shellcraft import check
+
+    text = f.path.read_text(encoding="utf-8") if f.path is not None and f.path.is_file() else funcs.render(f)
+    report = check.check_text(text, f.name, ctx, steps=True)
+    return WithStatus(report.text(), report.status) if report.status else report.text()
 
 
 # The input line's highlighting classes, in the theme's Rich styles (for `func show`).
@@ -575,7 +596,7 @@ def _import(ctx: ShellContext, args: list[str]) -> Any:
 
 
 ACTIONS = {
-    "list": _list, "ls": _list, "show": _show, "view": _show, "run": _run, "new": _new, "create": _new,
+    "list": _list, "ls": _list, "show": _show, "view": _show, "check": _check, "run": _run, "new": _new, "create": _new,
     "save": _save, "edit": _edit, "add": _add, "insert": _insert, "rm": _rm, "remove": _rm, "move": _move,
     "set": _set, "rename": _rename, "copy": _copy, "delete": _delete, "export": _export, "import": _import,
     "path": _path,

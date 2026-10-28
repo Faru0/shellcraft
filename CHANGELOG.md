@@ -23,6 +23,12 @@ and the project uses [semantic versioning](https://semver.org/).
   after. Grouped (`-vf FILE`) and glued (`-fFILE`) options work, a leading `:` lets you print your
   own messages, and each call starts with its own `$OPTIND`. A `case` pattern can now escape a
   character with `\` (`\?)`). `man getopts`.
+- **Check a script without running it.** `source -n FILE` (any file, the rc file, a startup
+  file) and `func check NAME` read the script and run nothing. Every line that won't parse (a
+  `for` with no `done`, a colon block indented wrongly, a bad `def` parameter list or Python
+  condition) is an error, and every command that nothing answers to is a warning, each as
+  `FILE:LINE: message`, with a summary line after. The status is 0 when clean, 1 for warnings
+  only, 2 for errors. `man source`, `man func`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

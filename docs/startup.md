@@ -47,6 +47,16 @@ To run it again without restarting:
 source ~/.shellcraft/rc
 ```
 
+To check it without running anything, for example after a big edit:
+
+```
+source -n ~/.shellcraft/rc
+```
+
+It lists every line that won't parse and every command name nothing answers to, as `rc:LINE: …`,
+or says `ok: 24 lines, no problems`. `source -n` works on a startup file too
+(`source -n ~/.shellcraft/startup/10-project.sc`).
+
 If a line fails, ShellCraft tells you which one (`✗ rc:4: …`) and runs the rest. Put `set -e`
 at the top to stop at the first line that fails instead: the rest of the rc file is skipped, and
 the shell still starts. The option stays on afterwards, at the prompt too, so make `set +e` the

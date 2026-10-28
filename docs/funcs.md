@@ -153,6 +153,20 @@ or, if a step failed:
 ✗ recon: step 2 failed (queryDns example.com): …
 ```
 
+## Check it first
+
+`func check NAME` reads the func and runs nothing. It reports each line that won't parse (a `for`
+with no `done`, a colon block indented wrongly) as an error, and each command that nothing answers
+to as a warning:
+
+```
+recon:8: warning: unknown command 'queryDsn' (did you mean 'queryDns'?)
+1 problem (1 warning)
+```
+
+The line number is the line in the func's file, header lines included, so it matches what you see
+in `func edit`. The status is 0 when the func is clean, 1 for warnings only and 2 for errors.
+
 ## Run it other ways
 
 | Command | What it does |
@@ -175,6 +189,7 @@ If you'd rather not edit files, `func` does it all from the prompt:
 | `-g` | With `--save`: keep it with your main setup instead of the active profile |
 | `func` or `func list` | The funcs you can run |
 | `func show NAME` | Its header and numbered steps |
+| `func check NAME` | Read it and run nothing: every line that won't parse and every unknown command, as `NAME:LINE: …` |
 | `func edit NAME` | Open it in your editor |
 | `func add NAME 'CMD'`, `insert NAME N 'CMD'`, `rm NAME N`, `move NAME FROM TO` | Change the steps |
 | `func set NAME FIELD VALUE` | Change a header line: `description`, `system`, `output`, `command`, `usage` |

@@ -56,6 +56,44 @@ finished yet makes the prompt wait for the next line, so you can paste a whole b
 Python-style line ending in `:`, the prompt indents the next line for you, and an empty line runs
 the block.
 
+## Check a script before you run it
+
+`source -n FILE` reads a file and runs nothing. It tells you about every line that won't work,
+with the file name and line number, so you can fix them all before the first real run. Here the
+`printf` lines write a small file with three mistakes in it: a line indented wrongly, a `for` with
+no `done`, and a typo in a command name.
+
+<!-- run -->
+```
+printf '%s\n' 'echo "Backing up"' > backup.sc
+printf '%s\n' 'for -py name in notes todo:' '    cp $name.txt backup/' '  echo "copied $name"' >> backup.sc
+printf '%s\n' 'for f in *.log; do' '    ecoh "found $f"' >> backup.sc
+cat backup.sc
+source -n backup.sc
+```
+
+<!-- output -->
+```
+echo "Backing up"
+for -py name in notes todo:
+    cp $name.txt backup/
+  echo "copied $name"
+for f in *.log; do
+    ecoh "found $f"
+backup.sc:4: unindent does not match any outer indentation level
+backup.sc:5: missing 'done': the block that starts here never ends
+backup.sc:6: warning: unknown command 'ecoh' (did you mean 'echo'?)
+3 problems (2 errors, 1 warning)
+```
+
+An error is a line that won't parse, so it can't run at all. A warning is a command that nothing
+answers to: no function in the file or the shell, no alias, builtin, module, func or program on
+your PATH has that name. A clean file gives one line, like `ok: 12 lines, no problems`.
+
+The status tells a script what happened: 0 when the file is clean, 1 when there are only warnings,
+and 2 when something won't parse. `source -n ~/.shellcraft/rc` checks your rc file, and
+`func check NAME` checks a func.
+
 ## Two styles
 
 Here's the same loop both ways. Use whichever you find easier to read:

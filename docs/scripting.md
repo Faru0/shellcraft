@@ -244,6 +244,19 @@ shift $((OPTIND - 1))         # drop the options: $1 is the first word after the
 messages. Each function call and func starts with `$OPTIND` at 1. See
 [Options like -v and -f FILE](scripting/functions.md#options-like--v-and--f-file) and `man getopts`.
 
+## Check a script without running it
+
+```
+source -n deploy.sc           # every line that won't parse, every unknown command; nothing runs
+source -n ~/.shellcraft/rc    # your rc file (or a startup file)
+func check recon              # a func; line numbers are its file's, as in func edit
+```
+
+Each problem is one line, `FILE:LINE: message`, then a summary like `3 problems (1 error, 2
+warnings)`. An error won't parse (a `for` with no `done`, a colon block indented wrongly); a
+warning is a command nothing answers to. The status is 0 when clean, 1 for warnings only, 2 for
+errors. See [Check a script before you run it](scripting/README.md#check-a-script-before-you-run-it).
+
 ## Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

@@ -91,6 +91,7 @@ trap 'rm -f $tmp' EXIT                           # clean up when the function, f
 trap 'echo "failed: $?"' ERR                     # after a command fails;  trap '…' INT on Ctrl-C
 while getopts "vf:" o; do case $o in v) v=1;; f) f=$OPTARG;; esac; done   # -v -f FILE
 shift $((OPTIND - 1))                            # then $1 is the first word after the options
+source -n deploy.sc                              # check a file without running it (func check NAME: a func)
 ```
 
 The same in Python style: a `:` and an indented body (an empty line ends it at the prompt):

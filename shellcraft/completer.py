@@ -375,7 +375,8 @@ class ShellCompleter(Completer):
         names = {n: f.description or f.where for n, f in funcs.available(self.ctx).items()}
         if len(segment) == 1:
             yield from self._complete(word, {
-                "list": "the funcs", "show": "a func's header and steps", "run": "run a func", "new": "make one",
+                "list": "the funcs", "show": "a func's header and steps",
+                "check": "check it without running it", "run": "run a func", "new": "make one",
                 "save": "put a session func on disk", "edit": "open it in your editor", "add": "append a step",
                 "insert": "insert a step", "rm": "remove a step", "move": "reorder a step",
                 "set": "change a header field", "rename": "rename", "copy": "copy", "delete": "delete",
@@ -396,7 +397,7 @@ class ShellCompleter(Completer):
                                                  "--system": "it runs OS commands", "--quiet": "quiet output",
                                                  "--command": "typing its name runs it"})
             return
-        if not args and action in ("show", "view", "save", "edit", "add", "insert", "rm", "move", "set",
+        if not args and action in ("show", "view", "check", "save", "edit", "add", "insert", "rm", "move", "set",
                                    "rename", "copy", "delete", "export", "path"):
             yield from self._complete(word, names | ({"--all": "every func"} if action == "export" else {}))
         elif action == "set" and len(args) == 1:

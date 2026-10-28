@@ -1412,7 +1412,26 @@ At startup the shell sources `~/.shellcraft/rc` this way (`man startup`).
 source FILE
 . FILE                       # the same, bash's short spelling
 source ~/.shellcraft/rc      # run the startup file again
+source -n FILE               # check it without running anything
 ```
+
+## Checking a file first
+
+`source -n FILE` reads the file and runs nothing. It reports every line that won't parse (a
+`for` with no `done`, a colon block indented wrongly, a bad `def` parameter list) as an error,
+and every command nothing answers to (no function, alias, builtin, module, func or program on
+PATH has that name) as a warning, each as `FILE:LINE: message`. A last line sums it up:
+
+```
+$ source -n deploy.sc
+deploy.sc:4: warning: unknown command 'ecoh' (did you mean 'echo'?)
+deploy.sc:7: missing 'done': the block that starts here never ends
+2 problems (1 error, 1 warning)
+```
+
+The status is 0 when the file is clean, 1 when there are only warnings, and 2 when something
+won't parse. `source -n ~/.shellcraft/rc` checks your startup file. `func check NAME` does the
+same for a func.
 
 ## Splitting the rc file
 
@@ -1434,15 +1453,29 @@ a command that fails is reported with its line number (`rc:4: …`) and the next
 """
 
 
-@builtin("source", "Run a file of ShellCraft commands", "source FILE", stateful=True, direct=True,
+@builtin("source", "Run a file of ShellCraft commands", "source [-n] FILE", stateful=True, direct=True,
          doc=SOURCE_DOC)
 def _source(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import startup as startupmod
     from shellcraft.commands._io import user_path
 
+    check = bool(args) and args[0] == "-n"
+    if check:
+        args = args[1:]
     if len(args) != 1:
-        raise CommandError("usage: source FILE")
+        raise CommandError("usage: source [-n] FILE")
     path = user_path(args[0])
+    if check:  # `source -n FILE`: read and parse it, run nothing
+        from shellcraft import check as checkmod
+
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise CommandError(f"source: {args[0]}: no such file") from None
+        except (OSError, UnicodeDecodeError) as exc:
+            raise CommandError(f"source: {args[0]}: {exc}") from None
+        report = checkmod.check_text(text, path.name, ctx)
+        return WithStatus(report.text(), report.status) if report.status else report.text()
     try:
         ran, failed = startupmod.source(path, ctx)
     except FileNotFoundError:
@@ -1457,7 +1490,7 @@ def _source(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 
 # `. FILE`, bash's short spelling of `source FILE` (hidden from help; `man source` covers it).
-builtin(".", "Run a file of ShellCraft commands (same as source)", "source FILE", stateful=True, direct=True,
+builtin(".", "Run a file of ShellCraft commands (same as source)", "source [-n] FILE", stateful=True, direct=True,
         doc=SOURCE_DOC, hidden=True)(_source)
 
 
