@@ -17,8 +17,8 @@ it still does what the page says.
 | [Printing text](printing.md) | `echo`, several lines at once, `printf` for columns and numbers, errors, writing to files |
 | [Conditions and choices](conditions.md) | `if`, `elif`, `else`, every test, `&&` and `||`, `case` for picking between choices, Python conditions |
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
-| [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value, `def`, stopping on errors with `set -e` |
-| [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions |
+| [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value, `def`, stopping on errors with `set -e`, catching them with `try` |
+| [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions, `try` |
 | [Complete examples](examples.md) | Whole rc files, startup files and funcs you can copy and adapt |
 
 If you're new to this, read them in order. Each page starts simple and builds up.

@@ -71,6 +71,9 @@ class ShellContext:
     # Above 0 while `set -e` doesn't apply: an `if` / `while` test, the left side of `&&` / `||`,
     # a `!` command (and the functions they call), as in bash.
     errexit_off: int = 0
+    # Above 0 while the body of a `try` with an `except` runs: its failures (also in the functions
+    # it calls) don't fire the ERR trap, since the except handles them.
+    try_handlers: int = 0
     # `trap`: a stack of frames, signal (EXIT, INT, ERR) -> command. The bottom frame is the
     # session's; a function call, a sourced file and a func each push one (shellcraft.traps).
     traps: list[dict[str, str]] = field(default_factory=lambda: [{}])

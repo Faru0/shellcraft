@@ -204,6 +204,9 @@ class _Walker:
         elif isinstance(stmt, script.Piped):
             self._stmt(stmt.stmt, span, top)
             self._simple(stmt.tail, span, top, leading_pipe=True)
+        elif isinstance(stmt, script.Try):
+            for block in (stmt.body, stmt.handler, stmt.final):
+                self.walk(block or [], span, top)
         elif isinstance(stmt, script.Function):
             self.seen.add(stmt.name)  # defined from here on; its body runs later, when it's called
             self.walk(stmt.body, span, top=False)
@@ -319,6 +322,8 @@ def _nodes(stmt: Any) -> list[Any]:
             children += body
     elif isinstance(stmt, script.Piped):
         children = [stmt.stmt]
+    elif isinstance(stmt, script.Try):
+        children = [*stmt.body, *(stmt.handler or []), *(stmt.final or [])]
     for child in children:
         out += _nodes(child)
     return out

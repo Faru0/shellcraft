@@ -254,7 +254,7 @@ In a pipe (`help | grep dns`) each command is one `name  summary` line.
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
 # A module file without run(): shown after its help summary.
 SCRIPT_HINT = "⚠ needs run() to work properly! ingest it, or see docs/modules/first-module.md"
-KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function")
+KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function", "try")
 
 
 # `help`: the groups, in order. ShellCraft's own features (and the modules) are listed with a
@@ -2698,6 +2698,87 @@ builtin("for", "Loop over items (bash syntax, or -py)",
 builtin("if", "Run commands when a condition holds (bash syntax, or -py)",
         "if …; then …; [elif …; then …;] [else …;] fi | if -py (EXPR) | COMMAND { … }",
         doc=IF_DOC)(_keyword("if"))
+
+
+TRY_DOC = r"""# try
+
+Run commands and catch the first one that fails, as Python's `try` does.
+
+## Python style
+
+```
+try:
+    COMMANDS
+except:                   # or: except as NAME:
+    COMMANDS
+finally:
+    COMMANDS
+```
+
+The body runs until a command fails (its exit status isn't 0) or a Python line goes wrong (a
+condition or a value that can't be worked out). The rest of the body is skipped and `except`
+runs. `except as NAME` puts the failing status in NAME, and `$?` holds it too. `finally` always
+runs last: after the body, after `except`, and also when `break`, `continue`, `return` or `exit`
+leaves the block.
+
+You need at least one of `except` and `finally`. There are no error types: `except ValueError:`
+is refused, write `except:` or `except as status:`.
+
+```
+try:
+    cp app.conf /backup/
+    echo "saved"
+except as rc:
+    echo "copy failed with status $rc"
+
+touch run.lock
+try:
+    ./deploy.sh
+finally:
+    rm -f run.lock
+
+try: grep -q ERROR app.log
+except: echo "no errors"
+```
+
+## Brace form
+
+```
+try [-py] { COMMANDS } [except [as NAME] { COMMANDS }] [finally { COMMANDS }]
+```
+
+This works anywhere, also in a bash function, where the lines inside stay bash. With `-py` (or
+inside a `-py` block) they are Python style lines.
+
+```
+backup() {
+  try {
+    tar czf /tmp/site.tgz site/
+    echo "backup done"
+  } except as rc {
+    echo "backup failed ($rc)" >&2
+  }
+}
+```
+
+## Details
+
+- Only failures that `set -e` would stop at count: a command in an `if` or `while` test, on the
+  left of `&&` / `||`, or after `!` doesn't jump to `except`.
+- A function called in the body counts as one command: when it returns a failing status,
+  `except` runs (the function itself runs to its end, unless `set -e` is on).
+- The failing command's error message still shows before `except` runs.
+- When `except` finishes, the failure is handled: the try's status is the status of the last
+  command in `except`, and `set -e` and the ERR trap don't see the failure.
+- With no `except`, the failure goes on after `finally`: the try's status is the failing one,
+  the ERR trap runs, and with `set -e` the script stops (an outer `try` catches it first).
+- `finally` doesn't change `$?`.
+
+See also: `man set` (set -e), `man trap` (ERR), `man if`.
+"""
+
+builtin("try", "Run commands, catch the first failure", "try: … except [as NAME]: … finally: …",
+        doc=TRY_DOC)(_keyword("try"))
 
 
 @builtin("reload", "Re-scan the modules directory", "reload", stateful=True)

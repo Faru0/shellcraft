@@ -19,7 +19,8 @@ from shellcraft.parser import comment_at
 
 KEYWORDS = frozenset({"for", "if", "elif", "else", "then", "do", "done", "fi", "while", "until", "case",
                       "esac", "in", "break", "continue", "!", "-py", "{", "}", "export", "unset",
-                      "function", "return", "select", "def", "pass"})
+                      "function", "return", "select", "def", "pass", "try", "except", "finally"})
+_COLON_KEYWORDS = frozenset({"else", "try", "except", "finally"})  # a header word with its `:`
 _OPERATORS = ("&&", "||", "2>&1", "1>&2", ">&2", "2>>", "2>", "&>", ">>", ">", "|", ";", "<", "&")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _VARIABLE = re.compile(r"\$(\?|\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*|\(\(|\()")
@@ -48,6 +49,7 @@ def highlight(line: str, known: Callable[[str], bool]) -> StyleAndTextTuples:
     out: StyleAndTextTuples = []
     i, n = 0, len(line)
     expect_command = True  # the next word names a command
+    previous = ""  # the word before, for `except as NAME`
     while i < n:
         ch = line[i]
         if ch.isspace():
@@ -65,6 +67,11 @@ def highlight(line: str, known: Callable[[str], bool]) -> StyleAndTextTuples:
             continue
         start = i
         quoted = False
+        if previous == "except" and line.startswith("as", i) and (i + 2 == n or line[i + 2].isspace()):
+            out.append(("class:keyword", "as"))  # `except as NAME`: NAME is a variable, not a command
+            i += 2
+            previous, expect_command = "as", False
+            continue
         while i < n and not line[i].isspace() and not _at_operator(line, i):
             if line[i] in ("'", '"'):
                 quote, j = line[i], i + 1
@@ -80,11 +87,17 @@ def highlight(line: str, known: Callable[[str], bool]) -> StyleAndTextTuples:
             out.extend(_plain_word(line[i:j], expect_command and not quoted and i == start, known))
             i = j
         word = line[start:i]
+        previous = word
         if expect_command and not quoted and word and _ASSIGNMENT.match(word):
             expect_command = True  # `x=1 cmd`: the command still comes
-        elif expect_command and word not in KEYWORDS and word:
+        elif expect_command and word and word not in KEYWORDS and not _colon_keyword(word):
             expect_command = False
     return out
+
+
+def _colon_keyword(word: str) -> bool:
+    """`else:`, `try:`, `except:`, `finally:`: a header word with its colon."""
+    return word.endswith(":") and word[:-1] in _COLON_KEYWORDS
 
 
 def _at_operator(line: str, i: int) -> bool:
@@ -99,6 +112,8 @@ def _at_operator(line: str, i: int) -> bool:
 def _plain_word(word: str, is_command: bool, known: Callable[[str], bool]) -> StyleAndTextTuples:
     if not word:
         return []
+    if _colon_keyword(word):
+        return [("class:keyword", word)]
     if is_command:
         if word in KEYWORDS:
             return [("class:keyword", word)]

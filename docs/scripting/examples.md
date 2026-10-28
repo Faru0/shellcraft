@@ -4,7 +4,7 @@
 
 Whole scripts you can copy into your rc file, a startup file or a func, then change to fit. Each
 one puts together the pieces from the other pages of this guide. Most are in bash style, and the
-last two are in Python style; [Bash style and Python style](python-style.md) shows how to turn one
+last three are in Python style; [Bash style and Python style](python-style.md) shows how to turn one
 into the other. The marked ones run in the test
 suite, so they work as shown.
 
@@ -362,3 +362,43 @@ terminal 3: ready for api
 
 In a real startup file, put `cd ~/work/$project` or `env set PROJECT=$project` where the `echo`
 lines are.
+
+## A backup that always cleans up
+
+A Python-style function that copies a folder into `backups/`. A lock file stops two backups from
+running at once. `try:` catches a failing step, and `finally:` removes the lock whatever happened,
+so a failed backup never leaves it behind:
+
+<!-- run -->
+```
+def backup(folder):
+    if isfile("backup.lock"):
+        echo "a backup is already running"
+        return 1
+    touch backup.lock
+    try:
+        [ -d $folder ]
+        mkdir -p backups
+        cp -r $folder backups/
+        echo "saved $folder"
+    except as rc:
+        echo "could not back up $folder (status $rc)"
+    finally:
+        rm -f backup.lock
+
+mkdir notes
+backup notes
+backup photos
+[ -f backup.lock ] || echo "no lock left behind"
+```
+
+<!-- output -->
+```
+saved notes
+could not back up photos (status 1)
+no lock left behind
+```
+
+`[ -d $folder ]` fails when the folder isn't there, so the rest of the body is skipped. In a real
+backup, `tar czf` or `rsync` goes where `cp` is, and a failure in any of them is caught the same
+way.

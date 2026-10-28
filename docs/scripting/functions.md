@@ -634,6 +634,50 @@ backup of notes.txt finished
 `trap` on its own lists the traps set here, `trap - EXIT` removes one, and `trap '' INT` sets one
 that does nothing. See `man trap`.
 
+## Catch failures with try
+
+`set -e` stops everything at the first failure. Sometimes you want to stop only a few steps and
+then do something about it, such as print a message and go on. `try` does that, also in a bash
+function. Put the steps in `try { … }` and what to do on a failure in `except { … }`:
+
+<!-- run -->
+```
+deploy() {
+  try {
+    echo "checking $1"
+    [ -f "$1" ]
+    echo "deploying $1"
+  } except as rc {
+    echo "$1 is missing (status $rc), skipped"
+  } finally {
+    echo "done with $1"
+  }
+}
+touch site.tgz
+deploy site.tgz
+deploy other.tgz
+```
+
+<!-- output -->
+```
+checking site.tgz
+deploying site.tgz
+done with site.tgz
+checking other.tgz
+other.tgz is missing (status 1), skipped
+done with other.tgz
+```
+
+The first command in the `try` block that fails skips the rest of the block and runs `except`.
+`except as NAME` puts the failing status in NAME, and `$?` holds it too. `finally` always runs
+last, also after `return`. Inside a bash function the lines in the blocks stay bash. You need
+`except`, `finally` or both, in that order, and each goes after the `}` before it.
+
+As with `set -e`, a test doesn't count as a failure: an `if` condition, a command before `&&` or
+`||`, or one after `!`. A failure that `except` handles doesn't run the `ERR` trap and doesn't
+stop a `set -e` script. In the Python style you write `try:`, `except:` and `finally:` with an
+indented body, see [Handle errors with try](python-style.md#handle-errors-with-try).
+
 ## Options like -v and -f FILE
 
 Commands take options: `ls -l`, `grep -i word`. Your functions can too, with `getopts`. You tell

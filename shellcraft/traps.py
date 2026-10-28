@@ -114,7 +114,7 @@ def interrupted(ctx: Any, exc: BaseException, runner: Any = None, collect: list[
 
 def failed(ctx: Any, status: int, runner: Any = None, collect: list[Any] | None = None) -> None:
     """A command failed with `status`: the innermost ERR trap, where `set -e` would apply."""
-    if not status or ctx.in_trap or ctx.errexit_off:
+    if not status or ctx.in_trap or ctx.errexit_off or ctx.try_handlers:
         return
     depth = len(ctx.traps)
     if ctx.err_ran_at > depth:  # a function call that failed: its failing command already ran it

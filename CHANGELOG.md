@@ -44,6 +44,11 @@ and the project uses [semantic versioning](https://semver.org/).
   `greet Ada` and `$(greet Ada)` show a returned text. From Python code you can call any shell
   function with brackets: `total = add(1, 2)`, `if is_weekend(day):`, `file = slug(title)`. You
   get the `return` value, or what the function printed.
+- **`try:` / `except:` / `finally:`.** The first command in a `try:` body that fails (or a Python
+  line that goes wrong) skips the rest and runs `except:`; `except as rc:` puts the failing status
+  in `rc`. `finally:` always runs, also on `break`, `continue`, `return` and `exit`. The brace form
+  `try { … } except as rc { … } finally { … }` works in bash functions too. A handled failure
+  doesn't run the ERR trap or stop a `set -e` script. `man try`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

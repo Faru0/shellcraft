@@ -822,6 +822,71 @@ A bash function you call from Python gives what it printed, so `slug(title)` wor
 has the details. Giving back a value with `echo` and `$( )`, and keeping functions in your rc file
 work the same as in [Functions](functions.md).
 
+## Handle errors with try
+
+Bash style checks each command that might fail. `if ! cmd; then` runs a block when it fails, and
+`cmd || other` runs `other`:
+
+<!-- run -->
+```
+printf 'name=web\nport=80\n' > app.conf
+if ! grep -q "^host=" app.conf; then
+  echo "no host set"
+fi
+grep -q "^port=" app.conf || echo "no port set"
+```
+
+<!-- output -->
+```
+no host set
+```
+
+To stop at the first failure in bash, you turn on `set -e` and clean up in a trap:
+`trap 'rm -f run.lock' EXIT`. See `man set` and `man trap`.
+
+Python style wraps the commands in `try:`. The first command that fails (its status isn't 0)
+skips the rest of the body and runs `except:`. `except as rc:` puts the failing status in `rc`.
+`finally:` runs at the end whatever happened:
+
+<!-- run -->
+```
+printf 'name=web\nport=80\n' > app.conf
+try:
+    grep -q "^name=" app.conf
+    echo "name found"
+    grep -q "^host=" app.conf
+    echo "host found"
+except as rc:
+    echo "a setting is missing (status $rc)"
+finally:
+    echo "check done"
+```
+
+<!-- output -->
+```
+name found
+a setting is missing (status 1)
+check done
+```
+
+Some things to know:
+
+- A Python line that goes wrong counts as a failure too, such as a condition with an unknown name.
+- Tests don't count: a command in an `if` or `while` condition, on the left of `&&` or `||`, or
+  after `!`.
+- A function you call in the body counts as one command. If it returns a failing status, `except`
+  runs.
+- You need `except:`, `finally:` or both. There are no error types, so `except ValueError:` is
+  refused.
+- `finally:` also runs when `break`, `continue`, `return` or `exit` leaves the block, so it's a
+  good place to delete a lock file or a temporary folder.
+- When `except:` handles a failure, `set -e` and the ERR trap don't see it. With no `except:`,
+  the failure goes on after `finally:`, as if there were no try.
+
+A short body fits after the colon: `try: grep -q ERROR app.log` and `except: echo "no errors"`.
+In a bash function, use the brace form, `try { … } except as rc { … }`. See
+[Functions](functions.md#catch-failures-with-try) and `man try`.
+
 ## Mixing the styles
 
 Use whichever reads best for each block. A Python-style block can hold bash lines, and a bash
@@ -868,6 +933,8 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | `unindent does not match any outer indentation level` | A line goes back to an indent no block uses |
 | `inconsistent use of tabs and spaces in indentation` | A block mixes tabs and spaces |
 | `'else' without a matching if` | An `else:` that doesn't line up with an `if` |
+| `'except' without a matching try` | An `except:` or `finally:` that doesn't line up with a `try:` |
+| `try: needs an 'except:' or a 'finally:'` | A `try:` block with nothing after it |
 
 ## Side by side
 
@@ -892,4 +959,7 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | Ask | `read -p "Q? " x` | `x = input("Q? ")` |
 | Ask for a number | `read -p "N? " n` and a test | `n = int(input("N? "))` |
 | Function | `f() { local a=$1; … }` | `def f(a):` |
+| Catch a failure | `if ! cmd; then … fi` | `try:` then `except:` |
+| Stop at the first failure | `set -e` | `try:` |
+| Always clean up | `trap 'rm -f lock' EXIT` | `finally:` |
 | Do nothing | `:` or `true` | `pass` |

@@ -8,7 +8,8 @@
                                                 }
 
 Headers: `for` / `if` / `elif` / `else` / `while` / `until` / `select` / `case` with `-py` (inside
-a colon block the flag is optional), `def NAME(PARAMS):`, and a `case` block's `PATTERN:` arms.
+a colon block the flag is optional), `def NAME(PARAMS):`, `try:` / `except [as NAME]:` / `finally:`
+(`try` needs no flag: it isn't a bash word), and a `case` block's `PATTERN:` arms.
 Text after the colon is a one-line body (`for -py n in 1..3: echo $n`). A condition that reads as
 Python is wrapped in `( … )`; anything else is a command (`if -py grep -q x f:`). `pass` is a
 command that does nothing.
@@ -21,7 +22,7 @@ colon block. The parser in shellcraft.script never sees a colon.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from shellcraft.parser import ParseError, strip_comments
 
@@ -29,6 +30,7 @@ _KEYWORDS = ("for", "if", "while", "until", "select", "case")
 _DEF = re.compile(r"def\s+[A-Za-z_][A-Za-z0-9_-]*\s*\(.*\)$")
 _BASH_WORD = re.compile(r"(?:^|[\s;])(?:then|do)(?:[\s;]|$)")
 _FLAG = re.compile(r"^-py(?:\s+|$)")
+_MERGES = {"if": ("elif", "else"), "try": ("except", "finally")}  # parts that join a block above
 
 
 class IndentError(ParseError):
@@ -41,10 +43,12 @@ class IndentError(ParseError):
 
 @dataclass
 class _Level:
-    kind: str  # "if" (if / elif / else), "case", "arm" or "block"
+    kind: str  # "if" (if / elif / else), "try" (try / except / finally), "case", "arm" or "block"
     header: str  # the header line's indentation
     body: str | None = None  # the body's indentation, once its first line is seen
     inline: bool = False  # a one-line body after the colon: the next line closes it
+    line: int = 0  # the header's line number
+    parts: tuple[str, ...] = ()  # a try: the `except` / `finally` seen so far
 
 
 def split_header(text: str) -> tuple[str, str] | None:
@@ -91,8 +95,13 @@ def _keyword_header(stripped: str, in_block: bool) -> tuple[str, str, str] | Non
     word = head.split(None, 1)[0] if head else ""
     if word == "def":
         return ("def", head, rest) if _DEF.fullmatch(head) else None
-    if word in ("elif", "else") and in_block:
+    if word in ("elif", "else", "except", "finally") and in_block:
         return word, head[len(word):].strip(), rest
+    if word == "try":
+        after = head[len(word):].strip()
+        if after not in ("", "-py"):
+            return None  # a command named try
+        return word, "", rest
     if word not in _KEYWORDS or _BASH_WORD.search(head):
         return None  # `if [ x ]; then echo a: b; fi` is bash
     after = head[len(word):].strip()
@@ -134,7 +143,9 @@ def to_braces(text: str) -> list[tuple[int, str]]:
     last = 0
 
     def close(number: int) -> None:
-        stack.pop()
+        top = stack.pop()
+        if top.kind == "try" and not top.parts:
+            raise IndentError("try: needs an 'except:' or a 'finally:'", top.line)
         out.append((number, "}"))
 
     for number, raw in enumerate(text.splitlines(), 1):
@@ -145,7 +156,7 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         indent = raw[:len(raw) - len(raw.lstrip())]
         if stack and stack[-1].inline:
             top = stack.pop()
-            stack.append(_Level(top.kind, top.header, top.header + "\x00"))  # closed by any line
+            stack.append(replace(top, body=top.header + "\x00", inline=False))  # closed by any line
         if stack and stack[-1].body is None:
             top = stack[-1]
             if len(indent) <= len(top.header) or not indent.startswith(top.header):
@@ -154,15 +165,16 @@ def to_braces(text: str) -> list[tuple[int, str]]:
                 raise IndentError("expected an indented block", number)
             top.body = indent
         merged = ""
+        try_parts: tuple[str, ...] = ()  # the try parts before this line's except / finally
         popped: str | None = None  # the header indentation of the last block this line closed
         while stack and (body := stack[-1].body) is not None and not indent.startswith(body):
             top = stack[-1]
             if not body.startswith(indent) and "\x00" not in body:
                 raise IndentError("inconsistent use of tabs and spaces in indentation", number)
             word = stripped.split(None, 1)[0].rstrip(":")
-            if top.kind == "if" and indent == top.header and word in ("elif", "else"):
+            if indent == top.header and word in _MERGES.get(top.kind, ()):
                 stack.pop()
-                merged = "} "
+                merged, try_parts = "} ", top.parts
                 break
             popped = top.header
             close(last)
@@ -186,13 +198,18 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         if found is None:
             if merged:
                 raise IndentError(f"'{stripped.split(None, 1)[0]}' needs a ':' at the end", number)
-            if stripped.split(None, 1)[0].rstrip(":") in ("elif", "else") and stripped.endswith(":"):
-                raise IndentError(f"'{stripped.split(None, 1)[0].rstrip(':')}' without a matching if", number)
+            first = stripped.split(None, 1)[0].rstrip(":")
+            if first in ("elif", "else") and stripped.endswith(":"):
+                raise IndentError(f"'{first}' without a matching if", number)
+            if first in ("except", "finally") and split_header(stripped) is not None:
+                raise IndentError(f"'{first}' without a matching try", number)
             out.append((number, f"{indent}true" if stripped == "pass" else raw))
             continue
         word, after, rest = found
         if word in ("elif", "else") and not merged:
             raise IndentError(f"'{word}' without a matching if", number)
+        if word in ("except", "finally") and not merged:
+            raise IndentError(f"'{word}' without a matching try", number)
         if word == "def":
             line = f"{after} {{"
             kind = "block"
@@ -204,13 +221,18 @@ def to_braces(text: str) -> list[tuple[int, str]]:
             if after:
                 raise IndentError("else: nothing goes between 'else' and ':'", number)
             line, kind = "} else {", "if"
+        elif word == "try":
+            line, kind = "try -py {", "try"
+        elif word in ("except", "finally"):
+            line, kind = _try_part(word, after, try_parts, number), "try"
+            try_parts += (word,)
         elif word == "case":
             if not after:
                 raise IndentError("case: missing a word before ':' (case -py $choice:)", number)
             line, kind = f"case -py {after} {{", "case"
         else:  # for, select
             line, kind = f"{word} -py {after} {{", "block"
-        if merged and word not in ("elif", "else"):
+        if merged and word not in ("elif", "else", "except", "finally"):
             raise IndentError(f"expected 'elif' or 'else', got '{word}'", number)
         if word in ("elif", "else"):
             line = line[2:] if line.startswith("} ") else line
@@ -220,10 +242,29 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         if rest:
             line += f" {'true' if rest == 'pass' else rest}"
         out.append((number, indent + line))
-        stack.append(_Level(kind, indent, inline=bool(rest)))
+        stack.append(_Level(kind, indent, inline=bool(rest), line=number, parts=try_parts))
     while stack:
         close(last)
     return out
+
+
+def _try_part(word: str, after: str, parts: tuple[str, ...], number: int) -> str:
+    """The brace form of an `except [as NAME]:` or `finally:` line, after the parts before it."""
+    if word in parts:
+        raise IndentError(f"a try has only one '{word}:'", number)
+    if word == "except" and "finally" in parts:
+        raise IndentError("'except:' goes before 'finally:'", number)
+    if word == "finally":
+        if after:
+            raise IndentError("finally: nothing goes between 'finally' and ':'", number)
+        return "} finally {"
+    if not after:
+        return "} except {"
+    match = re.fullmatch(r"as\s+([A-Za-z_][A-Za-z0-9_]*)", after)
+    if match is None:
+        raise IndentError(f"except {after}: there are no error types here; use 'except:', or "
+                          "'except as status:' for the failing status", number)
+    return f"}} except as {match.group(1)} {{"
 
 
 def translate(text: str) -> str:

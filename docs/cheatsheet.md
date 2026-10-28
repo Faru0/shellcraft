@@ -89,6 +89,7 @@ set -euo pipefail                                # also: unset $vars are errors,
 set -x                                           # show each command before it runs (set +x: off)
 trap 'rm -f $tmp' EXIT                           # clean up when the function, file or func ends
 trap 'echo "failed: $?"' ERR                     # after a command fails;  trap '…' INT on Ctrl-C
+try { cp a b } except as rc { echo "failed $rc" }  # catch the first failure;  finally { … } always runs
 while getopts "vf:" o; do case $o in v) v=1;; f) f=$OPTARG;; esac; done   # -v -f FILE
 shift $((OPTIND - 1))                            # then $1 is the first word after the options
 source -n deploy.sc                              # check a file without running it (func check NAME: a func)
@@ -119,6 +120,12 @@ def add(a, b):                                   # add 1 2: status 3; add 300 4 
 def is_weekend(day):                             # return True / False for a check
     return day in ("Sat", "Sun")
 if -py is_weekend("Sun"): echo rest              # call a function from Python, with brackets
+try:                                             # the first failing command jumps to except
+    ./deploy.sh
+except as rc:                                    # rc and $?: the failing status
+    echo "deploy failed: $rc"
+finally:                                         # always runs
+    rm -f deploy.lock
 for -py n in 1..5: echo $n                       # a short block on one line
 ```
 

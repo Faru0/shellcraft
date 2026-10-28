@@ -24,6 +24,8 @@ Python syntax (`-py`), parsed by ShellCraft itself:
     case -py WORD { PATTERN [| PATTERN] { LIST } … }       `_` matches anything
     def NAME(PARAM, PARAM="default") { LIST }               parameters are `local` variables
     NAME = EXPR      NAME += EXPR (-= *= /= //= %=)          in a -py block or a def: a Python value
+    try [-py] { LIST } [except [as NAME] { LIST }] [finally { LIST }]
+                     the first failing command (or Python error) in the body runs `except`
 
   The Python style (a `:` and an indented body) is turned into these brace forms before parsing,
   by shellcraft.indent; the parser never sees a colon block.
@@ -51,7 +53,7 @@ from shellcraft.context import ShellContext, to_text
 from shellcraft.parser import ParseError, find_closing_paren
 
 KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
-            "case", "esac", "select", "def")
+            "case", "esac", "select", "def", "try", "except", "finally")
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
@@ -202,7 +204,20 @@ class Assign:
     tree: ast.Expression
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign]
+@dataclass
+class Try:
+    """`try { LIST } except [as NAME] { LIST } finally { LIST }`: the first command in the body
+    that fails (or a Python error) stops it and runs `except`, with NAME and `$?` set to the
+    failing status; `finally` always runs. At least one of `except` / `finally` is there."""
+
+    body: list[Stmt]
+    handler: list[Stmt] | None
+    name: str  # `except as NAME`, or ""
+    final: list[Stmt] | None
+    pos: int
+
+
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign, Try]
 
 
 @dataclass
@@ -391,6 +406,10 @@ class _Parser:
             return self._jump(word)
         if word == "def":
             return self._def()
+        if word == "try" and self._try_follows(start + 3):
+            return self._try()
+        if word.rstrip(":") in ("except", "finally"):
+            raise self._error(f"'{word.rstrip(':')}' without a matching try", start)
         if word == "function" or (self.mode != "py" and _FUNCTION_DEF.match(self.s, start)):
             return self._function(keyword=word == "function")
         if word in ("elif", "else") and self.mode == "py":
@@ -588,6 +607,74 @@ class _Parser:
             self.loops = saved_loops
             self.in_def = saved_def
         return Function(name, body, self.s[pos:self.i], pos, params)
+
+    # try
+    def _try_follows(self, i: int) -> bool:
+        """Whether `try` at the start of a statement opens a try block: `-py`, a `{` or the end
+        comes next (anything else runs a command named try)."""
+        while i < self.n and self.s[i] in " \t\r\n":
+            i += 1
+        return i >= self.n or self._bare_word(i) == PY_FLAG or self._is_open(i)
+
+    def _try(self) -> Try:
+        """`try [-py] { LIST } [except [as NAME] { LIST }] [finally { LIST }]`. The blocks are
+        Python style with `-py` or inside a -py block, else they keep the syntax around them
+        (bash lines in a bash function)."""
+        pos = self.i
+        self.i += 3
+        self._skip_blanks()
+        py = self._bare_word(self.i) == PY_FLAG
+        if py:
+            self.i += len(PY_FLAG)
+        mode = "py" if py or self.mode == "py" else "sh"
+
+        def block(what: str) -> list[Stmt]:
+            stmts: list[Stmt] = self._in_mode(mode, lambda: self._block(what))
+            return stmts
+
+        body = block("try")
+        handler: list[Stmt] | None = None
+        final: list[Stmt] | None = None
+        name = ""
+        while True:
+            save = self.i
+            self._skip_space(separators=True)
+            word = self._bare_word(self.i) if not self._at_end() else ""
+            if word == "except":
+                if final is not None:
+                    raise self._error("'except' goes before 'finally'")
+                if handler is not None:
+                    raise self._error("a try has only one 'except'")
+                self.i += len(word)
+                self._skip_blanks()
+                if self._bare_word(self.i) == "as":
+                    self.i += 2
+                    self._skip_blanks()
+                    match = _NAME.match(self.s, self.i)
+                    if not match:
+                        if self._at_end():
+                            raise self._incomplete("except as: missing a name", " ")
+                        raise self._error("except as: expected a name: except as status { … }")
+                    name = match.group()
+                    self.i = match.end()
+                elif not self._at_end() and not self._is_open(self.i):
+                    raise self._error("except: there are no error types here; use `except { … }`, "
+                                      "or `except as status { … }` for the failing status")
+                handler = block("except")
+            elif word == "finally":
+                if final is not None:
+                    raise self._error("a try has only one 'finally'")
+                self.i += len(word)
+                final = block("finally")
+            else:
+                if handler is None and final is None:
+                    if self._at_end():
+                        raise self._incomplete("try: missing 'except' or 'finally'", " ")
+                    raise self._error("try: needs an 'except' or a 'finally' after its block: "
+                                      "try { … } except { … }", pos)
+                self.i = save
+                break
+        return Try(body, handler, name, final, pos)
 
     # while / until
     def _while(self, until: bool) -> While:
@@ -1555,6 +1642,15 @@ class _Abort(Exception):
         self.stops = stops
 
 
+class _TryFailed(Exception):
+    """A command in a `try` body failed (`status`): the body stops there and `except` runs."""
+
+    def __init__(self, status: int, text: str):
+        super().__init__(status)
+        self.status = status
+        self.text = text
+
+
 def _errexit_stop(status: int, text: str) -> _Abort:
     """What `set -e` raises when a command fails: the command has already said why."""
     from shellcraft.pipeline import PipelineError
@@ -1721,6 +1817,9 @@ class _Runner:
         self.stdin = parent.stdin if parent else ""
         # A function call's or block's `2> file` / `2>&1`: where its errors are reported.
         self.stderr_sink: Callable[[str], None] | None = None
+        # `try` bodies being run by this runner: a failing command jumps to `except`. A function
+        # call or `$( … )` starts at 0 (its status is what counts, once it ends).
+        self.trying = 0
 
     def variables(self) -> Any:
         from shellcraft.pipeline import Variables
@@ -1824,6 +1923,8 @@ class _Runner:
             self.run_select(stmt)
         elif isinstance(stmt, Assign):
             self.run_assign(stmt)
+        elif isinstance(stmt, Try):
+            self.run_try(stmt)
         elif stmt.kind == "break":
             raise _Break
         elif stmt.kind == "return":
@@ -1835,9 +1936,12 @@ class _Runner:
 
     def check_errexit(self, status: int, text: str) -> None:
         """A command that failed (and isn't a test, the left of `&&` / `||` or `!`) runs the ERR
-        trap; with `set -e` it then stops the script, the function or the file it is in."""
+        trap; with `set -e` it then stops the script, the function or the file it is in. In a
+        `try` body it jumps to `except` instead (and ERR doesn't run)."""
         from shellcraft.pipeline import errexit
 
+        if status and self.trying and not self.ctx.errexit_off:
+            raise _TryFailed(status, text)
         traps.failed(self.ctx, status, self)
         if status and errexit(self.ctx):
             raise _errexit_stop(status, text)
@@ -1863,6 +1967,8 @@ class _Runner:
             return evaluate(stmt.tree, names, self.call_function) if stmt.tree else None
         except ConditionError as exc:
             self.report(PipelineError(1, 1, "return", f"return {stmt.value}: {exc}"), f"return {stmt.value}")
+            if self.trying and not self.ctx.errexit_off:
+                raise _TryFailed(1, f"return {stmt.value}") from None
             raise _Return(1) from None
 
     def call_function(self, name: str, args: list[Any]) -> Any:
@@ -2006,6 +2112,54 @@ class _Runner:
             return
         set_variable(self.ctx, stmt.name, str(value), self.vars)
         self.ctx.last_status = 0
+
+    def run_try(self, stmt: Try) -> None:
+        """Run the body; on its first failure run `except` (NAME and `$?` hold the failing
+        status), which makes the try's status its own. `finally` runs whatever happens, also
+        when break, continue, return, exit or Ctrl-C pass through, and leaves `$?` as it was.
+        With no `except` the failure goes on after `finally`: ERR, `set -e` or an outer try."""
+        from shellcraft.pipeline import set_variable
+
+        failed: tuple[int, str] | None = None
+        try:
+            failed = self._try_body(stmt)
+            if failed is not None and stmt.handler is not None:
+                self.ctx.last_status = failed[0]
+                if stmt.name:
+                    set_variable(self.ctx, stmt.name, str(failed[0]), self.vars)
+                failed = None
+                self.run_list(stmt.handler)
+        finally:
+            if stmt.final is not None:
+                status = self.ctx.last_status if failed is None else failed[0]
+                self.run_list(stmt.final)
+                self.ctx.last_status = status
+        if failed is not None:
+            self.ctx.last_status = failed[0]
+            self.check_errexit(failed[0], failed[1])
+
+    def _try_body(self, stmt: Try) -> tuple[int, str] | None:
+        """Run a try's body: None when it ends well, else (the failing status, the command). A
+        script-stopping error (a bad Python condition, `set -u`) counts when there is an
+        `except`; without one it goes on stopping the script, after `finally`."""
+        self.trying += 1
+        if stmt.handler is not None:
+            self.ctx.try_handlers += 1  # the except handles failures: no ERR trap for them
+        try:
+            self.run_list(stmt.body)
+        except _TryFailed as exc:
+            return exc.status, exc.text
+        except _Abort as exc:
+            if stmt.handler is None:
+                raise
+            if not exc.reported:
+                self.report(exc.error, exc.text)
+            return getattr(exc.error, "status", 1) or 1, exc.text
+        finally:
+            self.trying -= 1
+            if stmt.handler is not None:
+                self.ctx.try_handlers -= 1
+        return None
 
     def run_chain(self, stmt: Chain) -> None:
         """`a && b || c`. Under `set -e` only the last part's failure stops the script, and only

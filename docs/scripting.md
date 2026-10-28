@@ -151,6 +151,12 @@ def add(a, b):
     return int(a) + int(b)                                 # 0-255: the status, True/False: 0/1, else printed
 def is_big(n):
     return add(n, 1) > 100                                 # call a function from Python: add(), slug()
+try:                                                       # the first failing command jumps to except
+    cp app.conf backup/
+except as rc:                                              # rc (and $?): the failing status
+    echo "copy failed: $rc"
+finally:                                                   # always runs, also on break / return
+    rm -f run.lock
 name = input("Your name? ")                                # asking works in any block
 ```
 
@@ -236,6 +242,18 @@ trap - EXIT               # remove it;  trap '' INT does nothing on Ctrl-C;  tra
 A trap belongs to the function, sourced file or func that set it. One set at the prompt, in the
 rc file or in a startup file belongs to the session. See
 [Clean up with trap](scripting/functions.md#clean-up-with-trap) and `man trap`.
+
+## Catch failures with try
+
+```
+try { cp a b; echo copied } except as rc { echo "failed: $rc" } finally { rm -f lock }
+```
+
+The first command in the `try` block that fails (as `set -e` would see it) skips the rest and runs
+`except`, with the status in NAME and `$?`. `finally` always runs. Inside a bash function the
+blocks stay bash; `try:` with an indented body is the Python style. A failure that `except`
+handles doesn't run the ERR trap or stop `set -e`. See
+[Catch failures with try](scripting/functions.md#catch-failures-with-try) and `man try`.
 
 ## Options with getopts
 
