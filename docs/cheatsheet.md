@@ -132,6 +132,12 @@ queryCert -s $1 > subs-$1.txt
 queryDns $1
 ```
 
+From bash or cron, without opening ShellCraft (the exit code is the func's status):
+
+```bash
+shellcraft func run recon example.com
+```
+
 [More](funcs.md)
 
 ## A profile

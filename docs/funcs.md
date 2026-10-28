@@ -175,6 +175,48 @@ in `func edit`. The status is 0 when the func is clean, 1 for warnings only and 
 | `func run -i NAME ARGS` | Isolated: afterwards your folder, variables, aliases, theme, settings and `set` options are put back |
 | `func run -b NAME ARGS` | In the background, as a job in the footer. Steps that change the shell, like `cd`, are refused there |
 | `func run -q NAME ARGS` | Quiet this time, whatever the header says (`-v` shows everything) |
+| `shellcraft func run NAME ARGS` | From bash or cron, without opening ShellCraft (see [below](#run-a-func-from-outside-shellcraft)) |
+
+## Run a func from outside ShellCraft
+
+You can run a func from bash, a script or cron, without opening ShellCraft:
+
+```bash
+shellcraft func run backup notes
+echo $?
+```
+
+ShellCraft starts with no banner and no prompt. It loads your rc file and startup files first, as
+it does when you open it, then runs the func and exits. The func's output goes to stdout and its
+errors to stderr. The exit code is the func's status, so `echo $?` shows `0` when every step
+worked and the failing step's status otherwise (`exit N` in the func ends with N).
+
+Put the shell's own options before `func`:
+
+```bash
+shellcraft --profile work --no-startup func run deploy staging
+```
+
+| Option | What it does |
+| --- | --- |
+| `--profile NAME` | Use that profile's funcs, settings and rc |
+| `--no-startup` | Skip the rc file and the startup files. Good for cron, when the rc prints things |
+| `--allow-system` | Let it run your system's programs, if `system_commands` is off |
+| `-q` / `-v` after `run` | Quiet or show everything, as at the prompt. `-v` also prints the `✓` or `✗` summary line, on stderr |
+
+The `✓` summary line doesn't show unless you ask with `-v`, so a func that works prints only its
+own output. An unknown func exits with 127. `-b` doesn't work here, since there is no shell to keep
+the job in; put `&` after the command in bash instead. If you run it from a terminal, `read` and
+`input` can still ask you things. From cron or a pipe they can't, and fail as they do in any
+script with no terminal.
+
+A cron line that runs a func every night at 2:00 and keeps its output:
+
+```
+0 2 * * * shellcraft --no-startup func run backup notes >> ~/backup.log 2>&1
+```
+
+`shellcraft func list`, `func show NAME`, `func check NAME` and `func path NAME` work the same way.
 
 ## Make and change funcs from the prompt
 

@@ -46,6 +46,18 @@ shellcraft --mcp-http 127.0.0.1:38765     # over HTTP
 
 [MCP and the AI co-pilot](mcp-and-ai.md) explains how to connect a client.
 
+## Running a func
+
+```bash
+shellcraft func run backup notes                          # run a func and exit
+shellcraft --profile work --no-startup func run deploy    # options go before func
+```
+
+ShellCraft runs the [func](funcs.md#run-a-func-from-outside-shellcraft) with no banner and no
+prompt, after the rc file and startup files (unless `--no-startup`), and exits with the func's
+status. Its output goes to stdout and its errors to stderr. `shellcraft func list`, `func show
+NAME`, `func check NAME` and `func path NAME` work too.
+
 ## Turning scripts into modules
 
 ```bash

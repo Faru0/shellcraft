@@ -29,6 +29,11 @@ and the project uses [semantic versioning](https://semver.org/).
   condition) is an error, and every command that nothing answers to is a warning, each as
   `FILE:LINE: message`, with a summary line after. The status is 0 when clean, 1 for warnings
   only, 2 for errors. `man source`, `man func`.
+- **Run a func from outside ShellCraft.** `shellcraft func run NAME ARGS` runs a func from bash,
+  a script or cron, with no banner or prompt: the rc file and startup files load first (not with
+  `--no-startup`), the output goes to stdout, errors to stderr, and the exit code is the func's
+  status. Options like `--profile` go before `func`. `shellcraft func list`, `show`, `check` and
+  `path` work too.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

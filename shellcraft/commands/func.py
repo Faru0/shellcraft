@@ -39,6 +39,7 @@ func run NAME [ARG...]                 # run it
 func run -i NAME [ARG...]              # isolated: the directory, variables, env vars, aliases, theme, settings and set options come back afterwards
 func run -b NAME [ARG...]              # in the background, as a job in the footer (always isolated; jobs N shows its output)
 func run -q NAME / -v NAME             # quiet / show this time, whatever its header says
+shellcraft func run NAME [ARG...]      # from bash or cron: no prompt, exits with the func's status
 func new NAME                          # guided: the header, then the steps one per line (an empty line ends)
 func new NAME -e                       # write it in your editor instead (settings editor)
 func new NAME --save                   # keep it on disk (the active profile's, or -g the default's); else this session only

@@ -27,10 +27,14 @@ class _ArgumentParser(argparse.ArgumentParser):
         raise ArgsError(message)
 
 
-def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+def _parser() -> _ArgumentParser:
     p = _ArgumentParser(prog="shellcraft", description="ShellCraft — a modular, pipe-friendly shell.",
-                                epilog="shellcraft ingest [SCRIPT.py | check ...] turns a Python script into a "
-                                       "module, or checks modules (shellcraft ingest --help).")
+                        formatter_class=argparse.RawDescriptionHelpFormatter,
+                        epilog="shellcraft ingest [SCRIPT.py | check ...] turns a Python script into a module, or\n"
+                               "  checks modules (shellcraft ingest --help).\n"
+                               "shellcraft [OPTIONS] func run [-i] [-q|-v] NAME [ARG...] runs a func with no prompt\n"
+                               "  (rc and startup files first, unless --no-startup) and exits with its status;\n"
+                               "  shellcraft func list / show NAME / check NAME / path [NAME] work the same way.")
     p.add_argument("--mcp", action="store_true", help="run as an MCP server over stdio")
     p.add_argument("--mcp-http", metavar="HOST:PORT",
                    help="run as an MCP server over streamable HTTP at http://HOST:PORT/mcp "
@@ -71,7 +75,34 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                         "into ~/.shellcraft where they are missing; never overwrites your files")
     p.add_argument("--force", action="store_true", help="with --init: also refresh the .sample and README files")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
-    return p.parse_args(argv)
+    return p
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    return _parser().parse_args(argv)
+
+
+def _split_func(argv: list[str]) -> tuple[list[str], list[str]] | None:
+    """`shellcraft [OPTIONS] func ACTION ...`: the options before `func` and the words after it, or None
+    when the command line has no `func` (a `func` that is an option's value, `--profile func`, doesn't count)."""
+    options = _parser()._option_string_actions
+    takes_value = {name for name, action in options.items() if action.nargs != 0}
+    i = 0
+    while i < len(argv):
+        word = argv[i]
+        if word == "func":
+            return argv[:i], argv[i + 1:]
+        if not word.startswith("-") or word == "--":
+            return None  # a word argparse will refuse anyway
+        if "=" not in word:
+            # argparse takes a unique prefix too (--prof work)
+            matches = [name for name in options if name.startswith(word)] if word.startswith("--") else [word]
+            if word in options:
+                matches = [word]
+            if len(matches) == 1 and matches[0] in takes_value:
+                i += 1  # its value
+        i += 1
+    return None
 
 
 def _init(force: bool) -> int:
@@ -129,10 +160,15 @@ def main(argv: list[str] | None = None) -> int:
         from tools.ingest.__main__ import main as ingest_main
 
         return ingest_main(argv[1:], prog="shellcraft ingest")  # new modules go to ~/.shellcraft/modules
+    split = _split_func(argv)  # `shellcraft [OPTIONS] func run NAME ...`: a func, with no prompt
+    func_words = split[1] if split is not None else None
     try:
-        args = _parse_args(argv)
+        args = _parse_args(split[0] if split is not None else argv)
     except ArgsError as exc:
         print(f"shellcraft: {exc} (shellcraft --help lists the options)", file=sys.stderr)
+        return 2
+    if func_words is not None and (args.mcp or args.mcp_http or args.init or args.role or args.expose):
+        print("shellcraft: func goes without --mcp, --mcp-http, --init, --role and --expose", file=sys.stderr)
         return 2
     if args.init:
         return _init(args.force)
@@ -154,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             save_config(config)
     except OSError:
         pass  # they keep working from config.json
-    if not (args.mcp or args.mcp_http or args.lite):
+    if not (args.mcp or args.mcp_http or args.lite or func_words is not None):
         from shellcraft import skel
 
         skel.seed(config)  # the commented rc and aliases and the examples, each written once (`--init` again)
@@ -193,6 +229,10 @@ def main(argv: list[str] | None = None) -> int:
 
         watch_parent(args.parent_pid)
 
+    if func_words is not None:
+        from shellcraft import func_cli
+
+        return func_cli.main(func_words, args, config, registry, profile_name)
     if args.mcp and args.mcp_http:
         print("shellcraft: use either --mcp (stdio) or --mcp-http, not both", file=sys.stderr)
         return 2
