@@ -22,12 +22,56 @@ you need.
 - `pass` does nothing, as in Python, for a block that has nothing to do yet.
 - A short block fits on one line after the colon: `for -py n in 1..3: echo $n`.
 
-The commands inside a block are the same in both styles: `echo`, `read`, `x=1`, `$((n + 1))`. Only
-the way the block starts and ends changes.
+The commands inside a block are the same in both styles: `echo`, `read`, `x=1`, `$((n + 1))`.
+Python-style blocks can also set a variable the Python way, `count = 0` and `count += 1` (see
+[Set a variable](#set-a-variable)).
 
 At the prompt, type the first line and press Enter. The next line starts indented for you. Press
 Backspace to go back a level, and press Enter on an empty line to run the block. ↑ brings the whole
 block back, as you typed it.
+
+## Set a variable
+
+Bash style writes `name=value`, with no spaces, and does sums in `$(( ))`:
+
+<!-- run -->
+```
+count=0
+for n in 1 2 3; do
+  count=$((count + n))
+done
+echo "total: $count"
+```
+
+<!-- output -->
+```
+total: 6
+```
+
+Python style writes `name = value`, with a Python value on the right, and `+=` to add to a
+variable:
+
+<!-- run -->
+```
+for -py n in 1 2 3:
+    if n == "1":
+        count = 0
+    count += int(n)
+echo "total: $count"
+```
+
+<!-- output -->
+```
+total: 6
+```
+
+`-=`, `*=`, `/=`, `//=` and `%=` work too. The value can be anything a Python condition can use:
+`name = name.strip().lower()`, `total = int(a) * 2`, `big = int(n) > 10` (stored as `True` or
+`False`). Variables still hold text, so `int(count)` reads one back as a number; `count += 1` does
+that for you. `/` always gives a fraction (`2.0`), and `//` a whole number.
+
+This only works inside a Python-style block or a `def`. At the prompt or in a bash block,
+`x = 5` with spaces runs a command named `x`, as in bash. `name=value` works everywhere.
 
 ## if, elif, else
 
@@ -315,7 +359,7 @@ Python style:
 n=3
 while -py int(n) > 0:
     echo "$n..."
-    n=$((n - 1))
+    n -= 1
 echo "liftoff!"
 ```
 
@@ -795,6 +839,8 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 
 | | Bash style | Python style |
 | --- | --- | --- |
+| Set a variable | `name="Ada"` | `name = "Ada"` (in a block) |
+| Add one | `n=$((n + 1))` | `n += 1` (in a block) |
 | If | `if [ $n -gt 3 ]; then … fi` | `if -py int(n) > 3:` |
 | Else if | `elif [ … ]; then` | `elif …:` |
 | Else | `else` | `else:` |

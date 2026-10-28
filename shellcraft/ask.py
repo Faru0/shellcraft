@@ -8,7 +8,7 @@ script or the prompt can ask once and use it later. Only the interactive shell c
 parentheses are Python, not shell): `NAME = input()`, `NAME = input("prompt")`, with any Python
 string literal as the prompt (single or double quotes, escapes). `NAME = int(input("prompt"))` and
 `float(...)` ask until the answer is a number (Python would stop with a ValueError; a shell says
-so and asks again). Inside `for` / `if` blocks, use `read -p "prompt" NAME`.
+so and asks again). The same lines work inside blocks and functions (script._Runner.run_input).
 """
 
 from __future__ import annotations

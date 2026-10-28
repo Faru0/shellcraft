@@ -34,6 +34,11 @@ and the project uses [semantic versioning](https://semver.org/).
   `--no-startup`), the output goes to stdout, errors to stderr, and the exit code is the func's
   status. Options like `--profile` go before `func`. `shellcraft func list`, `show`, `check` and
   `path` work too.
+- **Python assignment.** Inside a Python-style block (`for -py`, `if -py`, `while -py` and the
+  rest, colon or brace form) and in a `def`, `count = 0`, `name = name.strip().lower()` and
+  `count += 1` work, with `-=`, `*=`, `/=`, `//=` and `%=` too. The value is a Python expression,
+  stored as text (`True` / `False` for a yes or no). `x = 5` at the prompt or in a bash block is
+  still a command named `x`, and `x=5` works everywhere.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

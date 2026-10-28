@@ -27,6 +27,9 @@ every startup file that runs after it.
 Names are letters, digits and `_`, and they can't start with a digit. `my_host`, `count2` and
 `API_URL` are fine.
 
+Inside a Python-style block or a `def`, you can also write it the Python way, with spaces and a
+Python value: `count = 0`. See [Python style: name = value](#python-style-name--value).
+
 ## Quoting
 
 Use double quotes when a value has spaces, and around a variable when you use it:
@@ -139,6 +142,57 @@ echo "count is $count"
 ```
 count is 2
 ```
+
+## Python style: name = value
+
+Inside a Python-style block (`for -py`, `if -py`, `while -py` and the rest) and in a `def`, the right
+side of `name = value` is a Python value, the same kind a Python condition uses. Text goes in quotes,
+and other variables go in without a `$`:
+
+<!-- run -->
+```
+first=Ada
+for -py n in 1..3:
+    total = int(n) * 10
+    name = first.upper() + "!"
+    big = int(total) > 15
+    echo "$n: $total $name $big"
+```
+
+<!-- output -->
+```
+1: 10 ADA! False
+2: 20 ADA! True
+3: 30 ADA! True
+```
+
+`count += 1` adds to a variable, and `-=`, `*=`, `/=`, `//=` and `%=` work too. With a number on the
+right, the variable is read as a number. With text on the right, `+=` adds the text to the end:
+
+<!-- run -->
+```
+count=0
+for -py word in red green blue:
+    count += 1
+    if word == "red":
+        names = word
+    else:
+        names += ", " + word
+echo "$count colours: $names"
+```
+
+<!-- output -->
+```
+3 colours: red, green, blue
+```
+
+The value is stored as text, as every variable is, so `total` is text again on the next line and
+`int(total)` turns it back into a number. A yes or no is stored as `True` or `False`, and a fraction
+as `2.5`. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
+on a variable that isn't set yet stops with `count: not set, give it a value first`.
+
+Outside these blocks, at the prompt or in a bash block, `x = 5` with spaces runs a command called
+`x`, as in bash. The bash form `name=value` works everywhere, Python-style blocks included.
 
 ## Save a command's output
 

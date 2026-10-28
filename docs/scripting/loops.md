@@ -236,7 +236,7 @@ for -py fruit in apple banana:
 countdown=3
 while -py int(countdown) > 0:
     echo "$countdown..."
-    countdown=$((countdown - 1))
+    countdown -= 1
 echo "liftoff!"
 ```
 
@@ -248,6 +248,27 @@ I like banana
 2...
 1...
 liftoff!
+```
+
+Inside a Python-style block, `countdown -= 1` works like `countdown=$((countdown - 1))`. Here's a
+counter that adds up as it goes:
+
+<!-- run -->
+```
+n=0
+total=0
+while -py int(n) < 4:
+    n += 1
+    total += int(n)
+    echo "after $n: $total"
+```
+
+<!-- output -->
+```
+after 1: 1
+after 2: 3
+after 3: 6
+after 4: 10
 ```
 
 `until -py` and `while -py True:` work the same way, and so do `break` and `continue`.

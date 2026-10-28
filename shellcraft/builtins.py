@@ -1353,7 +1353,7 @@ on a line of its own: `name = input("What is your name? ")`.
 read NAME                       # read a line into $NAME
 read -p "Your name? " NAME      # with a prompt
 read -s -p "Token: " TOKEN      # without echoing what is typed
-name = input("Your name? ")     # the same, Python style (not inside for / if blocks)
+name = input("Your name? ")     # the same, Python style (also inside blocks)
 count = int(input("How many? "))   # asks again until the answer is a whole number
 ratio = float(input("Ratio? "))    # … or any number
 ```
@@ -2324,7 +2324,8 @@ for -py n in 1..3: echo "one line: $n"
 
 The block ends at the first line indented less. At the prompt, the next line starts indented
 for you, and an empty line runs the block. `pass` does nothing. Bash lines (`if …; then`,
-`for …; do`) can go inside, and a Python-style block can go inside a bash function.
+`for …; do`) can go inside, and a Python-style block can go inside a bash function. Inside,
+`count = 0` and `count += 1` (also `-=`, `*=`, `/=`, `//=`, `%=`) set a variable from a Python value.
 
 ## Both
 
@@ -2474,7 +2475,8 @@ def NAME(PARAM, PARAM="default"):
 Each parameter is a `local` variable, set from the arguments in order or from its default; a
 parameter without a default is required (`greet: missing argument 'name'`, status 2). `$1`, `$#`
 and `$@` still work, so extra arguments aren't lost. The body is a `-py` block: conditions are
-Python and a nested `if` / `for` needs no flag. The brace form is `def NAME(PARAMS) { … }`.
+Python and a nested `if` / `for` needs no flag. `total = int(a) + int(b)` and `total += 1` set a
+variable from a Python value. The brace form is `def NAME(PARAMS) { … }`.
 
 ```
 def greet(name, greeting="Hello"):
@@ -2629,8 +2631,11 @@ style, indented under a `:` (see `man if`):
 n=0
 while -py int(n) < 3:
     echo "round $n"
-    n=$((n + 1))
+    n += 1
 ```
+
+Inside a `-py` block, `n += 1` (also `=`, `-=`, `*=`, `/=`, `//=`, `%=`) sets a variable from a
+Python value; `n=$((n + 1))` works too.
 
 Variables changed inside the loop keep their values after it. The loop's output can be piped or
 redirected as a whole: `while …; do …; done | sort`.

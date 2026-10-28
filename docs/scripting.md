@@ -145,7 +145,8 @@ case -py $f:                                               # "a" | "b":, "*.py":
 select -py env in dev prod:                                # a numbered menu
     break
 def greet(name, greeting="hi"):                            # named arguments, with defaults
-    echo "$greeting $name"
+    msg = greeting.title() + " " + name                    # Python assignment: = += -= *= /= //= %=
+    echo "$msg"
 name = input("Your name? ")                                # asking works in any block
 ```
 
@@ -158,6 +159,8 @@ form is the same thing on one line: `for -py n in 1..5 { if (int(n) % 2 == 0) { 
 - Inside a `-py` block, nested `for`/`if` use the same syntax without the flag. Bash lines
   (`if …; then … fi`) work inside one too, and a Python-style block works inside a bash function.
 - A Python-style condition that isn't Python runs as a command: `if -py grep -q x f:`.
+- Inside a `-py` block or a `def`, `name = value` and `count += 1` take a Python value, stored as
+  text. At the prompt and in bash blocks `x = 5` stays a command named `x`; `x=5` works everywhere.
 
 In both: `break`/`continue` (also after `&&` / `||`); a failing command shows its error and the
 loop goes on, as in bash; loop variables and `x=1` assignments outlive the loop. `man for`,

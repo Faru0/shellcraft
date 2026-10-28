@@ -233,7 +233,13 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
     if len(tokens) > 1:
         raise ParseError(f"{name}={raw.strip()}: quote a value that contains spaces: {name}=\"…\"",
                          match.start(2))
-    value = tokens[0].value if tokens else ""
+    set_variable(ctx, name, tokens[0].value if tokens else "", target)
+    return True
+
+
+def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str] | None = None) -> None:
+    """Set a shell variable (in `target`, default the shell's) as `NAME=VALUE` does: shown by
+    `set -x`, and passed on to commands when it is exported."""
     if "xtrace" in ctx.options:  # `set -x`
         write_stderr(ctx, f"+ {name}={_trace_word(value)}")
     store = ctx.variables if target is None else target
@@ -241,7 +247,6 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
     if name in ctx.exported:
         ctx.exported[name] = value
         os.environ[name] = value
-    return True
 
 
 def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], split: bool = False,

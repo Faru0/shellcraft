@@ -23,6 +23,7 @@ Python syntax (`-py`), parsed by ShellCraft itself:
     select -py NAME in ITEM... { LIST }
     case -py WORD { PATTERN [| PATTERN] { LIST } … }       `_` matches anything
     def NAME(PARAM, PARAM="default") { LIST }               parameters are `local` variables
+    NAME = EXPR      NAME += EXPR (-= *= /= //= %=)          in a -py block or a def: a Python value
 
   The Python style (a `:` and an indented body) is turned into these brace forms before parsing,
   by shellcraft.indent; the parser never sees a colon block.
@@ -58,6 +59,8 @@ _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FUNCTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 _FUNCTION_DEF = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\([ \t]*\)")  # name()
 _EMPTY_PARENS = re.compile(r"[ \t]*\([ \t]*\)")
+# `count = 0`, `count += 1` in py mode (`x=5`, with no spaces, stays the bash assignment)
+_PY_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(//=|\+=|-=|\*=|/=|%=|=)(?!=)([ \t]*)")
 MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
 _BRACE_SEQ = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$|^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$")
@@ -185,7 +188,19 @@ class Piped:
     mode: str = "sh"
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select]
+@dataclass
+class Assign:
+    """`NAME = EXPR` or `NAME += EXPR` (`-=`, `*=`, `/=`, `//=`, `%=`) in a -py block or a `def`:
+    the value is a Python expression, kept as text in the shell variable."""
+
+    name: str
+    op: str
+    text: str  # the expression, as typed
+    pos: int
+    tree: ast.Expression
+
+
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign]
 
 
 @dataclass
@@ -381,7 +396,27 @@ class _Parser:
         if word in SH_RESERVED:
             owner = "for" if word in ("do", "done") else "if"
             raise self._error(f"'{word}' without a matching {owner}", start)
+        if self.mode == "py" and (match := _PY_ASSIGN.match(self.s, start)) and \
+                (match.group(3) != "=" or match.group(2) or match.group(4)):
+            return self._assign(match)
         return self._chain()
+
+    def _assign(self, match: re.Match[str]) -> Stmt:
+        """`NAME = EXPR` / `NAME += EXPR` in py mode. `NAME = input(…)` stays a command (run_input)."""
+        from shellcraft import ask
+
+        start = self.i
+        name, op = match.group(1), match.group(3)
+        self.i = match.end()
+        expr = self._tail_text()
+        if ask.INPUT_LINE.match(self.s[start:self.i]) or ask.NUMBER_LINE.match(self.s[start:self.i]):
+            self.i = start
+            return self._chain()
+        if not expr:
+            raise self._error(f"{name} {op}: missing a value after '{op}'", start)
+        if "$(" in expr:
+            raise self._error(f"{name} {op}: $( … ) is bash: write {name}=$(command), with no spaces", start)
+        return Assign(name, op, expr, start, compile_condition(expr, start, f"{name} {op}", "value"))
 
     def _jump(self, word: str) -> Jump:
         """`break`, `continue` or `return [N]`, alone or after `&&` / `||` (`[ -f x ] || return 1`)."""
@@ -1276,8 +1311,24 @@ _PLAIN_NODES = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.No
                 ast.Slice, ast.IfExp, *_BINOPS, *_CMPOPS)
 
 
+_AUGMENTED = {"+=": ast.Add, "-=": ast.Sub, "*=": ast.Mult, "/=": ast.Div, "//=": ast.FloorDiv, "%=": ast.Mod}
+
+
 class ConditionError(Exception):
     pass
+
+
+def _number(text: str) -> int | float:
+    """A variable's text as a number, for `count += 1`: int, else float."""
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    raise ConditionError(f"its value '{text}' is not a number")
 
 
 def _dollars_to_names(text: str) -> str:
@@ -1315,19 +1366,20 @@ def _dollars_to_names(text: str) -> str:
     return "".join(out)
 
 
-def compile_condition(text: str, pos: int = 0) -> ast.Expression:
-    """Parse and vet a `( … )` condition; raises ParseError naming what isn't allowed."""
+def compile_condition(text: str, pos: int = 0, what: str = "if", noun: str = "condition") -> ast.Expression:
+    """Parse and vet a `( … )` condition (or an assignment's value, with `what` and `noun` for the
+    messages); raises ParseError naming what isn't allowed."""
     source = _dollars_to_names(text).strip()
     if not source:
-        raise ParseError("if: empty condition '()'", pos)
+        raise ParseError(f"{what}: empty {noun} '()'", pos)
     try:
         tree = ast.parse(source.replace("\n", " "), mode="eval")
     except SyntaxError as exc:
-        raise ParseError(f"if: invalid condition ({exc.msg}): {source}", pos) from None
+        raise ParseError(f"{what}: invalid {noun} ({exc.msg}): {source}", pos) from None
     for node in ast.walk(tree):
         problem = _vet(node)
         if problem:
-            raise ParseError(f"if: {problem} in condition: {source}", pos)
+            raise ParseError(f"{what}: {problem} in {noun}: {source}", pos)
     return tree
 
 
@@ -1708,6 +1760,8 @@ class _Runner:
             self.define(stmt)
         elif isinstance(stmt, Select):
             self.run_select(stmt)
+        elif isinstance(stmt, Assign):
+            self.run_assign(stmt)
         elif stmt.kind == "break":
             raise _Break
         elif stmt.kind == "return":
@@ -1833,6 +1887,31 @@ class _Runner:
             return exc.status
         self.ctx.last_status = 0
         return 0
+
+    def run_assign(self, stmt: Assign) -> None:
+        """`NAME = EXPR`: the value as text (`True` / `False` for a bool). `NAME += EXPR` and the
+        other `op=` forms work on the current value: text when EXPR is text (`s += "x"`), else a
+        number (int, or float when it isn't a whole number)."""
+        from shellcraft.pipeline import PipelineError, set_variable
+
+        text = f"{stmt.name} {stmt.op} {stmt.text}"
+        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        try:
+            value = evaluate(stmt.tree, names)
+            if stmt.op != "=":
+                current = self.vars.get(stmt.name)
+                if current is None:
+                    raise ConditionError("not set, give it a value first")
+                left = current if isinstance(value, str) else _number(current)
+                op = _AUGMENTED[stmt.op]()
+                value = evaluate(ast.Expression(ast.BinOp(ast.Constant(left), op, ast.Constant(value))), {})
+        except ConditionError as exc:
+            self.report(PipelineError(1, 1, stmt.name, f"{stmt.name}: {exc}"), text)
+            self.ctx.last_status = 1
+            self.check_errexit(1, text)
+            return
+        set_variable(self.ctx, stmt.name, str(value), self.vars)
+        self.ctx.last_status = 0
 
     def run_chain(self, stmt: Chain) -> None:
         """`a && b || c`. Under `set -e` only the last part's failure stops the script, and only

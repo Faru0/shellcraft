@@ -24,9 +24,9 @@ docs cover it, and anything left out. An item is done only when the full test su
 
 ## Python side
 
-- [ ] **6. Python assignment**: `x = EXPR`, `count += 1` and the other `op=` forms, in `-py` blocks and `def`
+- [x] **6. Python assignment**: `x = EXPR`, `count += 1` and the other `op=` forms, in `-py` blocks and `def`
   - Done when: works in colon and brace blocks and `def`; `x = 5` at the prompt is unchanged; tests, docs
-  - Notes:
+  - Notes: new `Assign` statement (script.py), parsed in py mode only when the `=` has a space on a side (`x=5` stays the bash form) or the op is `+=` etc.; `NAME = input(…)` lines still go to run_input. The value goes through compile_condition (now takes `what`/`noun` for messages), so a bad value is a parse error that `source -n` / `func check` report. `run_assign` stores str(value) through the new `pipeline.set_variable` (shared with `x=1`: `set -x` trace, export), so `local` and def params work. `+=` with text on the right concatenates, else the current value is read as int, then float; unset name or non-number is reported, status 1 (ERR trap / `set -e` apply), the script goes on. `$( )` in the value is a parse error pointing at `x=$(cmd)`. Tests: tests/test_py_assign.py. Docs: python-style.md (Set a variable, while example, table), variables-and-input.md (Python style section), loops.md (counter), scripting.md, cheatsheet, CHANGELOG, FOR/WHILE/FUNCTION man pages; fixed stale "not inside blocks" input notes (READ_DOC, ask.py). Known: after a parse error inside a `def`, `source -n` reads the rest of the body as top-level lines (pre-existing), so it may warn about them.
 - [ ] **7. `def` return values**: `return EXPR`, and `add(1, 2)` inside Python code
   - Done when: as a command, 0-255 is the status, True/False are 0/1, anything else is printed; `$(add 1 2)` captures it; `total = add(1, 2)` and `if is_weekend(day):` work; tests, docs
   - Notes:

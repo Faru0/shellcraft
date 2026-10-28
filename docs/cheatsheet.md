@@ -104,7 +104,7 @@ for -py line in (cat hosts.txt):                 # a file, line by line
         continue
     echo $line
 while -py int(n) < 3:                            # while -py True: … break
-    n=$((n + 1))
+    n += 1                                       # also = -= *= /= //= %= (in a block or def)
 case -py $env:                                   # "a" | "b":   _: (anything else)
     "prod":
         echo careful
