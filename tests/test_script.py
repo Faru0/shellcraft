@@ -18,7 +18,7 @@ def out(ctx, line):
 
 def test_variables_expand_outside_single_quotes_and_never_split():
     pipeline = parse("""echo $x "[$x]" '$x' ${x}! $? $HOME""", {"x": "a b; c", "?": "3"})
-    assert pipeline.segments[0].args == ["a b; c", "[a b; c]", "$x", "a b; c!", "3", "$HOME"]
+    assert pipeline.segments[0].args == ["a b; c", "[a b; c]", "$x", "a b; c!", "3"]  # $HOME unset: no word
 
 
 def test_empty_unquoted_variable_is_no_argument():

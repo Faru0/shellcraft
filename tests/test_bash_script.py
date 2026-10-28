@@ -62,7 +62,7 @@ def test_list_words_split_quote_and_glob(tmp_path, monkeypatch):
     assert expand_sh_word('"*.log"', v, sub) == ["*.log"]
     assert expand_sh_word("*.none", v, sub) == ["*.none"]
     assert expand_sh_word('""', v, sub) == [""]
-    assert expand_sh_word("$nope", v, sub) == ["$nope"]  # undefined: left as typed (no environment)
+    assert expand_sh_word("$nope", v, sub) == []  # unset: empty, so no word at all (as in bash)
 
 
 # ── for / if ─────────────────────────────────────────────────────────────────
@@ -287,3 +287,24 @@ def test_comparisons_in_if_and_loops_and_redirects_outside(ctx, tmp_path):
     run_line(f"echo kept > {tmp_path / 'r.txt'}", ctx)  # outside [[ ]], > is still a redirection
     assert (tmp_path / "r.txt").read_text() == "kept\n"
     assert tokenize("[[ a <= b ]]")[2].value == "<=" and not tokenize("[[ a <= b ]]")[2].op
+
+
+def test_unset_variables_are_empty_and_quoted_patterns_are_text(ctx):
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import run_line
+
+    def out(line):
+        result = run_line(line, ctx)
+        return to_text(result.output) if result else ""
+
+    assert out('echo "[$nope]" $#') == "[] 0\n"  # as in bash: empty, and no arguments outside a function
+    assert out('[ -z "$nope" ] && echo empty') == "empty\n"
+    out('f=data.csv; pat="*.csv"')
+    assert out("[[ $f == *.csv ]] && echo y || echo n") == "y\n"
+    assert out('[[ $f == "*.csv" ]] && echo y || echo n') == "n\n"  # quoted: plain text
+    assert out('[[ "*.csv" == "*.csv" ]] && echo y || echo n') == "y\n"
+    assert out("[[ $f == $pat ]] && echo y || echo n") == "y\n"  # unquoted variable: a pattern
+    assert out('[[ $f == "$pat" ]] && echo y || echo n') == "n\n"
+    assert out('[[ $f == "data".* ]] && echo y || echo n') == "y\n"  # only the quoted part is text
+    assert out('[[ $f != "*.csv" ]] && echo y || echo n') == "y\n"
+    assert out("[[ $f = d*.csv ]] && echo y || echo n") == "y\n"

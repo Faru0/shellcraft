@@ -51,8 +51,8 @@ command not found: name
 Write `name=Ada`, with no spaces.
 
 **A variable that was never set.** If you use `$name` before giving it a value, or spell it wrong,
-ShellCraft leaves the text exactly as you typed it. This is different from bash, where it would
-quietly become nothing:
+it's empty, the same as in bash. Nothing warns you, so the line just has a gap where the value
+should be:
 
 <!-- run -->
 ```
@@ -61,11 +61,11 @@ echo "Hello, $user_name"
 
 <!-- output -->
 ```
-Hello, $user_name
+Hello, 
 ```
 
-When you see a `$name` in your output, check the spelling and check that the line setting it ran
-first. To get a fallback instead, see [Default values](#default-values). `set -u` turns this into
+When a value is missing from your output, check the spelling and check that the line setting it
+ran first. To get a fallback instead, see [Default values](#default-values). `set -u` turns this into
 an error that stops the script, see [Errors and cleanup](errors.md).
 
 ## Quoting
@@ -401,8 +401,9 @@ Project: website
 
 `[ -z "$project" ]` means "project is empty". The first line sets `project` to empty, so the loop
 asks at least once. Each answer replaces `project`, and the loop checks again. Once it's not empty,
-the loop ends. The empty `project=""` at the top matters: without it, `$project` would be left as
-the text `$project`, which isn't empty, and the loop would never ask.
+the loop ends. `project=""` at the top isn't strictly needed, since a variable that was never set
+is empty too, but it makes the starting point clear and clears any `project` left over from
+earlier.
 
 The same in Python style, with `input()`:
 
@@ -528,8 +529,8 @@ the details.
 ## Remove a variable
 
 `unset name` forgets a variable. You'd do this to tidy up a temporary value, or so that a later
-`${name:-default}` uses its default again. After that, `$name` is left as written, as if it
-had never been set, and `${name:-…}` gives you the fallback:
+`${name:-default}` uses its default again. After that, `$name` is empty, as if it had never been
+set, and `${name:-…}` gives you the fallback:
 
 <!-- run -->
 ```

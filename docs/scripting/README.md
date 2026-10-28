@@ -200,9 +200,8 @@ copying a script from the web and a line fails, look for it here:
 | `{ cmd1; cmd2; }` to group | An `if` block, or a function | [Conditions and choices](conditions.md#if-then-else) |
 | `sed`, `awk` and other Linux programs | ShellCraft's own `grep`, `cut`, `tr`, `sort`, `jq`… OS programs only run with `settings system_commands on` | [Pipes and scripting](../scripting.md) |
 
-Two smaller differences catch people out. A variable that was never set is left as written, so
-`echo $nmae` prints `$nmae` rather than nothing, which makes typos easy to spot. And a variable
-stays one piece wherever you use it, spaces and all, except in the list of a `for` loop.
-[Variables and input](variables-and-input.md#if-it-doesnt-work) explains both.
+One smaller difference catches people out: a variable stays one piece wherever you use it, spaces
+and all, except in the list of a `for` loop.
+[Variables and input](variables-and-input.md#if-it-doesnt-work) explains it.
 
 `man for`, `man if`, `man case`, `man test`, `man read` and `man function` have the details of each one.

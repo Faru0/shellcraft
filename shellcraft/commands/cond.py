@@ -123,9 +123,9 @@ class _Evaluator:
                 return re.search(right, left) is not None
             except re.error as exc:
                 raise _Usage(f"invalid regex '{right}': {exc}") from None
-        if self.extended and op in ("==", "!="):
+        if self.extended and op in ("=", "==", "!="):  # a pattern; quoted parts arrive escaped ([*])
             match = fnmatch.fnmatchcase(left, right)
-            return match if op == "==" else not match
+            return not match if op == "!=" else match
         if op in _TEXT_ORDER:
             return _TEXT_ORDER[op](left, right)
         if op in ("in", "not in"):

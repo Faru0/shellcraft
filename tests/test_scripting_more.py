@@ -39,7 +39,7 @@ def test_environment_expands_only_where_sensitive_output_is_allowed(ctx, monkeyp
     monkeypatch.setenv("SC_TEST_SECRET", "hunter2")
     assert out(ctx, "echo $SC_TEST_SECRET") == "hunter2\n"
     ctx.allow_sensitive = False  # MCP
-    assert out(ctx, "echo $SC_TEST_SECRET") == "$SC_TEST_SECRET\n"
+    assert out(ctx, "echo $SC_TEST_SECRET") == "\n"  # hidden: as if it weren't set
     ctx.variables["SC_TEST_SECRET"] = "own"
     assert out(ctx, "echo $SC_TEST_SECRET") == "own\n"
 

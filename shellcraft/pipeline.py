@@ -81,6 +81,8 @@ class Variables(Mapping[str, str]):
                 return " ".join(args)
             if name != "0":
                 return args[int(name) - 1] if int(name) <= len(args) else ""
+        if name == "#" and not self.ctx.positional:
+            return "0"  # no arguments outside a function, as in bash
         if name in self.extra:
             return self.extra[name]
         if name in self.ctx.variables:

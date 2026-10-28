@@ -14,9 +14,10 @@ literal so Windows paths like C:\\data\\x.csv survive untouched.
 Variables: given a `variables` mapping, `$?`, `$name` and `${name}` expand outside single quotes
 (`$?` is the last exit status, `$name` a loop or shell variable). An expansion never splits into
 several words unless `split` is set (bash-style blocks), so a value with spaces stays one
-argument. A name that isn't defined stays as typed. `$(( … ))` is arithmetic (shellcraft/arith.py),
-`$( … )` runs a command when `substitute` is given, and with `glob` set an unquoted word with
-`*`, `?` or `[` becomes the matching file names (the word itself when nothing matches).
+argument. A name that isn't set is empty, as in bash (`set -u` makes it an error).
+`$(( … ))` is arithmetic (shellcraft/arith.py), `$( … )` runs a command when `substitute` is
+given, and with `glob` set an unquoted word with `*`, `?` or `[` becomes the matching file names
+(the word itself when nothing matches).
 """
 
 from __future__ import annotations
@@ -151,7 +152,7 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
     if name not in variables:
         if getattr(variables, "nounset", False) and not (name.isdigit() or name in "#@*?"):
             raise UnboundVariable(name, i)  # `set -u`
-        return None
+        return "", end  # as in bash: a name that isn't set is empty
     return variables[name], end
 
 
@@ -354,6 +355,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         buf: list[str] = []
         quoted = expanded = no_arguments = False
         globbable: list[bool] = []  # per character: may it be a glob character (unquoted)?
+        literal: list[bool] = []  # per character: was it quoted (a `[[ x == "*" ]]` pattern takes it as text)?
 
         def expansion(at: int) -> tuple[str, int] | None:
             if line.startswith("$((", at):
@@ -373,14 +375,15 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 return substitute(line[at + 2:close]).rstrip("\n"), close + 1
             return expand_variable(line, at, variables)
 
-        def add(text: str, may_glob: bool) -> None:
+        def add(text: str, may_glob: bool, quoted_text: bool | None = None) -> None:
             buf.append(text)
             globbable.extend([may_glob] * len(text))
+            literal.extend([not may_glob if quoted_text is None else quoted_text] * len(text))
 
         def flush() -> None:
-            nonlocal buf, quoted, globbable
+            nonlocal buf, quoted, globbable, literal
             _emit(tokens, "".join(buf), start, globbable, glob and _segment_command(tokens) not in NO_GLOB)
-            buf, quoted, globbable = [], False, []
+            buf, quoted, globbable, literal = [], False, [], []
 
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
@@ -393,7 +396,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 value, i = var
                 expanded = True
                 if not split or not any(c.isspace() for c in value):
-                    add(value, False)
+                    add(value, False, quoted_text=False)  # unquoted: a pattern in `[[ x == $pat ]]`
                     continue
                 pieces = value.split()
                 if value[:1].isspace() and (buf or quoted):
@@ -401,7 +404,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 for k, piece in enumerate(pieces):
                     if k:
                         flush()
-                    add(piece, False)
+                    add(piece, False, quoted_text=False)
                 if value[-1:].isspace() and pieces:
                     flush()
                     expanded = True
@@ -447,6 +450,10 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             if expanded_word != word:
                 globbable = [False] * (len(expanded_word) - len(word) + 1) + globbable[1:]
                 word = expanded_word
+        if (len(tokens) > 2 and tokens[0].value == "[[" and not tokens[0].op and not tokens[-1].op
+                and tokens[-1].value in ("==", "=", "!=") and len(literal) == len(word)):
+            # the pattern of `[[ x == PATTERN ]]`: as in bash, its quoted parts match as plain text
+            word = "".join(globmod.escape(c) if lit and c in "*?[" else c for c, lit in zip(word, literal))
         _emit(tokens, word, start, globbable, glob and _segment_command(tokens) not in NO_GLOB)
     return tokens
 

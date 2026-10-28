@@ -149,9 +149,7 @@ works:
 | `[ -z "$a" ]` | `a` is empty |
 | `[ -n "$a" ]` | `a` has something in it |
 
-`-z` checks for an empty value, so give the variable one first (`answer=""`). A variable that was
-never set isn't empty in ShellCraft: `$a` stays as the text `$a`, so `[ -z "$a" ]` is false. See
-[a variable that was never set](variables-and-input.md#set-a-variable-and-use-it).
+A variable that was never set counts as empty too, so `[ -z "$a" ]` is true for it, as in bash.
 
 <!-- run -->
 ```
@@ -327,6 +325,24 @@ worth keeping
 
 The regular expression `^v[0-9]+$` means "starts with v, then one or more
 digits, then the end".
+
+Quotes turn a pattern back into plain text. `*.csv` without quotes matches any name ending in
+`.csv`, but `"*.csv"` only matches the text `*.csv` itself. That's what you want when you compare
+with something the user typed, which may happen to contain a `*` or a `?`:
+
+<!-- run -->
+```
+file=sales.csv
+expected="*.csv"
+if [[ $file == *.csv ]]; then echo "pattern: matches"; fi
+if [[ $file == "$expected" ]]; then echo "text: matches"; else echo "text: no match"; fi
+```
+
+<!-- output -->
+```
+pattern: matches
+text: no match
+```
 
 ## case: pick one of several choices
 

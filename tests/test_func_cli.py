@@ -78,7 +78,7 @@ def test_rc_and_startup_load_first_unless_no_startup(capsys):
     (config_dir() / "startup" / "10-more.sc").write_text("MORE=from-startup\n", encoding="utf-8")
     func("show", 'echo "[$NAME] [$MORE]"')
     assert run(capsys, "func", "run", "show")[1] == "[from-rc] [from-startup]\n"
-    assert run(capsys, "--no-startup", "func", "run", "show")[1] == "[$NAME] [$MORE]\n"  # unset: kept as typed
+    assert run(capsys, "--no-startup", "func", "run", "show")[1] == "[] []\n"  # unset: empty
 
 
 def test_profile_before_func(capsys):
@@ -87,7 +87,7 @@ def test_profile_before_func(capsys):
     code, out, err = run(capsys, "--profile", "work", "func", "run", "where")
     assert (code, out) == (0, "in work-rc\n"), err
     code, out, err = run(capsys, "--profile=work", "--no-startup", "func", "run", "where")
-    assert (code, out) == (0, "in $WHERE\n"), err
+    assert (code, out) == (0, "in \n"), err
     os.environ.pop(profiles.ENV_VAR, None)  # main() sets it for the programs a func starts
     assert run(capsys, "func", "run", "where")[0] == 127  # not in the default setup
 

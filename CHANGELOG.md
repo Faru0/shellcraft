@@ -80,6 +80,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **A variable that was never set is empty, as in bash.** `$nmae` used to stay as the text
+  `$nmae`; now it's empty, so `[ -z "$x" ]` is true for an unset `x` and pasted bash scripts behave
+  the same. `$#` is 0 outside a function. Use `set -u` to make a missing variable an error.
+- **Quoted text in a `[[ … == … ]]` pattern is plain text, as in bash.** `[[ $f == *.csv ]]` is
+  still a pattern, but `[[ $f == "*.csv" ]]` and `[[ $f == "$typed" ]]` compare the text exactly.
+  `=` in `[[ ]]` matches patterns too, the same as `==`.
 - **AI access is on by default.** An AI client connected over MCP now runs any command in your
   shell at once, as a `✦ AI:` job with its trace above your prompt, instead of asking for
   `review approve` on everything that wasn't read-only. It is the new saved setting

@@ -21,7 +21,7 @@ def test_define_and_call_with_arguments(ctx):
     assert out(ctx, "function shout { echo LOUD $1; }") == "" and out(ctx, "shout it") == "LOUD it\n"
     assert out(ctx, "function both() { echo $2 $1; }") == "" and out(ctx, "both a b") == "b a\n"
     assert out(ctx, "f(){ echo tight; }") == "" and out(ctx, "f") == "tight\n"
-    assert out(ctx, "echo $1 $#") == "$1 $#\n"  # outside a function they stay as typed
+    assert out(ctx, "echo $1 $#") == "0\n"  # outside a function: no arguments, as in bash
 
 
 def test_local_return_and_dynamic_scope(ctx):

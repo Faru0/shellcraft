@@ -250,8 +250,8 @@ Those long names are what the letters stand for: `-e` is `errexit`, `-u` is `nou
 
 ### Catch typos with set -u
 
-ShellCraft leaves a variable it doesn't know as it is. So a typo doesn't vanish, but it doesn't
-stop anything either:
+A variable that was never set is empty. So a typo quietly turns into nothing, and the script
+carries on:
 
 <!-- run -->
 ```
@@ -261,7 +261,7 @@ echo "saving $fiel"
 
 <!-- output -->
 ```
-saving $fiel
+saving 
 ```
 
 In a script that goes on to copy or delete `$fiel`, that's the kind of mistake you want to catch

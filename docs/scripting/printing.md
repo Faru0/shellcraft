@@ -45,9 +45,11 @@ called `ok`, because `>` means "send the output to a file". If you meant to prin
 it: `echo "Done > ok"`. The same goes for `|`, which would send the text to another command, and
 `;`, which would end the command there.
 
-**You see `$name` instead of a value.** That variable was never set, or its name is spelled
-differently. ShellCraft leaves an unknown `$name` exactly as you typed it. To print a real `$`, like
-a price, use single quotes: `echo 'costs $5'`.
+**A value is missing, or a `$` disappeared.** A variable that was never set, or whose name is
+spelled differently, is empty, so it leaves a gap. The same happens to a `$` you meant as text:
+`echo "costs $5"` prints `costs `. To print a real `$`, like a price, use single quotes:
+`echo 'costs $5'`. `set -u` turns a missing variable into an error, see
+[Errors and cleanup](errors.md).
 
 ## Several lines at once
 
