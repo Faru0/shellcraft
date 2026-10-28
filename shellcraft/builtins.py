@@ -254,7 +254,7 @@ In a pipe (`help | grep dns`) each command is one `name  summary` line.
 SECTIONS = {"shell": "Shell", "text": "Text", "files": "Files", "info": "Info"}
 # A module file without run(): shown after its help summary.
 SCRIPT_HINT = "⚠ needs run() to work properly! ingest it, or see docs/modules/first-module.md"
-KEYWORDS_HELP = ("for", "if", "while", "until", "case", "select", "function", "try")
+KEYWORDS_HELP = ("for", "if", "while", "until", "case", "match", "select", "function", "try")
 
 
 # `help`: the groups, in order. ShellCraft's own features (and the modules) are listed with a
@@ -2595,23 +2595,30 @@ first one that matches runs. Each branch ends with `;;`. A pattern is a glob:
 When nothing matches, nothing runs and the status is 0. `case` works at the prompt, in
 `~/.shellcraft/rc`, in startup files, in funcs and inside functions and loops.
 
-## Python style
+## Python style: match
 
-`case -py WORD:` lists the choices as `PATTERN:`, each with its commands indented under it. `|`
-separates alternatives, `_` matches anything, and a quoted pattern keeps its `*` and `?`
-(`"*.py"` matches every .py name). The brace form is `case -py WORD { PATTERN { … } … }`.
+`match WORD:` lists the choices as `case PATTERN:`, each with its commands indented under it, as
+in Python. `|` separates alternatives, `_` matches anything, and a quoted pattern keeps its `*`
+and `?` (`"*.py"` matches every .py name). `match choice:` reads the variable `choice`, the same
+as `match $choice:`.
 
 ```
-case -py $choice:
-    "1":
+match choice:
+    case "1":
         echo "starting"
-    "q" | "Q":
+    case "q" | "Q":
         echo "bye"
-    "*.py":
+    case "*.py":
         echo "a Python file"
-    _:
+    case _:
         echo "not on the menu"
 ```
+
+A choice can sit on one line: `case "q": echo bye`. There are no `if` guards on a choice: test
+inside it instead. When nothing matches, nothing runs.
+
+The other spelling is `case -py WORD:` with bare `PATTERN:` choices. The brace form is
+`match -py WORD { case PATTERN { … } … }` or `case -py WORD { PATTERN { … } … }`.
 
 ## Examples
 
@@ -2679,6 +2686,8 @@ done
 
 builtin("case", "Pick a branch by matching a value against patterns", "case WORD in PATTERN) …;; esac",
         doc=CASE_DOC)(_keyword("case"))
+builtin("match", "Pick a branch, Python style: match WORD: case PATTERN: …", "match WORD: case PATTERN: …",
+        doc=CASE_DOC)(_keyword("match"))
 builtin("while", "Repeat commands while a condition holds", "while …; do …; done | until …; do …; done",
         doc=WHILE_DOC)(_keyword("while"))
 builtin("until", "Repeat commands until a condition holds", "until …; do …; done", doc=WHILE_DOC,

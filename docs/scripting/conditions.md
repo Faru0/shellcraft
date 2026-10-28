@@ -401,22 +401,22 @@ if -py grep -q ERROR app.log:
 the log has errors
 ```
 
-### case in Python style
+### case in Python style: match
 
-`case -py` lists the choices as `PATTERN:`, each with its commands indented under it. `|`
-separates alternatives, and `_` is "anything else":
+`match` lists the choices as `case PATTERN:`, each with its commands indented under it, as in
+Python. `|` separates alternatives, and `case _:` is "anything else":
 
 <!-- run: ["2"] -->
 ```
 echo "1) Start the dev server"
 echo "2) Run the tests"
 choice = input("Choose 1-2: ")
-case -py $choice:
-    "1":
+match choice:
+    case "1":
         echo "starting the server"
-    "2":
+    case "2" | "t":
         echo "running the tests"
-    _:
+    case _:
         echo "'$choice' isn't on the menu"
 ```
 
@@ -427,6 +427,12 @@ case -py $choice:
 Choose 1-2: 2
 running the tests
 ```
+
+`match choice:` reads the variable `choice` (`match $choice:` works too). A quoted pattern can
+use `*`, `?` and `[ ]`, and only the first choice that matches runs. A short choice fits on one
+line: `case "q": echo bye`. The same block can also be written `case -py $choice:` with the
+choices as bare patterns, `"1":` and `_:`. In the brace form it's
+`match -py $choice { case "1" { … } case _ { … } }`.
 
 A short block fits on one line after the `:`: `if -py n == "3": echo three`. The brace form,
 `if -py (n == "3") { echo three }`, also still works. Use whichever style you find easier to read,

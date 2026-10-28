@@ -137,11 +137,13 @@ for -py ip in (cat ips.txt):                               # one item per line o
 for -py n in 1..5: echo $n                                 # a short block on one line
 if -py match(r"^v\d+", ver):                               # if / elif / else, while / until
     echo versioned
-case -py $f:                                               # "a" | "b":, "*.py":, _: (anything)
-    "*.py":
+match f:                                                   # case "a" | "b":, case "*.py":, case _:
+    case "*.py":
         echo python
-    _:
+    case _:
         echo other
+case -py $f:                                               # the other spelling: "a":, _:
+    "*.py": echo python
 select -py env in dev prod:                                # a numbered menu
     break
 def greet(name, greeting="hi"):                            # named arguments, with defaults

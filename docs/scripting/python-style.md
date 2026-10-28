@@ -11,7 +11,7 @@ you need.
 ## The rules of the Python style
 
 - Start the block with `-py` after the keyword: `for -py`, `if -py`, `while -py`, `case -py`,
-  `select -py`. A function uses `def` instead.
+  `select -py`. A function uses `def` instead, and `try:` and `match` need no `-py`.
 - End that line with `:`, and indent the lines inside it. Four spaces is usual; any amount works as
   long as the lines of one block line up.
 - The block ends at the first line that's indented less.
@@ -442,7 +442,7 @@ web on prod
 api on prod: ask first
 ```
 
-## case: one of several choices
+## match: one of several choices
 
 Bash style:
 
@@ -464,18 +464,18 @@ photo.jpg: picture
 script.py: something else
 ```
 
-Python style: each choice is a pattern and a `:`, with its commands indented under it. `|`
-separates alternatives, and `_` is "anything else":
+Python style uses `match`, as Python does: each choice is `case`, a pattern and a `:`, with its
+commands indented under it. `|` separates alternatives, and `_` is "anything else":
 
 <!-- run -->
 ```
 for -py file in notes.txt photo.jpg script.py:
-    case $file:
-        "*.txt" | "*.md":
+    match file:
+        case "*.txt" | "*.md":
             echo "$file: text"
-        "*.jpg" | "*.png":
+        case "*.jpg" | "*.png":
             echo "$file: picture"
-        _:
+        case _:
             echo "$file: something else"
 ```
 
@@ -486,8 +486,28 @@ photo.jpg: picture
 script.py: something else
 ```
 
-Outside a Python-style block, write `case -py $file:`. A pattern can be exact text (`"yes"`) or use
-`*`, `?` and `[ ]` (`"[yY]*"` is anything that starts with y or Y).
+`match file:` and `match $file:` are the same: both read the variable. A pattern can be exact text
+(`"yes"`) or use `*`, `?` and `[ ]` (`"[yY]*"` is anything that starts with y or Y). Only the first
+choice that matches runs, and when none matches, nothing runs. A short choice fits on one line:
+`case "q": echo bye`. Python's `if` guards (`case x if …:`) aren't supported: put an `if` inside
+the choice instead.
+
+The other spelling is `case -py $file:` with bare patterns, `"*.txt" | "*.md":` and `_:`. It works
+the same way:
+
+<!-- run -->
+```
+case -py notes.txt:
+    "*.txt":
+        echo "a text file"
+    _:
+        echo "something else"
+```
+
+<!-- output -->
+```
+a text file
+```
 
 ## Ask the user
 
@@ -630,13 +650,13 @@ while -py True:
     echo "1) Say hello"
     echo "q) Quit"
     choice = input("Choice: ")
-    case $choice:
-        "1":
+    match choice:
+        case "1":
             echo "hello!"
-        "q" | "Q":
+        case "q" | "Q":
             echo "bye"
             break
-        _:
+        case _:
             echo "'$choice' isn't a choice"
 ```
 
@@ -935,6 +955,7 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | `'else' without a matching if` | An `else:` that doesn't line up with an `if` |
 | `'except' without a matching try` | An `except:` or `finally:` that doesn't line up with a `try:` |
 | `try: needs an 'except:' or a 'finally:'` | A `try:` block with nothing after it |
+| `match: each choice is case PATTERN:` | A choice in a `match` block without `case` in front |
 
 ## Side by side
 
@@ -954,7 +975,7 @@ indented wrongly doesn't run at all, and ShellCraft says which line to fix, the 
 | Lines of a file | `for -py line in (cat f)` | `for -py line in (cat f):` |
 | While | `while [ … ]; do … done` | `while -py …:` |
 | Forever | `while true; do` | `while -py True:` |
-| Choices | `case $x in a) … ;; *) … ;; esac` | `case -py $x:` then `"a":` and `_:` |
+| Choices | `case $x in a) … ;; *) … ;; esac` | `match x:` then `case "a":` and `case _:` |
 | Numbered menu | `select x in a b; do … done` | `select -py x in a b:` |
 | Ask | `read -p "Q? " x` | `x = input("Q? ")` |
 | Ask for a number | `read -p "N? " n` and a test | `n = int(input("N? "))` |

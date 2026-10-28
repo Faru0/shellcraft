@@ -9,7 +9,9 @@
 
 Headers: `for` / `if` / `elif` / `else` / `while` / `until` / `select` / `case` with `-py` (inside
 a colon block the flag is optional), `def NAME(PARAMS):`, `try:` / `except [as NAME]:` / `finally:`
-(`try` needs no flag: it isn't a bash word), and a `case` block's `PATTERN:` arms.
+and `match WORD:` (`try` and `match` need no flag: they aren't bash words), a `case` block's
+`PATTERN:` arms and a `match` block's `case PATTERN:` arms (`match` is `case -py` spelled the
+Python way).
 Text after the colon is a one-line body (`for -py n in 1..3: echo $n`). A condition that reads as
 Python is wrapped in `( … )`; anything else is a command (`if -py grep -q x f:`). `pass` is a
 command that does nothing.
@@ -43,7 +45,7 @@ class IndentError(ParseError):
 
 @dataclass
 class _Level:
-    kind: str  # "if" (if / elif / else), "try" (try / except / finally), "case", "arm" or "block"
+    kind: str  # "if" (if / elif / else), "try" (try / except / finally), "case", "match", "arm" or "block"
     header: str  # the header line's indentation
     body: str | None = None  # the body's indentation, once its first line is seen
     inline: bool = False  # a one-line body after the colon: the next line closes it
@@ -75,10 +77,18 @@ def split_header(text: str) -> tuple[str, str] | None:
     return None
 
 
+_TEST_WORDS = ("[", "[[", "test")
+
+
 def _is_python(cond: str) -> bool:
-    """Whether a condition reads as a Python expression ShellCraft accepts."""
+    """Whether a condition reads as a Python expression ShellCraft accepts. A bash test
+    (`[ -f x ]`, `[[ … ]]`, `test …`, with or without `!`) is a command, though `[ -f x ]` would
+    also read as a Python list."""
     from shellcraft.script import compile_condition
 
+    words = cond.split(None, 2)
+    if words and (words[0] in _TEST_WORDS or (words[0] == "!" and len(words) > 1 and words[1] in _TEST_WORDS)):
+        return False
     try:
         compile_condition(cond)
     except ParseError:
@@ -102,6 +112,12 @@ def _keyword_header(stripped: str, in_block: bool) -> tuple[str, str, str] | Non
         if after not in ("", "-py"):
             return None  # a command named try
         return word, "", rest
+    if word == "match":
+        after = head[len(word):].strip()
+        if after.startswith(("(", "=")):
+            return None  # match(…), the condition function, or a command
+        flagged = _FLAG.match(after)
+        return word, after[flagged.end():].strip() if flagged else after, rest
     if word not in _KEYWORDS or _BASH_WORD.search(head):
         return None  # `if [ x ]; then echo a: b; fi` is bash
     after = head[len(word):].strip()
@@ -185,11 +201,9 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         in_block = bool(stack) or bool(merged)
         last = number
 
-        if stack and stack[-1].kind == "case":
-            parts = split_header(stripped)
-            if parts is None or not parts[0]:
-                raise IndentError("case: each choice is PATTERN: (for anything else: _:)", number)
-            head, rest = parts
+        if stack and stack[-1].kind in ("case", "match"):
+            head, rest = _arm(stack[-1].kind, stripped, number)
+            rest = "true" if rest == "pass" else rest
             out.append((number, f"{indent}{head} {{" + (f" {rest}" if rest else "")))
             stack.append(_Level("arm", indent, inline=bool(rest)))
             continue
@@ -226,10 +240,13 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         elif word in ("except", "finally"):
             line, kind = _try_part(word, after, try_parts, number), "try"
             try_parts += (word,)
-        elif word == "case":
+        elif word in ("case", "match"):
             if not after:
-                raise IndentError("case: missing a word before ':' (case -py $choice:)", number)
-            line, kind = f"case -py {after} {{", "case"
+                example = "case -py $choice:" if word == "case" else "match $choice:"
+                raise IndentError(f"{word}: missing a word before ':' ({example})", number)
+            if word == "match" and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", after):
+                after = f"${after}"  # `match choice:` reads the variable, as Python would
+            line, kind = f"case -py {after} {{", word
         else:  # for, select
             line, kind = f"{word} -py {after} {{", "block"
         if merged and word not in ("elif", "else", "except", "finally"):
@@ -237,8 +254,8 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         if word in ("elif", "else"):
             line = line[2:] if line.startswith("} ") else line
             line = "} " + line
-        if kind == "case" and rest:
-            raise IndentError("case: the choices go on the lines below, indented", number)
+        if kind in ("case", "match") and rest:
+            raise IndentError(f"{word}: the choices go on the lines below, indented", number)
         if rest:
             line += f" {'true' if rest == 'pass' else rest}"
         out.append((number, indent + line))
@@ -246,6 +263,23 @@ def to_braces(text: str) -> list[tuple[int, str]]:
     while stack:
         close(last)
     return out
+
+
+def _arm(kind: str, stripped: str, number: int) -> tuple[str, str]:
+    """(patterns, one-line body) of a choice in a `case` or `match` block. A match arm is
+    `case PATTERN:`; a case arm may be written that way too."""
+    parts = split_header(stripped)
+    head = parts[0] if parts else ""
+    labelled = re.match(r"case\s+", head)
+    if kind == "match" and (parts is None or not labelled):
+        raise IndentError("match: each choice is case PATTERN: (for anything else: case _:)", number)
+    if parts is None or not head:
+        raise IndentError("case: each choice is PATTERN: (for anything else: _:)", number)
+    if labelled:
+        head = head[labelled.end():]
+    if "if" in re.sub(r"\"[^\"]*\"|'[^']*'", " x ", head).split()[1:]:
+        raise IndentError(f"{kind}: no 'if' guards on a choice; test inside it instead", number)
+    return head, parts[1]
 
 
 def _try_part(word: str, after: str, parts: tuple[str, ...], number: int) -> str:

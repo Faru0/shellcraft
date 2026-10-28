@@ -321,7 +321,7 @@ required, so `todo_add` on its own stops with `todo_add: missing argument 'item'
 ## A Python-style setup menu
 
 A startup file that asks a few questions when the shell starts, then sets things up from the
-answers. It uses `input()`, `int(input())` that keeps asking until it gets a number, a `case -py`
+answers. It uses `input()`, `int(input())` that keeps asking until it gets a number, a `match`
 menu, and a loop that checks each answer:
 
 <!-- run: ["2", "abc", "3"] -->
@@ -330,12 +330,12 @@ echo "1) website"
 echo "2) api"
 echo "3) none"
 pick = input("Which project? ")
-case -py $pick:
-    "1":
+match pick:
+    case "1":
         project=website
-    "2":
+    case "2":
         project=api
-    _:
+    case _:
         project=none
 
 if -py project != "none":

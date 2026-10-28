@@ -19,7 +19,7 @@ from shellcraft.parser import comment_at
 
 KEYWORDS = frozenset({"for", "if", "elif", "else", "then", "do", "done", "fi", "while", "until", "case",
                       "esac", "in", "break", "continue", "!", "-py", "{", "}", "export", "unset",
-                      "function", "return", "select", "def", "pass", "try", "except", "finally"})
+                      "function", "return", "select", "def", "pass", "try", "except", "finally", "match"})
 _COLON_KEYWORDS = frozenset({"else", "try", "except", "finally"})  # a header word with its `:`
 _OPERATORS = ("&&", "||", "2>&1", "1>&2", ">&2", "2>>", "2>", "&>", ">>", ">", "|", ";", "<", "&")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")

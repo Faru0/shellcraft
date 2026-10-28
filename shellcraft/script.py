@@ -56,6 +56,7 @@ KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "the
             "case", "esac", "select", "def", "try", "except", "finally")
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
+_MATCH_WORD = re.compile(r"""(?:"[^"]*"|'[^']*'|[^\s{;]+)[ \t]+\{(?:\s|$)""")
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
 MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -406,6 +407,8 @@ class _Parser:
             return self._jump(word)
         if word == "def":
             return self._def()
+        if word == "match" and self._match_follows(start + 5):
+            return self._maybe_piped(self._case(len(word)))
         if word == "try" and self._try_follows(start + 3):
             return self._try()
         if word.rstrip(":") in ("except", "finally"):
@@ -616,6 +619,15 @@ class _Parser:
             i += 1
         return i >= self.n or self._bare_word(i) == PY_FLAG or self._is_open(i)
 
+    def _match_follows(self, i: int) -> bool:
+        """Whether `match` at the start of a statement is `case -py` spelled the Python way:
+        `match -py WORD {`, or `match WORD {` inside a -py block (else it runs a command)."""
+        while i < self.n and self.s[i] in " \t":
+            i += 1
+        if self._bare_word(i) == PY_FLAG:
+            return True
+        return self.mode == "py" and _MATCH_WORD.match(self.s, i) is not None
+
     def _try(self) -> Try:
         """`try [-py] { LIST } [except [as NAME] { LIST }] [finally { LIST }]`. The blocks are
         Python style with `-py` or inside a -py block, else they keep the syntax around them
@@ -712,9 +724,9 @@ class _Parser:
         return While(cond, body, pos, until, "sh")
 
     # case
-    def _case(self) -> Case:
+    def _case(self, keyword: int = 4) -> Case:
         pos = self.i
-        self.i += 4
+        self.i += keyword
         self._skip_blanks()
         flagged = self._bare_word(self.i) == PY_FLAG
         if flagged:
@@ -787,7 +799,8 @@ class _Parser:
                     raise self._incomplete("case: missing '{' after the pattern", " ")
                 if not self._is_open(j):
                     raise self._error("case -py: expected '{' after the pattern: \"a\" | \"b\" { … }", start)
-                patterns = [_py_pattern(p.strip()) for p in _split_bars(self.s[start:j])]
+                text = re.sub(r"^case\s+(?=\S)", "", self.s[start:j])  # `case "a" { … }`, as match writes it
+                patterns = [_py_pattern(p.strip()) for p in _split_bars(text)]
                 if not all(patterns):
                     raise self._error("case: empty pattern", start)
                 self.i = j

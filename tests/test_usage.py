@@ -18,7 +18,7 @@ def _expect(name, words):
 
 def test_every_builtin_usage_is_read_except_shell_syntax():
     unread = {n for n, b in BUILTINS.items() if grammar(n, b.usage) is None}
-    assert unread <= {"for", "if", "select", "function", "while", "until", "case", "def", "try"}
+    assert unread <= {"for", "if", "select", "function", "while", "until", "case", "def", "try", "match"}
 
 
 def test_what_comes_next():

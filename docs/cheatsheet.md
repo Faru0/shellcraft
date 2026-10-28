@@ -106,11 +106,13 @@ for -py line in (cat hosts.txt):                 # a file, line by line
     echo $line
 while -py int(n) < 3:                            # while -py True: … break
     n += 1                                       # also = -= *= /= //= %= (in a block or def)
-case -py $env:                                   # "a" | "b":   _: (anything else)
-    "prod":
+match env:                                       # case "a" | "b":   case _: (anything else)
+    case "prod":
         echo careful
-    _:
+    case _:
         echo safe
+case -py $env:                                   # the same, spelled "prod": and _:
+    "prod": echo careful
 select -py env in dev prod:                      # a numbered menu
     break
 def greet(who, greeting="hi"):                   # named arguments, with defaults

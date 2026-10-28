@@ -64,41 +64,28 @@ class Report:
 
 def check_text(text: str, name: str, ctx: Any, steps: bool = False) -> Report:
     """Check a file's text. With `steps` (a func), a line may start with `@` (show its output)."""
-    from shellcraft import ask
-    from shellcraft.indent import IndentError
-    from shellcraft.startup import logical_lines
-
     report = Report(name, len(text.splitlines()))
-    lines = text.splitlines()
+    original = text.splitlines()
+    lines = list(original)
     for _ in range(MAX_INDENT_ERRORS):
-        try:
-            commands = logical_lines("\n".join(lines))
+        commands = _commands(lines, report)
+        if commands is None:
+            return report
+        # A line that won't parse inside a block is reported, blanked and the file read again,
+        # so the rest of the block stays in it (not read as top-level lines, with warnings).
+        found: list[Problem] = []
+        parsed: list[tuple[_Span, script.Program]] = []
+        bad = _parse_all(commands, original, steps, found, parsed, stop=True)
+        if bad is None or not 0 < bad.line <= len(lines) or not lines[bad.line - 1].strip():
+            if bad is not None:
+                found, parsed = [], []
+                _parse_all(commands, original, steps, found, parsed, stop=False)
+            report.problems += found
             break
-        except IndentError as exc:  # report it, blank that line and read the rest
-            report.problems.append(Problem(exc.line, _indent_message(exc), True))
-            if not 0 < exc.line <= len(lines) or not lines[exc.line - 1].strip():
-                commands = logical_lines("\n".join(lines), colon_blocks=False)
-                break
-            lines[exc.line - 1] = ""
+        report.problems.append(bad)
+        lines[bad.line - 1] = ""
     else:
         return report
-
-    original = text.splitlines()
-    starts = [number for number, _ in commands]
-    parsed: list[tuple[_Span, script.Program]] = []
-    for k, (number, line) in enumerate(commands):
-        span = _Span(original, number, starts[k + 1] - 1 if k + 1 < len(starts) else len(original))
-        if steps and line.startswith("@"):
-            line = line[1:].lstrip()
-        try:
-            if ask.parse_ask_line(line) is not None:  # `name = input("…")`
-                continue
-        except ask.AskError as exc:
-            report.problems.append(Problem(number, str(exc), True))
-            continue
-        program = _parse(line, span, report)
-        if program is not None:
-            parsed.append((span, program))
 
     walker = _Walker(ctx, report)
     for _, program in parsed:  # every function the file defines, for calls inside function bodies
@@ -106,6 +93,52 @@ def check_text(text: str, name: str, ctx: Any, steps: bool = False) -> Report:
     for span, program in parsed:
         walker.walk(program.stmts, span, top=True)
     return report
+
+
+def _commands(lines: list[str], report: Report) -> list[tuple[int, str]] | None:
+    """The file's commands, as logical_lines reads them. A wrongly indented line is reported and
+    blanked (in `lines`), and the rest read; None after too many."""
+    from shellcraft.indent import IndentError
+    from shellcraft.startup import logical_lines
+
+    for _ in range(MAX_INDENT_ERRORS):
+        try:
+            return logical_lines("\n".join(lines))
+        except IndentError as exc:  # report it, blank that line and read the rest
+            report.problems.append(Problem(exc.line, _indent_message(exc), True))
+            if not 0 < exc.line <= len(lines) or not lines[exc.line - 1].strip():
+                return logical_lines("\n".join(lines), colon_blocks=False)
+            lines[exc.line - 1] = ""
+    return None
+
+
+def _parse_all(commands: list[tuple[int, str]], original: list[str], steps: bool, found: list[Problem],
+               parsed: list[tuple[_Span, script.Program]], stop: bool) -> Problem | None:
+    """Parse every command into `parsed`, problems into `found`. With `stop`, stops at a parse
+    error on a line after the first of its command (inside a block) and returns it."""
+    from shellcraft import ask
+
+    starts = [number for number, _ in commands]
+    for k, (number, line) in enumerate(commands):
+        end = len(original)
+        if k + 1 < len(starts):  # a block's closing `}` is numbered with its last body line
+            end = starts[k + 1] - (commands[k + 1][1] != "}")
+        span = _Span(original, number, end)
+        if steps and line.startswith("@"):
+            line = line[1:].lstrip()
+        try:
+            if ask.parse_ask_line(line) is not None:  # `name = input("…")`
+                continue
+        except ask.AskError as exc:
+            found.append(Problem(number, str(exc), True))
+            continue
+        before = len(found)
+        program = _parse(line, span, found)
+        if program is not None:
+            parsed.append((span, program))
+        elif stop and len(found) > before and found[-1].line > number and not found[-1].message.endswith("never ends"):
+            return found.pop()
+    return None
 
 
 class _Span:
@@ -134,14 +167,13 @@ def _indent_message(exc: Exception) -> str:
     return re.sub(r"^line \d+: ", "", str(exc))
 
 
-def _parse(line: str, span: _Span, report: Report) -> script.Program | None:
+def _parse(line: str, span: _Span, found: list[Problem]) -> script.Program | None:
     """The command's statement tree; a parse error is reported. A block still open at the end of
     the file is reported, then closed so the commands inside it are checked too."""
     try:
         return script.parse_script(line)
     except script.IncompleteError as exc:
-        report.problems.append(Problem(span.start, f"{exc.message}: the block that starts here never ends",
-                                       True))
+        found.append(Problem(span.start, f"{exc.message}: the block that starts here never ends", True))
         text = line
         for _ in range(20):
             missing = _MISSING.search(exc.message)
@@ -157,7 +189,7 @@ def _parse(line: str, span: _Span, report: Report) -> script.Program | None:
         return None
     except ParseError as exc:
         at = line[exc.pos:].split(None, 1) if exc.pos is not None and 0 <= exc.pos < len(line) else []
-        report.problems.append(Problem(span.find(at[0]) if at else span.start, exc.message, True))
+        found.append(Problem(span.find(at[0]) if at else span.start, exc.message, True))
         return None
 
 

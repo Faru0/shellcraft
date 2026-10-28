@@ -761,12 +761,12 @@ The condition isn't Python, so it runs as a command:
 def backup():
     verbose=no
     while -py getopts "vf:" opt:
-        case -py $opt:
-            "v":
+        match opt:
+            case "v":
                 verbose=yes
-            "f":
+            case "f":
                 echo "file: $OPTARG"
-            _:
+            case _:
                 return 2
     shift $((OPTIND - 1))
     echo "verbose=$verbose, the rest: $@"
@@ -780,8 +780,8 @@ file: todo.txt
 verbose=yes, the rest: monday
 ```
 
-In `case -py`, use `_:` for the mistakes: a quoted `"?"` is a pattern there and matches any
-single letter. See `man getopts`.
+In `match` (and `case -py`), use `case _:` for the mistakes: a quoted `"?"` is a pattern there
+and matches any single letter. See `man getopts`.
 
 ## Keep your functions
 

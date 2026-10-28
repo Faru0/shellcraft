@@ -517,20 +517,20 @@ running the tests
 What now? 3
 ```
 
-In Python style, `select -py` and `case -py` make the same menu:
+In Python style, `select -py` and `match` make the same menu:
 
 <!-- run: ["1", "3"] -->
 ```
 PS3="What now? "
 select -py action in "Run tests" "Build" Quit:
-    case $action:
-        "Run tests":
+    match action:
+        case "Run tests":
             echo "running the tests"
-        "Build":
+        case "Build":
             echo "building"
-        "Quit":
+        case "Quit":
             break
-        _:
+        case _:
             echo "pick a number from the list"
 ```
 

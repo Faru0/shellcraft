@@ -49,6 +49,10 @@ and the project uses [semantic versioning](https://semver.org/).
   in `rc`. `finally:` always runs, also on `break`, `continue`, `return` and `exit`. The brace form
   `try { … } except as rc { … } finally { … }` works in bash functions too. A handled failure
   doesn't run the ERR trap or stop a `set -e` script. `man try`.
+- **`match` / `case`.** `match choice:` with `case "a" | "b":`, quoted globs and `case _:` is
+  Python's spelling of `case -py`, with the same matching. A choice fits on one line
+  (`case "q": echo bye`); `if` guards aren't supported. The brace form is
+  `match -py $x { case "a" { … } case _ { … } }`. `man match`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.
@@ -145,6 +149,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **A bash test after `if -py`.** `if -py [ -f notes.txt ]:` and `while -py [ … ]:` ran the test
+  as a Python list, which is always true. A condition that starts with `[`, `[[` or `test` (or `!`
+  and one of them) is now a command.
+- **`source -n` after a bad line inside a block.** The error now points at the bad line, also when
+  it's the last line of a body, and the rest of the block no longer shows up as unknown commands.
 - **A function shows its output as it runs.** Called on a line of its own, a function used to print
   everything only when it returned, so a menu function asked its question before showing the
   choices. Each command's output now shows as soon as it's done. In a pipe, a redirect or `$( )`
