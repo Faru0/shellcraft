@@ -53,6 +53,12 @@ and the project uses [semantic versioning](https://semver.org/).
   Python's spelling of `case -py`, with the same matching. A choice fits on one line
   (`case "q": echo bye`); `if` guards aren't supported. The brace form is
   `match -py $x { case "a" { … } case _ { … } }`. `man match`.
+- **f-strings, `.format()` and `print()`.** `msg = f"{name} has {count} files"` works wherever
+  Python is read (assignment, conditions, `return`, call arguments), with the whole format
+  language (`{price:.2f}`, `{n:,}`, `{name:<10}`, `{x!r}`, `{x:>{width}}`); a number spec reads a
+  variable's text as a number. `"{}-{}".format(a, b)` runs a safe formatter that refuses
+  `{0.attr}` and `{0[key]}`, and widths over 100000 are refused. `print(…)` with `sep=` and `end=`
+  prints from a `-py` block or a `def`, and `input(f"Age of {who}? ")` works. `man print`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

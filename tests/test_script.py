@@ -180,7 +180,8 @@ def test_condition_error_stops_the_script(ctx):
     ("[x for x in 'ab']", "is not allowed"),
     ("_secret", "name '_secret'"),
     ("2 ** 99999", "is not allowed"),
-    ("f'{1}'", "is not allowed"),
+    ("'{}'.format_map(x)", "is not available"),
+    ("len(x, key=1)", "keyword arguments are not allowed"),
 ])
 def test_unsafe_conditions_are_refused_before_running(ctx, tmp_path, condition, problem):
     with pytest.raises(ParseError) as info:

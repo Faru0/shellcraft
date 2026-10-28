@@ -6,7 +6,8 @@ script or the prompt can ask once and use it later. Only the interactive shell c
 
 `input(...)` is recognised on a line of its own, before the shell's parser sees it (the
 parentheses are Python, not shell): `NAME = input()`, `NAME = input("prompt")`, with any Python
-string literal as the prompt (single or double quotes, escapes). `NAME = int(input("prompt"))` and
+string literal as the prompt (single or double quotes, escapes), or an f-string
+(`input(f"Age of {who}? ")`, filled in with the variables in scope). `NAME = int(input("prompt"))` and
 `float(...)` ask until the answer is a number (Python would stop with a ValueError; a shell says
 so and asks again). The same lines work inside blocks and functions (script._Runner.run_input).
 """
@@ -21,6 +22,11 @@ INPUT_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*input\s*\((.*)\)\s*
 # NAME = int(input(...)) / float(input(...))
 NUMBER_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(int|float)\s*\(\s*input\s*\((.*)\)\s*\)\s*$", re.S)
 CONVERT = {"str": str, "int": int, "float": float}
+
+
+class FPrompt(str):
+    """An f-string prompt, as typed (`f"Age of {who}? "`): the caller fills it in with
+    script.format_prompt and the variables in scope."""
 
 
 class AskError(Exception):
@@ -48,6 +54,14 @@ def parse_ask_line(line: str) -> tuple[str, str, str] | None:
 def _prompt_literal(raw: str) -> str:
     if not raw:
         return ""
+    if re.match(r"[fF][rR]?['\"]|[rR][fF]['\"]", raw):
+        try:
+            tree = ast.parse(raw, mode="eval")
+        except SyntaxError as exc:
+            raise AskError(f"input: the prompt is not a valid f-string ({exc.msg}): {raw}") from None
+        if not isinstance(tree.body, ast.JoinedStr):
+            raise AskError(f"input: the prompt must be one string, not {raw}")
+        return FPrompt(raw)
     try:
         prompt = ast.literal_eval(raw)
     except (ValueError, SyntaxError):

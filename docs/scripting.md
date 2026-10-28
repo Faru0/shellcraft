@@ -223,11 +223,15 @@ for -py f in a.txt b.txt:
     count = 0                                              # = += -= *= /= //= %=
     count += 1
     label = f.upper() + "!"
+    msg = f"{f:<10} {int(count):>3}"                       # f-strings, "{}-{}".format(a, b)
+    print(msg, "done", sep=" | ")                          # print: like echo, sep= and end=
 ```
 
 The value is stored as text, the same as `x=5` stores `5`. At the prompt and in bash blocks
 `x = 5` stays a command named `x`, so it fails with `command not found: x`. `x=5` works
-everywhere.
+everywhere. f-strings and `.format()` work wherever Python is read, with the whole format
+language (`{price:.2f}`, `{n:,}`, `{name:<10}`), and `input(f"Age of {who}? ")` too. `print(…)`
+works inside a `-py` block or a `def` only. `man print` has the details.
 
 ### What both styles share
 

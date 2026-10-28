@@ -81,7 +81,7 @@ The lines you use in the rc file, startup files, funcs and at the prompt. Bash s
 ```
 name=Ada; echo "hi $name"                        # a variable
 echo "${who:-stranger}" $((2 + 3))               # a default, arithmetic
-name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks)
+name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks); input(f"…") too
 read -p "Env? " env                              # ask, bash style
 read -s -p "Token: " token                       # ask without showing it
 echo -e "line 1\nline 2"                         # several lines
@@ -123,6 +123,8 @@ for -py line in (cat hosts.txt):                 # a file, line by line
     echo $line
 while -py int(n) < 3:                            # while -py True: … break
     n += 1                                       # also = -= *= /= //= %= (in a block or def)
+    msg = f"{n:>3} of {total}"                   # f-strings and "{}-{}".format(a, b)
+    print(msg, "done", sep=" | ")                # print (in a block or def): like echo
 match env:                                       # case "a" | "b":   case _: (anything else)
     case "prod":
         echo careful

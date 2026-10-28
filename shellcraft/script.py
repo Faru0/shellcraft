@@ -24,6 +24,7 @@ Python syntax (`-py`), parsed by ShellCraft itself:
     case -py WORD { PATTERN [| PATTERN] { LIST } … }       `_` matches anything
     def NAME(PARAM, PARAM="default") { LIST }               parameters are `local` variables
     NAME = EXPR      NAME += EXPR (-= *= /= //= %=)          in a -py block or a def: a Python value
+    print(EXPR, …, sep=" ", end="\n")                       in a -py block or a def: output, like echo
     try [-py] { LIST } [except [as NAME] { LIST }] [finally { LIST }]
                      the first failing command (or Python error) in the body runs `except`
 
@@ -42,6 +43,7 @@ import glob
 import operator
 import os
 import re
+import string
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -59,12 +61,15 @@ PY_FLAG = "-py"
 _MATCH_WORD = re.compile(r"""(?:"[^"]*"|'[^']*'|[^\s{;]+)[ \t]+\{(?:\s|$)""")
 MAX_RANGE = 100_000  # items one range / brace expansion may produce
 MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
+MAX_TEXT = 10_000_000  # longest text or list a Python expression may build with `+` (`s += s` in a loop)
+MAX_FORMAT_NUMBER = 100_000  # largest width / precision in a format spec (`{x:>10}`, `{x:.2f}`)
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FUNCTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 _FUNCTION_DEF = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\([ \t]*\)")  # name()
 _EMPTY_PARENS = re.compile(r"[ \t]*\([ \t]*\)")
 # `count = 0`, `count += 1` in py mode (`x=5`, with no spaces, stays the bash assignment)
 _PY_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(//=|\+=|-=|\*=|/=|%=|=)(?!=)([ \t]*)")
+_PRINT_CALL = re.compile(r"print[ \t]*\(")  # `print(…)` in py mode
 MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
 _BRACE_SEQ = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$|^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$")
@@ -218,7 +223,16 @@ class Try:
     pos: int
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign, Try]
+@dataclass
+class Print:
+    """`print(EXPR, …, sep=…, end=…)` in a -py block or a `def`: the values as text, like echo."""
+
+    text: str  # the call, as typed
+    pos: int
+    tree: ast.Expression
+
+
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign, Try, Print]
 
 
 @dataclass
@@ -421,6 +435,8 @@ class _Parser:
         if word in SH_RESERVED:
             owner = "for" if word in ("do", "done") else "if"
             raise self._error(f"'{word}' without a matching {owner}", start)
+        if self.mode == "py" and _PRINT_CALL.match(self.s, start):
+            return self._print()
         if self.mode == "py" and (match := _PY_ASSIGN.match(self.s, start)) and \
                 (match.group(3) != "=" or match.group(2) or match.group(4)):
             return self._assign(match)
@@ -442,6 +458,23 @@ class _Parser:
         if "$(" in expr:
             raise self._error(f"{name} {op}: $( … ) is bash: write {name}=$(command), with no spaces", start)
         return Assign(name, op, expr, start, compile_condition(expr, start, f"{name} {op}", "value"))
+
+    def _print(self) -> Print:
+        """`print(EXPR, …, sep=…, end=…)` in py mode: checked now, so `source -n` reports a bad one."""
+        start = self.i
+        text = self._tail_text()
+        close = find_closing_paren(self.s, self.s.index("(", start) + 1)
+        if close is not None and close < self.i and self.s[close + 1:self.i].strip():
+            raise self._error("print: nothing may follow print(…) on its line (to pipe the output, "
+                              "pipe the whole block, or use echo)", start)
+        tree = compile_condition(text, start, "print", "arguments")
+        call = tree.body
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "print"):
+            raise self._error(f"print: write print(…) on a line of its own: {text}", start)
+        for keyword in call.keywords:
+            if keyword.arg not in ("sep", "end"):
+                raise self._error(f"print: unknown keyword '{keyword.arg}' (print takes sep= and end=)", start)
+        return Print(text, start, tree)
 
     def _jump(self, word: str) -> Jump:
         """`break`, `continue` or `return [N]`, alone or after `&&` / `||` (`[ -f x ] || return 1`)."""
@@ -1413,6 +1446,7 @@ STR_METHODS = frozenset({
     "startswith", "endswith", "lower", "upper", "casefold", "title", "strip", "lstrip", "rstrip",
     "split", "rsplit", "splitlines", "removeprefix", "removesuffix", "replace", "count", "find", "rfind",
     "isdigit", "isnumeric", "isdecimal", "isalpha", "isalnum", "isspace", "islower", "isupper",
+    "format",  # our own formatter (_safe_format), never str.format
 })
 _BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
            ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod}
@@ -1421,7 +1455,7 @@ _CMPOPS = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast
            ast.NotIn: lambda a, b: a not in b, ast.Is: operator.is_, ast.IsNot: operator.is_not}
 _PLAIN_NODES = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, ast.USub, ast.UAdd,
                 ast.BinOp, ast.Compare, ast.Name, ast.Load, ast.Tuple, ast.List, ast.Set, ast.Subscript,
-                ast.Slice, ast.IfExp, *_BINOPS, *_CMPOPS)
+                ast.Slice, ast.IfExp, ast.JoinedStr, ast.FormattedValue, ast.keyword, *_BINOPS, *_CMPOPS)
 
 
 _AUGMENTED = {"+=": ast.Add, "-=": ast.Sub, "*=": ast.Mult, "/=": ast.Div, "//=": ast.FloorDiv, "%=": ast.Mod}
@@ -1506,8 +1540,11 @@ def _vet(node: ast.AST) -> str | None:
         ok = node.value is None or isinstance(node.value, (str, int, float, bool))
         return None if ok else f"constant {node.value!r} not allowed"
     if isinstance(node, ast.Call):
-        if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
-            return "keyword or * arguments are not allowed"
+        if any(isinstance(a, ast.Starred) for a in node.args) or any(k.arg is None for k in node.keywords):
+            return "* and ** arguments are not allowed"
+        if node.keywords and not (isinstance(node.func, ast.Attribute) and node.func.attr == "format"
+                                  or isinstance(node.func, ast.Name) and node.func.id == "print"):
+            return "keyword arguments are not allowed (only in .format(name=…) and print(sep=…, end=…))"
         if isinstance(node.func, ast.Name):  # a built-in one, or a shell function (looked up when it runs)
             return None if not node.func.id.startswith("_") else (
                 f"function '{node.func.id}' is not available (use: {', '.join(sorted(FUNCTIONS))})")
@@ -1535,11 +1572,28 @@ def evaluate(tree: ast.Expression, names: dict[str, Any],
     except TypeError as exc:
         hint = " (loop variables are text: use int(name) to compare numbers)" if "'str' and 'int'" in str(exc) \
             or "'int' and 'str'" in str(exc) else ""
+        if "non-int of type 'str'" in str(exc):  # "2" * "2"
+            hint = " (variables are text: use int(name) for numbers)"
         raise ConditionError(f"{exc}{hint}") from None
     except (ValueError, ZeroDivisionError, IndexError, KeyError, re.error, OverflowError) as exc:
         raise ConditionError(f"{type(exc).__name__}: {exc}") from None
     finally:
         _CALL_FUNCTION.reset(token)
+
+
+def _weight(value: Any, limit: int) -> int:
+    """About how many characters `value` holds, counting into lists, tuples and sets, so `*` and
+    `+` can't build gigabytes (`["a" * 99999] * 99999`). Stops counting past `limit`."""
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, (list, tuple, set)):
+        total = len(value)
+        for item in value:
+            total += _weight(item, limit)
+            if total > limit:
+                break
+        return total
+    return 1
 
 
 def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
@@ -1568,8 +1622,12 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         left, right = _eval(node.left, names), _eval(node.right, names)
         if isinstance(node.op, ast.Mult):
             for seq, count in ((left, right), (right, left)):
-                if isinstance(seq, (str, list, tuple)) and isinstance(count, int) and len(seq) * count > MAX_SEQUENCE:
+                if isinstance(seq, (str, list, tuple)) and isinstance(count, int) \
+                        and _weight(seq, MAX_SEQUENCE) * count > MAX_SEQUENCE:
                     raise ConditionError(f"'*' would build more than {MAX_SEQUENCE} items")
+        if isinstance(node.op, ast.Add) and isinstance(left, (str, list, tuple)) \
+                and _weight(left, MAX_TEXT) + _weight(right, MAX_TEXT) > MAX_TEXT:
+            raise ConditionError(f"'+' would build more than {MAX_TEXT} characters")
         return _BINOPS[type(node.op)](left, right)
     if isinstance(node, ast.Compare):
         left = _eval(node.left, names)
@@ -1590,8 +1648,22 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         return _eval(node.value, names)[_eval(node.slice, names)]
     if isinstance(node, ast.Slice):
         return slice(*(None if part is None else _eval(part, names) for part in (node.lower, node.upper, node.step)))
+    if isinstance(node, ast.JoinedStr):  # f"…"
+        return _join_capped(_eval(part, names) for part in node.values)
+    if isinstance(node, ast.FormattedValue):  # {value!r:spec} in an f-string
+        spec = "" if node.format_spec is None else _eval(node.format_spec, names)
+        conversion = "" if node.conversion == -1 else chr(node.conversion)
+        return _format_value(_eval(node.value, names), conversion, spec)
     if isinstance(node, ast.Call):
         args = [_eval(a, names) for a in node.args]
+        kwargs = {k.arg: _eval(k.value, names) for k in node.keywords if k.arg}
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+            target = _eval(node.func.value, names)
+            if not isinstance(target, str):
+                raise ConditionError(f"'.format()' works on text, not on {type(target).__name__}")
+            return _safe_format(target, args, kwargs)
+        if kwargs:  # vetted: only print(…) gets here, and print is a statement, not a value
+            raise ConditionError("print(…) is a statement of its own, not a value")
         if isinstance(node.func, ast.Name):
             if node.func.id in FUNCTIONS:
                 return FUNCTIONS[node.func.id](*args)
@@ -1605,6 +1677,108 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
             raise ConditionError(f"'.{node.func.attr}()' works on text, not on {type(target).__name__}")
         return getattr(target, node.func.attr)(*args)
     raise ConditionError(f"'{type(node).__name__}' is not allowed")  # vetted already; defensive
+
+
+# Format specs: `[[fill]align][sign][z][#][0][width][grouping][.precision][type]`. A spec with a
+# number type (or grouping) reads a variable's text as a number: shell variables are text.
+_SPEC = re.compile(r"(?:.?[<>=^])?[-+ ]?z?#?0?\d*([,_]?)(?:\.\d+)?([bcdeEfFgGnoxX%]?)", re.S)
+
+
+_CONVERSIONS: dict[str, Callable[[Any], str]] = {"s": str, "r": repr, "a": ascii}
+
+
+def _format_value(value: Any, conversion: str, spec: str) -> str:
+    """One `{value!conversion:spec}` field, for f-strings and .format(). Widths and precisions
+    are capped, so `{x:>999999999}` can't build a huge string."""
+    if conversion:
+        convert = _CONVERSIONS.get(conversion)
+        if convert is None:
+            raise ConditionError(f"format: unknown conversion '!{conversion}' (use !s, !r or !a)")
+        value = convert(value)
+    for number in re.findall(r"\d+", spec):
+        if int(number) > MAX_FORMAT_NUMBER:
+            raise ConditionError(f"format: {number} in '{spec}' is too big (at most {MAX_FORMAT_NUMBER})")
+    match = _SPEC.fullmatch(spec)
+    if isinstance(value, str) and match and (match.group(1) or match.group(2)):
+        try:
+            value = _number(value.strip())
+        except ConditionError:
+            raise ConditionError(f"format: '{value}' is not a number (for ':{spec}')") from None
+    try:
+        text = format(value, spec)
+    except (ValueError, TypeError) as exc:
+        raise ConditionError(f"format ':{spec}': {exc}") from None
+    if len(text) > MAX_SEQUENCE:
+        raise ConditionError(f"format: the text would be longer than {MAX_SEQUENCE} characters")
+    return text
+
+
+def _join_capped(parts: Iterator[str] | list[str]) -> str:
+    """The parts joined, stopping as soon as the text is longer than MAX_SEQUENCE."""
+    out, size = [], 0
+    for part in parts:
+        size += len(part)
+        if size > MAX_SEQUENCE:
+            raise ConditionError(f"format: the text would be longer than {MAX_SEQUENCE} characters")
+        out.append(part)
+    return "".join(out)
+
+
+def _safe_format(template: str, args: list[Any], kwargs: dict[str, Any]) -> str:
+    """`"…".format(…)` without str.format: a field is `{}`, `{0}` or `{name}`, with an optional
+    `!conversion` and `:spec`. `{0.attr}` and `{0[key]}` (the way out of a str.format sandbox)
+    are refused."""
+    auto: list[int] = [0]  # the next `{}` number; -1 once a field is numbered by hand
+
+    def value(key: str) -> Any:
+        if key == "":
+            if auto[0] < 0:
+                raise ConditionError("format: can't mix {} with numbered fields like {0}")
+            index, auto[0] = auto[0], auto[0] + 1
+        elif key.isdigit():
+            if auto[0] > 0:
+                raise ConditionError("format: can't mix {} with numbered fields like {0}")
+            index, auto[0] = int(key), -1
+        elif _NAME.fullmatch(key):
+            if key not in kwargs:
+                raise ConditionError(f"format: no value for {{{key}}} (pass it: .format({key}=…))")
+            return kwargs[key]
+        else:
+            raise ConditionError(f"format: field '{{{key}}}' is not allowed (use {{}}, a number like "
+                                 "{0} or a name like {name}; no .attribute or [key])")
+        if index >= len(args):
+            raise ConditionError(f"format: no value for field {index} ({len(args)} given)")
+        return args[index]
+
+    def fill(text: str, nested: bool) -> str:
+        parts = []
+        try:
+            parsed = list(string.Formatter().parse(text))
+        except ValueError as exc:
+            raise ConditionError(f"format: {exc}") from None
+        for literal, key, spec, conversion in parsed:
+            parts.append(literal)
+            if key is None:
+                continue
+            found = value(key)
+            spec = spec or ""
+            if "{" in spec:
+                if nested:
+                    raise ConditionError("format: fields are nested too deep")
+                spec = fill(spec, nested=True)  # `{x:>{width}}`
+            parts.append(_format_value(found, conversion or "", spec))
+        return _join_capped(parts)
+
+    return fill(template, nested=False)
+
+
+def format_prompt(raw: str, names: dict[str, Any], call: Callable[[str, list[Any]], Any] | None = None) -> str:
+    """An `input(f"…")` prompt, filled in with `names`. Raises ConditionError."""
+    try:
+        tree = compile_condition(raw, 0, "input", "prompt")
+    except ParseError as exc:
+        raise ConditionError(exc.message.removeprefix("input: ")) from None
+    return str(evaluate(tree, names, call))
 
 
 # ── execution ────────────────────────────────────────────────────────────────
@@ -1938,6 +2112,8 @@ class _Runner:
             self.run_assign(stmt)
         elif isinstance(stmt, Try):
             self.run_try(stmt)
+        elif isinstance(stmt, Print):
+            self.run_print(stmt)
         elif stmt.kind == "break":
             raise _Break
         elif stmt.kind == "return":
@@ -2092,8 +2268,16 @@ class _Runner:
             if asking is None:
                 return None
             name, prompt, kind = asking
-            prompt = shparser._expand_simple(prompt, self.variables())  # input("Age of $who? ")
+            if isinstance(prompt, ask.FPrompt):  # input(f"Age of {who}? ")
+                names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+                prompt = format_prompt(prompt, names, self.call_function)
+            else:
+                prompt = shparser._expand_simple(prompt, self.variables())  # input("Age of $who? ")
             self.vars[name] = ask.ask_as(self.ctx, prompt, kind, say)
+        except ConditionError as exc:
+            self.report(PipelineError(1, 1, "input", f"input: {exc}"), stmt.text)
+            self.ctx.last_status = 1
+            return 1
         except ask.AskError as exc:
             self.report(PipelineError(1, 1, "input", str(exc), exc.status), stmt.text)
             self.ctx.last_status = exc.status
@@ -2124,6 +2308,33 @@ class _Runner:
             self.check_errexit(1, text)
             return
         set_variable(self.ctx, stmt.name, str(value), self.vars)
+        self.ctx.last_status = 0
+
+    def run_print(self, stmt: Print) -> None:
+        """`print(…)`: each value as text (`True` / `False` for a bool), joined with `sep` (a
+        space) and ended with `end` (a new line). A bad value is reported like an assignment's."""
+        from shellcraft.pipeline import PipelineError, trace
+
+        call = stmt.tree.body
+        assert isinstance(call, ast.Call)
+        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        try:
+            values = [str(evaluate(ast.Expression(arg), names, self.call_function)) for arg in call.args]
+            options = {k.arg: evaluate(ast.Expression(k.value), names, self.call_function) for k in call.keywords}
+            for name, option in options.items():
+                if option is not None and not isinstance(option, str):
+                    raise ConditionError(f"{name} must be text, not {type(option).__name__}")
+            sep = " " if options.get("sep") is None else options["sep"]
+            end = "\n" if options.get("end") is None else options["end"]
+            text = _join_capped([sep.join(values), end])
+        except ConditionError as exc:
+            self.report(PipelineError(1, 1, "print", f"print: {exc}"), stmt.text)
+            self.ctx.last_status = 1
+            self.check_errexit(1, stmt.text)
+            return
+        trace(self.ctx, ["print", *values])
+        if text:
+            self.show(text)
         self.ctx.last_status = 0
 
     def run_try(self, stmt: Try) -> None:

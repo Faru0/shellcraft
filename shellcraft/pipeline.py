@@ -154,9 +154,16 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
 
         from shellcraft.parser import _expand_simple
 
-        prompt = _expand_simple(prompt, Variables(ctx))  # input("Hello $USER, your age? ")
         try:
+            if isinstance(prompt, ask.FPrompt):  # input(f"Hello {USER}, your age? ")
+                prompt = script.format_prompt(prompt, {**ctx.variables, "status": ctx.last_status},
+                                              script._Runner(ctx).call_function)
+            else:
+                prompt = _expand_simple(prompt, Variables(ctx))  # input("Hello $USER, your age? ")
             ctx.variables[name] = ask.ask_as(ctx, prompt, kind, say)
+        except script.ConditionError as exc:
+            ctx.last_status = 1
+            raise PipelineError(1, 1, "input", f"input: {exc}", 1) from None
         except ask.AskError as exc:
             ctx.last_status = exc.status
             raise PipelineError(1, 1, "input", str(exc), exc.status) from None
@@ -800,6 +807,8 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
     known = list(BUILTINS) + ctx.registry.names()
     hint = difflib.get_close_matches(cmd.name, known, n=1)
     suffix = f" — did you mean '{hint[0]}'?" if hint else ""
+    if cmd.name.startswith("print("):
+        suffix = " — print(…) works in a -py block or a def; here use echo (see: man print)"
     raise CommandError(f"command not found: {cmd.name}{suffix}", STATUS_NOT_FOUND)
 
 

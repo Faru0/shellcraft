@@ -2392,8 +2392,9 @@ Expressions are checked before anything runs and evaluated without `eval`: compa
 `and` / `or` / `not`, `in`, arithmetic (`+ - * / // %`), indexing and slicing, `x if c else y`,
 these string methods: `startswith endswith lower upper casefold title strip lstrip rstrip split
 rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
-isalpha isalnum isspace islower isupper`, and these functions: `len int float str bool abs min
-max`, `match(PATTERN, TEXT)` (a regex search), `exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
+isalpha isalnum isspace islower isupper format`, f-strings (`f"{a}-{b}"`, see `man print`), and
+these functions: `len int float str bool abs min max`, `match(PATTERN, TEXT)` (a regex search),
+`exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
 A call to any other name runs the shell function of that name (`if -py (is_weekend(day))`):
 its `return` value, or what it printed (see `man def`). Imports, other attributes and names
 starting with `_` are refused. A condition
@@ -2478,7 +2479,8 @@ Each parameter is a `local` variable, set from the arguments in order or from it
 parameter without a default is required (`greet: missing argument 'name'`, status 2). `$1`, `$#`
 and `$@` still work, so extra arguments aren't lost. The body is a `-py` block: conditions are
 Python and a nested `if` / `for` needs no flag. `total = int(a) + int(b)` and `total += 1` set a
-variable from a Python value. The brace form is `def NAME(PARAMS) { … }`.
+variable from a Python value, and `print(f"{name}: {total}")` prints (see `man print`). The
+brace form is `def NAME(PARAMS) { … }`.
 
 ```
 def greet(name, greeting="Hello"):
@@ -2707,6 +2709,60 @@ builtin("for", "Loop over items (bash syntax, or -py)",
 builtin("if", "Run commands when a condition holds (bash syntax, or -py)",
         "if …; then …; [elif …; then …;] [else …;] fi | if -py (EXPR) | COMMAND { … }",
         doc=IF_DOC)(_keyword("if"))
+
+
+PRINT_DOC = r"""# print
+
+Print text from Python code, with f-strings and `.format()`. `print(…)` is a statement inside a
+`-py` block or a `def`. At the prompt and on bash lines, use `echo` or `printf`.
+
+## Usage
+
+```
+print(VALUE, VALUE, …, sep=" ", end="\n")
+```
+
+The values are turned into text and joined with `sep` (a space), and `end` (a new line) goes
+after them. `True` / `False` print as `True` / `False`. The output works like `echo`'s: a pipe
+after the block, `$( … )` and a function's output all get it. One statement always ends its own
+line, so `end=""` can't join two prints (the same as `echo -n`).
+
+## f-strings and .format()
+
+f-strings work wherever Python is read: `print(…)`, `x = …`, a condition, `return`, the
+arguments of a call. A field is any expression: `{name}`, `{a + b}`, `{name.upper()}`. Shell
+variables are text, so a number spec (`d`, `f`, `,` …) reads the text as a number.
+
+```
+print(f"{name} has {count} files")
+print(f"{price:.2f}  {name:<10}|  {n:,}  {n:05d}  {name!r}  {n:>{width}}")
+msg = "{}-{}".format(a, b)
+line = "{0} {0}".format(x)
+hello = "Hi {who}".format(who=name)
+age = input(f"Age of {who}? ")
+```
+
+For safety, `.format()` is not Python's: a field is `{}`, a number (`{0}`) or a name
+(`{name}`), and `{0.attr}` / `{0[key]}` are refused. A width or precision over 100000, or text
+longer than 100000 characters, is refused too. Keyword arguments work only in `.format(name=…)`
+and `print(sep=…, end=…)`.
+
+A value that can't be worked out is reported and the print's status is 1, which `set -e`, the
+ERR trap and `try` see like any failing command.
+
+```
+for -py n in 1..3:
+    print(f"{n:>3} | {int(n) * int(n):,}")
+```
+
+See also: `man echo`, `man printf`, `man def`, `man if`.
+"""
+
+
+@builtin("print", "Print text from Python code (in a -py block or def)", "print(VALUE, …, sep=\" \", end=\"\\n\")",
+        doc=PRINT_DOC, hidden=True)
+def _print(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    raise CommandError("print: print(…) is Python, for a -py block or a def; here use echo (see: man print)")
 
 
 TRY_DOC = r"""# try

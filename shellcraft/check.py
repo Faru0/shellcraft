@@ -127,10 +127,16 @@ def _parse_all(commands: list[tuple[int, str]], original: list[str], steps: bool
         if steps and line.startswith("@"):
             line = line[1:].lstrip()
         try:
-            if ask.parse_ask_line(line) is not None:  # `name = input("…")`
+            asking = ask.parse_ask_line(line)
+            if asking is not None:  # `name = input("…")`
+                if isinstance(asking[1], ask.FPrompt):  # input(f"…"): its fields are Python
+                    script.compile_condition(asking[1], 0, "input", "prompt")
                 continue
         except ask.AskError as exc:
             found.append(Problem(number, str(exc), True))
+            continue
+        except ParseError as exc:
+            found.append(Problem(number, exc.message, True))
             continue
         before = len(found)
         program = _parse(line, span, found)
@@ -215,7 +221,8 @@ class _Walker:
 
     def _stmt(self, stmt: Any, span: _Span, top: bool) -> None:
         if isinstance(stmt, script.Simple):
-            self._simple(stmt.text, span, top)
+            if not self._asks(stmt.text, span):
+                self._simple(stmt.text, span, top)
         elif isinstance(stmt, script.Chain):
             self.walk(stmt.parts, span, top)
         elif isinstance(stmt, (script.For, script.Select)):
@@ -242,6 +249,22 @@ class _Walker:
         elif isinstance(stmt, script.Function):
             self.seen.add(stmt.name)  # defined from here on; its body runs later, when it's called
             self.walk(stmt.body, span, top=False)
+
+    def _asks(self, text: str, span: _Span) -> bool:
+        """`name = input(…)` inside a block: not a command. A bad prompt is an error."""
+        from shellcraft import ask
+
+        try:
+            asking = ask.parse_ask_line(text)
+            if asking is not None and isinstance(asking[1], ask.FPrompt):
+                script.compile_condition(asking[1], 0, "input", "prompt")
+        except ask.AskError as exc:
+            self.report.problems.append(Problem(span.find("input"), str(exc), True))
+            return True
+        except ParseError as exc:
+            self.report.problems.append(Problem(span.find("input"), exc.message, True))
+            return True
+        return asking is not None
 
     def _cond(self, cond: script.Cond, span: _Span, top: bool) -> None:
         if cond.kind == "cmd":

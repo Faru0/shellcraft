@@ -221,6 +221,55 @@ The header is printed once, before the loop. Inside the loop, `case` works out t
 start of the host name: `web*` matches anything starting with `web`. Then one `printf` prints the
 row with the same widths as the header, so they line up.
 
+## Python style: print and f-strings
+
+Inside a Python-style block or a `def`, you can print the way Python does, with `print()` and
+f-strings. An f-string fills in the values between `{ }`, and a spec after a `:` lays them out,
+so it does the job of `printf` without the `%` codes. Here is the same table as above:
+
+<!-- run -->
+```
+print_table() {
+  for -py host in web1 web2 db1:
+      role = "database" if host.startswith("db") else "frontend"
+      print(f"{host:<8} {role}")
+}
+echo "HOST     ROLE"
+print_table
+```
+
+<!-- output -->
+```
+HOST     ROLE
+web1     frontend
+web2     frontend
+db1      database
+```
+
+`{host:<8}` pads the host name to 8 characters, on the right, so the roles line up. `{n:>5}` pads
+on the left, `{price:.2f}` gives two decimal places, and `{n:,}` puts commas in big numbers. A
+variable holds text, but a spec for numbers like `.2f` reads it as a number for you:
+
+<!-- run -->
+```
+for -py line in "tea 2.5" "cake 3.75":
+    item = line.split()[0]
+    price = line.split()[1]
+    print(f"{item:<6}{price:>7.2f}")
+```
+
+<!-- output -->
+```
+tea      2.50
+cake     3.75
+```
+
+`print()` puts a space between values (`print("a", n)`); `sep=` and `end=` change what goes between
+them and at the end. Like `echo`, its output can go into a pipe or a file after the block, or into
+`$( )`. `print` only works inside a Python-style block or a `def`: at the prompt and in bash lines,
+use `echo` and `printf`. See [Build text with f-strings and print](python-style.md#build-text-with-f-strings-and-print)
+for every spec and for `.format()`.
+
 ## Colors
 
 A green OK or a red FAILED is easier to spot than plain text. `\e[…m` codes color the text. Use them

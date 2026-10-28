@@ -275,6 +275,10 @@ as `2.5`. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whol
 on a variable that isn't set yet stops with `count: not set, give it a value first`. Set it to 0
 before the loop, as the example does.
 
+To build text out of variables, use an f-string: `msg = f"{first} has {count} files"` fills in
+the values between the braces, and `print(msg)` prints it. See
+[Build text with f-strings and print](python-style.md#build-text-with-f-strings-and-print).
+
 Outside these blocks, at the prompt or in a bash block, `x = 5` with spaces runs a command called
 `x`, as in bash. The bash form `name=value` works everywhere, Python-style blocks included.
 
@@ -321,6 +325,24 @@ Nice to meet you, Ada
 
 The text in the brackets is the question. Leave a space at the end of it, so the answer doesn't
 butt up against the question mark.
+
+The question can hold variables. Write `$name` in it, as in `input("Age of $who? ")`, or make it
+an f-string and put any Python expression between braces:
+
+<!-- run: ["7", "9"] -->
+```
+for -py who in ada sam:
+    age = input(f"How old is {who.title()}? ")
+    echo "$who: $age"
+```
+
+<!-- output -->
+```
+How old is Ada? 7
+ada: 7
+How old is Sam? 9
+sam: 9
+```
 
 Wrap it in `int()` when you need a whole number, or `float()` for any number. ShellCraft keeps
 asking until the answer is one, so you don't have to check it yourself:

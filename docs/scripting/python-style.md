@@ -207,13 +207,130 @@ Some things work differently from Python:
 - `+=` with text on the right joins the text: `total += size` turns `"0"` into `"0120"`. Write
   `total += int(size)` to add.
 - `$name` isn't filled in inside a Python string. `msg = "file $n"` stores `file $n` as it is.
-  Join the pieces with `+` instead: `msg = "file " + n`. f-strings are refused.
+  Use an f-string instead: `msg = f"file {n}"` (see the next section).
 - `True` and `False` are stored as the text `"True"` and `"False"`. Any text that isn't empty
   counts as true, so `if -py ok:` runs even when `ok` holds `"False"`. Compare it instead:
   `if -py ok == "True":`.
 - `$( )` doesn't run in a Python value. `out = $(date)` is refused with
   `$( … ) is bash: write out=$(command), with no spaces`. Do what it says:
   `out=$(date)` works inside any block.
+
+## Build text with f-strings and print
+
+Sooner or later a script has to say something built from its variables: a summary line, a
+table, a file name with a date in it. In Python you'd reach for an f-string and `print()`, and
+you can here too. Inside a Python-style block or a `def`:
+
+<!-- run -->
+```
+name="Ada"
+count=3
+for -py _ in 1:
+    msg = f"{name} has {count} files"
+    print(msg)
+    print(f"{name.upper()} will have {int(count) + 1} tomorrow")
+```
+
+<!-- output -->
+```
+Ada has 3 files
+ADA will have 4 tomorrow
+```
+
+Anything between `{ }` is a Python expression, the same kind a condition can use. Remember that
+variables are text, so `{int(count) + 1}` turns `count` into a number before adding.
+
+`print()` works like Python's: give it several values and it puts a space between them. `sep=`
+changes what goes between them and `end=` what goes at the end (a new line, unless you say
+otherwise). Its output goes where `echo`'s would: to the screen, into a pipe after the block, or
+into `$( )`.
+
+<!-- run -->
+```
+for -py n in 1..3:
+    print("line", n, sep=" #", end=".\n")
+```
+
+<!-- output -->
+```
+line #1.
+line #2.
+line #3.
+```
+
+### Line things up with format specs
+
+After a `:` inside the braces you can say how a value is laid out. This is Python's format
+language, and it's what you use for tables and money:
+
+<!-- run -->
+```
+for -py n in 8 9 10:
+    print(f"{n:>3} | {int(n) * int(n):>4} | {int(n) * 1000:,}")
+```
+
+<!-- output -->
+```
+  8 |   64 | 8,000
+  9 |   81 | 9,000
+ 10 |  100 | 10,000
+```
+
+| Spec | What it does | `f"…"` | Gives |
+| --- | --- | --- | --- |
+| `<10`, `>10`, `^10` | pad to 10 characters, on the left, right or both sides | `f"{name:>6}"` | `   Ada` |
+| `*^9` | pad with `*` instead of spaces | `f"{name:*^9}"` | `***Ada***` |
+| `.2f` | two decimal places | `f"{price:.2f}"` | `3.14` |
+| `,` | a comma between thousands | `f"{n:,}"` | `1,234,567` |
+| `05d` | a whole number, padded with zeros | `f"{n:05d}"` | `00042` |
+| `.0%` | a percentage | `f"{0.5:.0%}"` | `50%` |
+| `!r` | the value as Python would show it, quotes and all | `f"{name!r}"` | `'Ada'` |
+| `>{w}` | a width from another variable | `f"{name:>{w}}"` | `   Ada` when `w` is 6 |
+
+A spec for numbers (`d`, `f`, `%`, `,` and the like) reads a variable's text as a number for
+you, so `f"{price:.2f}"` works even though `price` holds the text `"3.14159"`. If the text isn't
+a number, you'll see `format: 'abc' is not a number (for ':.2f')`. To print a brace itself, double
+it: `f"{{"` is `{`.
+
+### .format()
+
+`.format()` does the same job when you'd rather keep the pattern apart from the values. `{}`
+takes the next value, `{0}` a value by its position, and `{name}` one you pass by name:
+
+<!-- run -->
+```
+for -py _ in 1:
+    print("{}-{}".format("web", 1))
+    print("{0} and {0} again".format("echo"))
+    print("{host}:{port:>5}".format(host="db1", port=80))
+```
+
+<!-- output -->
+```
+web-1
+echo and echo again
+db1:   80
+```
+
+### What's refused, and why
+
+Python code in a script runs in a small, safe subset, because scripts and AI clients can both
+send it. So a few things that Python allows are refused, each with a message that says why:
+
+- In `.format()`, a field is `{}`, a number or a name. `{0.attr}` and `{0[key]}` are refused
+  (`format: field '{0.__class__}' is not allowed`), because they're the usual way to reach
+  Python's insides from a format string.
+- A width or precision over 100000 is refused (`format: 999999999 in '>999999999' is too big`),
+  and so is any result longer than 100000 characters. A typo can't fill your memory.
+- Keyword arguments only work in `.format(name=…)` and in `print(sep=…, end=…)`.
+
+### Where print works
+
+`print(…)` is a line of its own inside a Python-style block or a `def`. At the prompt and in
+bash lines, `print` isn't a command: there you use `echo` or `printf`. One `print` always ends
+its own line, so `end=""` can't join two of them; build the whole line first and print it once.
+If a value can't be worked out, the line reports the error and its status is 1, which `set -e`
+and `try` see like any other failing command.
 
 ## if, elif, else
 
@@ -740,7 +857,22 @@ Thanks Ada, you're signed up
 
 `.lower()` means "Y", "yes" and "Yes" all count. `read -s` hides what's typed, for passwords and
 tokens. The question in `input()` can use variables, unlike other Python strings:
-`input("Age of $name? ")`.
+`input("Age of $name? ")`. It can also be an f-string, which lets you work the question out:
+
+<!-- run: ["7", "9"] -->
+```
+for -py who in ada sam:
+    age = input(f"Age of {who.title()}? ")
+    print(f"{who.title()} is {age}")
+```
+
+<!-- output -->
+```
+Age of Ada? 7
+Ada is 7
+Age of Sam? 9
+Sam is 9
+```
 
 ### Keep asking until the answer is good
 
@@ -1247,7 +1379,14 @@ are text, so write `n == "3"` or `int(n) == 3`. See [Variables are text](#variab
 **`while -py true:` says `unknown name 'true'`.** Python's true is `True`.
 
 **`$name` shows up as it is.** You put it in a Python string, such as `msg = "hi $name"`. Write
-`msg = "hi " + name`.
+`msg = f"hi {name}"`. Inside the braces, leave the `$` out too: `f"{$name}"` is refused.
+
+**An f-string prints as typed.** `echo f"{name}"` is a bash line, so the shell doesn't know
+about f-strings and prints `f{name}`. Use `print(f"{name}")` inside a Python-style block, or
+`echo "$name"`.
+
+**`print("x")` says `command not found`.** You used it at the prompt or in a bash block.
+`print` only works inside a Python-style block or a `def`. Use `echo` there.
 
 **`if -py ok:` runs even though `ok` is `False`.** The variable holds the text `"False"`, which
 isn't empty. Write `if -py ok == "True":`.
@@ -1275,6 +1414,8 @@ Use this table to translate a bash example into Python style or back, one line a
 | Forever | `while true; do` | `while -py True:` |
 | Choices | `case $x in a) … ;; *) … ;; esac` | `match x:` then `case "a":` and `case _:` |
 | Numbered menu | `select x in a b; do … done` | `select -py x in a b:` |
+| Print | `echo "$a-$b"` | `print(f"{a}-{b}")` (in a block) |
+| Print, padded | `printf "%5s\n" "$a"` | `print(f"{a:>5}")` (in a block) |
 | Ask | `read -p "Q? " x` | `x = input("Q? ")` |
 | Ask for a number | `read -p "N? " n` and a test | `n = int(input("N? "))` |
 | Function | `f() { local a=$1; … }` | `def f(a):` |
