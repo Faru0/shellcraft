@@ -227,6 +227,23 @@ A trap belongs to the function, sourced file or func that set it. One set at the
 rc file or in a startup file belongs to the session. See
 [Clean up with trap](scripting/functions.md#clean-up-with-trap) and `man trap`.
 
+## Options with getopts
+
+```
+while getopts "vf:" opt; do   # -v, and -f with a value; "vf:" lists the letters
+  case $opt in
+    v) verbose=yes ;;
+    f) file=$OPTARG ;;        # the value is in $OPTARG
+    \?) return 2 ;;           # an unknown option (getopts prints a message)
+  esac
+done
+shift $((OPTIND - 1))         # drop the options: $1 is the first word after them
+```
+
+`-vf FILE` and `-fFILE` work too. Start the letters with `:` (`":vf:"`) to print your own
+messages. Each function call and func starts with `$OPTIND` at 1. See
+[Options like -v and -f FILE](scripting/functions.md#options-like--v-and--f-file) and `man getopts`.
+
 ## Exit status and history
 
 - `$?` is the last command's exit status: 0 for success, 1 for a failure, 2 for a syntax error,

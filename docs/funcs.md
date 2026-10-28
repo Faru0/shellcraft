@@ -111,6 +111,33 @@ removed. The trap belongs to the func and
 goes away when it ends. `trap '…' ERR` runs after a step fails, and `trap '…' INT` on Ctrl-C. See
 [Clean up with trap](scripting/functions.md#clean-up-with-trap) and `man trap`.
 
+### Options
+
+A func can take options like a command, with `getopts`. This one has `-n NAME` and `-l` for
+loud:
+
+```
+# func: greet
+# description: Say hello
+# usage: greet [-l] [-n NAME] [MESSAGE...]
+name=you; loud=no
+while getopts "ln:" opt; do
+  case $opt in
+    l) loud=yes ;;
+    n) name=$OPTARG ;;
+  esac
+done
+shift $((OPTIND - 1))
+echo "hello $name! $@"
+if [ $loud = yes ]; then echo "HELLO $name!"; fi
+```
+
+`greet -l -n Ana nice day` prints `hello Ana! nice day` and `HELLO Ana!`. For an option it
+doesn't know, `getopts` prints `getopts: illegal option -- x` and the loop goes on. Each func run starts
+with its own `$OPTIND` at 1. See
+[Options like -v and -f FILE](scripting/functions.md#options-like--v-and--f-file) and
+`man getopts`.
+
 ## What you see
 
 ShellCraft doesn't print the commands themselves, the same as a bash script. When the func

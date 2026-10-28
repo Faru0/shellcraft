@@ -74,6 +74,8 @@ class ShellContext:
     # `trap`: a stack of frames, signal (EXIT, INT, ERR) -> command. The bottom frame is the
     # session's; a function call, a sourced file and a func each push one (shellcraft.traps).
     traps: list[dict[str, str]] = field(default_factory=lambda: [{}])
+    # `getopts`: (OPTIND, position) inside a group like `-vf`, for the next call (shellcraft.getopts).
+    getopts_at: tuple[int, int] | None = None
     # Above 0 while a trap's command runs: a failure in there doesn't fire ERR again.
     in_trap: int = 0
     # How deep the frame was where ERR last ran for the command now running (0: it hasn't).

@@ -806,6 +806,96 @@ def shift(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return ""
 
 
+GETOPTS_DOC = """# getopts
+
+Read a function's options, like `-v` and `-f FILE`, one at a time, as in bash.
+
+## Usage
+
+```
+getopts OPTSTRING NAME           # read the next option from the arguments ($@)
+getopts OPTSTRING NAME ARG...    # read them from these words instead
+```
+
+OPTSTRING lists the option letters. A letter followed by `:` takes a value: `vf:` means `-v`
+and `-f FILE`. Each call sets NAME to the next option's letter and `OPTARG` to its value, and
+returns status 0. When the options run out it returns 1, so it fits in a `while` loop:
+
+```
+backup() {
+    local verbose=no file=notes.txt
+    while getopts "vf:" opt; do
+        case $opt in
+            v) verbose=yes ;;
+            f) file=$OPTARG ;;
+            \\?) return 2 ;;
+        esac
+    done
+    shift $((OPTIND - 1))        # now $1… are what came after the options
+    echo "verbose=$verbose file=$file rest=$@"
+}
+backup -v -f todo.txt extra      # verbose=yes file=todo.txt rest=extra
+```
+
+Options can be grouped and the value can be glued on: `-vf todo.txt` and `-ftodo.txt` work
+too. The options stop at the first word that doesn't start with `-`, or at `--`, which is
+skipped.
+
+## OPTIND
+
+`OPTIND` is the number of the next argument to read. It starts at 1, and each function call,
+`def` and func gets its own (the caller's comes back when it ends), so functions that read
+options can call each other. After the loop, `shift $((OPTIND - 1))` drops the options. Set
+`OPTIND=1` to read the options again.
+
+## Mistakes
+
+For an option that isn't in OPTSTRING, NAME is `?` and you see `getopts: illegal option -- x`.
+For a missing value, NAME is `?` and you see `getopts: option requires an argument -- f`.
+`OPTARG` is unset in both cases.
+
+Start OPTSTRING with `:` to handle them yourself, without a message: for an unknown option NAME
+is `?` and `OPTARG` is the letter; for a missing value NAME is `:` and `OPTARG` is the letter.
+
+```
+while getopts ":vf:" opt; do
+    case $opt in
+        v) echo verbose ;;
+        f) echo "file $OPTARG" ;;
+        :) echo "-$OPTARG needs a value" ;;
+        \\?) echo "no option -$OPTARG" ;;
+    esac
+done
+```
+
+In a `case`, write `\\?)` or `"?")` for the `?` arm: a bare `?)` matches any single letter.
+"""
+
+
+@builtin("getopts", "Read a function's options (-v, -f FILE) one at a time", "getopts OPTSTRING NAME [ARG...]",
+         category="shell", stateful=True, doc=GETOPTS_DOC)
+def getopts_(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft import getopts
+    from shellcraft.pipeline import write_stderr
+
+    if len(args) < 2:
+        raise CommandError("getopts: usage: getopts OPTSTRING NAME [ARG...]", 2)
+    optstring, name, words = args[0], args[1], args[2:]
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        raise CommandError(f"getopts: '{name}': not a valid variable name", 2)
+    if not words:
+        words = list(ctx.positional[-1]) if ctx.positional else []
+    found, value, optarg, error = getopts.next_option(ctx, optstring, words)
+    ctx.variables[name] = value
+    if optarg is None:
+        ctx.variables.pop("OPTARG", None)
+    else:
+        ctx.variables["OPTARG"] = optarg
+    if error:
+        write_stderr(ctx, error)
+    return "" if found else WithStatus("", 1)
+
+
 SET_DOC = """# set
 
 Shell options, as in bash, and the arguments (`$1`, `$2`…).

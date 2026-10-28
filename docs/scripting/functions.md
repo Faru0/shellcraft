@@ -575,6 +575,111 @@ backup of notes.txt finished
 `trap` on its own lists the traps set here, `trap - EXIT` removes one, and `trap '' INT` sets one
 that does nothing. See `man trap`.
 
+## Options like -v and -f FILE
+
+Commands take options: `ls -l`, `grep -i word`. Your functions can too, with `getopts`. You tell
+it the letters to look for, and each time you call it, it gives you the next option. A letter
+followed by `:` takes a value, so `"vf:"` means `-v` and `-f FILE`:
+
+<!-- run -->
+```
+backup() {
+  local verbose=no file=notes.txt
+  while getopts "vf:" opt; do
+    case $opt in
+      v) verbose=yes ;;
+      f) file=$OPTARG ;;
+      \?) echo "usage: backup [-v] [-f FILE] [NAME...]"; return 2 ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+  echo "verbose=$verbose file=$file"
+  echo "the rest: $@"
+}
+backup -v -f todo.txt monday tuesday
+backup -vftodo.txt friday
+backup -x
+echo "status: $?"
+```
+
+<!-- output -->
+```
+verbose=yes file=todo.txt
+the rest: monday tuesday
+verbose=yes file=todo.txt
+the rest: friday
+getopts: illegal option -- x
+usage: backup [-v] [-f FILE] [NAME...]
+status: 2
+```
+
+Here is what happens:
+
+- `opt` gets the option's letter, and `$OPTARG` gets its value (`todo.txt`).
+- `getopts` fails when the options run out, which ends the `while` loop. The options stop at the
+  first word that doesn't start with `-`, or at `--`.
+- `$OPTIND` is the number of the next argument to read. `shift $((OPTIND - 1))` drops the options,
+  so `$1`, `$2`… and `$@` are what came after them.
+- Options can be grouped (`-vf todo.txt`), and the value can be glued on (`-ftodo.txt`).
+- An option you didn't list gives `?` and a message. Write the `case` arm as `\?)`: a bare `?)`
+  would match any single letter.
+
+To print your own messages instead, start the letters with `:`. Then an unknown option gives `?`
+with the letter in `$OPTARG`, and a missing value gives `:`:
+
+<!-- run -->
+```
+convert() {
+  while getopts ":o:" opt; do
+    case $opt in
+      o) echo "output: $OPTARG" ;;
+      :) echo "-$OPTARG needs a file name" ;;
+      \?) echo "convert has no -$OPTARG option" ;;
+    esac
+  done
+}
+convert -q -o
+```
+
+<!-- output -->
+```
+convert has no -q option
+-o needs a file name
+```
+
+Each function call starts with its own `$OPTIND` at 1, and the caller's comes back when it
+returns, so a function that reads options can call another one that does.
+
+In a `def` function, the same `while getopts` loop works as a bash line, or in Python style.
+The condition isn't Python, so it runs as a command:
+
+<!-- run -->
+```
+def backup():
+    verbose=no
+    while -py getopts "vf:" opt:
+        case -py $opt:
+            "v":
+                verbose=yes
+            "f":
+                echo "file: $OPTARG"
+            _:
+                return 2
+    shift $((OPTIND - 1))
+    echo "verbose=$verbose, the rest: $@"
+
+backup -v -f todo.txt monday
+```
+
+<!-- output -->
+```
+file: todo.txt
+verbose=yes, the rest: monday
+```
+
+In `case -py`, use `_:` for the mistakes: a quoted `"?"` is a pattern there and matches any
+single letter. See `man getopts`.
+
 ## Keep your functions
 
 A function lasts until you leave ShellCraft. To have it in every session, put it in

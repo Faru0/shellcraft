@@ -18,6 +18,11 @@ and the project uses [semantic versioning](https://semver.org/).
   ShellCraft). `INT` runs on Ctrl-C and `ERR` after a command fails. `trap - SIG` removes one and
   `trap` lists them. `exit` in the rc file now ends ShellCraft cleanly instead of showing
   "startup failed". `man trap`.
+- **`getopts`.** Functions, `def` functions and funcs can take options like `-v` and `-f FILE`:
+  `while getopts "vf:" opt; do …; done`, with the value in `$OPTARG` and `shift $((OPTIND - 1))`
+  after. Grouped (`-vf FILE`) and glued (`-fFILE`) options work, a leading `:` lets you print your
+  own messages, and each call starts with its own `$OPTIND`. A `case` pattern can now escape a
+  character with `\` (`\?)`). `man getopts`.
 - **A scripting guide.** `docs/scripting/` teaches the scripts you write for your rc file,
   startup files and funcs, one topic per page: variables and asking the user, printing several
   lines and columns, `if` and `case`, loops and menus, functions, and complete examples to copy.

@@ -43,8 +43,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Union
 
+from shellcraft import getopts, traps
 from shellcraft import parser as shparser
-from shellcraft import traps
 from shellcraft.context import ShellContext, to_text
 from shellcraft.parser import ParseError, find_closing_paren
 
@@ -1556,35 +1556,36 @@ def call_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
         if missing:
             raise CommandError(f"{fn.name}: missing argument '{missing[0]}' "
                                f"(usage: {fn.name} {' '.join(p.upper() for p, _ in fn.params)})", 2)
-    ctx.positional.append(list(args))
-    status: int | None = None
-    try:
-        with traps.frame(ctx, runner):  # its own traps; EXIT runs here, before `local`s go
-            try:
-                for k, (param, default) in enumerate(fn.params or []):
-                    runner.frame.setdefault(param, ctx.variables.get(param))
-                    ctx.variables[param] = args[k] if k < len(args) else (default or "")
-                runner.run_list(fn.body)
-            except _Return as exc:
-                status = exc.status
-            except _Abort as exc:
-                if not exc.reported:
-                    runner.report(exc.error, exc.text)
-                status = getattr(exc.error, "status", 1) or 1
-            except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap, then the call stops as before
-                traps.interrupted(ctx, exc, runner)
-                raise
-            finally:
-                ctx.last_status = ctx.last_status if status is None else status  # `$?` in the EXIT trap
-    finally:
-        ctx.positional.pop()
-        if runner.stderr_sink is not None:
-            ctx.stderr_sinks.pop()
-        for name, old in runner.frame.items():
-            if old is None:
-                ctx.variables.pop(name, None)
-            else:
-                ctx.variables[name] = old
+    with getopts.fresh(ctx):  # OPTIND=1 for its options; the caller's back after the `local`s
+        ctx.positional.append(list(args))
+        status: int | None = None
+        try:
+            with traps.frame(ctx, runner):  # its own traps; EXIT runs here, before `local`s go
+                try:
+                    for k, (param, default) in enumerate(fn.params or []):
+                        runner.frame.setdefault(param, ctx.variables.get(param))
+                        ctx.variables[param] = args[k] if k < len(args) else (default or "")
+                    runner.run_list(fn.body)
+                except _Return as exc:
+                    status = exc.status
+                except _Abort as exc:
+                    if not exc.reported:
+                        runner.report(exc.error, exc.text)
+                    status = getattr(exc.error, "status", 1) or 1
+                except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap, then the call stops as before
+                    traps.interrupted(ctx, exc, runner)
+                    raise
+                finally:
+                    ctx.last_status = ctx.last_status if status is None else status  # `$?` in the EXIT trap
+        finally:
+            ctx.positional.pop()
+            if runner.stderr_sink is not None:
+                ctx.stderr_sinks.pop()
+            for name, old in runner.frame.items():
+                if old is None:
+                    ctx.variables.pop(name, None)
+                else:
+                    ctx.variables[name] = old
     if status is None:
         status = ctx.last_status
     ctx.last_status = status
@@ -2076,11 +2077,18 @@ class _Runner:
 
 
 def _unquote(pattern: str) -> str:
-    """A case pattern without its quotes; quoted glob characters are escaped so they match literally."""
+    """A case pattern without its quotes; quoted glob characters, and one after a `\\` (`\\?)` for
+    getopts' `?`), are escaped so they match literally."""
     out: list[str] = []
     quote = None
+    escaped = False
     for ch in pattern:
-        if quote:
+        if escaped:
+            out.append(f"[{ch}]" if ch in "*?[" else ch)
+            escaped = False
+        elif ch == "\\" and quote is None:
+            escaped = True
+        elif quote:
             if ch == quote:
                 quote = None
             else:

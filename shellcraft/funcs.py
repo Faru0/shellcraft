@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from shellcraft import traps
+from shellcraft import getopts, traps
 
 SUFFIX = ".func"
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,47}$")
@@ -282,7 +282,7 @@ def run(ctx: Any, func: Func, args: list[str], output: str | None = None, isolat
     ctx.positional.append(list(args))
     _running().append(func.name)
     try:
-        with traps.frame(ctx, collect=quiet):  # its own traps: EXIT runs when it ends
+        with traps.frame(ctx, collect=quiet), getopts.fresh(ctx):  # its own traps (EXIT runs when it ends), OPTIND
             for number, step in enumerate(steps, 1):
                 line, shown = step, mode == "show"
                 if step.startswith("@"):
