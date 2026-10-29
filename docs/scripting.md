@@ -85,11 +85,20 @@ queryDns $host                   # $name expands anywhere outside single quotes
 echo "$HOME $PATH"               # environment variables work too (never over MCP)
 export API_URL=https://x.test    # ... and export makes a variable one; unset removes it
 n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons, && || !
+echo ${f:-none} ${#f}            # a default, the length
+echo ${f%.txt} ${f##*/}          # trim a pattern off the end / the start (% %% # ##)
+echo ${f/old/new} ${f^^} ${f:0:3}   # replace (// for all), capitals (,, small), a slice
 ```
 
 There are no spaces around the `=`. `x = 5` at the prompt runs a command named `x` and fails with
 `command not found: x`. Python-style blocks are the exception, see
 [Python assignment](#python-assignment).
+
+The `${…}` forms are bash's: `:-` `:=` `:+` `:?` for defaults (`${n:=5}` also sets it), `#` and
+`%` to trim, `/` to replace, `:off:len` for a slice and `^^` `,,` `^` `,` for case. A form
+ShellCraft doesn't have, like `${!name}`, is a "bad substitution" error.
+[Defaults, lengths and trimming](scripting/variables-and-input.md#defaults-lengths-and-trimming)
+has the table.
 
 A value with spaces stays one argument on a plain command line (`f="my file"; cat $f`). Inside
 bash-style blocks it is split at whitespace unless quoted, as in bash.

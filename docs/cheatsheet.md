@@ -81,6 +81,7 @@ The lines you use in the rc file, startup files, funcs and at the prompt. Bash s
 ```
 name=Ada; echo "hi $name"                        # a variable
 echo "${who:-stranger}" $((2 + 3))               # a default, arithmetic
+echo ${f%.txt} ${f##*/} ${#f} ${f^^} ${f/a/b}    # trim, length, capitals, replace
 name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks); input(f"…") too
 read -p "Env? " env                              # ask, bash style
 read -s -p "Token: " token                       # ask without showing it

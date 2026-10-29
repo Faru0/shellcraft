@@ -178,6 +178,10 @@ role is dev
 
 If `ROLE` was already `prod`, it stays `prod`.
 
+`${ROLE:=dev}` does the same in one go: it gives you the value and, when `ROLE` was empty, sets it
+to `dev` as well. [Defaults, lengths and trimming](#defaults-lengths-and-trimming) has the other
+`${…}` forms, like the length of a value or a part of it.
+
 ## Arithmetic
 
 Every variable holds text, even when the text is a number. To do a sum, put it inside `$(( ))`.
@@ -382,8 +386,8 @@ Deploying to staging
 ```
 
 `read` takes one name. `read -p "Name? " first last` stops with `read: unrecognized arguments: last`.
-To split an answer into parts, read it into one variable and take it apart with `cut`, as in
-[What you can do with a value](#what-you-can-do-with-a-value).
+To split an answer into parts, read it into one variable and take it apart with `cut` or `${…}`, as
+in [Defaults, lengths and trimming](#defaults-lengths-and-trimming).
 
 Add `-s` for a password or a token. What you type isn't shown, and it never goes into your history:
 
@@ -521,41 +525,99 @@ numbered menu with `select` in [Loops and menus](loops.md#a-numbered-menu-with-s
 `confirm` function you can put in front of any risky command is in
 [Complete examples](examples.md#ask-before-doing-something-risky).
 
-## What you can do with a value
+## Defaults, lengths and trimming
 
-Bash has a lot of `${…}` tricks for changing a value. ShellCraft fills in `$name`, `${name}` and
-`${name:-default}`. It doesn't have bash's other `${…}` forms, like `${#name}` or `${name^^}`. Use a
-command or a Python condition instead. This table is the list to come back to when you need one:
+Bash has a set of `${…}` forms that change a value as you use it, and ShellCraft has the common
+ones. They work in quotes and out, the variable itself doesn't change (except with `:=`), and
+inside single quotes they stay plain text. This table is the list to come back to:
 
-| You want | Write |
-| --- | --- |
-| The value in capitals | `upper=$(echo $name \| tr a-z A-Z)` |
-| One field of a value | `second=$(echo "a,b,c" \| cut -d , -f 2)` |
-| The file name from a path | `file=$(basename $path)` |
-| The folder from a path | `folder=$(dirname $path)` |
-| Check how long it is | `if -py len(name) > 20:` |
-| Whether it starts with something | `if -py name.startswith("dev"):` |
-| Whether it contains something | `[[ $name == *test* ]]` or `if -py "test" in name:` |
+| You want | Write | With `f=report.tar.gz` |
+| --- | --- | --- |
+| A fallback when it's empty or not set | `${f:-default}` | `report.tar.gz` |
+| A fallback, and set the variable to it | `${f:=default}` | `report.tar.gz` |
+| Something else, only when it's set | `${f:+yes}` | `yes` |
+| Stop with a message when it's empty | `${f:?give a file}` | `report.tar.gz` |
+| How long it is | `${#f}` | `13` |
+| Cut the shortest match off the end | `${f%.*}` | `report.tar` |
+| Cut the longest match off the end | `${f%%.*}` | `report` |
+| Cut the shortest match off the start | `${f#*.}` | `tar.gz` |
+| Cut the longest match off the start | `${f##*.}` | `gz` |
+| Replace the first match | `${f/tar/zip}` | `report.zip.gz` |
+| Replace every match | `${f//./_}` | `report_tar_gz` |
+| Replace at the start or the end | `${f/#report/data}`, `${f/%gz/bz2}` | `data.tar.gz`, `report.tar.bz2` |
+| Part of it, from position 0, 6 long | `${f:0:6}` | `report` |
+| The last 2 characters | `${f: -2}` | `gz` |
+| In capitals, or small letters | `${f^^}`, `${f,,}` | `REPORT.TAR.GZ`, `report.tar.gz` |
+| The first letter in capitals | `${f^}` | `Report.tar.gz` |
 
-Here's a few of them together, pulling apart a path:
+Leave out the `:` in the first four (`${f-default}`, `${f=default}`, `${f+yes}`, `${f?msg}`) and
+an empty value counts as set, so only a variable that was never set gets the fallback.
+
+The patterns after `#`, `%` and `/` are the same globs you use for file names: `*` is any text,
+`?` one character and `[abc]` one of those. `%` and `#` take the shortest match, `%%` and `##` the
+longest. To match a `*` itself, quote it: `${f%"*"}`.
+
+Here are a few of them pulling apart a path:
 
 <!-- run -->
 ```
 path=/home/ada/projects/report.txt
-name=$(basename $path)
-upper=$(echo $name | tr a-z A-Z)
-echo "$name in capitals is $upper"
-echo "it lives in $(dirname $path)"
+file=${path##*/}
+echo "file: $file"
+echo "folder: ${path%/*}"
+echo "name: ${file%.*}, type: ${file##*.}"
+echo "in capitals: ${file^^}"
+echo "as a backup: ${file/.txt/.bak}"
 ```
 
 <!-- output -->
 ```
-report.txt in capitals is REPORT.TXT
-it lives in /home/ada/projects
+file: report.txt
+folder: /home/ada/projects
+name: report, type: txt
+in capitals: REPORT.TXT
+as a backup: report.bak
 ```
 
-`basename` keeps the part after the last `/`. `tr a-z A-Z` swaps every small letter for its
-capital. The last line shows that `$( )` works right inside a quoted string too.
+`${path##*/}` cuts everything up to the last `/`, which leaves the file name, like `basename`
+does. `${path%/*}` cuts from the last `/` to the end, which leaves the folder, like `dirname`.
+
+A default is handy for a function's arguments. `${1:-world}` is the first argument, or `world`
+when there isn't one:
+
+<!-- run -->
+```
+greet() { name=${1:-world}; echo "Hello, $name (${#name} letters)"; }
+greet
+greet Ada
+```
+
+<!-- output -->
+```
+Hello, world (5 letters)
+Hello, Ada (3 letters)
+```
+
+The word after `:-`, `:=` or `:+` can use other variables and `$( )`, and it can hold another
+`${…}`: `${out:-${name%.*}.csv}`.
+
+`:?` is for a value a script can't do without. When the value is empty, it shows the message as
+an error and the script stops right there, with status 1:
+
+```
+deploy() { target=${1:?give a target}; echo "deploying to $target"; }
+deploy staging        # deploying to staging
+deploy                # stops with: 1: give a target
+```
+
+At the prompt, only that line stops. Leave out the message (`${1:?}`) and you get
+`1: parameter null or not set`, as in bash.
+
+Under `set -u`, the forms with a fallback never count as using an unset variable, so
+`${name:-}` is a safe way to read one that may not be there.
+
+Anything else in `${…}`, like bash's `${!name}` or `${name@Q}`, stops with
+`${name@Q}: bad substitution` rather than doing something you didn't mean.
 
 There are no arrays. A list is a variable with its items separated by spaces, and a `for` loop goes
 through them one by one. See [Loop over a list](loops.md#loop-over-a-list).

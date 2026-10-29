@@ -15,6 +15,8 @@ Variables: given a `variables` mapping, `$?`, `$name` and `${name}` expand outsi
 (`$?` is the last exit status, `$name` a loop or shell variable). An expansion never splits into
 several words unless `split` is set (bash-style blocks), so a value with spaces stays one
 argument. A name that isn't set is empty, as in bash (`set -u` makes it an error).
+`${…}` also takes bash's parameter expansions: `${v:-default}`, `${#v}`, `${v%.txt}`, `${v/a/b}`,
+`${v:1:3}`, `${v^^}` and the rest (see _parameter).
 `$(( … ))` is arithmetic (shellcraft/arith.py), `$( … )` runs a command when `substitute` is
 given, and with `glob` set an unquoted word with `*`, `?` or `[` becomes the matching file names
 (the word itself when nothing matches).
@@ -22,6 +24,7 @@ given, and with `glob` set an unquoted word with `*`, `?` or `[` becomes the mat
 
 from __future__ import annotations
 
+import fnmatch
 import glob as globmod
 import os
 import re
@@ -94,11 +97,8 @@ class Pipeline:
     stdin_path: str | None = None  # `< file`
 
 
-_DEFAULT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?])(:?)-(.*)", re.S)
-
-
 def _expand_simple(word: str, variables: Mapping[str, str]) -> str:
-    """The default word of ${NAME:-word}: its own `$x` / `${x}` expand, the rest is literal."""
+    """A prompt's text (`input("Hello $USER")`): its `$x` / `${x}` expand, the rest is literal."""
     out, i = [], 0
     while i < len(word):
         if word[i] == "$" and (var := expand_variable(word, i, variables)) is not None:
@@ -124,8 +124,21 @@ def quoted_arguments(line: str, i: int, variables: Mapping[str, str] | None) -> 
     return None if args is None else (list(args), end)
 
 
-def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> tuple[str, int] | None:
-    """At a `$` (line[i]): (value, index after the reference) for a defined variable, else None."""
+class ParameterError(UnboundVariable):
+    """`${name:?message}` for a name that is unset or empty: an error that stops the script, as
+    `set -u` does."""
+
+    def __init__(self, name: str, message: str, pos: int | None = None):
+        super().__init__(name, pos)
+        self.message = f"{name}: {message}"
+        self.args = (self.message,)
+
+
+def expand_variable(line: str, i: int, variables: Mapping[str, str] | None,
+                    substitute: Callable[[str], str] | None = None, quoted: bool = False) -> tuple[str, int] | None:
+    """At a `$` (line[i]): (value, index after the reference) for a variable reference, else None.
+    `${…}` takes bash's parameter expansions (see _parameter); `quoted` is set inside "…", where
+    single quotes in a default word are plain text, as in bash."""
     if not variables or i + 1 >= len(line):
         return None
     nxt = line[i + 1]
@@ -134,16 +147,10 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
     elif nxt.isdigit() or nxt in "#@*":  # a function's arguments: $1 … $9, $#, $@, $*
         name, end = nxt, i + 2
     elif nxt == "{":
-        close = line.find("}", i + 2)
-        if close == -1:
+        close = _closing_brace(line, i + 2)
+        if close is None:
             return None
-        name, end = line[i + 2:close], close + 1
-        fallback = _DEFAULT.fullmatch(name)
-        if fallback:  # ${NAME:-word} (unset or empty) / ${NAME-word} (unset): the word instead
-            name, colon, word = fallback.group(1), fallback.group(2), fallback.group(3)
-            if name in variables and not (colon and variables[name] == ""):
-                return variables[name], end
-            return _expand_simple(word, variables), end
+        return _parameter(line[i + 2:close], variables, substitute, quoted, i), close + 1
     else:
         match = _VAR_NAME.match(line, i + 1)
         if not match:
@@ -154,6 +161,321 @@ def expand_variable(line: str, i: int, variables: Mapping[str, str] | None) -> t
             raise UnboundVariable(name, i)  # `set -u`
         return "", end  # as in bash: a name that isn't set is empty
     return variables[name], end
+
+
+def _closing_brace(line: str, i: int) -> int | None:
+    """With line[i] just after `${`: the index of its `}`. Quotes, `$( … )` and inner braces
+    (`${a:-${b}}`) are skipped over."""
+    level, n = 0, len(line)
+    while i < n:
+        ch = line[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in ("'", '"'):
+            end = line.find(ch, i + 1)
+            if ch == '"':
+                while end != -1 and line[end - 1] == "\\":
+                    end = line.find(ch, end + 1)
+            if end == -1:
+                return None
+            i = end + 1
+            continue
+        if line.startswith("$(", i):
+            close = find_closing_paren(line, i + 2)
+            if close is None:
+                return None
+            i = close + 1
+            continue
+        if ch == "{":
+            level += 1
+        elif ch == "}":
+            if level == 0:
+                return i
+            level -= 1
+        i += 1
+    return None
+
+
+_PARAM_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?]")
+_CASE_OPS = ("^^", ",,", "^", ",")
+
+
+def _parameter(body: str, variables: Mapping[str, str], substitute: Callable[[str], str] | None,
+               quoted: bool, pos: int) -> str:
+    """The value of `${body}`, as bash expands it: `${v}`, `${#v}` (length), `${v:-word}`
+    `${v-word}` (default), `${v:=word}` `${v=word}` (default, also assigned), `${v:+word}`
+    `${v+word}` (alternative), `${v:?msg}` `${v?msg}` (error when unset), `${v#pat}` `${v##pat}`
+    `${v%pat}` `${v%%pat}` (trim the shortest / longest match), `${v/pat/rep}` `${v//pat/rep}`
+    `${v/#pat/rep}` `${v/%pat/rep}` (replace), `${v:off}` `${v:off:len}` (a slice) and
+    `${v^^}` `${v,,}` `${v^}` `${v,}` (case). Anything else is a "bad substitution" error."""
+    def bad() -> ParseError:
+        return ParseError(f"${{{body}}}: bad substitution", pos)
+
+    def word(text: str, pattern: bool = False) -> str:
+        return _expand_word(text, variables, substitute, quoted, pattern, pos)
+
+    if body == "#":
+        return str(variables.get("#", "0"))
+    if body.startswith("#") and len(body) > 1:  # ${#name}: the length of the value
+        name = body[1:]
+        if name in ("@", "*"):
+            return str(variables.get("#", "0"))
+        if not _PARAM_NAME.fullmatch(name):
+            raise bad()
+        return str(len(_value(name, variables, pos)))
+    match = _PARAM_NAME.match(body)
+    if not match:
+        raise bad()
+    name, rest = match.group(), body[match.end():]
+    if not rest:
+        return _value(name, variables, pos)
+    is_set = _is_set(name, variables)
+    for op in (":-", ":=", ":+", ":?", "-", "=", "+", "?"):
+        if rest.startswith(op):
+            text = rest[len(op):]
+            present = is_set and not (op.startswith(":") and str(variables[name]) == "")
+            kind = op[-1]
+            if kind == "+":
+                return word(text) if present else ""
+            if present:
+                return str(variables[name])
+            if kind == "-":
+                return word(text)
+            if kind == "=":
+                if not _VAR_NAME.fullmatch(name):
+                    raise ParseError(f"${{{body}}}: ${name}: cannot assign in this way", pos)
+                value = word(text)
+                _assign(variables, name, value)
+                return value
+            raise ParameterError(name, word(text) if text else "parameter null or not set", pos)
+    value = _value(name, variables, pos)
+    if rest.startswith(":"):  # ${v:offset} / ${v:offset:length}
+        spec = rest[1:]
+        offset_text, colon, length_text = spec.partition(":")
+        if not offset_text.strip() or (colon and not length_text.strip()):
+            raise bad()
+        try:
+            offset = arith.evaluate(word(offset_text), variables)
+            length = arith.evaluate(word(length_text), variables) if colon else None
+        except arith.ArithError as exc:
+            raise ParseError(f"${{{body}}}: {exc}", pos) from None
+        if offset < 0:  # from the end: ${v: -3}
+            offset += len(value)
+        if not 0 <= offset <= len(value):
+            return ""
+        if length is None:
+            return value[offset:]
+        if length < 0:
+            end = len(value) + length
+            if end < offset:
+                raise ParseError(f"${{{body}}}: {length}: substring expression < 0", pos)
+            return value[offset:end]
+        return value[offset:offset + length]
+    for op in ("##", "#", "%%", "%"):
+        if rest.startswith(op):
+            return _trim(value, _pattern(word(rest[len(op):], pattern=True)), op)
+    if rest.startswith("/"):
+        spec = rest[1:]
+        how = ""
+        if spec[:1] in ("/", "#", "%"):
+            how, spec = spec[0], spec[1:]
+        slash = _unquoted_slash(spec)
+        pat, rep = (spec, "") if slash is None else (spec[:slash], spec[slash + 1:])
+        return _replace(value, word(pat, pattern=True), word(rep), how)
+    for op in _CASE_OPS:
+        if rest.startswith(op):
+            only = rest[len(op):]
+            matches = _pattern(word(only, pattern=True)) if only else None
+            change = str.upper if op[0] == "^" else str.lower
+            out = []
+            for k, ch in enumerate(value):
+                if (len(op) == 2 or k == 0) and (matches is None or matches.fullmatch(ch)):
+                    ch = change(ch)
+                out.append(ch)
+            return "".join(out)
+    raise bad()
+
+
+def _value(name: str, variables: Mapping[str, str], pos: int) -> str:
+    """A name's value as plain text; under `set -u` an unset name is an error (as `$name`)."""
+    if name not in variables:
+        if getattr(variables, "nounset", False) and not (name.isdigit() or name in "#@*?"):
+            raise UnboundVariable(name, pos)
+        return ""
+    return str(variables[name])  # plain text, even for a number set from Python (script.PyValue)
+
+
+def _is_set(name: str, variables: Mapping[str, str]) -> bool:
+    """Whether a name is set: in a shell function `$3` is set only with three arguments or more."""
+    if name.isdigit() and name != "0":
+        arguments = getattr(variables, "arguments", None)
+        args = arguments() if callable(arguments) else None
+        if args is not None:
+            return int(name) <= len(args)
+    return name in variables
+
+
+def _assign(variables: Mapping[str, str], name: str, value: str) -> None:
+    """`${name:=word}`: set the variable where `name=word` would (Variables.assign)."""
+    assign = getattr(variables, "assign", None)
+    if callable(assign):
+        assign(name, value)
+    elif isinstance(variables, dict):
+        variables[name] = value
+
+
+def _expand_word(text: str, variables: Mapping[str, str], substitute: Callable[[str], str] | None,
+                 in_quotes: bool, pattern: bool, pos: int) -> str:
+    """The word of `${v:-word}` (or a pattern or replacement): `$x`, `${x}`, `$( … )` and
+    `$(( … ))` expand, quotes are removed, and a leading `~` is the home directory. In a
+    `pattern`, quoted text (and a backslashed character) matches as itself; the `${…}` being
+    inside "…" (`in_quotes`) doesn't quote it, as in bash: "${f%.*}" still trims."""
+    out: list[str] = []
+
+    def add(chunk: str, literal: bool) -> None:
+        out.append(globmod.escape(chunk) if pattern and literal else chunk)
+
+    def dollar(at: int, dquoted: bool) -> tuple[str, int] | None:
+        if text.startswith("$((", at):
+            close = _closing_double_paren(text, at + 3)
+            if close is None:
+                raise ParseError("missing '))' for '$(('", pos)
+            try:
+                return str(arith.evaluate(_arith_text(text[at + 3:close], variables, substitute), variables)), close + 2
+            except arith.ArithError as exc:
+                raise ParseError(f"$(( )): {exc}", pos) from None
+        if text.startswith("$(", at):
+            close = find_closing_paren(text, at + 2)
+            if close is None:
+                raise ParseError("missing ')' for '$('", pos)
+            if substitute is None:
+                return text[at:close + 1], close + 1
+            return substitute(text[at + 2:close]).rstrip("\n"), close + 1
+        return expand_variable(text, at, variables, substitute, dquoted)
+
+    i, n = 0, len(text)
+    if not in_quotes and (text == "~" or text.startswith("~/")):
+        add(os.path.expanduser("~"), True)
+        i = 1
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and (not in_quotes or text[i + 1] in '"\\$`}/'):
+            add(text[i + 1], True)
+            i += 2
+        elif ch == "'" and not in_quotes:
+            end = text.find("'", i + 1)
+            end = n if end == -1 else end
+            add(text[i + 1:end], True)
+            i = end + 1
+        elif ch == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and i + 1 < n and text[i + 1] in '"\\$':
+                    add(text[i + 1], True)
+                    i += 2
+                elif text[i] == "$" and (var := dollar(i, True)) is not None:
+                    add(var[0], True)
+                    i = var[1]
+                else:
+                    add(text[i], True)
+                    i += 1
+            i += 1
+        elif ch == "$" and (var := dollar(i, in_quotes)) is not None:
+            add(var[0], False)
+            i = var[1]
+        else:
+            add(ch, False)
+            i += 1
+    return "".join(out)
+
+
+def _arith_text(text: str, variables: Mapping[str, str] | None,
+                substitute: Callable[[str], str] | None) -> str:
+    """The inside of `$(( … ))` with its `${#v}`, `${v:-0}` and other `${…}` forms expanded
+    first, as bash does; a plain `$x` / `${x}` is left for shellcraft.arith to read."""
+    if variables is None or "${" not in text:
+        return text
+    out, i = [], 0
+    while (at := text.find("${", i)) != -1:
+        close = _closing_brace(text, at + 2)
+        if close is None:
+            break
+        out.append(text[i:at])
+        body = text[at + 2:close]
+        if _PARAM_NAME.fullmatch(body):
+            out.append(text[at:close + 1])
+        else:
+            out.append(_parameter(body, variables, substitute, False, at))
+        i = close + 1
+    out.append(text[i:])
+    return "".join(out)
+
+
+def _unquoted_slash(text: str) -> int | None:
+    """The index of the `/` that ends the pattern of `${v/pattern/replacement}`."""
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in ("'", '"'):
+            end = text.find(ch, i + 1)
+            i = n if end == -1 else end + 1
+            continue
+        if text.startswith("${", i):
+            close = _closing_brace(text, i + 2)
+            i = n if close is None else close + 1
+            continue
+        if ch == "/":
+            return i
+        i += 1
+    return None
+
+
+def _pattern(glob_pattern: str) -> re.Pattern[str]:
+    return re.compile(fnmatch.translate(glob_pattern), re.S)
+
+
+def _trim(value: str, pattern: re.Pattern[str], op: str) -> str:
+    """`${v#p}` `${v##p}`: the value without the shortest / longest prefix matching p;
+    `${v%p}` `${v%%p}`: without the shortest / longest such suffix."""
+    n = len(value)
+    if op[0] == "#":
+        cuts = range(n, -1, -1) if op == "##" else range(n + 1)
+        return next((value[k:] for k in cuts if pattern.fullmatch(value[:k])), value)
+    cuts = range(n + 1) if op == "%%" else range(n, -1, -1)
+    return next((value[:k] for k in cuts if pattern.fullmatch(value[k:])), value)
+
+
+def _replace(value: str, glob_pattern: str, replacement: str, how: str) -> str:
+    """`${v/p/r}`: the first longest match of p replaced by r; `//` every match, `/#` a match
+    at the start, `/%` a match at the end. An empty pattern changes nothing."""
+    if not glob_pattern:
+        return value
+    pattern = _pattern(glob_pattern)
+    n = len(value)
+    if how == "#":
+        k = next((k for k in range(n, -1, -1) if pattern.fullmatch(value[:k])), None)
+        return value if k is None else replacement + value[k:]
+    if how == "%":
+        k = next((k for k in range(n + 1) if pattern.fullmatch(value[k:])), None)
+        return value if k is None else value[:k] + replacement
+    out: list[str] = []
+    i = 0
+    while i < n:
+        end = next((j for j in range(n, i, -1) if pattern.fullmatch(value[i:j])), None)
+        if end is None:
+            out.append(value[i])
+            i += 1
+            continue
+        out.append(replacement)
+        i = end
+        if how != "/":
+            out.append(value[i:])
+            return "".join(out)
+    return "".join(out)
 
 
 def find_closing_paren(line: str, i: int) -> int | None:
@@ -357,13 +679,14 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         globbable: list[bool] = []  # per character: may it be a glob character (unquoted)?
         literal: list[bool] = []  # per character: was it quoted (a `[[ x == "*" ]]` pattern takes it as text)?
 
-        def expansion(at: int) -> tuple[str, int] | None:
+        def expansion(at: int, quoted: bool = False) -> tuple[str, int] | None:
             if line.startswith("$((", at):
                 close = _closing_double_paren(line, at + 3)
                 if close is None:
                     raise ParseError("missing '))' for '$(('", at)
                 try:
-                    return str(arith.evaluate(line[at + 3:close], variables)), close + 2
+                    expr = _arith_text(line[at + 3:close], variables, substitute)
+                    return str(arith.evaluate(expr, variables)), close + 2
                 except arith.ArithError as exc:
                     if variables is None:  # a first look at the line, without its variables: `$((a / b))`
                         return line[at:close + 2], close + 2  # would divide by 0 here; it runs with them later
@@ -373,7 +696,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 if close is None:
                     raise ParseError("missing ')' for '$('", at)
                 return substitute(line[at + 2:close]).rstrip("\n"), close + 1
-            return expand_variable(line, at, variables)
+            return expand_variable(line, at, variables, substitute, quoted)
 
         def add(text: str, may_glob: bool, quoted_text: bool | None = None) -> None:
             buf.append(text)
@@ -430,7 +753,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                                 quoted = True
                             add(arg, False)
                         continue
-                    if ch == '"' and line[end] == "$" and (var := expansion(end)) is not None:
+                    if ch == '"' and line[end] == "$" and (var := expansion(end, quoted=True)) is not None:
                         add(var[0], False)
                         end = var[1]
                         continue

@@ -97,7 +97,7 @@ before it:
 
 | Page | You'll learn |
 | --- | --- |
-| [Variables and input](variables-and-input.md) | Variables, quoting, default values, arithmetic, asking the user with `input()` and `read`, environment variables |
+| [Variables and input](variables-and-input.md) | Variables, quoting, default values, `${…}` trimming and lengths, arithmetic, asking the user with `input()` and `read`, environment variables |
 | [Printing text](printing.md) | `echo`, several lines at once, `printf` for columns and numbers, colors, errors, writing to files |
 | [Conditions and choices](conditions.md) | `if`, `elif`, `else`, every test, `&&` and `||`, `case` for picking between choices, Python conditions |
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
@@ -195,7 +195,6 @@ copying a script from the web and a line fails, look for it here:
 | `while read line; do … done < file` | `for -py line in (cat file):` and an indented body | [Loops and menus](loops.md#go-through-a-file-line-by-line) |
 | `read` from a pipe | `read` always asks the person at the keyboard | [Variables and input](variables-and-input.md#ask-the-user) |
 | Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
-| `${#name}`, `${name^^}`, `${name/a/b}` | A Python condition, `tr`, `cut` or a module | [Variables and input](variables-and-input.md#what-you-can-do-with-a-value) |
 | `(( n > 3 ))` and `let` | `[ $n -gt 3 ]` and `n=$((n + 1))` | [Conditions and choices](conditions.md#comparing-numbers) |
 | `{ cmd1; cmd2; }` to group | An `if` block, or a function | [Conditions and choices](conditions.md#if-then-else) |
 | `sed`, `awk` and other Linux programs | ShellCraft's own `grep`, `cut`, `tr`, `sort`, `jq`… OS programs only run with `settings system_commands on` | [Pipes and scripting](../scripting.md) |

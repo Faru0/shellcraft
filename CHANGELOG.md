@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Bash parameter expansion.** `${v:-default}`, `${v:=default}` (also sets it), `${v:+alt}`,
+  `${v:?message}` (stops the script) and their forms without `:`, `${#v}`, `${v#pat}` `${v##pat}`
+  `${v%pat}` `${v%%pat}`, `${v/a/b}` `${v//a/b}` `${v/#a/b}` `${v/%a/b}`, `${v:off:len}` (and
+  `${v: -3}`), `${v^^}` `${v,,}` `${v^}` `${v,}`, in quotes or not, nested, and inside `$(( ))`.
+  Other forms like `${!v}` are a "bad substitution" error.
 - **`set` options.** `set -e` stops at the first command that fails: the rest of the line, the
   function, a `source`d file, the rc file, a startup file or a func, but never the shell (`if`
   tests, the left of `&&` / `||` and `!` commands don't count). `set -u` makes an unset `$name`

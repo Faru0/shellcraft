@@ -23,7 +23,8 @@ KEYWORDS = frozenset({"for", "if", "elif", "else", "then", "do", "done", "fi", "
 _COLON_KEYWORDS = frozenset({"else", "try", "except", "finally"})  # a header word with its `:`
 _OPERATORS = ("&&", "||", "2>&1", "1>&2", ">&2", "2>>", "2>", "&>", ">>", ">", "|", ";", "<", "&")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_VARIABLE = re.compile(r"\$(\?|\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*|\(\(|\()")
+# `$?`, `$name`, `${…}` (one level of nesting: `${a:-${b}}`), `$((` and `$(`.
+_VARIABLE = re.compile(r"\$(\?|\{(?:[^{}]|\{[^{}]*\})*\}|[A-Za-z_][A-Za-z0-9_]*|\(\(|\()")
 
 
 class ShellLexer(Lexer):

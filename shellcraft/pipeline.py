@@ -63,7 +63,9 @@ class Variables(Mapping[str, str]):
 
     def __init__(self, ctx: ShellContext, extra: Mapping[str, str] | None = None):
         self.ctx = ctx
-        self.extra = extra or {}
+        self.extra = extra if extra is not None else {}
+        # Where `${name:=word}` assigns: a script's variable store, else the shell's (set_variable).
+        self.target = extra if isinstance(extra, dict) else None
 
     @property
     def nounset(self) -> bool:
@@ -92,6 +94,10 @@ class Variables(Mapping[str, str]):
         if self.ctx.allow_sensitive and name in os.environ:
             return os.environ[name]
         raise KeyError(name)
+
+    def assign(self, name: str, value: str) -> None:
+        """`${name:=word}`: set the variable where `name=word` on its own line would."""
+        set_variable(self.ctx, name, value, self.target)
 
     def arguments(self) -> list[str] | None:
         """Inside a shell function, its arguments (for "$@"); None outside one."""

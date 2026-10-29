@@ -178,6 +178,38 @@ forgot to quote:
 unknown name 'nope' (variables here: status; quote text: "nope")
 ```
 
+### Bash's ${…} next to Python
+
+Bash's `${…}` forms and Python's string methods do the same jobs, so use whichever reads better
+where you are. In bash lines you write the left column, in Python code the right one:
+
+| Bash | Python |
+| --- | --- |
+| `${#name}` | `len(name)` |
+| `${name^^}`, `${name,,}` | `name.upper()`, `name.lower()` |
+| `${name%.txt}` | `name.removesuffix(".txt")` |
+| `${name/t/T}` | `name.replace("t", "T", 1)` |
+| `${name:0:3}` | `name[:3]` |
+| `${name:-none}` | `name or "none"` |
+
+<!-- run -->
+```
+name=report.txt
+for -py _ in 1:
+    print(len(name), name.upper(), name.removesuffix(".txt"), name[:3])
+echo ${#name} ${name^^} ${name%.txt} ${name:0:3}
+```
+
+<!-- output -->
+```
+10 REPORT.TXT report rep
+10 REPORT.TXT report rep
+```
+
+A number set in Python reads as its text in bash, so after `n = 42`, `${#n}` is 2.
+[Defaults, lengths and trimming](variables-and-input.md#defaults-lengths-and-trimming) has every
+`${…}` form.
+
 ## Set a variable
 
 You'll want this whenever a loop keeps a running total, or a block works something out to use

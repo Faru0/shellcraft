@@ -1380,13 +1380,13 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
         if value[-1:].isspace() and pieces:
             new_field()
 
-    def expansion(at: int) -> tuple[str, int] | None:
+    def expansion(at: int, quoted: bool = False) -> tuple[str, int] | None:
         if word.startswith("$(", at):
             close = find_closing_paren(word, at + 2)
             if close is not None:
                 return substitute(word[at + 2:close]).rstrip("\n"), close + 1
             return None
-        return shparser.expand_variable(word, at, variables)
+        return shparser.expand_variable(word, at, variables, substitute, quoted)
 
     i, n = 0, len(word)
     if word == "~" or word.startswith("~/"):
@@ -1416,7 +1416,7 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
                             new_field()
                             fields[-1] = (fields[-1][0], True)
                         add(arg, True)
-                elif word[i] == "$" and (var := expansion(i)) is not None:
+                elif word[i] == "$" and (var := expansion(i, quoted=True)) is not None:
                     add(var[0], True)
                     i = var[1]
                 else:
