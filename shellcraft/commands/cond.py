@@ -223,6 +223,12 @@ def _true(ctx: Any, args: list[str], stdin: str) -> str:
     return ""
 
 
+@builtin(":", "Do nothing, successfully, after expanding the arguments (`: ${x:=default}`)",
+         ": [ARGS...]", category="shell")
+def _colon(ctx: Any, args: list[str], stdin: str) -> str:
+    return ""
+
+
 @builtin("false", "Do nothing, unsuccessfully (status 1)", "false", category="shell")
 def _false(ctx: Any, args: list[str], stdin: str) -> WithStatus:
     return WithStatus("", 1)

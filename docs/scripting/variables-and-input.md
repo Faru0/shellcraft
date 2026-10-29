@@ -179,8 +179,22 @@ role is dev
 If `ROLE` was already `prod`, it stays `prod`.
 
 `${ROLE:=dev}` does the same in one go: it gives you the value and, when `ROLE` was empty, sets it
-to `dev` as well. [Defaults, lengths and trimming](#defaults-lengths-and-trimming) has the other
-`${…}` forms, like the length of a value or a part of it.
+to `dev` as well. When you only want to set the default and don't need the value right there,
+put it after `:`, the command that does nothing:
+
+<!-- run -->
+```
+: ${COLOR:=blue}
+echo "color is $COLOR"
+```
+
+<!-- output -->
+```
+color is blue
+```
+
+[Defaults, lengths and trimming](#defaults-lengths-and-trimming) has the other `${…}` forms, like
+the length of a value or a part of it.
 
 ## Arithmetic
 

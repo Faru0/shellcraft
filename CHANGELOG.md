@@ -7,6 +7,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **The `:` command.** It does nothing and succeeds, after expanding its arguments, so the bash
+  idiom `: ${name:=default}` sets a default and `while :; do` loops forever, as in bash.
 - **Bash parameter expansion.** `${v:-default}`, `${v:=default}` (also sets it), `${v:+alt}`,
   `${v:?message}` (stops the script) and their forms without `:`, `${#v}`, `${v#pat}` `${v##pat}`
   `${v%pat}` `${v%%pat}`, `${v/a/b}` `${v//a/b}` `${v/#a/b}` `${v/%a/b}`, `${v:off:len}` (and
@@ -175,6 +177,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **`r=$( a; b )` at the prompt.** A `;` inside `$( )` used to end the line there, so the
+  assignment failed with "missing ')'". Lines typed at the prompt now skip over `$( )` as scripts do.
 - **`curl --cert FILE:PASSWORD` uses the password.** The password for an encrypted client key
   was dropped, so the request failed with a confusing TLS error. Now `-E client.pem:secret` and
   `--pass secret` unlock the key (in the cert file or in `--key`), and `.p12` / `.pfx` files work

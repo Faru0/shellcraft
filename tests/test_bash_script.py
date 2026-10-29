@@ -308,3 +308,10 @@ def test_unset_variables_are_empty_and_quoted_patterns_are_text(ctx):
     assert out('[[ $f == "data".* ]] && echo y || echo n') == "y\n"  # only the quoted part is text
     assert out('[[ $f != "*.csv" ]] && echo y || echo n') == "y\n"
     assert out("[[ $f = d*.csv ]] && echo y || echo n") == "y\n"
+
+
+def test_semicolons_inside_a_substitution_at_the_prompt(ctx):
+    """`r=$( a; b )` typed at the prompt: the `;` belongs to the `$( )`, not to the line."""
+    assert out(ctx, "r=$( echo a; echo b )") == ""
+    assert out(ctx, 'echo "[$r]"') == "[a\nb]\n"
+    assert out(ctx, 'echo "$(echo q; echo w)"; echo k') == "q\nw\nk\n"

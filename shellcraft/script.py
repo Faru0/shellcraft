@@ -901,7 +901,7 @@ class _Parser:
                 if quote == '"' and ch == "\\" and self.s.startswith('\\"', self.i):
                     self.i += 2
                     continue
-                if quote == '"' and self.mode == "sh" and self.s.startswith("$(", self.i):
+                if quote == '"' and self.mode in ("sh", "top") and self.s.startswith("$(", self.i):
                     self._skip_substitution()
                     continue
                 if ch == quote:
@@ -910,7 +910,7 @@ class _Parser:
                 continue
             if ch in ("'", '"'):
                 quote = ch
-            elif self.mode == "sh" and self.s.startswith("$(", self.i):
+            elif self.mode in ("sh", "top") and self.s.startswith("$(", self.i):
                 self._skip_substitution()
                 continue
             elif ch in ";\n" or (not brackets and (self.s.startswith("&&", self.i) or self.s.startswith("||", self.i))):

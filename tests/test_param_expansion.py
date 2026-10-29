@@ -178,3 +178,10 @@ def test_highlighting_keeps_one_variable_token():
     styles = highlight("echo ${v:-x} ${a:-${b}}", lambda name: True)
     assert ("class:variable", "${v:-x}") in styles
     assert ("class:variable", "${a:-${b}}") in styles
+
+
+def test_colon_command_expands_its_arguments_and_succeeds(ctx):
+    assert out(ctx, ": ${x:=d}; echo \"$x $?\"") == "d 0\n"
+    assert out(ctx, "while :; do echo once; break; done") == "once\n"
+    out(ctx, 'need() { : "${1:?a name please}"; echo "hi $1"; }')
+    assert out(ctx, "need Ada") == "hi Ada\n"
