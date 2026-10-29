@@ -105,11 +105,16 @@ You get Python's expressions, without imports or your own modules:
 
 `man if` lists everything.
 
-## Variables are text
+## Text and numbers
 
-This is the difference from Python that matters most. A shell variable always holds text, even
-when it looks like a number. In a Python condition, `port` is the text `"8080"`, not the number
-8080, so comparing it to a number quietly gives the wrong answer:
+This is the difference from Python that matters most. A value you set in Python code keeps its
+type: after `n = 5` in a Python-style block, `n` is the number 5, and after `ok = n > 3` it's
+`True`. A value set the bash way is always text, even when it looks like a number. That covers
+`port=8080`, an answer from `read`, the words a `for` loop goes through, and the arguments of a
+function called as a command.
+
+So in a Python condition, a `port` set with `port=8080` is the text `"8080"`, not the number
+8080, and comparing it to a number quietly gives the wrong answer:
 
 <!-- run -->
 ```
@@ -129,15 +134,38 @@ matched once it's a number
 ```
 
 The first `if` compares the text `"8080"` with the number 8080. In Python those are never equal,
-so the `else` runs. The second one turns the text into a number with `int()` first. Do that every
-time you compare or add numbers. A loop variable is text too: in `for -py n in 1..3`, `n` is `"1"`,
-`"2"` and `"3"`, which is why the examples on this page write `n == "2"` or `int(n) == 2`.
+so the `else` runs. The second one turns the text into a number with `int()` first. Do that
+whenever a value set the bash way is used as a number. A loop variable is text too: in
+`for -py n in 1..3`, `n` is `"1"`, `"2"` and `"3"`, which is why the examples on this page write
+`n == "2"` or `int(n) == 2`.
 
 `<` and `>` are louder about it. `if -py port > 1000:` stops with:
 
 ```
-'>' not supported between instances of 'str' and 'int' (loop variables are text: use int(name) to compare numbers)
+'>' not supported between instances of 'str' and 'int' (values set from bash are text: use int(name) to compare numbers)
 ```
+
+Set the value in Python and there's nothing to convert. Bash still sees it as text, so `$port`
+works as always:
+
+<!-- run -->
+```
+for -py _ in 1:
+    port = 8080
+    if port == 8080:
+        print("matched, and the next port is", port + 1)
+echo "bash sees the text $port"
+```
+
+<!-- output -->
+```
+matched, and the next port is 8081
+bash sees the text 8080
+```
+
+The same goes for `True` and `False`, and for numbers with a point like `2.5`: Python code gets
+the value, and `$ok` gives the text `True`. A value set the bash way again (`port=9000`) is text
+from then on. Anything else Python makes, like a list, is stored as its text.
 
 And when the text isn't a number at all, `int()` says so:
 `ValueError: invalid literal for int() with base 10: 'abc'`.
@@ -188,15 +216,16 @@ echo "total: $count"
 total: 6
 ```
 
-The `if` sets `count` to 0 on the first pass. `count += int(n)` reads `count` back as a number,
-adds `n`, and stores the result as text again. After the block, `count` is an ordinary shell
-variable, so `echo "total: $count"` prints it.
+The `if` sets `count` to the number 0 on the first pass. `n` is a loop word, so it's text, and
+`count += int(n)` turns it into a number before adding. After the block, `count` is an ordinary
+shell variable, so `echo "total: $count"` prints it.
 
 `-=`, `*=`, `/=`, `//=` and `%=` work too. The value can be anything a Python condition can use:
 `name = name.strip().lower()`, `total = int(a) * 2`, or
-`kind = "even" if int(n) % 2 == 0 else "odd"`. Whatever you assign is stored as text, so
-`int(count)` reads one back as a number; `count += 1` does that for you. `/` always gives a
-fraction (`2.0`), and `//` a whole number.
+`kind = "even" if int(n) % 2 == 0 else "odd"`. A number, `True` or `False` keeps its type, as
+in [Text and numbers](#text-and-numbers). `count += 1` also works on a count set the bash way
+(`count=0`): it reads the text as a number. `/` always gives a fraction (`2.0`), and `//` a whole
+number.
 
 Some things work differently from Python:
 
@@ -204,13 +233,13 @@ Some things work differently from Python:
   `x = 5` with spaces runs a command named `x`, as it would in bash, and you see
   `command not found: x`. `name=value` with no spaces works everywhere. The exception is
   `name = input("…")`, which works anywhere (see [Ask the user](#ask-the-user)).
-- `+=` with text on the right joins the text: `total += size` turns `"0"` into `"0120"`. Write
-  `total += int(size)` to add.
+- `+=` with text on the right joins the text: when `size` came from bash, `total += size` turns
+  `"0"` into `"0120"`. Write `total += int(size)` to add.
 - `$name` isn't filled in inside a Python string. `msg = "file $n"` stores `file $n` as it is.
   Use an f-string instead: `msg = f"file {n}"` (see the next section).
-- `True` and `False` are stored as the text `"True"` and `"False"`. Any text that isn't empty
-  counts as true, so `if -py ok:` runs even when `ok` holds `"False"`. Compare it instead:
-  `if -py ok == "True":`.
+- `ok = False` in Python keeps the bool, so `if -py ok:` works. Set the bash way (`ok=False`),
+  it's the text `"False"`, and any text that isn't empty counts as true, so `if -py ok:` runs.
+  Compare it instead: `if -py ok == "True":`.
 - `$( )` doesn't run in a Python value. `out = $(date)` is refused with
   `$( … ) is bash: write out=$(command), with no spaces`. Do what it says:
   `out=$(date)` works inside any block.
@@ -237,8 +266,9 @@ Ada has 3 files
 ADA will have 4 tomorrow
 ```
 
-Anything between `{ }` is a Python expression, the same kind a condition can use. Remember that
-variables are text, so `{int(count) + 1}` turns `count` into a number before adding.
+Anything between `{ }` is a Python expression, the same kind a condition can use. `count` was
+set the bash way, so it's text, and `{int(count) + 1}` turns it into a number before adding. Had
+you written `count = 3` inside the block, `{count + 1}` would do.
 
 `print()` works like Python's: give it several values and it puts a space between them. `sep=`
 changes what goes between them and `end=` what goes at the end (a new line, unless you say
@@ -916,8 +946,8 @@ a whole number. The `while` does the other half and checks the range:
 
 <!-- run: ["seven", "12", "7"] -->
 ```
-level=0
-while -py not (1 <= int(level) <= 10):
+level = int(input("Level (1-10): "))
+while -py not (1 <= level <= 10):
     level = int(input("Level (1-10): "))
 echo "Level $level"
 ```
@@ -933,6 +963,35 @@ Level 7
 
 "seven" is refused by `int(input(…))` itself, which asks again on the spot. "12" is a whole number,
 so `input` accepts it, but the `while` condition sees it's out of range and goes round again.
+`level` holds a number, so the condition needs no `int()`.
+
+### input() inside a condition
+
+`input()` works anywhere in Python code, not only on a line of its own: in a condition, in a
+value, in `print()`, or in a `return`. A loop that goes on while you say yes asks in the
+condition itself:
+
+<!-- run: ["y", "y", "n"] -->
+```
+count=0
+while -py input("Another one? (y/n) ") == "y":
+    count += 1
+echo "You said yes $count times"
+```
+
+<!-- output -->
+```
+Another one? (y/n) y
+Another one? (y/n) y
+Another one? (y/n) n
+You said yes 2 times
+```
+
+`int(input(…))` and `float(input(…))` keep asking until the answer is a number wherever you
+write them: `if -py int(input("How many? ")) > 3:`. Anything else you do with the answer is
+plain Python, so `input("Name? ").strip()` or `"Hi " + input("Name? ")` work as you'd expect.
+Ctrl-C while it asks stops the script with status 130, and the line fails with
+`input: there is no terminal to ask on` where nobody can answer (over MCP).
 
 ## Menus
 
@@ -1130,7 +1189,7 @@ Asking works in either style. Here it's `input()` in a `def`:
 ```
 def ask_age(who):
     age = int(input("How old is $who? "))
-    if int(age) >= 18:
+    if age >= 18:
         echo "$who is an adult"
     else:
         echo "$who is $age"
@@ -1165,7 +1224,7 @@ def plan(day):
     if is_weekend(day):
         return day + ": rest"
     hours = add(4, 4)
-    return day + ": work " + hours + " hours"
+    return f"{day}: work {hours} hours"
 
 plan Sat
 plan Mon
@@ -1182,13 +1241,13 @@ Mon: work 8 hours
 ```
 
 `is_weekend(day)` returns `True` or `False`, so the `if` in `plan` reads like Python. `add(4, 4)`
-returns the number 8, and `hours = …` stores it as the text `"8"`, which is why
-`"…work " + hours` can join it to other text. `add 1200 34` is called as a command, and 1234 is
+returns the number 8, and `hours` keeps it as a number, so the f-string puts it into the text
+(with `+` you'd write `str(hours)`). `add 1200 34` is called as a command, and 1234 is
 more than 255, so it's printed rather than used as a status. `$( )` captures that printed text.
 
 Mind the difference between printing and returning. `echo` inside a function writes to the screen,
 or into `$( )`. `return` hands a value back to the Python code that called it. A Python string
-doesn't fill in `$name`, so build a returned string with `+`, as `plan` does.
+doesn't fill in `$name`, so build a returned string with an f-string or `+`, as `plan` does.
 
 ### Call a bash function from Python
 
@@ -1373,8 +1432,9 @@ ShellCraft reads it as the brace form and stops with `if: missing '{'`. Add the 
 `then`, so it stops with `missing 'then'`. Inside a Python-style block or a `def` you can leave `-py` out, but not on the outer
 block.
 
-**A comparison is always false.** You compared a variable with a number, as in `n == 3`. Variables
-are text, so write `n == "3"` or `int(n) == 3`. See [Variables are text](#variables-are-text).
+**A comparison is always false.** You compared a value set the bash way with a number, as in
+`n == 3` where `n` is a loop word or came from `n=3`. That value is text, so write `n == "3"` or
+`int(n) == 3`. See [Text and numbers](#text-and-numbers).
 
 **`while -py true:` says `unknown name 'true'`.** Python's true is `True`.
 
@@ -1388,8 +1448,9 @@ about f-strings and prints `f{name}`. Use `print(f"{name}")` inside a Python-sty
 **`print("x")` says `command not found`.** You used it at the prompt or in a bash block.
 `print` only works inside a Python-style block or a `def`. Use `echo` there.
 
-**`if -py ok:` runs even though `ok` is `False`.** The variable holds the text `"False"`, which
-isn't empty. Write `if -py ok == "True":`.
+**`if -py ok:` runs even though `ok` is `False`.** You set it the bash way (`ok=False`), so it
+holds the text `"False"`, which isn't empty. Write `if -py ok == "True":`, or set it in Python
+(`ok = False`).
 
 ## Side by side
 

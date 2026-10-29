@@ -468,10 +468,10 @@ the name contains Love
 a short name
 ```
 
-Variables are always text, so wrap a number in `int()` before comparing it. Without it,
+`age=36` is set the bash way, so it holds text: wrap it in `int()` before comparing it. Without it,
 `age >= 18` stops with `'>=' not supported between instances of 'str' and 'int'`, and
-`age == 36` is quietly false. [Variables are text](python-style.md#variables-are-text) explains
-why.
+`age == 36` is quietly false. A value set in Python code (`age = 36` inside a block) is a number
+and needs no `int()`. [Text and numbers](python-style.md#text-and-numbers) explains why.
 
 You can use comparisons, `and`, `or`, `not`, `in`, text methods like `.lower()`, `.startswith()`
 and `.endswith()`, and the functions `len`, `int`, `float`, `str`, `min`, `max`, `abs`,

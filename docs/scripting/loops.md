@@ -362,7 +362,8 @@ I like banana
 liftoff!
 ```
 
-Every variable holds text, so `int(countdown)` turns it into a number before the comparison.
+`countdown=3` is set the bash way, so it holds text, and `int(countdown)` turns it into a number
+before the comparison. (After `countdown -= 1` it holds a number, which `int()` leaves as it is.)
 Inside a Python-style block, `countdown -= 1` works like `countdown=$((countdown - 1))`. Here's a
 counter that adds up as it goes:
 

@@ -156,11 +156,12 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
 
         try:
             if isinstance(prompt, ask.FPrompt):  # input(f"Hello {USER}, your age? ")
-                prompt = script.format_prompt(prompt, {**ctx.variables, "status": ctx.last_status},
-                                              script._Runner(ctx).call_function)
+                runner = script._Runner(ctx)
+                prompt = script.format_prompt(prompt, script.python_names(ctx.variables, ctx.last_status),
+                                              runner.call_function, runner.ask_input)
             else:
                 prompt = _expand_simple(prompt, Variables(ctx))  # input("Hello $USER, your age? ")
-            ctx.variables[name] = ask.ask_as(ctx, prompt, kind, say)
+            ctx.variables[name] = script.as_variable(ask.ask_as(ctx, prompt, kind, say))
         except script.ConditionError as exc:
             ctx.last_status = 1
             raise PipelineError(1, 1, "input", f"input: {exc}", 1) from None

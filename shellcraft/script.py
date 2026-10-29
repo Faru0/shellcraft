@@ -47,7 +47,7 @@ import string
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator, Union
+from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 
 from shellcraft import getopts, traps
 from shellcraft import parser as shparser
@@ -443,14 +443,13 @@ class _Parser:
         return self._chain()
 
     def _assign(self, match: re.Match[str]) -> Stmt:
-        """`NAME = EXPR` / `NAME += EXPR` in py mode. `NAME = input(…)` stays a command (run_input)."""
-        from shellcraft import ask
-
+        """`NAME = EXPR` / `NAME += EXPR` in py mode. `NAME = input("…")` with a string prompt stays
+        a command (run_input: `$who` in the prompt is filled in); any other input() is Python."""
         start = self.i
         name, op = match.group(1), match.group(3)
         self.i = match.end()
         expr = self._tail_text()
-        if ask.INPUT_LINE.match(self.s[start:self.i]) or ask.NUMBER_LINE.match(self.s[start:self.i]):
+        if _ask_line(self.s[start:self.i]):
             self.i = start
             return self._chain()
         if not expr:
@@ -1187,6 +1186,17 @@ class _Parser:
         return Cond("cmd", simple.text, simple.pos, negate)
 
 
+def _ask_line(text: str) -> bool:
+    """Whether `text` is a whole `NAME = input("…")` line (ask.parse_ask_line), not an expression
+    that only starts and ends like one (`x = input("a") + str(n)`, `x = input(question)`)."""
+    from shellcraft import ask
+
+    try:
+        return ask.parse_ask_line(text) is not None
+    except ask.AskError:
+        return False
+
+
 def _parse_params(name: str, text: str, pos: int) -> list[tuple[str, str | None]]:
     """`a, b="x", n=3` → [("a", None), ("b", "x"), ("n", "3")]: plain names, and defaults that
     are text, numbers, True, False or None."""
@@ -1442,6 +1452,7 @@ FUNCTIONS: dict[str, Any] = {
     "match": lambda pattern, text: re.search(pattern, text) is not None,
     "exists": os.path.exists, "isfile": os.path.isfile, "isdir": os.path.isdir,
 }
+_BUILT_INS = ", ".join(sorted([*FUNCTIONS, "input"]))  # input() is _eval's own (it asks)
 STR_METHODS = frozenset({
     "startswith", "endswith", "lower", "upper", "casefold", "title", "strip", "lstrip", "rstrip",
     "split", "rsplit", "splitlines", "removeprefix", "removesuffix", "replace", "count", "find", "rfind",
@@ -1462,12 +1473,43 @@ _AUGMENTED = {"+=": ast.Add, "-=": ast.Sub, "*=": ast.Mult, "/=": ast.Div, "//="
 
 
 class ConditionError(Exception):
-    pass
+    def __init__(self, message: str = "", status: int = 1):
+        super().__init__(message)
+        self.status = status  # 130 for an `input()` cancelled with Ctrl-C
+
+
+class PyValue(str):
+    """A number or bool set from Python (`n = 5`, `n = int(input())`): bash reads it as text
+    (`$n` is `5`, `True`), Python code reads `.value`, the number itself (python_names)."""
+
+    value: Any
+
+    def __new__(cls, value: Any) -> PyValue:
+        self = super().__new__(cls, str(value))
+        self.value = value
+        return self
+
+
+def as_variable(value: Any) -> str:
+    """What a variable set from Python stores: a PyValue for an int, float or bool (it keeps its
+    type for later Python code), else the value as plain text."""
+    if isinstance(value, (bool, int, float)):
+        return PyValue(value)
+    return str(value)
+
+
+def python_names(variables: Mapping[str, str], status: int) -> dict[str, Any]:
+    """The names a Python expression sees: the variables (a PyValue as its number) and `status`."""
+    names: dict[str, Any] = {k: v.value if isinstance(v, PyValue) else v for k, v in variables.items()}
+    names["status"] = status
+    return names
 
 
 # How a Python expression calls a shell function (`add(1, 2)`): set by evaluate() for the
 # runner doing the evaluating, so _eval needs no shell context of its own.
 _CALL_FUNCTION: ContextVar[Callable[[str, list[Any]], Any] | None] = ContextVar("_CALL_FUNCTION", default=None)
+# How `input(prompt)` asks (`ask(prompt, kind)`, kind str / int / float): set the same way.
+_ASK: ContextVar[Callable[[str, str], Any] | None] = ContextVar("_ASK", default=None)
 
 
 def _number(text: str) -> int | float:
@@ -1547,7 +1589,7 @@ def _vet(node: ast.AST) -> str | None:
             return "keyword arguments are not allowed (only in .format(name=…) and print(sep=…, end=…))"
         if isinstance(node.func, ast.Name):  # a built-in one, or a shell function (looked up when it runs)
             return None if not node.func.id.startswith("_") else (
-                f"function '{node.func.id}' is not available (use: {', '.join(sorted(FUNCTIONS))})")
+                f"function '{node.func.id}' is not available (use: {_BUILT_INS})")
         if isinstance(node.func, ast.Attribute):
             return None if node.func.attr in STR_METHODS else f"method '.{node.func.attr}()' is not available"
         return "only plain function and string-method calls are allowed"
@@ -1561,24 +1603,45 @@ def _vet(node: ast.AST) -> str | None:
 
 
 def evaluate(tree: ast.Expression, names: dict[str, Any],
-             call: Callable[[str, list[Any]], Any] | None = None) -> Any:
+             call: Callable[[str, list[Any]], Any] | None = None,
+             ask: Callable[[str, str], Any] | None = None) -> Any:
     """The value of a vetted expression. `call(name, args)` runs a shell function the expression
-    calls (`add(1, 2)`); without it, only the built-in functions can be called."""
-    token = _CALL_FUNCTION.set(call)
+    calls (`add(1, 2)`); without it, only the built-in functions can be called. `ask(prompt, kind)`
+    is what `input(…)` does; without it, input() is an error."""
+    token, asking = _CALL_FUNCTION.set(call), _ASK.set(ask)
     try:
         return _eval(tree.body, names)
     except ConditionError:
         raise
     except TypeError as exc:
-        hint = " (loop variables are text: use int(name) to compare numbers)" if "'str' and 'int'" in str(exc) \
+        hint = " (values set from bash are text: use int(name) to compare numbers)" if "'str' and 'int'" in str(exc) \
             or "'int' and 'str'" in str(exc) else ""
-        if "non-int of type 'str'" in str(exc):  # "2" * "2"
-            hint = " (variables are text: use int(name) for numbers)"
+        if "non-int of type 'str'" in str(exc) or 'str (not "int")' in str(exc):  # "2" * "2", "2" + 1
+            hint = " (values set from bash are text: use int(name) for numbers, str(n) for text)"
         raise ConditionError(f"{exc}{hint}") from None
     except (ValueError, ZeroDivisionError, IndexError, KeyError, re.error, OverflowError) as exc:
         raise ConditionError(f"{type(exc).__name__}: {exc}") from None
     finally:
         _CALL_FUNCTION.reset(token)
+        _ASK.reset(asking)
+
+
+def _is_input(node: ast.AST | None) -> TypeGuard[ast.Call]:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "input"
+
+
+def _input(node: ast.Call, names: dict[str, Any], kind: str) -> Any:
+    """`input(prompt)` in an expression: the answer as text, or a number for `int(input(…))` /
+    `float(input(…))`, which ask again until the answer is one."""
+    if len(node.args) > 1:
+        raise ConditionError("input() takes one prompt, like input(\"Your name? \")")
+    prompt = _eval(node.args[0], names) if node.args else ""
+    if not isinstance(prompt, str):
+        raise ConditionError(f"input: the prompt must be text, not {type(prompt).__name__}")
+    ask = _ASK.get()
+    if ask is None:
+        raise ConditionError("input() can't ask here")
+    return ask(prompt, kind)
 
 
 def _weight(value: Any, limit: int) -> int:
@@ -1655,6 +1718,11 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         conversion = "" if node.conversion == -1 else chr(node.conversion)
         return _format_value(_eval(node.value, names), conversion, spec)
     if isinstance(node, ast.Call):
+        if _is_input(node):
+            return _input(node, names, "str")
+        inner = node.args[0] if len(node.args) == 1 else None
+        if isinstance(node.func, ast.Name) and node.func.id in ("int", "float") and _is_input(inner):
+            return _input(inner, names, node.func.id)
         args = [_eval(a, names) for a in node.args]
         kwargs = {k.arg: _eval(k.value, names) for k in node.keywords if k.arg}
         if isinstance(node.func, ast.Attribute) and node.func.attr == "format":
@@ -1670,7 +1738,7 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
             call = _CALL_FUNCTION.get()
             if call is None:
                 raise ConditionError(f"{node.func.id} is not a function "
-                                     f"(built in: {', '.join(sorted(FUNCTIONS))})")
+                                     f"(built in: {_BUILT_INS})")
             return call(node.func.id, args)
         target = _eval(node.func.value, names)
         if not isinstance(target, str):
@@ -1772,13 +1840,14 @@ def _safe_format(template: str, args: list[Any], kwargs: dict[str, Any]) -> str:
     return fill(template, nested=False)
 
 
-def format_prompt(raw: str, names: dict[str, Any], call: Callable[[str, list[Any]], Any] | None = None) -> str:
+def format_prompt(raw: str, names: dict[str, Any], call: Callable[[str, list[Any]], Any] | None = None,
+                  ask: Callable[[str, str], Any] | None = None) -> str:
     """An `input(f"…")` prompt, filled in with `names`. Raises ConditionError."""
     try:
         tree = compile_condition(raw, 0, "input", "prompt")
     except ParseError as exc:
         raise ConditionError(exc.message.removeprefix("input: ")) from None
-    return str(evaluate(tree, names, call))
+    return str(evaluate(tree, names, call, ask))
 
 
 # ── execution ────────────────────────────────────────────────────────────────
@@ -2151,32 +2220,51 @@ class _Runner:
         function returns status 1."""
         from shellcraft.pipeline import PipelineError
 
-        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        names = python_names(self.vars, self.ctx.last_status)
         try:
-            return evaluate(stmt.tree, names, self.call_function) if stmt.tree else None
+            return evaluate(stmt.tree, names, self.call_function, self.ask_input) if stmt.tree else None
         except ConditionError as exc:
-            self.report(PipelineError(1, 1, "return", f"return {stmt.value}: {exc}"), f"return {stmt.value}")
+            self.report(PipelineError(1, 1, "return", f"return {stmt.value}: {exc}", exc.status),
+                        f"return {stmt.value}")
             if self.trying and not self.ctx.errexit_off:
-                raise _TryFailed(1, f"return {stmt.value}") from None
-            raise _Return(1) from None
+                raise _TryFailed(exc.status, f"return {stmt.value}") from None
+            raise _Return(exc.status) from None
 
     def call_function(self, name: str, args: list[Any]) -> Any:
         """`name(args)` in a Python expression: run the shell function (`def` or bash) with the
-        arguments as text. The value is its `return EXPR`, else what it printed (without the last
-        new line, as `$( )` gives it). Its status goes to `$?`."""
+        arguments as variables (as_variable: `$1` is text, a `def`'s Python code gets a number as a
+        number). The value is its `return EXPR`, else what it printed (without the last new line,
+        as `$( )` gives it). Its status goes to `$?`."""
         from shellcraft.context import CommandError
 
         fn = self.ctx.functions.get(name)
         if fn is None:
-            raise ConditionError(f"{name} is not a function (built in: {', '.join(sorted(FUNCTIONS))}; "
+            raise ConditionError(f"{name} is not a function (built in: {_BUILT_INS}; "
                                  "or define it first with def)")
         try:
-            output, status, value = _run_function(fn, [str(a) for a in args],
+            output, status, value = _run_function(fn, [as_variable(a) for a in args],
                                                   self.stdin, self.ctx)
         except CommandError as exc:
             raise ConditionError(str(exc)) from None
         self.ctx.last_status = status
         return output.rstrip("\n") if value is _NO_VALUE else value
+
+    def ask_input(self, prompt: str, kind: str) -> Any:
+        """`input(prompt)` in a Python expression (kind str), or `int(input(…))` / `float(…)`,
+        which ask again until the answer is a number. Raises ConditionError (status 130 for Ctrl-C)."""
+        from shellcraft import ask
+
+        try:
+            return ask.ask_as(self.ctx, prompt, kind, self.say)
+        except ask.AskError as exc:
+            raise ConditionError(str(exc), exc.status) from None
+
+    def say(self, message: str) -> None:
+        """A warning on the screen (`'x' is not a number; try again`), not part of any output."""
+        if self.ctx.ui is not None:
+            from rich.text import Text
+
+            self.ctx.ui.console.print(Text(message, style="sc.warning"), markup=False, highlight=False)
 
     def return_status(self, stmt: Jump) -> int | None:
         if not stmt.value:
@@ -2257,23 +2345,17 @@ class _Runner:
         from shellcraft import ask
         from shellcraft.pipeline import PipelineError
 
-        def say(message: str) -> None:
-            if self.ctx.ui is not None:
-                from rich.text import Text
-
-                self.ctx.ui.console.print(Text(message, style="sc.warning"), markup=False, highlight=False)
-
         try:
             asking = ask.parse_ask_line(stmt.text)
             if asking is None:
                 return None
             name, prompt, kind = asking
             if isinstance(prompt, ask.FPrompt):  # input(f"Age of {who}? ")
-                names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
-                prompt = format_prompt(prompt, names, self.call_function)
+                names = python_names(self.vars, self.ctx.last_status)
+                prompt = format_prompt(prompt, names, self.call_function, self.ask_input)
             else:
                 prompt = shparser._expand_simple(prompt, self.variables())  # input("Age of $who? ")
-            self.vars[name] = ask.ask_as(self.ctx, prompt, kind, say)
+            self.vars[name] = as_variable(ask.ask_as(self.ctx, prompt, kind, self.say))
         except ConditionError as exc:
             self.report(PipelineError(1, 1, "input", f"input: {exc}"), stmt.text)
             self.ctx.last_status = 1
@@ -2286,28 +2368,32 @@ class _Runner:
         return 0
 
     def run_assign(self, stmt: Assign) -> None:
-        """`NAME = EXPR`: the value as text (`True` / `False` for a bool). `NAME += EXPR` and the
-        other `op=` forms work on the current value: text when EXPR is text (`s += "x"`), else a
-        number (int, or float when it isn't a whole number)."""
+        """`NAME = EXPR`: an int, float or bool keeps its type (as_variable), anything else is
+        stored as text. `NAME += EXPR` and the other `op=` forms work on the current value: a
+        number set from Python as is; else text when EXPR is text (`s += "x"`), else the text read
+        as a number (int, or float when it isn't a whole number)."""
         from shellcraft.pipeline import PipelineError, set_variable
 
         text = f"{stmt.name} {stmt.op} {stmt.text}"
-        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        names = python_names(self.vars, self.ctx.last_status)
         try:
-            value = evaluate(stmt.tree, names, self.call_function)
+            value = evaluate(stmt.tree, names, self.call_function, self.ask_input)
             if stmt.op != "=":
                 current = self.vars.get(stmt.name)
                 if current is None:
                     raise ConditionError("not set, give it a value first")
-                left = current if isinstance(value, str) else _number(current)
+                if isinstance(current, PyValue):
+                    left = current.value
+                else:
+                    left = current if isinstance(value, str) else _number(current)
                 op = _AUGMENTED[stmt.op]()
                 value = evaluate(ast.Expression(ast.BinOp(ast.Constant(left), op, ast.Constant(value))), {})
         except ConditionError as exc:
-            self.report(PipelineError(1, 1, stmt.name, f"{stmt.name}: {exc}"), text)
-            self.ctx.last_status = 1
-            self.check_errexit(1, text)
+            self.report(PipelineError(1, 1, stmt.name, f"{stmt.name}: {exc}", exc.status), text)
+            self.ctx.last_status = exc.status
+            self.check_errexit(exc.status, text)
             return
-        set_variable(self.ctx, stmt.name, str(value), self.vars)
+        set_variable(self.ctx, stmt.name, as_variable(value), self.vars)
         self.ctx.last_status = 0
 
     def run_print(self, stmt: Print) -> None:
@@ -2317,10 +2403,13 @@ class _Runner:
 
         call = stmt.tree.body
         assert isinstance(call, ast.Call)
-        names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+        names = python_names(self.vars, self.ctx.last_status)
         try:
-            values = [str(evaluate(ast.Expression(arg), names, self.call_function)) for arg in call.args]
-            options = {k.arg: evaluate(ast.Expression(k.value), names, self.call_function) for k in call.keywords}
+            def value(node: ast.expr) -> Any:
+                return evaluate(ast.Expression(node), names, self.call_function, self.ask_input)
+
+            values = [str(value(arg)) for arg in call.args]
+            options = {k.arg: value(k.value) for k in call.keywords}
             for name, option in options.items():
                 if option is not None and not isinstance(option, str):
                     raise ConditionError(f"{name} must be text, not {type(option).__name__}")
@@ -2328,9 +2417,9 @@ class _Runner:
             end = "\n" if options.get("end") is None else options["end"]
             text = _join_capped([sep.join(values), end])
         except ConditionError as exc:
-            self.report(PipelineError(1, 1, "print", f"print: {exc}"), stmt.text)
-            self.ctx.last_status = 1
-            self.check_errexit(1, stmt.text)
+            self.report(PipelineError(1, 1, "print", f"print: {exc}", exc.status), stmt.text)
+            self.ctx.last_status = exc.status
+            self.check_errexit(exc.status, stmt.text)
             return
         trace(self.ctx, ["print", *values])
         if text:
@@ -2618,11 +2707,12 @@ class _Runner:
             ok = status == 0
         else:
             assert cond.tree is not None
-            names: dict[str, Any] = {**self.vars, "status": self.ctx.last_status}
+            names = python_names(self.vars, self.ctx.last_status)
             try:
-                ok = bool(evaluate(cond.tree, names, self.call_function))
+                ok = bool(evaluate(cond.tree, names, self.call_function, self.ask_input))
             except ConditionError as exc:
-                raise _Abort(PipelineError(1, 1, "if", f"({cond.text.strip()}): {exc}"), cond.text) from None
+                raise _Abort(PipelineError(1, 1, "if", f"({cond.text.strip()}): {exc}", exc.status),
+                             cond.text) from None
             self.ctx.last_status = 0 if ok else 1
         return ok != cond.negate
 

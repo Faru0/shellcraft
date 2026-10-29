@@ -180,13 +180,15 @@ if -py match(r"^v\d+", ver):                               # if / elif / else, w
 select -py env in dev prod:                                # a numbered menu
     break
 name = input("Your name? ")                                # asking works in any block
+while -py input("Again? ") == "y":                         # input() anywhere in Python code
+    n = int(input("How many? "))                           # a number (asks again); n + 1 is 7
 ```
 
 At the prompt, the next line starts indented for you and an empty line runs the block. The brace
 form is the same thing on one line: `for -py n in 1..5 { if (int(n) % 2 == 0) { echo even $n } }`.
 
 - Python conditions are checked and evaluated by ShellCraft (no `eval`): comparisons,
-  `and`/`or`/`not`, `in`, slicing, string methods, `len`, `int`, `match(regex, text)`,
+  `and`/`or`/`not`, `in`, slicing, string methods, `len`, `int`, `input`, `match(regex, text)`,
   `exists(path)` and a few more, plus the shell functions you define (`add(1, 2)`). Imports and
   other functions are refused. `status` is `$?`.
 - Inside a `-py` block, nested `for`/`if` use the same syntax without the flag. Bash lines
@@ -223,11 +225,15 @@ for -py f in a.txt b.txt:
     count = 0                                              # = += -= *= /= //= %=
     count += 1
     label = f.upper() + "!"
-    msg = f"{f:<10} {int(count):>3}"                       # f-strings, "{}-{}".format(a, b)
+    msg = f"{f:<10} {count:>3}"                            # f-strings, "{}-{}".format(a, b)
     print(msg, "done", sep=" | ")                          # print: like echo, sep= and end=
 ```
 
-The value is stored as text, the same as `x=5` stores `5`. At the prompt and in bash blocks
+A number, `True` or `False` keeps its type for later Python code (`n = 5` then `n + 1` is 6),
+and `$n` gives bash the text `5`. Values set the bash way (`x=5`, `read`, loop words, arguments)
+are text: use `int(x)` in Python. `input()` works anywhere in a Python expression
+(`while -py input("Again? ") == "y":`), and `int(input(…))` asks again until it gets a number. At
+the prompt and in bash blocks
 `x = 5` stays a command named `x`, so it fails with `command not found: x`. `x=5` works
 everywhere. f-strings and `.format()` work wherever Python is read, with the whole format
 language (`{price:.2f}`, `{n:,}`, `{name:<10}`), and `input(f"Age of {who}? ")` too. `print(…)`

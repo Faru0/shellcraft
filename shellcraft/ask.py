@@ -9,7 +9,9 @@ parentheses are Python, not shell): `NAME = input()`, `NAME = input("prompt")`, 
 string literal as the prompt (single or double quotes, escapes), or an f-string
 (`input(f"Age of {who}? ")`, filled in with the variables in scope). `NAME = int(input("prompt"))` and
 `float(...)` ask until the answer is a number (Python would stop with a ValueError; a shell says
-so and asks again). The same lines work inside blocks and functions (script._Runner.run_input).
+so and asks again), and the variable keeps the number for Python code (script.PyValue; `$n` is
+its text). The same lines work inside blocks and functions (script._Runner.run_input), and
+`input(…)` also works anywhere in a `-py` expression (script._input).
 """
 
 from __future__ import annotations
@@ -71,9 +73,9 @@ def _prompt_literal(raw: str) -> str:
     return prompt
 
 
-def ask_as(ctx: Any, prompt: str, kind: str = "str", say: Any = None) -> str:
-    """Ask until the answer converts with int / float (kind), and return it as text for the
-    shell variable (`7`, `2.5`). `say(message)` reports a wrong answer before asking again."""
+def ask_as(ctx: Any, prompt: str, kind: str = "str", say: Any = None) -> str | int | float:
+    """Ask until the answer converts with int / float (kind), and return the number (`7`, `2.5`;
+    the text for kind str). `say(message)` reports a wrong answer before asking again."""
     convert = CONVERT[kind]
     while True:
         answer = ask(ctx, prompt)
@@ -86,7 +88,7 @@ def ask_as(ctx: Any, prompt: str, kind: str = "str", say: Any = None) -> str:
             if say is not None:
                 say(message)
             continue
-        return str(value)
+        return value
 
 
 def ask(ctx: Any, prompt: str, hidden: bool = False) -> str:

@@ -81,11 +81,20 @@ and the project uses [semantic versioning](https://semver.org/).
 - **`input()` inside blocks and functions.** `name = input("…")` and `int(input(…))` now work in
   loops, `if` blocks and functions, not only on a line of their own, and the question can use
   variables: `input("Age of $who? ")`.
+- **`input()` anywhere in Python code.** It works inside any `-py` expression: a condition
+  (`while -py input("Again? ") == "y":`), a value (`name = "Hi " + input("Name? ")`), `print()`,
+  f-strings and `return`. `int(input(…))` and `float(input(…))` ask again until the answer is a
+  number wherever they're written.
 - **[Bash style and Python style](docs/scripting/python-style.md):** a page that writes every kind
   of block both ways, side by side, and each page of the scripting guide now shows both.
 
 ### Changed
 
+- **Python values keep their type.** In a `-py` block or a `def`, `n = 5`, `ok = n > 3` and
+  `n = int(input(…))` store the number or `True` / `False`, so `print(n + 1)` and `if -py ok:` work
+  without `int()`. Bash still reads them as text (`$n` is `5`), and values set the bash way
+  (`n=5`, `read`, loop words, arguments) stay text. A number passed to a `def` from Python stays a
+  number, and the "use int(name)" hint now says values set from bash are text.
 - **A variable that was never set is empty, as in bash.** `$nmae` used to stay as the text
   `$nmae`; now it's empty, so `[ -z "$x" ]` is true for an unset `x` and pasted bash scripts behave
   the same. `$#` is 0 outside a function. Use `set -u` to make a missing variable an error.
@@ -161,6 +170,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **`curl --cert FILE:PASSWORD` uses the password.** The password for an encrypted client key
+  was dropped, so the request failed with a confusing TLS error. Now `-E client.pem:secret` and
+  `--pass secret` unlock the key (in the cert file or in `--key`), and `.p12` / `.pfx` files work
+  too (`--cert-type P12`). The unlocked key goes to a temporary file that you alone can read,
+  deleted when the request ends. A wrong or missing password stops with status 58. This needs the
+  `cryptography` package.
 - **A bash test after `if -py`.** `if -py [ -f notes.txt ]:` and `while -py [ … ]:` ran the test
   as a Python list, which is always true. A condition that starts with `[`, `[[` or `test` (or `!`
   and one of them) is now a command.

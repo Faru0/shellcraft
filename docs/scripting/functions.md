@@ -450,8 +450,8 @@ Mon: work day
 ### Call a function from Python
 
 Sometimes you want to use a function's answer inside Python code: a condition, `name = …`, or
-another `return`. There you can call any function by name, with brackets: `add(1, 2)`. The arguments go in as text, as on a command line. What you get back
-is the function's `return` value, as a Python value. A function without `return EXPR` gives what
+another `return`. There you can call any function by name, with brackets: `add(1, 2)`. A number
+you pass goes in as a number, and text as text. What you get back is the function's `return` value, as a Python value. A function without `return EXPR` gives what
 it printed instead, without the last new line, like `$( )`. So a bash function that echoes works
 too. Its output is caught, not shown, and its status goes to `$?`.
 
@@ -493,8 +493,9 @@ printed, `my-big-report`, and `+ ".md"` adds to that text. In the loop, `is_week
 `True` or `False`, which is what `if` wants.
 
 Two things to watch for. In Python code you use brackets, `add(a, b)`. On a command line you
-don't, `add 1 2`. And the arguments arrive as text, which is why `add` uses `int(a)`: without it,
-`a + b` would join `"1200"` and `"34"` into `"120034"`.
+don't, `add 1 2`. And arguments on a command line are always text: `report` was called that way,
+so `a` and `b` are `"1200"` and `"34"`, which is why `add` uses `int(a)`. Without it, `a + b`
+would join them into `"120034"`.
 
 Only functions defined in the shell can be called this way, plus the built-in ones (`len`,
 `int`, `exists` and the rest, see [Python style](python-style.md#comparing-text-and-numbers)).

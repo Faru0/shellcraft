@@ -1345,7 +1345,8 @@ def _more(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 READ_DOC = """# read
 
 Ask for a value and keep it in a shell variable, like bash's `read`. The Python spelling works too,
-on a line of its own: `name = input("What is your name? ")`.
+on a line of its own: `name = input("What is your name? ")`. Inside a Python-style block,
+`input()` also works within any expression: `while -py input("Again? ") == "y":`.
 
 ## Usage
 
@@ -1354,7 +1355,7 @@ read NAME                       # read a line into $NAME
 read -p "Your name? " NAME      # with a prompt
 read -s -p "Token: " TOKEN      # without echoing what is typed
 name = input("Your name? ")     # the same, Python style (also inside blocks)
-count = int(input("How many? "))   # asks again until the answer is a whole number
+count = int(input("How many? "))   # asks again until the answer is a whole number (kept as one)
 ratio = float(input("Ratio? "))    # … or any number
 ```
 
@@ -2377,8 +2378,10 @@ if -py CONDITION { … } [elif CONDITION { … }] [else { … }]
 
 `elif` and `else` follow the closing `}`. A CONDITION is a command (true when it succeeds;
 `!` then a space negates it), or a **Python expression in parentheses**: loop variables are
-plain names (or `$name`), `status` (or `$?`) is the last exit status as a number. Loop
-variables are text: use `int(n)` for numbers.
+plain names (or `$name`), `status` (or `$?`) is the last exit status as a number. Values
+set from bash (`n=5`, `read`, loop words, arguments) are text: use `int(n)` for numbers. A
+number or `True` / `False` set in Python (`n = 5`, `n = int(input(…))`) keeps its type there,
+and `$n` gives bash its text.
 
 ```
 if -py (ip.startswith("10.") and not ip.endswith(".1")) { … }
@@ -2394,7 +2397,9 @@ these string methods: `startswith endswith lower upper casefold title strip lstr
 rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
 isalpha isalnum isspace islower isupper format`, f-strings (`f"{a}-{b}"`, see `man print`), and
 these functions: `len int float str bool abs min max`, `match(PATTERN, TEXT)` (a regex search),
-`exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`.
+`exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`, and `input(PROMPT)`, which asks
+(`while -py input("Again? ") == "y":`; `int(input(…))` / `float(input(…))` ask again until the
+answer is a number).
 A call to any other name runs the shell function of that name (`if -py (is_weekend(day))`):
 its `return` value, or what it printed (see `man def`). Imports, other attributes and names
 starting with `_` are refused. A condition
@@ -2498,7 +2503,8 @@ is 0, and anything else is printed. A bare `return` keeps the last command's sta
 `return True` / `return False` for a check you put in an `if`.
 
 From Python code (a condition, `x = …`, another `return`) call any function by name:
-`total = add(1, 2)`, `if is_weekend(day):`, `name = slug(title)`. The arguments go in as text.
+`total = add(1, 2)`, `if is_weekend(day):`, `name = slug(title)`. Text goes in as text, a
+number as a number (`$1` is always its text).
 The result is the `return` value, or else what the function printed (without the last new
 line), so a bash function that echoes works too.
 
@@ -2730,8 +2736,8 @@ line, so `end=""` can't join two prints (the same as `echo -n`).
 ## f-strings and .format()
 
 f-strings work wherever Python is read: `print(…)`, `x = …`, a condition, `return`, the
-arguments of a call. A field is any expression: `{name}`, `{a + b}`, `{name.upper()}`. Shell
-variables are text, so a number spec (`d`, `f`, `,` …) reads the text as a number.
+arguments of a call. A field is any expression: `{name}`, `{a + b}`, `{name.upper()}`. Values
+set from bash are text, so a number spec (`d`, `f`, `,` …) reads the text as a number.
 
 ```
 print(f"{name} has {count} files")

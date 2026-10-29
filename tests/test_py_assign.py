@@ -78,8 +78,10 @@ echo "even: $count"
         n += 1
         echo "n is $n"
 """
-    # n is text: `n < 3` compares text with a number, so use int(n)
-    assert "int(name)" in out(ctx, text)
+    # n = 0 keeps its type, so `n < 3` compares numbers (tests/test_py_types.py)
+    assert out(ctx, text) == "n is 1\nn is 2\nn is 3\n"
+    # set from bash, n is text: `n < 3` compares text with a number, so use int(n)
+    assert "int(name)" in out(ctx, text.replace("    n = 0", "    n=0"))
     assert out(ctx, text.replace("while n < 3", "while int(n) < 3")) == "n is 1\nn is 2\nn is 3\n"
 
 

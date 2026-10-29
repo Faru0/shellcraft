@@ -233,7 +233,7 @@ first=Ada
 for -py n in 1..3:
     total = int(n) * 10
     name = first.upper() + "!"
-    big = int(total) > 15
+    big = total > 15
     echo "$n: $total $name $big"
 ```
 
@@ -244,10 +244,12 @@ for -py n in 1..3:
 3: 30 ADA! True
 ```
 
-Go through it line by line. `int(n)` turns the text in `n` into a number, so `* 10` multiplies
-instead of repeating the text. `first.upper()` is Python's way of putting text in capitals, and
-`+ "!"` adds an exclamation mark. `int(total) > 15` is a yes or no question, so `big` is `True` or
-`False`. The `echo` line is a normal shell line, so there you use `$` to fill the values in.
+Go through it line by line. `n` is a loop word, and loop words are text, so `int(n)` turns it into
+a number and `* 10` multiplies instead of repeating the text. `total` now holds a number, and it
+stays a number for the Python lines after it. `first.upper()` is Python's way of putting text in
+capitals, and `+ "!"` adds an exclamation mark. `total > 15` is a yes or no question, so `big` is
+`True` or `False`. The `echo` line is a normal shell line, so there you use `$` to fill the values
+in, and `$total` gives it as text.
 
 `count += 1` adds to a variable, and `-=`, `*=`, `/=`, `//=` and `%=` work too. With a number on the
 right, the variable is read as a number. With text on the right, `+=` adds the text to the end:
@@ -269,9 +271,11 @@ echo "$count colours: $names"
 3 colours: red, green, blue
 ```
 
-The value is stored as text, as every variable is, so `total` is text again on the next line and
-`int(total)` turns it back into a number. A yes or no is stored as `True` or `False`, and a fraction
-as `2.5`. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
+A value set in Python keeps its type: a whole number, a fraction like `2.5`, or `True` and
+`False`. Bash only ever sees text: `$total` is `10`, `$big` is `True`. A value set the bash way
+(`count=0`, `read`, a loop word, an argument) is text, so Python code needs `int()` to use it as a
+number; `count += 1` does that for you. Anything else Python makes, like a list, is stored as its
+text. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
 on a variable that isn't set yet stops with `count: not set, give it a value first`. Set it to 0
 before the loop, as the example does.
 
@@ -345,7 +349,8 @@ sam: 9
 ```
 
 Wrap it in `int()` when you need a whole number, or `float()` for any number. ShellCraft keeps
-asking until the answer is one, so you don't have to check it yourself:
+asking until the answer is one, so you don't have to check it yourself, and the variable holds the
+number, so Python code can use it as one (`age + 1`):
 
 <!-- run: ["thirty", "30"] -->
 ```
@@ -442,6 +447,30 @@ echo "Project: $project"
 Project name (required): 
 Project name (required): website
 Project: website
+```
+
+`input()` also works inside Python code: in a condition, in a value, in `print()`. This loop keeps
+asking for numbers and adds them up, until you answer no. `int(input(…))` in the middle asks again
+on its own if the answer isn't a whole number:
+
+<!-- run: ["y", "5", "y", "lots", "7", "n"] -->
+```
+total=0
+while -py input("Add a number? (y/n) ") == "y":
+    total += int(input("Number: "))
+echo "Total: $total"
+```
+
+<!-- output -->
+```
+Add a number? (y/n) y
+Number: 5
+Add a number? (y/n) y
+Number: lots
+'lots' is not a whole number; try again
+Number: 7
+Add a number? (y/n) n
+Total: 12
 ```
 
 ### Ask a yes or no question

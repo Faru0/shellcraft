@@ -124,6 +124,7 @@ for -py line in (cat hosts.txt):                 # a file, line by line
 while -py int(n) < 3:                            # while -py True: … break
     n += 1                                       # also = -= *= /= //= %= (in a block or def)
     msg = f"{n:>3} of {total}"                   # f-strings and "{}-{}".format(a, b)
+    ok = n > 1                                   # numbers and True/False keep their type; $ok is text
     print(msg, "done", sep=" | ")                # print (in a block or def): like echo
 match env:                                       # case "a" | "b":   case _: (anything else)
     case "prod":
@@ -148,6 +149,7 @@ except as rc:                                    # rc and $?: the failing status
 finally:                                         # always runs
     rm -f deploy.lock
 for -py n in 1..5: echo $n                       # a short block on one line
+while -py input("More? ") == "y":                # input() anywhere in Python; int(input()) asks till a number
 ```
 
 [More](scripting/README.md) · [Quick reference](scripting.md)
