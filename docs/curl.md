@@ -48,6 +48,7 @@ want and change the URL.
 | Keep cookies | `curl -c jar.txt URL` then `curl -b jar.txt URL` |
 | Go through a proxy (Burp, ZAP) | `curl -x http://127.0.0.1:8080 -k URL` |
 | Use a client certificate | `curl -E client.pem --key client.key URL` |
+| ...whose key has a password | `curl -E client.pem:secret URL` or `curl -E client.pem --pass secret URL` |
 | Save the body | `curl -o page.html URL`, `curl -O URL/file.zip` |
 | Only the status code | `curl -s -o /dev/null -w '%{http_code}\n' URL` |
 | Retry a flaky service | `curl --retry 3 --retry-delay 2 URL` |
@@ -88,6 +89,27 @@ Since it copies curl, it also copies the parts of curl that surprise people:
   with `<`. Because it's the error stream, `2>` and `2>&1` work on it, and a pipe after `curl -v`
   only gets the body.
 
+## Client certificates
+
+Some servers want a certificate from you as well. Give it with `-E client.pem`. If the private key
+is in another file, add `--key client.key`.
+
+When the key has a password, put it after a colon, or give it with `--pass`:
+
+```
+curl -E client.pem:secret https://internal.example.com/
+curl -E client.pem --key client.key --pass secret https://internal.example.com/
+```
+
+A `.p12` or `.pfx` file works the same way (`--cert-type P12` if it has another name). If the file
+name itself has a colon in it, write it as `\:`. A Windows path like `C:\certs\me.pem` is fine as
+it is.
+
+A key with a password needs the `cryptography` package (`pip install cryptography`). ShellCraft
+unlocks the key in memory and writes it, with the certificate, to a temporary file that only you
+can read. The file is deleted as soon as the request ends, even when it fails or you press
+Ctrl-C. A key without a password is used straight from your file.
+
 ## Exit statuses
 
 Every command finishes with an exit status, a number that `$?` holds afterwards. 0 means success.
@@ -108,6 +130,7 @@ maps each failure to the same number curl would use, so a script written for cur
 | `37` | Couldn't open the file in a `file://` URL |
 | `47` | Too many redirects |
 | `56` | The connection broke while receiving the reply |
+| `58` | Couldn't load your client certificate or its key: a missing file or a wrong password |
 | `60` | The server's TLS certificate didn't check out |
 | `63` | The reply is larger than `--max-filesize` |
 
@@ -137,6 +160,9 @@ The message tells you which kind of failure it is. These are the ones you'll mee
 - `curl: (60) SSL certificate problem: ...` means the certificate isn't trusted. For a test server
   with a self-signed certificate, `-k` skips the check. For a company certificate authority, point
   at it with `--cacert FILE`.
+- `curl: (58) could not unlock the key in client.pem: wrong password?` means the password after
+  the colon (or in `--pass`) doesn't open the key. `curl: (58) the private key in client.pem is
+  encrypted` means you gave no password at all.
 
 ## Pasting "Copy as cURL" from your browser
 
@@ -232,10 +258,5 @@ For example, `curl --socks5 127.0.0.1:1080 https://example.com` stops with:
 ```
 curl: option --socks5: not supported yet (SOCKS proxies; see man curl)
 ```
-
-One more gap isn't an error, so it's easy to miss. With real curl, `--cert file.pem:secret` gives
-the password for an encrypted private key. ShellCraft's `curl` accepts that form but drops the
-password, because `requests` has no way to pass a key password on. With an encrypted key the
-request won't work. Use a copy of the key without a password, or run the OS curl.
 
 `command curl` runs the OS program for any of these.

@@ -10,6 +10,7 @@ What curl does that this doesn't yet is listed in TODO (and `man curl`).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -67,7 +68,8 @@ LONG: dict[str, tuple[str, str]] = {
     "oauth2-bearer": ("bearer", "value"), "cookie": ("cookie", "append"), "cookie-jar": ("cookie_jar", "value"),
     "location": ("location", "flag"), "max-redirs": ("max_redirs", "value"),
     "insecure": ("insecure", "flag"), "cacert": ("cacert", "value"), "capath": ("cacert", "value"),
-    "cert": ("cert", "value"), "key": ("key", "value"),
+    "cert": ("cert", "value"), "key": ("key", "value"), "pass": ("key_password", "value"),
+    "cert-type": ("cert_type", "value"),
     "proxy": ("proxy", "value"), "proxy-user": ("proxy_user", "value"), "noproxy": ("noproxy", "value"),
     "max-time": ("max_time", "value"), "connect-timeout": ("connect_timeout", "value"),
     "retry": ("retry", "value"), "retry-delay": ("retry_delay", "value"), "retry-max-time": ("retry_max_time", "value"),
@@ -136,6 +138,8 @@ class Options:
     cacert: str | None = None
     cert: str | None = None
     key: str | None = None
+    key_password: str | None = None
+    cert_type: str | None = None
     proxy: str | None = None
     proxy_user: str | None = None
     noproxy: str | None = None
@@ -290,9 +294,6 @@ def _run(opts: Options, stdin: str, may_write: bool) -> Any:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     elif opts.cacert:
         session.verify = opts.cacert
-    if opts.cert:
-        cert, _, _password = opts.cert.partition(":") if not os.path.exists(opts.cert) else (opts.cert, "", "")
-        session.cert = (cert, opts.key) if opts.key else cert
     if opts.location:
         session.max_redirects = _int(opts.max_redirs, "--max-redirs", 50)
     jar = _load_cookies(opts, session)
@@ -300,18 +301,129 @@ def _run(opts: Options, stdin: str, may_write: bool) -> Any:
     outputs = list(opts.outputs)
     out: list[str] = []
     status = 0
-    for index, source in enumerate(sources):
-        check_cancel()
-        target = outputs[index] if index < len(outputs) else None
-        if target is None and (opts.remote_name_all or index < opts.remote_name):
-            target = _remote_name(source)
-        piece, code = _one(session, opts, source, stdin, target, limit)
-        out.append(piece)
-        status = status or code
+    unlocked: str | None = None  # a private temp file with the decrypted key, removed below
+    try:
+        if opts.cert:
+            session.cert, unlocked = _client_cert(opts)
+        for index, source in enumerate(sources):
+            check_cancel()
+            target = outputs[index] if index < len(outputs) else None
+            if target is None and (opts.remote_name_all or index < opts.remote_name):
+                target = _remote_name(source)
+            piece, code = _one(session, opts, source, stdin, target, limit)
+            out.append(piece)
+            status = status or code
+    finally:
+        session.close()
+        if unlocked:
+            with contextlib.suppress(OSError):
+                os.unlink(unlocked)
     if opts.cookie_jar and jar is not None:
         _save_cookies(session, opts.cookie_jar)
     text = "".join(out)
     return WithStatus(text, status) if status else text
+
+
+# ── client certificates ──────────────────────────────────────────────────────
+
+_PEM_CERT = re.compile(rb"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----\s*", re.S)
+
+
+def _split_cert(value: str) -> tuple[str, str | None]:
+    r"""--cert FILE[:PASSWORD] as curl reads it: a value that is a file is the file; otherwise the
+    first `:` starts the password (not a Windows drive's `C:\`), and `\:` is a colon in the name."""
+    if os.path.exists(value):
+        return value, None
+    name: list[str] = []
+    i = 2 if re.match(r"^[A-Za-z]:[\\/]", value) else 0
+    name.append(value[:i])
+    while i < len(value):
+        if value.startswith("\\:", i):
+            name.append(":")
+            i += 2
+        elif value[i] == ":":
+            return "".join(name), value[i + 1:]
+        else:
+            name.append(value[i])
+            i += 1
+    return "".join(name), None
+
+
+def _client_cert(opts: Options) -> tuple[Any, str | None]:
+    """What requests takes as `cert`, and the temp file to remove after the transfers (or None).
+
+    A key without a password goes to requests as the file it is. An encrypted key (or a PKCS#12
+    bundle) is opened with `cryptography` and written, unencrypted, with the certificate to a temp
+    file only this user can read, which the caller deletes when the transfers end."""
+    cert, password = _split_cert(opts.cert or "")
+    if password is None:
+        password = opts.key_password
+    kind = (opts.cert_type or ("P12" if cert.lower().endswith((".p12", ".pfx")) else "PEM")).upper()
+    if kind not in ("PEM", "P12"):
+        raise CurlExit(58, f"curl: (58) --cert-type {opts.cert_type} is not supported here; use PEM or P12")
+    if kind == "PEM":
+        key_file = opts.key or cert
+        try:
+            encrypted = _encrypted_pem(Path(key_file).read_bytes())
+        except OSError as exc:
+            raise CurlExit(58, f"curl: (58) could not load the client certificate {key_file}: "
+                               f"{exc.strerror or exc}") from None
+        if not encrypted:  # requests reads it as it is (a password for a plain key is ignored, as curl does)
+            return ((cert, opts.key) if opts.key else cert), None
+        if password is None:
+            raise CurlExit(58, f"curl: (58) the private key in {key_file} is encrypted: give its password with "
+                               f"--cert {cert}:PASSWORD or --pass PASSWORD")
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.serialization import pkcs12
+    except ImportError:
+        what = "a key password" if kind == "PEM" else "a PKCS#12 (.p12) certificate"
+        raise CurlExit(58, f"curl: (58) {what} needs the 'cryptography' package "
+                           "(pip install cryptography)") from None
+    secret = password.encode() if password is not None else None
+    if kind == "P12":
+        try:
+            key, leaf, extra = pkcs12.load_key_and_certificates(Path(cert).read_bytes(), secret)
+        except OSError as exc:
+            raise CurlExit(58, f"curl: (58) could not load the client certificate {cert}: "
+                               f"{exc.strerror or exc}") from None
+        except (ValueError, TypeError):
+            raise CurlExit(58, f"curl: (58) could not unlock the key in {cert}: wrong password?") from None
+        if key is None or leaf is None:
+            raise CurlExit(58, f"curl: (58) {cert} has no private key and certificate in it")
+        certs = b"".join(c.public_bytes(serialization.Encoding.PEM) for c in [leaf, *extra])
+    else:
+        key_file = opts.key or cert
+        try:
+            key = serialization.load_pem_private_key(Path(key_file).read_bytes(), secret)
+            certs = b"".join(m.group(0) for m in _PEM_CERT.finditer(Path(cert).read_bytes()))
+        except OSError as exc:
+            raise CurlExit(58, f"curl: (58) could not load the client certificate {cert}: "
+                               f"{exc.strerror or exc}") from None
+        except (ValueError, TypeError):
+            raise CurlExit(58, f"curl: (58) could not unlock the key in {key_file}: wrong password?") from None
+        if not certs:
+            raise CurlExit(58, f"curl: (58) no certificate found in {cert}")
+    plain = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                              serialization.NoEncryption())
+    import tempfile
+
+    fd, path = tempfile.mkstemp(prefix="shellcraft-curl-", suffix=".pem")  # created 0600
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(certs + plain)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+        raise
+    return path, path
+
+
+def _encrypted_pem(data: bytes) -> bool:
+    """Whether a PEM file's private key is password protected (PKCS#8 or the old OpenSSL form)."""
+    return b"-----BEGIN ENCRYPTED PRIVATE KEY-----" in data or b"Proc-Type: 4,ENCRYPTED" in data
 
 
 @dataclass
@@ -911,7 +1023,8 @@ HELP = """Usage: curl [options...] <url>
  -w, --write-out <format>   %{http_code}, %{time_total}, %{size_download}, %header{name}…
  -f, --fail                 fail (exit 22) on HTTP errors; --fail-with-body keeps the body
  -x, --proxy <[proto://]host[:port]>  an http(s) proxy (-U user:password, --noproxy hosts)
- -k, --insecure             don't check the TLS certificate (--cacert, --cert, --key)
+ -k, --insecure             don't check the TLS certificate (--cacert FILE trusts a CA)
+ -E, --cert <file[:pass]>   a client certificate (--key <file>, --pass <password>, --cert-type P12)
  -m, --max-time <seconds>   give up after this long (--connect-timeout for connecting)
      --retry <n>            retry transient errors (--retry-delay, --retry-max-time, --retry-all-errors)
  -r, --range <range>        part of the body (bytes)
@@ -958,7 +1071,7 @@ and writes no files there (`-o`, `-O`, `-D FILE` and `-c` are refused).
 | Body | `-d`/`--data`, `--data-ascii`, `--data-raw`, `--data-binary`, `--data-urlencode`, `--json`, `-F`/`--form` (`name=@file;type=…`, `name=<file`), `--form-string`, `-T`/`--upload-file` (a PUT). `@FILE` reads a file, `@-` reads stdin. Several `-d` are joined with `&`. |
 | Auth and cookies | `-u`/`--user user:password`, `--basic`, `--digest`, `--oauth2-bearer TOKEN`, `-b`/`--cookie` (`'a=1; b=2'` or a cookie file), `-c`/`--cookie-jar FILE` |
 | Redirects | `-L`/`--location`, `--max-redirs N` |
-| TLS | `-k`/`--insecure`, `--cacert FILE`, `--capath`, `-E`/`--cert FILE`, `--key FILE` |
+| TLS | `-k`/`--insecure`, `--cacert FILE`, `--capath`, `-E`/`--cert FILE[:PASSWORD]`, `--key FILE`, `--pass PASSWORD`, `--cert-type PEM\\|P12` |
 | Proxy | `-x`/`--proxy [http://\\|https://]HOST[:PORT]`, `-U`/`--proxy-user`, `--noproxy HOSTS`. `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honored, as curl does. |
 | Time and retries | `-m`/`--max-time`, `--connect-timeout`, `--retry N`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`, `--retry-connrefused` |
 | Output | `-o`/`--output FILE`, `-O`/`--remote-name`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `-i`/`--include`, `-D`/`--dump-header FILE`, `-s`/`--silent`, `-S`/`--show-error`, `-v`/`--verbose`, `-w`/`--write-out`, `-f`/`--fail`, `--fail-with-body`, `-r`/`--range`, `--max-filesize` |
@@ -973,6 +1086,18 @@ and writes no files there (`-o`, `-O`, `-D FILE` and `-c` are refused).
 `%{http_code}` (also `%{response_code}`), `%{size_download}`, `%{size_header}`, `%{time_total}`,
 `%{content_type}`, `%{url_effective}`, `%{redirect_url}`, `%{num_redirects}`, `%{method}`,
 `%{scheme}`, `%header{Name}`, and `\\n`, `\\t`.
+
+## Client certificates
+
+`-E client.pem` sends a client certificate; the private key is in the same file or in
+`--key client.key`. When the key has a password, give it after a colon, `-E client.pem:secret`, or
+with `--pass secret`. A `.p12` or `.pfx` file (or `--cert-type P12`) works the same way. A colon
+that is part of the file name is written `\\:`; a Windows drive (`C:\\certs\\me.pem`) needs nothing.
+
+An encrypted key needs the `cryptography` package. The key is unlocked in memory and written,
+with the certificate, to a temporary file only you can read, which is deleted as soon as the
+transfers end. A wrong password stops with status 58, and so does an encrypted key with no
+password given.
 
 ## Pasting a curl command
 
@@ -990,7 +1115,8 @@ The same goes for rc files and funcs.
 
 As curl's: `0` success, `2` a bad option, `3` a bad URL, `6` the host can't be resolved, `7`
 can't connect, `22` an HTTP error with `-f`, `23` a write error or a binary body, `28` timed out,
-`47` too many redirects, `56` a receive error, `60` the TLS certificate failed, `63` larger than
+`47` too many redirects, `56` a receive error, `58` the client certificate or its key can't be
+loaded (a wrong password), `60` the TLS certificate failed, `63` larger than
 `--max-filesize`. `-s` hides the message; the status stays in `$?`.
 
 ## Not supported yet
