@@ -248,7 +248,8 @@ db1      database
 
 `{host:<8}` pads the host name to 8 characters, on the right, so the roles line up. `{n:>5}` pads
 on the left, `{price:.2f}` gives two decimal places, and `{n:,}` puts commas in big numbers. A
-variable holds text, but a spec for numbers like `.2f` reads it as a number for you:
+value that is text, like a loop word or a piece of one, is fine too: a spec for numbers like `.2f`
+reads it as a number for you:
 
 <!-- run -->
 ```

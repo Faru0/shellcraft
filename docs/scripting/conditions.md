@@ -176,8 +176,8 @@ and you get:
 ```
 
 With quotes, `[ "$answer" = yes ]`, it sees an empty piece of text and says "not equal", which is
-what you meant. The same thing happens when the value has a space: `name="Ada L"` and
-`[ $name = "Ada L" ]` fails with `[: unexpected argument 'L'`.
+what you meant. A value with a space is different: ShellCraft keeps a variable in one piece, so
+`[ $name = "Ada L" ]` works, but in bash it breaks, so quote it anyway.
 
 ## Comparing numbers
 
@@ -555,8 +555,8 @@ example both ways.
 **`command not found: [1`.** There's no space after `[`. `[$a -eq 1]` glues `[` to the value, so
 the shell looks for a command named `[1`. Write `[ $a -eq 1 ]`.
 
-**`[: unexpected argument …`.** A variable was empty or had a space in it. Put it in double quotes:
-`[ "$name" = "Ada L" ]`. See [Comparing text](#comparing-text).
+**`[: unexpected argument …`.** A variable was empty. Put it in double quotes:
+`[ "$answer" = yes ]`. See [Comparing text](#comparing-text).
 
 **`[: abc: integer expression expected`.** You used `-eq`, `-lt` or another number test on
 something that isn't a whole number. Check the value, or compare it as text with `=`.

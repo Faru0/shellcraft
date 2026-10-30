@@ -61,7 +61,7 @@ look: `greet: a function body goes in braces: greet() { echo hi; }`.
 A function that does the same thing every time is a start, but most of the time you want to tell
 it what to work on: which file, which name, which server. The words after the function's name are
 its arguments. Inside, `$1` is the first, `$2` the second, and so on. `$#` is how many there are,
-and `$@` is all of them:
+and `$@` is all of them. Outside a function, `$#` is 0 and `$1` is empty:
 
 <!-- run -->
 ```
@@ -398,9 +398,11 @@ brackets: `greet Sam Hi`. Each argument fills the next parameter, so `name` is `
 `greeting` is `Hi`. When there's no second argument, `greeting` falls back to `Hello`.
 
 Each parameter is a `local` variable, so the shell's own `name` isn't touched. Calling `greet` with
-no arguments stops with `greet: missing argument 'name' (usage: greet NAME)`. Inside, `if` and
-`for` take Python conditions, and `$1`, `$#` and `$@` still work. `echo` with `$( )`, `read` and
-`input()` work the same as in a bash-style function.
+no arguments stops with `greet: missing argument 'name' (usage: greet NAME GREETING)`. Inside,
+`if` and `for` take Python conditions, and `$1`, `$#` and `$@` still work. `echo` with `$( )`,
+`read` and `input()` work the same as in a bash-style function, and so do Python's `print()` and
+f-strings: `print(f"{greeting}, {name}!")`. See
+[Build text with f-strings and print](python-style.md#build-text-with-f-strings-and-print).
 
 Notice the two ways of reading a parameter. In a Python condition like `name == "Ada"`, you write
 the bare name. In a command like `echo "$greeting, $name"`, you write `$` in front, as for any

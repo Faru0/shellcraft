@@ -101,11 +101,12 @@ curl -E client.pem:secret https://internal.example.com/
 curl -E client.pem --key client.key --pass secret https://internal.example.com/
 ```
 
-A `.p12` or `.pfx` file works the same way (`--cert-type P12` if it has another name). If the file
-name itself has a colon in it, write it as `\:`. A Windows path like `C:\certs\me.pem` is fine as
-it is.
+A `.p12` or `.pfx` file works the same way (`--cert-type P12` if it has another name). PEM and P12
+are the only types; any other `--cert-type` stops with status 58. If the file name itself has a
+colon in it, write it as `\:`. A Windows path like `C:\certs\me.pem` is fine as it is.
 
-A key with a password needs the `cryptography` package (`pip install cryptography`). ShellCraft
+A key with a password needs the `cryptography` package (`pip install cryptography`), and so does
+any `.p12` file, with or without a password. ShellCraft
 unlocks the key in memory and writes it, with the certificate, to a temporary file that only you
 can read. The file is deleted as soon as the request ends, even when it fails or you press
 Ctrl-C. A key without a password is used straight from your file.

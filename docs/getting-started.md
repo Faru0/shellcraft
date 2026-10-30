@@ -296,8 +296,8 @@ Each one has a manual: `man ls`, `man grep`.
 | Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `yes` `jq` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | System | `date` `which` `type` `command` `env` `whoami` `hostname` `uname` `curl` |
-| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `export` `read` `sleep` `time` `xargs` `test` |
-| Scripting | `for` `while` `until` `if` `case` `select` `function` |
+| Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `:` `export` `read` `sleep` `time` `xargs` `test` |
+| Scripting | `for` `while` `until` `if` `case` `select` `function` `set` `trap` `getopts` |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
 | AI and MCP | `mcp` `ai` `watch` `tasks` `findings` `mark` `tell` `review` `ingest` |
 

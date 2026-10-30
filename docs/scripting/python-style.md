@@ -481,8 +481,10 @@ starts with Ada
 a short name with Love in it
 ```
 
-Notice that the bash version needs quotes around `"$name"` because the value has a space in it,
-and the Python version doesn't, because `name` is one Python value however many spaces it holds.
+Notice that the bash version puts quotes around `"$name"`, because in bash a value with a space
+in it would break apart. ShellCraft keeps it in one piece either way, but the quotes keep the line
+working in bash too. The Python version needs none, because `name` is one Python value however
+many spaces it holds.
 
 ## Test a command
 
@@ -727,7 +729,7 @@ liftoff!
 ```
 
 `until` runs until its condition holds, in both styles: `until [ $n -ge 3 ]; do … done`, or
-`until -py int(n) >= 3:`. `while true` loops until a `break`; in Python style it's
+`until -py int(n) >= 3:`. `while true` (or `while :`) loops until a `break`; in Python style it's
 `while -py True:`, with a capital T (see [Conditions: Python or a command](#conditions-python-or-a-command)).
 
 ## break and continue
@@ -1504,7 +1506,7 @@ Use this table to translate a bash example into Python style or back, one line a
 | Words of a command's output | `for w in $(cat f); do` | (use the line form) |
 | Lines of a file | (no direct form) | `for -py line in (cat f):` |
 | While | `while [ … ]; do … done` | `while -py …:` |
-| Forever | `while true; do` | `while -py True:` |
+| Forever | `while true; do` or `while :; do` | `while -py True:` |
 | Choices | `case $x in a) … ;; *) … ;; esac` | `match x:` then `case "a":` and `case _:` |
 | Numbered menu | `select x in a b; do … done` | `select -py x in a b:` |
 | Print | `echo "$a-$b"` | `print(f"{a}-{b}")` (in a block) |

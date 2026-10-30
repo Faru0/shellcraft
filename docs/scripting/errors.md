@@ -286,6 +286,10 @@ echo "hello ${name:-friend}"
 hello friend
 ```
 
+For one variable a script can't do without, `${name:?message}` stops with your own message when
+it's empty or not set, with or without `set -u`: `: ${API_URL:?set API_URL first}`. See
+[Defaults, lengths and trimming](variables-and-input.md#defaults-lengths-and-trimming).
+
 ### Notice failures in a pipe with set -o pipefail
 
 A pipe's status is normally the status of its last command. That hides a failure earlier in the
@@ -599,7 +603,7 @@ There are no error types like in Python, because a command only gives back a num
 `except ValueError:` stops with
 `except ValueError: there are no error types here; use 'except:', or 'except as status:' for the failing status`.
 To act on one kind of failure, look at the number: `except as rc:`, then `if int(rc) == 2:`. The
-status arrives as text, as every shell variable does, so `int()` makes it a number to compare.
+status arrives as text, like a value set the bash way, so `int()` makes it a number to compare.
 
 ## Which one to use
 

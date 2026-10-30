@@ -183,6 +183,63 @@ The func's header says it runs programs from your system, and OS commands are of
 with `settings system_commands on`, or start ShellCraft with `--allow-system`. See
 [Funcs](funcs.md).
 
+## Variables and scripts
+
+### A variable prints nothing
+
+A variable you never set is empty, as in bash, so `echo "hi $nmae"` prints `hi `. Check the
+spelling. To catch a typo like this, put `set -u` at the top of the script: then an unset `$name`
+is an error instead (see the next entry). To give a default when it's empty, write
+`${name:-default}`.
+
+### `nmae: unbound variable`
+
+`set -u` is on and the variable has no value. Fix the name, set it first, or give it a default
+with `${nmae:-default}`. `set +u` turns the check off. See
+[Stop on errors](scripting/errors.md#stop-on-errors-with-set--e).
+
+### `${!name}: bad substitution`
+
+A `✗ parse error`, so nothing ran. The `${…}` form isn't one ShellCraft has. It has bash's
+defaults (`:-` `:=` `:+` `:?`), the length `${#v}`, trimming (`#` `##` `%` `%%`), replacing
+(`/` `//`), slices (`${v:0:3}`) and case (`^^` `,,` `^` `,`). `${!name}` (the value of the variable
+whose name is in `name`) and `${v@Q}` aren't there. The table is in
+[Defaults, lengths and trimming](scripting/variables-and-input.md#defaults-lengths-and-trimming).
+
+### `name: parameter null or not set`
+
+A `${name:?}` stopped the script, because `name` was empty or unset. That's what it's for: it
+guards a value the rest needs. With your own message, `${name:?give a name}`, you see
+`name: give a name` instead. In a function or func, `1: …` means the first argument was missing.
+Set the variable, or pass the argument.
+
+### `command not found: x` after `x = 5`
+
+At the prompt and in bash-style lines, spaces around `=` make `x` a command. Write `x=5`. The
+form with spaces works only inside a `-py` block or a `def`, see
+[Python assignment](scripting.md#python-assignment).
+
+### `can only concatenate str (not "int") to str (values set from bash are text: …)`
+
+Python code got text where it expected a number. A value set the bash way (`x=5`, `read`, a loop
+word, an argument) is text in Python, so write `int(x) + 1`. A value set in Python (`n = 5`,
+`n = int(input())`) keeps its type. The same hint follows `'>' not supported between instances of
+'str' and 'int'`. See [Text and numbers](scripting/python-style.md#text-and-numbers).
+
+## curl and client certificates
+
+### `curl: (58) the private key in client.pem is encrypted: …`
+
+Your key has a password and curl wasn't given one. Add it after a colon,
+`curl -E client.pem:PASSWORD URL`, or with `--pass PASSWORD`.
+
+### `curl: (58) could not unlock the key in client.pem: wrong password?`
+
+The password doesn't open the key. Check it, and check that the `-E` or `--key` file is the right
+one. Status 58 also covers a certificate file that's missing, and a key password or `.p12` file
+when the `cryptography` package isn't installed (`pip install cryptography`).
+[Client certificates](curl.md#client-certificates) has the rest.
+
 ## Your rc file or a startup file fails
 
 When a line in a startup file fails, ShellCraft says which file and which line, then shows the

@@ -379,6 +379,10 @@ the usage and ends with `false`, so that step fails and nothing after it runs. `
 that does nothing except fail, which is exactly what's needed here. The usage message goes to the
 error stream with `>&2`, so it shows in the error color.
 
+A shorter way to write that first line is `: ${1:?usage: newproject NAME}`. `${1:?…}` stops the
+step with the message when `$1` is empty, and `:` is a command that does nothing else. See
+[Defaults, lengths and trimming](variables-and-input.md#defaults-lengths-and-trimming).
+
 With a name, `newproject website` makes `~/work/website`, moves into it, writes `# website` as the
 README's heading and today's date into the notes. You end up in the new folder, because a func runs
 in your shell.
@@ -404,10 +408,10 @@ def todo_list():
     if not isfile(todo_file):
         echo "nothing to do"
         return 0
-    number=0
+    number = 0
     for -py item in (cat $todo_file):
-        number=$((number + 1))
-        echo "$number. $item"
+        number += 1
+        print(f"{number}. {item}")
 
 def todo_done(which):
     rm $todo_file
@@ -437,8 +441,9 @@ ShellCraft checks it for you: `item` is required, so `todo_add` on its own stops
 
 In `todo_list`, `if not isfile(todo_file):` is a Python condition. `isfile` checks that the file
 exists, and `todo_file` has no `$` because it's inside a Python condition. Then `for -py item in
-(cat $todo_file):` goes through the file one whole line at a time, and the loop counts as it goes
-to print the numbers.
+(cat $todo_file):` goes through the file one whole line at a time. `number = 0` sets a Python
+number, `number += 1` counts as it goes, and the f-string in `print()` puts the number and the item
+together. See [Build text with f-strings and print](python-style.md#build-text-with-f-strings-and-print).
 
 `todo_done` takes an argument, `which`, so you can type `todo_done all`. This simple version clears
 the whole list whatever you pass.

@@ -75,19 +75,19 @@ of it carries over. If you haven't, the guide starts from the beginning and has 
 everything.
 
 - [Scripting guide](scripting/README.md): where scripts live, how to try them, and how ShellCraft differs from bash
-- [Variables and input](scripting/variables-and-input.md): variables, quoting, defaults, arithmetic, asking the user
-- [Printing text](scripting/printing.md): `echo`, several lines, `printf` columns, colors, files
+- [Variables and input](scripting/variables-and-input.md): variables, quoting, defaults and `${...}` expansion, arithmetic, asking the user
+- [Printing text](scripting/printing.md): `echo`, several lines, `printf` columns, `print()` and f-strings, colors, files
 - [Conditions and choices](scripting/conditions.md): `if`, tests, `&&` and `||`, `case`
 - [Loops and menus](scripting/loops.md): `for`, `while`, reading a file, `break`, `select` menus
 - [Functions](scripting/functions.md): arguments, defaults, `local`, `return`, giving back a value
 - [Errors and cleanup](scripting/errors.md): `set -e`, `trap`, `try`
 - [Complete examples](scripting/examples.md): rc files, startup files and funcs to copy
-- [Bash style and Python style](scripting/python-style.md): every block written both ways, side by side
+- [Bash style and Python style](scripting/python-style.md): every block written both ways side by side, plus f-strings and `.format()`
 
 ## Using the shell
 
 - [Pipes and scripting](scripting.md): pipes, redirects, comments, environment variables, exit status, and a summary of the syntax
-- [curl](curl.md): web requests, and pasting a browser's "Copy as cURL"
+- [curl](curl.md): web requests, client certificates, and pasting a browser's "Copy as cURL"
 - [Keyboard and mouse](keyboard-and-mouse.md): shortcuts, completion, the viewer
 
 ## Reference

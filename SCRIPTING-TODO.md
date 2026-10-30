@@ -71,6 +71,14 @@ docs cover it, and anything left out. An item is done only when the full test su
   - [x] **10f.** docs/subshells.md, curl.md, mcp-and-ai.md, modules/*.md
     - Notes: subshells, curl, mcp-and-ai and modules pages rewritten with intros, walk-throughs, real error messages and if-it-fails notes; curl gained exit-status table, browser paste steps, --cert password gap; mcp gained what-MCP-is, rule precedence and fields; tests pass
 
+- [x] **15. Bring docs/ up to date with items 11-14 and the later fixes**: no page may still describe the old behaviour; new features are mentioned where a reader would look for them
+  - [x] **15a.** docs/scripting/*.md
+    - Notes: Fixed stale unset-var, always-text, quoting and usage claims; added ${...} line splitting, while :, ${1:?} and f-string and print mentions; tests pass
+  - [x] **15b.** docs/scripting.md, cheatsheet.md, command-line.md, funcs.md, startup.md, getting-started.md, troubleshooting.md
+    - Notes: scripting.md + cheatsheet: unset is empty, : and while :, quoted [[ == ]] text; funcs: ${1:?usage} early stop; getting-started: : set trap getopts in table; troubleshooting: new Variables and scripts + curl 58 sections; command-line and startup unchanged; docs tests pass
+  - [x] **15c.** docs/README.md, curl.md, mcp-and-ai.md, subshells.md, profiles.md, aliases-and-history.md, keyboard-and-mouse.md, settings-and-themes.md, your-shellcraft-folder.md, modules/*.md
+    - Notes: curl.md cert section checked against code (all messages and the drive and \: rules match), added that any .p12 needs cryptography and only PEM or P12 types; README router lists ${...}, print() and f-strings, client certs; other pages needed no change
+
 ## Later
 
 Not part of this round.

@@ -82,6 +82,7 @@ The lines you use in the rc file, startup files, funcs and at the prompt. Bash s
 name=Ada; echo "hi $name"                        # a variable
 echo "${who:-stranger}" $((2 + 3))               # a default, arithmetic
 echo ${f%.txt} ${f##*/} ${#f} ${f^^} ${f/a/b}    # trim, length, capitals, replace
+: ${port:=8080}                                  # set it only if unset or empty (an unset $x is empty)
 name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks); input(f"…") too
 read -p "Env? " env                              # ask, bash style
 read -s -p "Token: " token                       # ask without showing it
@@ -95,6 +96,8 @@ case $env in dev|test) echo safe ;; prod) echo careful ;; *) echo "?" ;; esac
 for f in *.log; do echo $f; done                 # also {1..5}, $(cat list), "a b c"
 for -py line in (cat hosts.txt) { echo $line }   # a file, line by line
 n=0; while [ $n -lt 3 ]; do n=$((n + 1)); done
+while :; do read -p "q to quit: " a; [ "$a" = q ] && break; done   # : is always true
+[[ $f == *.txt ]]                                # a pattern; [[ $f == "*.txt" ]] is the plain text
 select env in dev prod; do echo $env; break; done   # a numbered menu
 
 greet() { local who=${1:-friend}; echo "hi $who"; }

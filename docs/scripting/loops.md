@@ -305,8 +305,26 @@ Python-style block is Python style already. Notice that `line` has no `$` in the
 does in the `echo`. A Python condition uses names like Python does, and a command line uses `$`
 like the shell does.
 
-Inside the loop, `$line` is always one word, and `$( )` doesn't run. To take a line apart, hand it
-to a [function](functions.md), where `cut` can split it:
+Inside the loop, `$line` is always one word, and `$( )` doesn't run. To take a line apart, use
+the `${…}` forms: `${line%% *}` cuts from the first space to the end, which leaves the first word,
+and `${line#* }` cuts up to the first space, which leaves the rest:
+
+<!-- run -->
+```
+printf "web1 frontend\ndb1 database\n" > hosts.txt
+for -py line in (cat hosts.txt):
+    echo "${line%% *} is a ${line#* } server"
+```
+
+<!-- output -->
+```
+web1 is a frontend server
+db1 is a database server
+```
+
+[Defaults, lengths and trimming](variables-and-input.md#defaults-lengths-and-trimming) lists them
+all. When a line has more fields than that, hand it to a [function](functions.md), where `cut` can
+split it:
 
 <!-- run -->
 ```
@@ -326,9 +344,9 @@ db1 is a database server
 ```
 
 `describe` gets the whole line as `$1`. `cut -d " " -f 1` splits it at spaces and keeps the first
-field, and `-f 2` keeps the second. `local` keeps `host` and `role` inside the function, so they
-don't overwrite variables with the same names elsewhere in your script. The last line shows that a
-one-line body can go right after the `:`.
+field, and `-f 2` keeps the second (`-f 3` would keep a third). `local` keeps `host` and `role`
+inside the function, so they don't overwrite variables with the same names elsewhere in your
+script. The last line shows that a one-line body can go right after the `:`.
 
 If the file isn't there, `cat` reports `cat: hosts.txt: no such file` and the loop runs zero
 times.
@@ -373,7 +391,7 @@ n=0
 total=0
 while -py int(n) < 4:
     n += 1
-    total += int(n)
+    total += n
     echo "after $n: $total"
 ```
 
@@ -384,6 +402,9 @@ after 2: 3
 after 3: 6
 after 4: 10
 ```
+
+`n=0` is text, so the condition needs `int(n)` the first time round. After `n += 1`, `n` is a
+number, so `total += n` can use it as it is.
 
 `until -py` and `while -py True:` work the same way, and so do `break` and `continue`.
 [Bash style and Python style](python-style.md) shows every loop both ways.
@@ -519,7 +540,8 @@ keep
 In nested loops, `break` and `continue` act on the innermost loop only.
 
 `while true` makes a loop that only stops at a `break`, which is useful when you don't know in
-advance how many rounds you need. The menus below use it. Ctrl-C stops any loop.
+advance how many rounds you need. The menus below use it. `while :` is the same: `:` is a command
+that does nothing and succeeds, and you'll see it in bash scripts. Ctrl-C stops any loop.
 
 ## Send a whole loop somewhere
 

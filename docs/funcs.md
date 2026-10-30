@@ -182,6 +182,17 @@ echo "checking $1"
 `✗ need: step 1 failed (…): exit status 1`, and stops there. `func run need example.com` goes on to
 the next step.
 
+For a missing argument there's a shorter way, as in bash. `${1:?MESSAGE}` stops with your message
+when `$1` is empty, and the `:` command does nothing but read it:
+
+```
+: ${1:?usage: need DOMAIN}
+echo "checking $1"
+```
+
+`func run need` then stops at step 1 with `1: usage: need DOMAIN`. See
+[Defaults, lengths and trimming](scripting/variables-and-input.md#defaults-lengths-and-trimming).
+
 ### Common mistakes
 
 `return` doesn't work in a func, because a func isn't a function. You'll see

@@ -88,9 +88,11 @@ n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons,
 echo ${f:-none} ${#f}            # a default, the length
 echo ${f%.txt} ${f##*/}          # trim a pattern off the end / the start (% %% # ##)
 echo ${f/old/new} ${f^^} ${f:0:3}   # replace (// for all), capitals (,, small), a slice
+: ${port:=8080}                  # set a default only if port is unset or empty (: does nothing)
 ```
 
-There are no spaces around the `=`. `x = 5` at the prompt runs a command named `x` and fails with
+A variable you never set is empty, as in bash: `echo "[$nope]"` prints `[]`. `set -u` makes it an
+error instead. There are no spaces around the `=`. `x = 5` at the prompt runs a command named `x` and fails with
 `command not found: x`. Python-style blocks are the exception, see
 [Python assignment](#python-assignment).
 
@@ -155,6 +157,7 @@ do
 done
 
 n=0; while [ $n -lt 3 ]; do echo $n; n=$((n+1)); done     # while and until
+while :; do read -p "cmd? " c; [ "$c" = q ] && break; done   # : is always true: loop until break
 case $f in *.py) echo python;; *.md|*.txt) echo text;; *) echo other;; esac
 select env in dev staging prod; do echo "deploy to $env"; break; done   # a numbered menu ($PS3, $REPLY)
 for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be piped or redirected
@@ -167,6 +170,8 @@ for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be 
   `[ … ]`, `test`, `grep -q`, `true` and `false`, and `[[ … ]]`, which also understands `==`
   patterns, `=~` regexes, `<` / `>` / `<=` / `>=` text order, Python's `in` / `not in` / `is` /
   `is not`, and `&&`, `||`, `!` and `( … )` inside: `[[ -f $f && ( $x == a || $x == b ) ]]`.
+  On the right of `==`, `!=` or `=`, unquoted text is a pattern and quoted text is plain text:
+  `[[ $f == *.txt ]]` matches any `.txt` name, `[[ $f == "*.txt" ]]` only the name `*.txt`.
   `!`, `&&` and `||` work anywhere. `man test` lists the tests.
 
 ### Python style

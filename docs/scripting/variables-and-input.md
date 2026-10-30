@@ -135,7 +135,7 @@ report_2026.txt
 ```
 
 Without the braces, `$file_2026` looks like one name, `file_2026`. There's no variable called that,
-so you'd get the text `$file_2026.txt` back. A letter, digit or `_` right after the name needs
+so it's empty and you'd get only `.txt` back. A letter, digit or `_` right after the name needs
 braces. A `.`, `-`, `/` or space doesn't, because it can't be part of a name.
 
 ## Default values
@@ -198,7 +198,8 @@ the length of a value or a part of it.
 
 ## Arithmetic
 
-Every variable holds text, even when the text is a number. To do a sum, put it inside `$(( ))`.
+A variable set the bash way holds text, even when the text is a number. To do a sum, put it inside
+`$(( ))`.
 You can use `+`, `-`, `*`, `/` (whole numbers), `%` (the remainder) and `**` (a power). Inside the
 brackets, the `$` in front of a variable is optional:
 

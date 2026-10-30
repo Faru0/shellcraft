@@ -103,7 +103,7 @@ before it:
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
 | [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value, `def`, options like `-v` |
 | [Errors and cleanup](errors.md) | Stopping on the first failure with `set -e`, `set -u`, `set -x` and `pipefail`, cleaning up with `trap`, catching failures with `try`, `except` and `finally` |
-| [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions, `try` |
+| [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions, `try`, and f-strings with `print()` |
 | [Complete examples](examples.md) | Whole rc files, startup files and funcs you can copy and adapt |
 
 Variables come first because everything else uses them. If you only want something working today,
