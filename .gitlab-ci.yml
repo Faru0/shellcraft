@@ -1,7 +1,6 @@
 # ShellCraft CI: tests on Linux and Windows across the supported Pythons, lint, the module
 # checker, a packaging smoke test (build the wheel, install it into a clean venv, run it), and the
 # docs website on GitLab Pages (the `pages` job).
-# GitHub's mirror runs the same steps from .github/workflows/ci.yml.
 
 stages: [check, test, package, deploy]
 

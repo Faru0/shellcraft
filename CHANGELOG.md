@@ -100,6 +100,8 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Changed
 
+- **No CI on GitHub.** `.github/workflows/ci.yml` is gone; CI runs on GitLab only
+  (`.gitlab-ci.yml`). The GitHub mirror keeps `.github/workflows/docs.yml` for the docs website.
 - **Python values keep their type.** In a `-py` block or a `def`, `n = 5`, `ok = n > 3` and
   `n = int(input(…))` store the number or `True` / `False`, so `print(n + 1)` and `if -py ok:` work
   without `int()`. Bash still reads them as text (`$n` is `5`), and values set the bash way

@@ -15,7 +15,7 @@ shellcraft ingest check --all --strict                  # check every bundled mo
 python -m build --wheel                                 # the packaging smoke test installs this into a clean venv
 ```
 
-CI (`.gitlab-ci.yml`, mirrored in `.github/workflows/ci.yml`) runs the lint, the module checker,
+CI (`.gitlab-ci.yml`, GitLab only) runs the lint, the module checker,
 pytest on Linux and Windows for Python 3.11–3.14, and the packaging smoke test. Releases are
 listed in [CHANGELOG.md](CHANGELOG.md); the version lives in `shellcraft/__init__.py` only.
 
@@ -113,7 +113,7 @@ shellcraft/
 ├── ai/                     # agents and skills for an AI co-pilot (Claude Code), not part of the package
 ├── tests/                  # pytest suite
 ├── .gitlab-ci.yml          # CI: lint, module checker, pytest (Linux + Windows, 3.11–3.14), packaging smoke test
-└── .github/workflows/      # the same CI for the GitHub mirror
+└── .github/workflows/      # docs.yml: the docs website on GitHub Pages (no CI on GitHub)
 ```
 
 ## How a command line runs
