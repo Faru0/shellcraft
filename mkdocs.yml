@@ -1,0 +1,85 @@
+# The docs website: `docs/` built with MkDocs (Material theme). CI builds it on every push to main:
+# GitHub Pages from .github/workflows/docs.yml, GitLab Pages from the `pages` job in .gitlab-ci.yml.
+# Build it locally: pip install -r requirements-docs.txt && mkdocs serve (http://127.0.0.1:8000).
+# Every page in docs/ must be listed in `nav` (tests/test_docs_site.py checks).
+
+site_name: ShellCraft manual
+site_description: User guide for ShellCraft, a modular, pipe-friendly shell.
+# Each CI sets these: GitLab gives CI_PAGES_URL / CI_PROJECT_URL, the GitHub workflow sets
+# SITE_URL / REPO_URL. Links from docs/ to files outside it (README.md, CHANGELOG.md) go to the repo.
+site_url: !ENV [SITE_URL, CI_PAGES_URL, ""]
+repo_url: !ENV [REPO_URL, CI_PROJECT_URL, "https://github.com/Faru0/shellcraft"]
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+hooks:
+  - tools/mkdocs_hooks.py
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's anchors (`set -e` -> `#set--e`), so links work on both the repo and the site
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: README.md
+  - Start here:
+      - Getting started: getting-started.md
+      - Your ~/.shellcraft folder: your-shellcraft-folder.md
+      - Cheat sheet: cheatsheet.md
+      - Troubleshooting: troubleshooting.md
+  - Daily use:
+      - Aliases and history: aliases-and-history.md
+      - Keyboard and mouse: keyboard-and-mouse.md
+      - Settings and themes: settings-and-themes.md
+      - Profiles: profiles.md
+      - Subshells, alerts and the clip: subshells.md
+      - curl: curl.md
+      - Command line: command-line.md
+  - Scripting:
+      - Pipes and scripting: scripting.md
+      - Scripting guide: scripting/README.md
+      - Variables and input: scripting/variables-and-input.md
+      - Printing text: scripting/printing.md
+      - Conditions and choices: scripting/conditions.md
+      - Loops and menus: scripting/loops.md
+      - Functions: scripting/functions.md
+      - Errors and cleanup: scripting/errors.md
+      - Bash style and Python style: scripting/python-style.md
+      - Complete examples: scripting/examples.md
+      - Startup files: startup.md
+      - Funcs: funcs.md
+  - Modules:
+      - Your first module: modules/first-module.md
+      - Ingest a script: modules/ingest.md
+      - Add modules you already have: modules/adding-modules.md
+      - Module reference: modules/reference.md
+  - MCP and the AI co-pilot: mcp-and-ai.md

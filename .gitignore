@@ -5,3 +5,7 @@ __pycache__/
 build/
 dist/
 .claude/
+
+# the docs website (mkdocs build)
+site/
+public/

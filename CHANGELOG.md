@@ -7,6 +7,9 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A docs website.** `docs/` is built with MkDocs (`mkdocs.yml`) and published on every push
+  to main: GitHub Pages (`.github/workflows/docs.yml`) and GitLab Pages (the `pages` job). See
+  DEVELOPMENT.md, "The docs website", for the one-time setup on each.
 - **The `:` command.** It does nothing and succeeds, after expanding its arguments, so the bash
   idiom `: ${name:=default}` sets a default and `while :; do` loops forever, as in bash.
 - **Bash parameter expansion.** `${v:-default}`, `${v:=default}` (also sets it), `${v:+alt}`,

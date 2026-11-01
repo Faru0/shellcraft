@@ -352,3 +352,22 @@ How to write them:
   for one that asks questions) and follow it with an `<!-- output -->` block when the output is
   the same every time. `tests/test_docs.py` sources each one as an rc file would and compares.
 
+
+### The docs website
+
+The same pages are published as a website: GitHub Pages from `.github/workflows/docs.yml`, and
+GitLab Pages from the `pages` job in `.gitlab-ci.yml`. Both run `mkdocs build --strict` with
+`mkdocs.yml` on every push to main that touches the docs. To see it before you push:
+
+```
+pip install -r requirements-docs.txt
+mkdocs serve
+```
+
+and open http://127.0.0.1:8000. A new page must be added to `nav` in `mkdocs.yml` as well as to
+`docs/README.md` (`tests/test_docs_site.py` checks the first). Links to files outside `docs/`, like
+`../CHANGELOG.md`, are fine: `tools/mkdocs_hooks.py` points them at the file in the repo.
+
+GitHub needs a one-time switch: Settings > Pages > Source: "GitHub Actions". GitLab needs Pages
+turned on for the server (`pages_external_url` in `/etc/gitlab/gitlab.rb` and a wildcard DNS
+record); after that the site shows under Deploy > Pages.

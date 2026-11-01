@@ -1,0 +1,50 @@
+# The docs website on GitHub Pages: builds docs/ with MkDocs (mkdocs.yml) on every push to main
+# that touches the docs, and publishes it at https://<owner>.github.io/<repo>/.
+# One-time setup in the repo: Settings > Pages > Source: "GitHub Actions".
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt, tools/mkdocs_hooks.py, .github/workflows/docs.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NO_MKDOCS_2_WARNING: "true"
+      REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - id: pages
+        uses: actions/configure-pages@v5
+      - run: pip install -r requirements-docs.txt
+      - run: mkdocs build --strict
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

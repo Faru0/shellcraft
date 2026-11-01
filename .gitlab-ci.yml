@@ -1,8 +1,9 @@
 # ShellCraft CI: tests on Linux and Windows across the supported Pythons, lint, the module
-# checker, and a packaging smoke test (build the wheel, install it into a clean venv, run it).
+# checker, a packaging smoke test (build the wheel, install it into a clean venv, run it), and the
+# docs website on GitLab Pages (the `pages` job).
 # GitHub's mirror runs the same steps from .github/workflows/ci.yml.
 
-stages: [check, test, package]
+stages: [check, test, package, deploy]
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
@@ -64,3 +65,19 @@ package:
   artifacts:
     paths: [dist/]
     expire_in: 1 week
+
+# The docs website: docs/ built with MkDocs (mkdocs.yml) into public/, which GitLab Pages serves at
+# the project's Pages URL (Deploy > Pages). Needs Pages turned on for this GitLab server.
+pages:
+  image: python:3.14
+  stage: deploy
+  variables:
+    NO_MKDOCS_2_WARNING: "true"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [docs/**/*, mkdocs.yml, requirements-docs.txt, tools/mkdocs_hooks.py, .gitlab-ci.yml]
+  script:
+    - pip install -r requirements-docs.txt
+    - mkdocs build --strict --site-dir public
+  artifacts:
+    paths: [public]
