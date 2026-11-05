@@ -182,6 +182,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **Questions use the shell's own prompt.** `input()`, `read -p`, `select` and the other
+  questions a script asks (also in `~/.shellcraft/startup/*.sc`) used to start a second
+  prompt_toolkit app, which garbled the output on Windows. They now ask on the shell's own prompt,
+  with Tab completion, suggestions and the history turned off while you answer.
 - **`r=$( a; b )` at the prompt.** A `;` inside `$( )` used to end the line there, so the
   assignment failed with "missing ')'". Lines typed at the prompt now skip over `$( )` as scripts do.
 - **`curl --cert FILE:PASSWORD` uses the password.** The password for an encrypted client key

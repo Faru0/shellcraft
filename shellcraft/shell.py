@@ -312,6 +312,10 @@ class Shell:
             key_bindings=self._key_bindings(),
         )
         self.session.app.after_render += lambda _app: self.footer.draw()
+        # Questions from scripts (`input()`, `read -p`) are asked on this session (ask.ask).
+        self._answering = False
+        ctx.ask_line = self.ask_line
+        self._cleanup.callback(setattr, ctx, "ask_line", None)
         self._shorten_output_for_footer()
         # The loop saves each command itself, after `!!` / `!$` expansion and after joining the
         # continuation lines of a multi-line `for` / `if`, so ↑ and `history` show what ran.
@@ -1055,7 +1059,7 @@ class Shell:
     def _take_mouse_back(self) -> None:
         """A key press after the wheel handed the mouse to the terminal: the shell wants it back
         (the footer's lines), so the next render turns mouse reporting on again."""
-        if self._mouse_released:
+        if self._mouse_released and not getattr(self, "_answering", False):
             self._mouse_released = False
             app = getattr(self.session, "app", None)
             if app is not None and app.is_running:
@@ -1217,6 +1221,8 @@ class Shell:
         self._update_toolbar()
 
     def _update_toolbar(self) -> None:
+        if getattr(self, "_answering", False):  # an answer to `input()`: no toolbar (ask_line)
+            return
         self._mouse_released = False  # typing, or a new prompt: the shell takes the mouse back
         buffer = getattr(self.session, "default_buffer", None)  # tests stub the session
         text = buffer.text if buffer is not None else ""
@@ -1491,6 +1497,49 @@ class Shell:
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line
+
+    # What ask_line turns off for an answer, and puts back after it: `input()` is not a command line.
+    _ANSWER_OFF = {"completer": None, "auto_suggest": None, "complete_while_typing": False, "lexer": None,
+                   "rprompt": None, "bottom_toolbar": None, "mouse_support": False}
+
+    def ask_line(self, message: str, hidden: bool = False) -> str:
+        """A question from a script (`input()`, `read -p`, ctx.ask_line): read one answer on this
+        shell's own prompt session. A second prompt_toolkit application would fight this one for
+        the console (on Windows, CONIN$ / CONOUT$). While answering there is no completion, no
+        suggestion, no colouring, no toolbar, no mouse, none of the shell's keys, and ↑ / ↓ /
+        Ctrl-R don't bring back old commands; the answer is never added to the history. Ctrl-C
+        and Ctrl-D raise KeyboardInterrupt / EOFError as at the prompt (ask.ask maps them)."""
+        from shellcraft.ask import AskError
+
+        session = self.session
+        if session.app.is_running:  # asked from inside the prompt itself (a key binding)
+            raise AskError("input: the prompt is busy")
+        saved = {name: getattr(session, name) for name in (*self._ANSWER_OFF, "key_bindings", "is_password")}
+        erase = session.app.erase_when_done
+        self._answering = True
+        try:
+            for name, value in self._ANSWER_OFF.items():
+                setattr(session, name, value)
+            session.key_bindings = self._answer_keys()
+            session.is_password = hidden
+            session.app.erase_when_done = False
+            return session.prompt(message)
+        finally:
+            for name, value in saved.items():
+                setattr(session, name, value)
+            session.app.erase_when_done = erase
+            self._answering = False
+
+    @staticmethod
+    def _answer_keys() -> KeyBindings:
+        """The keys while answering a question: ↑ / ↓ (and Ctrl-P / Ctrl-N / Ctrl-R) do nothing,
+        so an answer never starts from an old command."""
+        kb = KeyBindings()
+        for key in ("up", "down", "c-p", "c-n", "c-r", "c-s"):
+            @kb.add(key, eager=True)
+            def _(event: Any) -> None:
+                pass
+        return kb
 
     def _before_prompt(self) -> None:
         """The terminal, tidied for a prompt: a Ctrl-C that arrived between commands left its

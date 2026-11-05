@@ -3609,14 +3609,16 @@ def _setting_key(key: str, keys: dict[str, settings.EnvEntry] | None = None) -> 
 def _ask_secret(ctx: ShellContext, entry: settings.EnvEntry) -> str:
     """Read a value without echoing it; only possible in the interactive shell."""
     label = f"{entry.label} ({entry.name}): "
-    try:
-        if ctx.interactive:
-            from prompt_toolkit import prompt
+    from shellcraft import ask
 
-            return prompt(label, is_password=True)
-    except (EOFError, KeyboardInterrupt):
-        raise CommandError(f"settings: cancelled; {entry.name} unchanged") from None
-    raise CommandError(f"settings: no terminal to ask for {entry.name}; use: settings {entry.name} VALUE")
+    no_terminal = f"settings: no terminal to ask for {entry.name}; use: settings {entry.name} VALUE"
+    if not ctx.interactive:
+        raise CommandError(no_terminal)
+    try:
+        return ask.ask(ctx, label, hidden=True)  # on the shell's own prompt (ask.ask)
+    except ask.AskError as exc:
+        raise CommandError(no_terminal if "no terminal" in str(exc)
+                           else f"settings: cancelled; {entry.name} unchanged") from None
 
 
 def _store_env(ctx: ShellContext, entry: settings.EnvEntry, verb: str, value: str | None) -> Text:

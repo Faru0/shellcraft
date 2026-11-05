@@ -12,6 +12,11 @@ string literal as the prompt (single or double quotes, escapes), or an f-string
 so and asks again), and the variable keeps the number for Python code (script.PyValue; `$n` is
 its text). The same lines work inside blocks and functions (script._Runner.run_input), and
 `input(…)` also works anywhere in a `-py` expression (script._input).
+
+Every question is asked on the shell's own prompt_toolkit session (ctx.ask_line, Shell.ask_line),
+with completion, suggestions and history turned off for the answer. A second prompt_toolkit
+application would fight the shell's for the console, which garbles the output on Windows (most
+visibly for questions in ~/.shellcraft/startup/*.sc).
 """
 
 from __future__ import annotations
@@ -96,10 +101,12 @@ def ask(ctx: Any, prompt: str, hidden: bool = False) -> str:
     terminal, or on Ctrl-C (status 130) / Ctrl-D (status 1)."""
     if not ctx.interactive or ctx.ui is None:
         raise AskError("input: there is no terminal to ask on (the interactive shell only)")
-    from prompt_toolkit import prompt as pt_prompt
-
     try:
-        return pt_prompt(prompt, is_password=hidden)
+        if ctx.ask_line is not None:  # the shell's own prompt session (Shell.ask_line)
+            return ctx.ask_line(prompt, hidden)
+        from prompt_toolkit import prompt as pt_prompt
+
+        return pt_prompt(prompt, is_password=hidden)  # no shell session (embedding, tests)
     except KeyboardInterrupt:
         raise AskError("input: cancelled", 130) from None
     except EOFError:

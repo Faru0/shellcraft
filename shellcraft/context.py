@@ -96,6 +96,9 @@ class ShellContext:
     # error style), else the process's stderr (pipeline.write_stderr).
     emit_stderr: Callable[[str], None] | None = None
     stderr_sinks: list[Callable[[str], None]] = field(default_factory=list)
+    # A question from a script (`input()`, `read -p`): the REPL asks it on its own prompt session
+    # (Shell.ask_line, given the message and whether to hide the answer). None outside the shell.
+    ask_line: Callable[[str, bool], str] | None = None
 
 
 @dataclass

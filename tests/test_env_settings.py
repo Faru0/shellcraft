@@ -72,15 +72,15 @@ def test_reset_restores_the_shell_value(ctx, tmp_path):
 
 
 def test_prompt_reads_hidden_value(ctx, monkeypatch):
-    import prompt_toolkit
+    from shellcraft import ask
 
     asked = {}
 
-    def fake_prompt(label, is_password=False):
-        asked.update(label=label, hidden=is_password)
+    def fake_ask(c, label, hidden=False):  # the shell's own prompt session (ask.ask)
+        asked.update(label=label, hidden=hidden)
         return f"  {SECRET}  "
 
-    monkeypatch.setattr(prompt_toolkit, "prompt", fake_prompt)
+    monkeypatch.setattr(ask, "ask", fake_ask)
     ctx.interactive = True
     run_line(f"settings {KEY}", ctx)
     assert asked["hidden"] and KEY in asked["label"]
