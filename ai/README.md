@@ -71,6 +71,7 @@ skills name the real tools, so they work as written.
 | `skills/review-loop/SKILL.md` | `mark` / `review`, approvals, `run_in_shell` results, `ask_user` and threads |
 | `skills/task-board/SKILL.md` | The shared task board: creating, claiming with a lease, reporting, blocking |
 | `skills/case-file/SKILL.md` | The shared case file: one finding per thing, evidence, severity and confidence |
+| `skills/shellcraft-scripting/SKILL.md` | Writing ShellCraft scripts (rc, startup files, funcs, bash and Python style): write, `source -n` check, run, and the mistakes an AI makes most |
 
 ## A first session
 

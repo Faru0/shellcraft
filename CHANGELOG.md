@@ -7,6 +7,11 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A scripting skill for AI clients.** `ai/skills/shellcraft-scripting/SKILL.md` teaches an AI
+  to write, check (`source -n`, `func check`) and run ShellCraft scripts, and lists the mistakes it
+  makes most (text vs numbers, `elif -py`, top-level `x = 5`, arrays). `AI-TODO.md` lists the next
+  ideas for the AI co-pilot. `tests/test_ai_files.py` checks every agent and skill file, and that each
+  tool an agent names exists; it found `fetch` in `soc-triage.md`, which doesn't, and it is removed.
 - **A docs website.** `docs/` is built with MkDocs (`mkdocs.yml`) and published on every push
   to main: GitHub Pages (`.github/workflows/docs.yml`) and GitLab Pages (the `pages` job). See
   DEVELOPMENT.md, "The docs website", for the one-time setup on each.
