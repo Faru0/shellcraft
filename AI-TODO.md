@@ -44,9 +44,11 @@ changes nothing on the remote host. These are proposals, nothing here is built.
 
 Facts that shape all of them (from the code):
 
-- ShellCraft runs OS programs like `ssh`, `ps` and `ss` only when `allow_system` is on
-  (`shellcraft/settings.py`, `shellcraft/pipeline.py`). `shellcraft_pipeline` (read-only sandbox)
-  never runs them. `run_in_shell` can, once the policy or `ai_access` allows it.
+- ShellCraft runs OS programs like `ssh`, `ps` and `ss` only when OS commands are on
+  (`settings system_commands on`, or `--allow-system`). Checked in a real shell: a background
+  command job, the kind `run_in_shell` starts, answered `command not found: ssh` with them off.
+  `shellcraft_pipeline` (the read-only sandbox) never runs them. So remote research needs that
+  setting on, and the policy or `ai_access` to allow the command.
 - A command an AI runs is a background job, so ssh must be key-based (`BatchMode=yes`): nobody is
   there to type a password.
 - `run_in_shell` returns at most 256 KB of output, the end kept.

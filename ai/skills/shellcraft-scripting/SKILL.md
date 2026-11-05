@@ -17,18 +17,19 @@ from memory. The full guide is `docs/scripting/README.md` in the ShellCraft fold
 | --- | --- | --- |
 | `~/.shellcraft/rc` | at every start | `source ~/.shellcraft/rc` |
 | `~/.shellcraft/startup/NN-name.sc` | after rc, in name order | `source FILE` |
-| `~/.shellcraft/funcs/NAME.func` | by name: `NAME args` | `shellcraft func run NAME ARGS` from a terminal or cron (the exit code is the func's status) |
+| `~/.shellcraft/funcs/NAME.func` | `func run NAME ARGS`, or `NAME ARGS` when its header has `# command: yes` | `shellcraft func run NAME ARGS` from a terminal or cron (the exit code is the func's status) |
 | any file | when sourced | `source FILE` |
 
-A func starts with `# func: NAME`, `# description: one line` and `# usage: NAME ARGS` comment
-lines, then one step per line; it stops at the first step that fails.
+A func starts with `# func: NAME`, `# description: one line`, `# usage: NAME ARGS` and
+`# command: yes` comment lines, then one step per line; it stops at the first step that fails.
+Without `# command: yes`, typing the name says `command not found`: use `func run NAME ARGS`.
 
 ## The loop: write, check, run
 
 1. **Write** the file with your own file tools. No MCP tool writes files.
 2. **Check** it before it runs: `run_in_shell("source -n FILE")`, or `func check NAME` for a func.
    Nothing executes. You get `FILE:LINE: message` lines and `N problem(s)`, or
-   `FILE: N lines, no problems`. It finds syntax, indentation and unknown commands. It does
+   `ok: N lines, no problems`. It finds syntax, indentation and unknown commands. It does
    **not** find everything: a bash array passes it and fails later. Say what you did not test.
 3. **Run** it only when the user wants it run, and say what it does first (files written,
    things deleted, hosts contacted). Put the risk in `run_in_shell`'s `reason`; use
@@ -73,6 +74,7 @@ alert, or write the script so it takes its values as arguments.
 ```
 # func: logs
 # description: List the .log files in a folder
+# command: yes
 # usage: logs [DIR]
 dir=${1:-.}
 for -py name in (ls $dir):
