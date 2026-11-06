@@ -119,3 +119,19 @@ def test_ask_line_is_gone_after_the_shell_closes(monkeypatch, tmp_path):
         with shell.Shell(ctx):
             assert ctx.ask_line is not None
     assert ctx.ask_line is None
+
+
+def test_the_prompt_is_flushed_and_drawn_at_once(repl, monkeypatch):
+    """After a script or startup file, the prompt is drawn without a key press: the console is
+    flushed before it, and it is told to draw as it starts (Windows 11 waited for a key)."""
+    sh, ctx, pipe = repl
+    calls = []
+    monkeypatch.setattr(sh.ui.console.file, "flush", lambda: calls.append("flush"), raising=False)
+    drawn = []
+    monkeypatch.setattr(sh, "_draw_now", lambda: drawn.append(1))
+    pipe.send_text("ls\r")
+    sh._ask("> ")
+    assert "flush" in calls and drawn
+    pipe.send_text("Ada\r")
+    drawn.clear()
+    assert ask.ask(ctx, "Name? ") == "Ada" and drawn

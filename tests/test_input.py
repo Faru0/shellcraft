@@ -274,7 +274,7 @@ def test_alt_v_and_clip_i_paste_the_clip(repl_shell):
     ctx.alerts.clip = "echo pasted"
     assert "next prompt starts" in to_text(run_line("clip -i", ctx).output) and ctx.prefill == "echo pasted"
     seen = []
-    sh.session.prompt = lambda message, default="": seen.append(default) or "line"
+    sh.session.prompt = lambda message, default="", **kwargs: seen.append(default) or "line"
     assert sh._ask(sh._prompt) == "line" and seen == ["echo pasted"] and ctx.prefill == ""
     assert sh._ask(sh._prompt) == "line" and seen[-1] == ""  # only once
 

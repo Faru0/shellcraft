@@ -219,7 +219,7 @@ def test_transient_prompt_reprints_the_command(repl):
         class app:
             erase_when_done = False
 
-        def prompt(self, message):
+        def prompt(self, message, **kwargs):
             seen["erase"] = self.app.erase_when_done
             return "echo hi"
 

@@ -1493,7 +1493,11 @@ class Shell:
             self._startup_report()
         prefill, self.ctx.prefill = self.ctx.prefill, ""  # `clip -i`: the next prompt starts with it
         self._before_prompt()
-        line = self.session.prompt(message, default=prefill) if prefill else self.session.prompt(message)
+        self._settle_console()
+        kwargs: dict[str, Any] = {"pre_run": self._draw_now}
+        if prefill:
+            kwargs["default"] = prefill
+        line = self.session.prompt(message, **kwargs)
         if transient:
             self.ui.console.print(Text.assemble(("❯ ", "sc.prompt"), (line, "")), markup=False, highlight=False)
         return line
@@ -1523,12 +1527,28 @@ class Shell:
             session.key_bindings = self._answer_keys()
             session.is_password = hidden
             session.app.erase_when_done = False
-            return session.prompt(message)
+            self._settle_console()
+            return session.prompt(message, pre_run=self._draw_now)
         finally:
+            self._settle_console()
             for name, value in saved.items():
                 setattr(session, name, value)
             session.app.erase_when_done = erase
             self._answering = False
+
+    def _settle_console(self) -> None:
+        """Everything a script or startup file printed is on the screen, and the renderer starts
+        from a clean state, before a prompt is drawn. Without it the prompt could wait for a key
+        press on Windows 11 (Rich's CONOUT$ stream and prompt_toolkit's output are separate buffers)."""
+        def settle() -> None:
+            self.ui.console.file.flush()
+            app = self.session.app
+            app.output.flush()
+        self._guarded(settle, "the console")
+
+    def _draw_now(self) -> None:
+        """Runs as the prompt starts: draw it at once instead of at the next key or timer."""
+        self.session.app.invalidate()
 
     @staticmethod
     def _answer_keys() -> KeyBindings:

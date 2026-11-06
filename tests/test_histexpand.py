@@ -47,7 +47,7 @@ class _ScriptedSession:
         self.app = SimpleNamespace(erase_when_done=False)
         self.bottom_toolbar = None
 
-    def prompt(self, message):
+    def prompt(self, message, **kwargs):
         self.prompts.append(message)
         if not self.lines:
             raise EOFError
