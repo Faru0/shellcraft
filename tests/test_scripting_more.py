@@ -27,7 +27,8 @@ def test_assignment_and_expansion_on_plain_lines(ctx):
 
 
 def test_assignment_with_spaces_must_be_quoted(ctx):
-    with pytest.raises(ParseError, match="quote a value"):
+    # as in bash this is `b` run with z=a; the error says how to set a value with a space
+    with pytest.raises(PipelineError, match="quote it"):
         run_line("z=a b", ctx)
 
 

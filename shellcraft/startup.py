@@ -119,7 +119,7 @@ def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]
     indented wrongly raises indent.IndentError (with colon_blocks False, the lines are left as
     they are)."""
     from shellcraft import heredocs, indent, script
-    from shellcraft.parser import strip_comments
+    from shellcraft.parser import rewrite_backticks, strip_comments
 
     text = heredocs.encode(text)  # here-documents into their command lines, `\\` lines joined (the line count stays)
     out: list[tuple[int, str]] = []
@@ -127,7 +127,7 @@ def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]
     colon = colon_blocks and indent.has_colon_block(text)
     lines = indent.to_braces(text) if colon else enumerate(text.splitlines(), 1)
     for number, raw in lines:
-        line = strip_comments(raw).strip()  # `# …` lines and `cmd  # note` comments
+        line = rewrite_backticks(strip_comments(raw)).strip()  # `# …` lines and `cmd  # note` comments
         if pending is None:
             if not line:
                 continue

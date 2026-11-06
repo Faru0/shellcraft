@@ -212,8 +212,8 @@ def test_continuation_join(text, more, joined):
     assert script.join_continuation(text, more) == joined
 
 
-def test_plain_lines_expand_substitutions_and_globs_but_not_braces(ctx):
-    assert out(ctx, "echo $(echo hi) {a,b} *.x") == "hi {a,b} *.x\n"  # no brace expansion outside blocks
+def test_plain_lines_expand_substitutions_braces_and_globs(ctx):
+    assert out(ctx, "echo $(echo hi) {a,b} *.x") == "hi a b *.x\n"  # braces expand on plain lines too (item 19)
     assert out(ctx, "echo '$(echo hi)' \"$(echo there)\"") == "$(echo hi) there\n"
 
 

@@ -233,8 +233,8 @@ def test_streaming_commands_read_a_redirected_file_whole(ctx, tmp_path):
 
 def test_a_line_that_will_not_parse_ends_a_while_loop(ctx, tmp_path):
     (tmp_path / "f").write_text("a\nb\n")
-    result = run_line("while IFS= read -r l; do echo got $l; done < f", ctx)  # a prefix assignment: not yet
-    assert "got a" not in to_text(result.output) and "parse error" in to_text(result.output)  # it used to loop forever
+    result = run_line("while read -r l && echo $((1/0)); do echo got $l; done < f", ctx)  # fails only when it runs
+    assert "got a" not in to_text(result.output)  # it used to loop forever
     assert out(ctx, "n=0; until nosuchcmd; do n=$((n+1)); [ $n = 3 ] && break; done; echo $n").endswith("3\n")
 
 

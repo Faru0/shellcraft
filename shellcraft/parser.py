@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 from shellcraft import arith
+from shellcraft.braces import brace_expand, skip_dollar
 
 # Longest first. The `2>` forms and a lone `&` only count at the start of a word, as in POSIX
 # shells, so `a2>b` is `a2 > b` and a URL's `?a=1&b=2` stays one word.
@@ -42,6 +43,7 @@ TO_STDERR = (">&2", "1>&2")
 _VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # Commands whose arguments are never globbed: `jq -i *` and `jq -f [name]` mean what they say.
 NO_GLOB = frozenset({"jq"})
+_ENV_WORD = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 
 
 def _segment_command(tokens: list[Token]) -> str | None:
@@ -82,6 +84,7 @@ class Command:
     merge_stderr: bool = False  # `2>&1`: a failure's message becomes the command's output
     bypass: bool = False  # typed as `\name`: no alias and no shell function, the command itself
     to_stderr: bool = False  # `>&2`: what the command prints goes to the error stream
+    env: dict[str, str] | None = None  # `FOO=1 cmd`: variables set for this command only
 
 
 @dataclass
@@ -607,6 +610,55 @@ def strip_comments(text: str) -> str:
     return "".join(out)
 
 
+def rewrite_backticks(text: str) -> str:
+    """`` `cmd` `` as `$(cmd)`, outside single quotes and comments (bash's old spelling of command
+    substitution; inside it `\\$`, a backslashed backtick and `\\\\` lose their backslash). A backtick
+    with no partner is left alone: tokenize reports it."""
+    if "`" not in text:
+        return text
+    out: list[str] = []
+    quote = ""
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quote:
+            if ch == "\\" and quote != "'" and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if ch == quote[-1]:
+                quote = ""
+        elif ch == "\\" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif text.startswith("$'", i):
+            quote = "$'"
+            out.append("$'")
+            i += 2
+            continue
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and comment_at(text, i):
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            out.append(text[i:end])
+            i = end
+            continue
+        if ch == "`" and quote != "'" and quote != "$'":
+            j = i + 1
+            while j < n and text[j] != "`":
+                j += 2 if text[j] == "\\" else 1
+            if j < n:
+                inner = re.sub(r"\\([$`\\])", r"\1", text[i + 1:j])
+                out.append(f"$({inner})")
+                i = j + 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def join_continued_lines(line: str) -> str:
     """Backslash + newline (outside single quotes) joins two lines, as in bash: a curl command
     pasted over several lines with `\\` at the ends is one command."""
@@ -652,6 +704,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
     new lines. `glob` expands unquoted `*.py`-style words into the matching file names."""
     tokens: list[Token] = []
     i, n = 0, len(line)
+    braces_from = 0  # words starting before this index are the output of a brace expansion already
     while i < n:
         ch = line[i]
         if ch.isspace():
@@ -678,6 +731,20 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             i += len(op)
             continue
 
+        if glob and "{" in line[i:] and i >= braces_from and _segment_command(tokens) not in NO_GLOB:
+            end = _word_end(line, i)
+            word = line[i:end]
+            if "{" in word:
+                try:
+                    alternatives = brace_expand(word)
+                except ValueError as exc:
+                    raise ParseError(str(exc), i) from None
+                if alternatives != [word]:
+                    joined = " ".join(a or "''" for a in alternatives)
+                    line = line[:i] + joined + line[end:]
+                    n = len(line)
+                    braces_from = i + len(joined)
+
         start = i
         buf: list[str] = []
         quoted = expanded = no_arguments = False
@@ -699,6 +766,8 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
 
         while i < n and not line[i].isspace() and not _breaks_word(line, i):
             ch = line[i]
+            if ch == "`":
+                raise ParseError("unterminated ` quote (a backtick needs its partner)", i)
             if ch == "$" and line.startswith("$'", i):  # bash's ANSI-C string: $'a\nb', as curl pastes use
                 text, i = ansi_c_string(line, i)
                 quoted = True
@@ -746,6 +815,8 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                         add(var[0], False)
                         end = var[1]
                         continue
+                    if ch == '"' and line[end] == "`" and line[end - 1] != "\\":
+                        raise ParseError("unterminated ` quote (a backtick needs its partner)", end)
                     add(line[end], False)
                     end += 1
                 i = end + 1
@@ -768,6 +839,28 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
             word = "".join(globmod.escape(c) if lit and c in "*?[" else c for c, lit in zip(word, literal))
         _emit(tokens, word, start, globbable, glob and _segment_command(tokens) not in NO_GLOB)
     return tokens
+
+
+def _word_end(line: str, i: int) -> int:
+    """The index where the word starting at line[i] ends: at white space or an operator, outside
+    quotes, `$( … )` and `${ … }`."""
+    n = len(line)
+    while i < n and not line[i].isspace() and not _breaks_word(line, i):
+        ch = line[i]
+        if ch == "$" and (after := skip_dollar(line, i)) is not None:
+            i = after
+        elif ch in ("'", '"'):
+            j = i + 1
+            while j < n and line[j] != ch:
+                if ch == '"' and line[j] == "\\" and j + 1 < n:
+                    j += 1
+                elif ch == '"' and line[j] == "$" and (after := skip_dollar(line, j)) is not None:
+                    j = after - 1
+                j += 1
+            i = j + 1
+        else:
+            i += 1
+    return min(i, n)
 
 
 def expansion_at(line: str, at: int, variables: Mapping[str, str] | None,
@@ -874,8 +967,12 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
         nonlocal current, stderr, merge_stderr, to_stderr
         if not current:
             raise ParseError("empty pipeline segment before '|'", pos)
+        env: dict[str, str] = {}
+        while len(current) > 1 and not current[0].op and (m := _ENV_WORD.match(current[0].value)):
+            env[m.group(1)] = m.group(2)  # `FOO=1 BAR=2 cmd`: set for the command, then put back
+            current = current[1:]
         segments.append(Command(current[0].value, [t.value for t in current[1:]], stderr, merge_stderr,
-                                to_stderr=to_stderr))
+                                to_stderr=to_stderr, env=env or None))
         current, stderr, merge_stderr, to_stderr = [], None, False, False
 
     while i < len(tokens):

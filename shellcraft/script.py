@@ -51,6 +51,7 @@ from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 
 from shellcraft import getopts, traps
 from shellcraft import parser as shparser
+from shellcraft.braces import MAX_RANGE, brace_expand  # noqa: F401  (re-exported)
 from shellcraft.context import ShellContext, to_text
 from shellcraft.inputs import Input
 from shellcraft.parser import ParseError, _closing_double_paren, find_closing_paren
@@ -60,7 +61,6 @@ KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "the
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 _MATCH_WORD = re.compile(r"""(?:"[^"]*"|'[^']*'|[^\s{;]+)[ \t]+\{(?:\s|$)""")
-MAX_RANGE = 100_000  # items one range / brace expansion may produce
 MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
 MAX_TEXT = 10_000_000  # longest text or list a Python expression may build with `+` (`s += s` in a loop)
 MAX_FORMAT_NUMBER = 100_000  # largest width / precision in a format spec (`{x:>10}`, `{x:.2f}`)
@@ -73,7 +73,6 @@ _PY_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(//=|\+=|-=|\*=|/=|%=|
 _PRINT_CALL = re.compile(r"print[ \t]*\(")  # `print(…)` in py mode
 MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
-_BRACE_SEQ = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$|^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$")
 
 
 class IncompleteError(ParseError):
@@ -267,6 +266,7 @@ def parse_script(text: str) -> Program | None:
     indented body) are turned into the brace form first (shellcraft.indent)."""
     from shellcraft import indent
 
+    text = shparser.rewrite_backticks(text)
     if indent.has_colon_block(text):
         text = indent.translate(text)
     stmts, _ = _Parser(text).parse_list(None)
@@ -1308,82 +1308,6 @@ def _check_pipeline(text: str, offset: int, mode: str = "top") -> None:
 
 
 # ── bash word expansion (for lists) ──────────────────────────────────────────
-
-def brace_expand(word: str) -> list[str]:
-    """Bash brace expansion of one word: `a{b,c}d` → abd acd, `{1..3}` → 1 2 3, `{01..03}`,
-    `{a..e}`, `{0..10..5}`. Quoted braces and `${…}` are left alone; nesting works."""
-    i, quote, n = 0, None, len(word)
-    while i < n:
-        ch = word[i]
-        if quote:
-            if ch == quote:
-                quote = None
-        elif ch in ("'", '"'):
-            quote = ch
-        elif ch == "{" and (i == 0 or word[i - 1] != "$"):
-            close, parts = _brace_group(word, i)
-            if close is not None:
-                prefix, suffix = word[:i], word[close + 1:]
-                inner = word[i + 1:close]
-                if parts is None:
-                    alternatives = _brace_sequence(inner)
-                    if alternatives is None:
-                        rest = brace_expand(word[i + 1:])
-                        return [word[:i + 1] + r for r in rest]
-                else:
-                    alternatives = [a for p in parts for a in brace_expand(p)]
-                out: list[str] = []
-                for alt in alternatives:
-                    out += brace_expand(prefix + alt + suffix)
-                    if len(out) > MAX_RANGE:
-                        raise ValueError(f"brace expansion makes more than {MAX_RANGE} words")
-                return out
-        i += 1
-    return [word]
-
-
-def _brace_group(word: str, i: int) -> tuple[int | None, list[str] | None]:
-    """At `{`: (index of the matching `}`, the comma-separated parts or None when there's no comma)."""
-    level, quote, parts, last = 0, None, [], i + 1
-    for j in range(i, len(word)):
-        ch = word[j]
-        if quote:
-            if ch == quote:
-                quote = None
-        elif ch in ("'", '"'):
-            quote = ch
-        elif ch == "{":
-            level += 1
-        elif ch == "}":
-            level -= 1
-            if level == 0:
-                if not parts:
-                    return j, None
-                parts.append(word[last:j])
-                return j, parts
-        elif ch == "," and level == 1:
-            parts.append(word[last:j])
-            last = j + 1
-    return None, None
-
-
-def _brace_sequence(inner: str) -> list[str] | None:
-    match = _BRACE_SEQ.match(inner)
-    if not match:
-        return None
-    if match[1] is not None:
-        a, b, step = int(match[1]), int(match[2]), abs(int(match[3] or 1)) or 1
-        if abs(b - a) // step + 1 > MAX_RANGE:
-            raise ValueError(f"{{{inner}}} makes more than {MAX_RANGE} words")
-        width = max(len(match[1].lstrip("-")), len(match[2].lstrip("-")))
-        padded = (match[1].lstrip("-").startswith("0") and len(match[1].lstrip("-")) > 1) or \
-                 (match[2].lstrip("-").startswith("0") and len(match[2].lstrip("-")) > 1)
-        nums = range(a, b + 1, step) if b >= a else range(a, b - 1, -step)
-        return [f"{x:0{width + (1 if x < 0 else 0)}d}" if padded else str(x) for x in nums]
-    a, b, step = ord(match[4]), ord(match[5]), abs(int(match[6] or 1)) or 1
-    chars = range(a, b + 1, step) if b >= a else range(a, b - 1, -step)
-    return [chr(c) for c in chars]
-
 
 def expand_sh_word(raw: str, variables: dict[str, str], substitute: Callable[[str], str]) -> list[str]:
     """A `for` list word as bash expands it: braces, then `$x` / `$(…)` (split at whitespace

@@ -21,7 +21,7 @@ from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.inputs import Input
 from shellcraft.modkit import ModuleError
-from shellcraft.parser import Command, ParseError, Pipeline, UnboundVariable, parse, tokenize
+from shellcraft.parser import _ENV_WORD, Command, ParseError, Pipeline, UnboundVariable, parse, tokenize
 from shellcraft.streams import Cancelled, Channel, Lines, UpstreamFailed
 
 # cmd.exe built-ins that have no executable on PATH.
@@ -129,12 +129,13 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
     from shellcraft import ask, curlpaste, heredocs, script
-    from shellcraft.parser import join_continued_lines, split_background, strip_comments
+    from shellcraft.parser import join_continued_lines, rewrite_backticks, split_background, strip_comments
 
     # Here-document bodies first (they must not be read as commands or have their `#` taken for a
     # comment), then comments (`cmd  # note`, a `# …` line), then a pasted curl command: Windows'
     # "Copy as cURL (cmd)" form, and lines continued with `\`.
-    line = join_continued_lines(curlpaste.from_cmd(strip_comments(heredocs.encode(line, join=False))))
+    line = join_continued_lines(curlpaste.from_cmd(rewrite_backticks(
+        strip_comments(heredocs.encode(line, join=False)))))
 
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program
@@ -244,14 +245,31 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
         return False
     name, raw = match.group(1), match.group(2)
     try:
-        tokens = tokenize(raw, variables, substitute=substitute)
+        dry = tokenize(raw, None, substitute=lambda _: "x")  # the words' places, without running anything
     except ParseError:
         return False  # `x=1 | y`: let the pipeline parser report it
-    if any(t.op for t in tokens):
+    if any(t.op for t in dry):
         return False
-    if len(tokens) > 1:
-        raise ParseError(f"{name}={raw.strip()}: quote a value that contains spaces: {name}=\"…\"",
-                         match.start(2))
+    if len(dry) > 1:
+        # `a=1 b=2` sets both; `FOO=1 cmd` is a command with a variable of its own (parse peels it)
+        if not all(_ENV_WORD.match(t.value) for t in dry[1:]):
+            return False
+        starts = [t.pos for t in dry] + [len(raw) + 1]
+        names = [name] + [_ENV_WORD.match(t.value).group(1) for t in dry[1:]]  # type: ignore[union-attr]
+        for k, each in enumerate(names):
+            piece = raw[starts[k]:starts[k + 1]]
+            if k:
+                piece = piece[len(each) + 1:]
+            try:
+                tokens = tokenize(piece, variables, substitute=substitute)
+            except ParseError:
+                return False
+            set_variable(ctx, each, tokens[0].value if tokens else "", target)
+        return True
+    try:
+        tokens = tokenize(raw, variables, substitute=substitute)
+    except ParseError:
+        return False
     set_variable(ctx, name, tokens[0].value if tokens else "", target)
     return True
 
@@ -774,7 +792,70 @@ def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:
 
 def _call(cmd: Command, stdin: Any, ctx: ShellContext, live: bool = False) -> Any:
     """Resolve a command (builtin, module, OS program) and call it with `stdin` (a str, or Lines
-    for a streaming builtin). May return a value, a WithStatus or an iterator of items."""
+    for a streaming builtin). May return a value, a WithStatus or an iterator of items.
+    `FOO=1 cmd`: FOO is set as a shell variable and in the environment while the command runs
+    (a streamed result: until it has been read), then put back or removed."""
+    if not cmd.env:
+        return _call_command(cmd, stdin, ctx, live)
+    saved = {n: (ctx.variables.get(n), os.environ.get(n)) for n in cmd.env}
+    for name, value in cmd.env.items():
+        ctx.variables[name] = value
+        os.environ[name] = value
+
+    def restore() -> None:
+        for name, (variable, environment) in saved.items():
+            if variable is None:
+                ctx.variables.pop(name, None)
+            else:
+                ctx.variables[name] = variable
+            if environment is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = environment
+
+    try:
+        result = _call_command(cmd, stdin, ctx, live)
+    except BaseException:
+        restore()
+        raise
+    if not streams.is_stream(result):
+        restore()
+        return result
+
+    return _Held(result, restore)
+
+
+class _Held:
+    """A streamed result whose command's `FOO=1` prefix is undone once it has been read to the end, closed or failed."""
+
+    def __init__(self, inner: Iterator[Any], restore: Callable[[], None]):
+        self.inner, self.restore, self.done = inner, restore, False
+
+    def __iter__(self) -> _Held:
+        return self
+
+    def __next__(self) -> Any:
+        try:
+            return next(self.inner)
+        except BaseException:
+            self.finish()
+            raise
+
+    def finish(self) -> None:
+        if not self.done:
+            self.done = True
+            self.restore()
+
+    def close(self) -> None:
+        try:
+            close = getattr(self.inner, "close", None)
+            if close is not None:
+                close()
+        finally:
+            self.finish()
+
+
+def _call_command(cmd: Command, stdin: Any, ctx: ShellContext, live: bool = False) -> Any:
     if ctx.functions and not cmd.bypass and cmd.name in ctx.functions and cmd.name not in SPECIAL_BUILTINS:
         from shellcraft import script
 
@@ -842,6 +923,9 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
         known += sorted(funcs.available(ctx))
     hint = difflib.get_close_matches(cmd.name, known, n=1)
     suffix = f" — did you mean '{hint[0]}'?" if hint else ""
+    if cmd.env:  # `z=a b`: bash runs `b` with z=a; most often a value that needed quotes
+        name, value = next(iter(cmd.env.items()))
+        suffix += f" (to set {name} to a value with spaces, quote it: {name}=\"{value} {cmd.name}\")"
     if cmd.name.startswith("print("):
         suffix = " — print(…) works in a -py block or a def; here use echo (see: man print)"
     raise CommandError(f"command not found: {cmd.name}{suffix}", STATUS_NOT_FOUND)
