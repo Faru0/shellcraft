@@ -197,7 +197,7 @@ copying a script from the web and a line fails, look for it here:
 | Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
 | `(( n > 3 ))` and `let` | `[ $n -gt 3 ]` and `n=$((n + 1))` | [Conditions and choices](conditions.md#comparing-numbers) |
 | `{ cmd1; cmd2; }` to group | An `if` block, or a function | [Conditions and choices](conditions.md#if-then-else) |
-| `sed`, `awk` and other Linux programs | ShellCraft's own `grep`, `cut`, `tr`, `sort`, `jq`… OS programs only run with `settings system_commands on` | [Pipes and scripting](../scripting.md) |
+| `awk` and other Linux programs | ShellCraft's own `sed`, `grep`, `cut`, `tr`, `sort`, `jq`… OS programs only run with `settings system_commands on` | [Pipes and scripting](../scripting.md) |
 
 One smaller difference catches people out: a variable stays one piece wherever you use it, spaces
 and all, except in the list of a `for` loop.

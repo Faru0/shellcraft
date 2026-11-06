@@ -58,17 +58,19 @@ def read_only(line: str, ctx: ShellContext) -> bool:
         for cmd in pipeline.segments:
             if cmd.stderr is not None:
                 return False
-            if not _reads_only(cmd.name, ctx, names):
+            if not _reads_only(cmd.name, ctx, names, cmd.args):
                 return False
     return True
 
 
-def _reads_only(name: str, ctx: ShellContext, names: dict[str, str]) -> bool:
+def _reads_only(name: str, ctx: ShellContext, names: dict[str, str], args: list[str] | None = None) -> bool:
     name = name[1:] if name.startswith("\\") else name
     if not name or name in names or name in ctx.functions:
         return False  # an alias or a function could stand for anything
     builtin = BUILTINS.get(name)
     if builtin is not None:
+        if builtin.writes_if is not None and builtin.writes_if(args or []):
+            return False  # e.g. sed -i
         return not (builtin.stateful or builtin.writes or builtin.sensitive)
     return ctx.registry.get(name) is not None
 

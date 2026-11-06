@@ -774,7 +774,8 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
     """Find the builtin, module or OS program for `cmd` and run it with `stdin`."""
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
-        if ((builtin.stateful and not ctx.allow_stateful) or (builtin.writes and not ctx.allow_writes)
+        writing = builtin.writes or (builtin.writes_if is not None and builtin.writes_if(cmd.args))
+        if ((builtin.stateful and not ctx.allow_stateful) or (writing and not ctx.allow_writes)
                 or (builtin.sensitive and not ctx.allow_sensitive)):
             raise CommandError(f"builtin '{cmd.name}' is not available in this context")
         if builtin.streams:

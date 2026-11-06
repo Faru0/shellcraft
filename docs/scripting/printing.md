@@ -387,6 +387,61 @@ line 2
 line 3
 ```
 
+## Change text on its way through
+
+`sed` edits text as it passes by. Its most common job is swapping one word for another. The `s`
+command stands for substitute, and it reads `s/old/new/`. Add `g` at the end to replace every
+match on a line, not only the first:
+
+<!-- run -->
+```
+echo "unix is unix" | sed 's/unix/linux/g'
+```
+
+<!-- output -->
+```
+linux is linux
+```
+
+`sed` reads a file or a pipe, and changes neither. To change the file itself, add `-i`. A suffix
+after it, like `-i.bak`, keeps the old version beside it:
+
+<!-- run -->
+```
+printf 'port=80\nname=web\n' > app.conf
+sed -i.bak 's/80/8080/' app.conf
+cat app.conf
+```
+
+<!-- output -->
+```
+port=8080
+name=web
+```
+
+A number or a pattern in front of a command picks the lines it runs on. `-n` stops `sed` printing
+everything, so `p` prints only what you ask for:
+
+<!-- run -->
+```
+printf 'one\n# note\ntwo\nthree\n' > list.txt
+sed '/^#/d' list.txt
+sed -n '2,3p' list.txt
+```
+
+<!-- output -->
+```
+one
+two
+three
+# note
+two
+```
+
+`d` deletes a line, `p` prints it, `5q` stops after line 5, and `$` means the last line. `man sed`
+has the whole list, and says which parts of GNU sed are left out (the hold space and branching).
+Put single quotes around a script, so ShellCraft doesn't read the `$` or `!` in it.
+
 ## Clear the screen
 
 `clear` empties the screen. Put it at the top of a script that draws a menu, so the menu starts

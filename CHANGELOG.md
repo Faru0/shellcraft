@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`sed`, as a built-in command.** The core of GNU sed, and it works on Windows: `s` (with `g`, `I`,
+  `p` and a match number), `d`, `p`, `a`, `i`, `c`, `y`, `q`, `Q`, `=` and `{ }`, with line, `$`, regex,
+  range (`3,5`, `/a/,/b/`, `3,+2`), `first~step` and `!` addresses, and `-n -e -f -E -r -s -i[SUFFIX]`.
+  Patterns are POSIX basic expressions (`-E` for extended) with `[[:digit:]]`, `\w`, `\<` and the
+  `&`, `\1`, `\U` and `\L` forms in the replacement. Plain `sed` is read-only for the AI co-pilot and
+  the MCP sandbox; only `-i` counts as a write. The hold space and branching are not included.
+  Builtins can now say that only some arguments write (`writes_if`).
+- **The prompt appears at once after startup scripts.** Before each prompt the console is flushed
+  and the prompt is told to draw itself, so on Windows 11 it no longer waits for a key press after
+  `rc` and `startup/*.sc` finish.
 - **A scripting skill for AI clients.** `ai/skills/shellcraft-scripting/SKILL.md` teaches an AI
   to write, check (`source -n`, `func check`) and run ShellCraft scripts, and lists the mistakes it
   makes most (text vs numbers, `elif -py`, top-level `x = 5`, arrays). `AI-TODO.md` lists the next

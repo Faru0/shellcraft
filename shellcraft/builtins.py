@@ -42,6 +42,7 @@ class Builtin:
     direct: bool = False  # runs on the main thread, without a spinner (it prints as it goes)
     streams: bool = False  # gets stdin as shellcraft.streams.Lines (lines as they arrive), not a str
     requires: str | None = None  # a setting that must be on: until then the command is hidden and not found
+    writes_if: Callable[[list[str]], bool] | None = None  # writes only for some arguments (sed -i): checked per call
 
 
 def available(b: Builtin, config: dict[str, Any]) -> bool:
@@ -58,10 +59,11 @@ BUILTINS: dict[str, Builtin] = {}
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
             category: str = "shell", doc: str | None = None, sensitive: bool = False, hidden: bool = False,
-            direct: bool = False, streams: bool = False, requires: str | None = None):
+            direct: bool = False, streams: bool = False, requires: str | None = None,
+            writes_if: Callable[[list[str]], bool] | None = None):
     def register(fn):
         BUILTINS[name] = Builtin(fn, summary, usage, stateful, writes, category, doc, sensitive, hidden, direct,
-                                 streams, requires)
+                                 streams, requires, writes_if)
         return fn
     return register
 

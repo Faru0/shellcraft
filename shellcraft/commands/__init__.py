@@ -16,6 +16,7 @@ from shellcraft.commands import (  # noqa: F401
     misc,
     profile,
     review,
+    sed,
     tasks,
     text,
 )

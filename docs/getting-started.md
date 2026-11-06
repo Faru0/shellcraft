@@ -293,7 +293,7 @@ Each one has a manual: `man ls`, `man grep`.
 
 | Group | Commands |
 | --- | --- |
-| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `tee` `diff` `seq` `yes` `jq` `less` `more` |
+| Text | `echo` `printf` `cat` `grep` `head` `tail` `wc` `sort` `uniq` `cut` `tr` `sed` `tee` `diff` `seq` `yes` `jq` `less` `more` |
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | System | `date` `which` `type` `command` `env` `whoami` `hostname` `uname` `curl` |
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `:` `export` `read` `sleep` `time` `xargs` `test` |
