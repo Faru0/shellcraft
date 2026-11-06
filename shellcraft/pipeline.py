@@ -362,6 +362,9 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: b
 
     total = len(pipeline.segments)
     for index, cmd in enumerate(pipeline.segments, start=1):
+        if cmd.name == "exec" and not cmd.args and (pipeline.redirect or pipeline.stdin_path or cmd.stderr):
+            raise PipelineError(index, total, "exec", "exec: redirecting the shell's own input or output is not "
+                                                      "supported; group the commands: { cmd1; cmd2; } > file")
         if cmd.name == "cd" and (total > 1 or pipeline.redirect):
             raise PipelineError(index, total, "cd", "cd only works on its own line, not in a pipeline")
         if total > 1 and _func_command(cmd, ctx) is not None:
@@ -798,7 +801,7 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
 # Shell functions take precedence over builtins, modules and programs, as in bash, except for
 # these, which keep the shell in charge of itself (the "special builtins" that matter here).
 SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias",
-                              "shift", "set", "trap", "let", "readonly"})
+                              "shift", "set", "trap", "let", "readonly", "eval", "exec"})
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:

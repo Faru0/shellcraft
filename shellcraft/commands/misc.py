@@ -948,6 +948,101 @@ def let(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     return "" if value else WithStatus("", 1)
 
 
+EVAL_DOC = """# eval
+
+Run text as shell commands, in the current shell.
+
+```
+eval STRING...
+```
+
+The arguments are joined with spaces and run as if you had typed them (or as a file's lines, when they
+hold several), so a variable can hold a command, and a command can make commands:
+
+```
+cmd="echo hello"
+eval $cmd                      # hello
+name=count; eval "$name=5"     # count is 5
+eval "for i in 1 2; do echo \\$i; done"
+```
+
+Variables it sets stay set, and the status is the last command's. `exit` inside it ends the shell. It
+nests only a few levels, so a string that calls `eval` on itself stops with an error.
+"""
+
+_eval_depth = [0]
+
+
+@builtin("eval", "Run text as commands in this shell", "eval STRING...", category="shell", stateful=True,
+         direct=True, doc=EVAL_DOC)
+def eval_(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft import startup
+    from shellcraft.context import to_text
+    from shellcraft.pipeline import run_line
+
+    text = " ".join(args)
+    if not text.strip():
+        return ""
+    if _eval_depth[0] >= startup.MAX_SOURCE_DEPTH:
+        raise CommandError(f"eval: nested more than {startup.MAX_SOURCE_DEPTH} deep (a string that evals itself?)")
+    parts: list[str] = []
+    saved = ctx.emit
+    ctx.emit = lambda value: parts.append(to_text(value))  # a loop's output goes into the result
+    _eval_depth[0] += 1
+    status = 0
+    try:
+        for _, line in startup.logical_lines(text):
+            result = run_line(line, ctx)
+            status = ctx.last_status
+            if result is not None and result.output not in (None, ""):
+                parts.append(to_text(result.output))
+    finally:
+        _eval_depth[0] -= 1
+        ctx.emit = saved
+    output = "".join(p if p.endswith("\n") or not p else p + "\n" for p in parts)
+    return WithStatus(output, status) if status else output
+
+
+EXEC_DOC = """# exec
+
+Run a command in place of the shell: when it finishes, the shell (or the script) ends with its status.
+
+```
+exec COMMAND [ARG...]
+```
+
+```
+exec echo goodbye     # prints goodbye, then the shell ends
+```
+
+`exec` with no command does nothing. Redirecting the shell's own output (`exec > file`) is not
+supported: group the commands instead, `{ cmd1; cmd2; } > file`. If the command can't be found, you get
+the error and the shell stays open.
+"""
+
+
+@builtin("exec", "Run a command, then end the shell with its status", "exec COMMAND [ARG...]", category="shell",
+         stateful=True, direct=True, doc=EXEC_DOC)
+def exec_(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    import sys
+
+    from shellcraft.context import ShellExit
+    from shellcraft.pipeline import run_argv
+
+    if not args:
+        return ""
+    result = run_argv(args, ctx, stdin)
+    status = 0
+    if isinstance(result, WithStatus):
+        status, result = result.status, result.value
+    if ctx.emit is not None:
+        ctx.emit(result)
+    else:
+        sys.stdout.write(to_text(result))
+        sys.stdout.flush()
+    raise ShellExit(status)
+
+
 @builtin("shift", "Drop a shell function's first arguments", "shift [N]", category="shell", stateful=True,
          doc="""\
 # shift

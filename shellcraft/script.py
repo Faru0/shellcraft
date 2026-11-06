@@ -52,7 +52,7 @@ from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 from shellcraft import arith, getopts, traps
 from shellcraft import parser as shparser
 from shellcraft.braces import MAX_RANGE, brace_expand  # noqa: F401  (re-exported)
-from shellcraft.context import ShellContext, to_text
+from shellcraft.context import ShellContext, ShellExit, to_text
 from shellcraft.inputs import Input
 from shellcraft.parser import ParseError, _closing_double_paren, find_closing_paren
 
@@ -103,6 +103,17 @@ class Arith:
     text: str  # the expression, as typed
     pos: int
     negate: bool = False
+
+
+@dataclass
+class Group:
+    """`{ LIST; }` (same variables) or `( LIST )` (a subshell: its variables, directory, options and
+    traps are gone when it ends). A `| cmd`, `> file` or `2>&1` after it wraps it in a Piped."""
+
+    body: list[Stmt]
+    subshell: bool
+    pos: int
+    text: str
 
 
 @dataclass
@@ -265,7 +276,7 @@ class Print:
     tree: ast.Expression
 
 
-Stmt = Union[Simple, Arith, CFor, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign,
+Stmt = Union[Simple, Arith, CFor, Group, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign,
              Try, Print]
 
 
@@ -341,7 +352,7 @@ def join_continuation(text: str, more: str) -> str:
     return head + join + more
 
 
-PIPE_BLOCKS = ("while", "until", "for", "if", "case")  # what `cmd | …` can feed (not `select`: a command name)
+PIPE_BLOCKS = ("while", "until", "for", "if", "case", "{")  # what `cmd | …` can feed (not `select`: a command name)
 
 
 class _Parser:
@@ -898,7 +909,7 @@ class _Parser:
 
     def _chain(self) -> Stmt:
         start = self.i
-        parts: list[Simple | Jump | PipedInto | Arith] = [self._pipeline()]
+        parts: list[Simple | Jump | PipedInto | Arith | Group | Piped] = [self._pipeline()]
         ops: list[str] = []
         while True:
             self._skip_blanks()
@@ -914,7 +925,7 @@ class _Parser:
             parts.append(self._jump(word) if word in ("break", "continue", "return") else self._pipeline())
         return parts[0] if not ops else Chain(parts, ops, start)
 
-    def _pipeline(self) -> Simple | PipedInto | Arith:
+    def _pipeline(self) -> Simple | PipedInto | Arith | Group | Piped:
         negate = False
         if self.s.startswith("!", self.i) and self.i + 1 < self.n and self.s[self.i + 1] in " \t":
             negate = True
@@ -922,6 +933,10 @@ class _Parser:
             self._skip_blanks()
         if self.mode != "py" and self.s.startswith("((", self.i):
             return self._arith(negate)
+        if self.mode != "py" and (self._is_open(self.i) or (self.s.startswith("(", self.i))):
+            if negate:
+                raise self._error("! before a group is not supported: put the test inside it")
+            return self._group()
         simple = self._simple(stop_at_open=False)
         simple.negate = negate
         if self.i < self.n and self.s[self.i] == "|" and self._pipes_into_block(self.i):
@@ -929,6 +944,37 @@ class _Parser:
             self._skip_space()
             return PipedInto(simple, self._statement(), simple.pos, self.mode)
         return simple
+
+    def _group(self) -> Group | Piped:
+        """`{ LIST; }` or `( LIST )`, with any `| cmd` / `> file` after it."""
+        start = self.i
+        if self.s[start] == "(":
+            close = find_closing_paren(self.s, start + 1)
+            if close is None:
+                raise self._incomplete("missing ')'", " ; ")
+            inner = _Parser(self.s[start + 1:close], "sh")
+            inner.functions, inner.in_def = self.functions, self.in_def
+            try:
+                body, _ = inner.parse_list(None)
+            except ParseError as exc:
+                raise ParseError(exc.message, None if exc.pos is None else start + 1 + exc.pos) from None
+            if not body:
+                raise self._error("( ): a subshell needs a command inside", start)
+            self.i = close + 1
+            group = Group(body, True, start, self.s[start:self.i])
+        else:
+            self.i += 1
+            self.depth += 1
+            try:
+                body, _ = self._in_mode("sh", lambda: self.parse_list("}"))
+            finally:
+                self.depth -= 1
+            if not body:
+                raise self._error("{ }: a group needs a command inside: { echo hi; }", start)
+            group = Group(body, False, start, self.s[start:self.i])
+        stmt = self._maybe_piped(group)
+        assert isinstance(stmt, (Group, Piped))
+        return stmt
 
     def _arith(self, negate: bool) -> Arith:
         """`(( EXPR ))`: the text up to the matching `))`; nothing but a separator may follow."""
@@ -954,7 +1000,7 @@ class _Parser:
         j = i + 1
         while j < self.n and self.s[j] in " \t\r\n":
             j += 1
-        return self._bare_word(j) in PIPE_BLOCKS
+        return self._bare_word(j) in PIPE_BLOCKS or (j < self.n and self.s[j] == "(" and not self.s.startswith("((", j))
 
     def _simple(self, stop_at_open: bool) -> Simple:
         start, quote = self.i, None
@@ -1008,7 +1054,7 @@ class _Parser:
                 return
         close = find_closing_paren(self.s, self.i + 2)
         if close is None:
-            raise self._incomplete("missing ')'", " ")
+            raise self._incomplete("missing ')'", " ; ")
         inner_start = self.i + 2
         try:
             _Parser(self.s[inner_start:close], "sh").parse_list(None)
@@ -2193,6 +2239,8 @@ class _Runner:
                 self.check_errexit(status, f"(( {stmt.text} ))")
         elif isinstance(stmt, CFor):
             self.run_cfor(stmt)
+        elif isinstance(stmt, Group):
+            self.run_group(stmt)
         elif isinstance(stmt, Chain):
             self.run_chain(stmt)
         elif isinstance(stmt, For):
@@ -2531,9 +2579,13 @@ class _Runner:
                     return
                 status = self.run_part(part, k == last)
 
-    def run_part(self, part: Simple | PipedInto | Arith, last: bool) -> int:
+    def run_part(self, part: Simple | PipedInto | Arith | Group | Piped, last: bool) -> int:
         """One part of an `&&` / `||` chain; `set -e` applies to the last one only."""
         traps.new_command(self.ctx)
+        if isinstance(part, (Group, Piped)):
+            with _no_errexit(self.ctx) if not last else nullcontext():
+                self.run_stmt(part)
+            return self.ctx.last_status
         if isinstance(part, Arith):
             with _no_errexit(self.ctx) if not (last and not part.negate) else nullcontext():
                 status = self.run_arith(part)
@@ -2554,6 +2606,36 @@ class _Runner:
         if last and not part.negate:
             self.check_errexit(status, part.text)
         return status
+
+    def run_group(self, stmt: Group) -> None:
+        """`{ LIST; }` runs here. `( LIST )` runs on a copy of the variables, with its own traps, and
+        puts back the directory, the shell's variables, options and functions when it ends; `exit`
+        inside it only ends it."""
+        if not stmt.subshell:
+            self.run_list(stmt.body)
+            return
+        child = _Runner(self.ctx, parent=self)
+        child.stdin = self.stdin
+        status: int | None = None
+        with _subshell_state(self.ctx):
+            try:
+                with traps.frame(self.ctx, child):
+                    child.run_list(stmt.body)
+            except ShellExit as exc:
+                status = exc.code
+            except _Return as exc:
+                status = exc.status
+            except (_Break, _Continue):
+                pass
+            except _Abort as exc:
+                if not exc.reported:
+                    child.report(exc.error, exc.text)
+                status = getattr(exc.error, "status", 1) or 1
+        text = "".join(child.collected)
+        if text:
+            self.show(text)
+        if status is not None:
+            self.ctx.last_status = status
 
     def arith_value(self, text: str) -> int:
         """The value of an arithmetic expression (`(( ))`, `let`, a C-style `for`): `${…}` and `$( )` in it
@@ -2872,6 +2954,39 @@ class _Runner:
                              cond.text) from None
             self.ctx.last_status = 0 if ok else 1
         return ok != cond.negate
+
+
+@contextmanager
+def _subshell_state(ctx: ShellContext) -> Iterator[None]:
+    """What `( … )` leaves as it found it: the directory, the shell's variables, exports, options,
+    functions and read-only / integer names, the environment, and a function's arguments."""
+    cwd = os.getcwd()
+    variables, exported = dict(ctx.variables), dict(ctx.exported)
+    options, functions = set(ctx.options), dict(ctx.functions)
+    readonly, integers = set(ctx.readonly), set(ctx.integers)
+    environment = dict(os.environ)
+    arguments = list(ctx.positional[-1]) if ctx.positional else None
+    try:
+        yield
+    finally:
+        for live, saved in ((ctx.variables, variables), (ctx.exported, exported), (ctx.functions, functions)):
+            if live != saved:
+                live.clear()
+                live.update(saved)
+        for live_set, saved_set in ((ctx.options, options), (ctx.readonly, readonly), (ctx.integers, integers)):
+            if live_set != saved_set:
+                live_set.clear()
+                live_set.update(saved_set)
+        if arguments is not None and ctx.positional:
+            ctx.positional[-1][:] = arguments
+        if dict(os.environ) != environment:
+            os.environ.clear()
+            os.environ.update(environment)
+        try:
+            if os.getcwd() != cwd:
+                os.chdir(cwd)
+        except OSError:
+            os.chdir(cwd)
 
 
 def _unquote(pattern: str) -> str:
