@@ -282,4 +282,4 @@ def expand(pipeline: Pipeline, aliases: dict[str, str]) -> Pipeline:
     if not aliases and not any(c.name.startswith(BYPASS) for c in pipeline.segments):
         return pipeline
     return Pipeline([expand_command(c, aliases) for c in pipeline.segments], pipeline.redirect,
-                    pipeline.stdin_path)
+                    pipeline.stdin_path, pipeline.stdin_text)

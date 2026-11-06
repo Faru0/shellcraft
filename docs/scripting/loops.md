@@ -276,8 +276,9 @@ the next way instead.
 ## Go through a file line by line
 
 You have a file with one record per line: a host and its role, a name and an email. You want each
-whole line, spaces and all. In bash you'd write `while read line`. In ShellCraft you write
-`for -py` with the command in `( )`, which gives you one whole line at a time.
+whole line, spaces and all. One way is `for -py` with the command in `( )`, which gives you one
+whole line at a time. (`while read line; do … done < hosts.txt` works too, and splits each line
+into words: see [Input, here-docs and pipes](input-and-pipes.md#read-a-line-from-a-file).)
 
 It's written in the Python style: the line ends in `:`, and the loop body is the indented lines
 under it. There's no `do` or `done`, so here the indent matters:

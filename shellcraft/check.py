@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from shellcraft import script
+from shellcraft import heredocs, script
 from shellcraft.parser import ParseError, find_closing_paren
 
 MAX_INDENT_ERRORS = 50  # a file indented wrongly all the way down: stop reporting after this many
@@ -65,6 +65,10 @@ class Report:
 def check_text(text: str, name: str, ctx: Any, steps: bool = False) -> Report:
     """Check a file's text. With `steps` (a func), a line may start with `@` (show its output)."""
     report = Report(name, len(text.splitlines()))
+    try:
+        heredocs.encode(text, strict=True)
+    except heredocs.Unterminated as exc:  # bash only warns: the body then runs to the end of the file
+        report.problems.append(Problem(exc.line, f"{exc.message}; the body runs to the end of the file", False))
     original = text.splitlines()
     lines = list(original)
     for _ in range(MAX_INDENT_ERRORS):
@@ -243,6 +247,9 @@ class _Walker:
         elif isinstance(stmt, script.Piped):
             self._stmt(stmt.stmt, span, top)
             self._simple(stmt.tail, span, top, leading_pipe=True)
+        elif isinstance(stmt, script.PipedInto):
+            self._stmt(stmt.source, span, top)
+            self._stmt(stmt.stmt, span, top)
         elif isinstance(stmt, script.Try):
             for block in (stmt.body, stmt.handler, stmt.final):
                 self.walk(block or [], span, top)
@@ -377,6 +384,8 @@ def _nodes(stmt: Any) -> list[Any]:
             children += body
     elif isinstance(stmt, script.Piped):
         children = [stmt.stmt]
+    elif isinstance(stmt, script.PipedInto):
+        children = [stmt.source, stmt.stmt]
     elif isinstance(stmt, script.Try):
         children = [*stmt.body, *(stmt.handler or []), *(stmt.final or [])]
     for child in children:

@@ -7,6 +7,21 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`read` takes piped and redirected input, and loops can be fed.** `read [-r] [-p P] [-s] [-n N]
+  [-d D] [-t SEC] [NAME...]` reads the next line of attached input, splits it on `$IFS` (the last
+  name gets the rest, no name sets `REPLY`) and ends with status 1 at the end of the input; with
+  nothing attached it still asks at the prompt. `while read a b; do ...; done < file`, `cmd | while
+  read ...`, and pipes into `for`, `until`, `if` and `case` work (variables set in a piped block do
+  not last, as in bash). `done < file` now feeds the loop; it used to print the file. `read -a` is
+  refused. Also fixed: `$((1<<3))` in a script no longer fails to parse.
+- **Here-docs and here-strings.** `<<EOF`, `<<-EOF` (strips tabs), `<<'EOF'` and `<<"EOF"` (no
+  expansion) and `<<< word`, on commands and on loops, in `.sc` files, funcs, `source` and typed at
+  the prompt (a continuation prompt reads until the delimiter). Unquoted bodies expand `$x`, `${x}`,
+  `$( )` and `$(( ))`. `source -n` keeps its line numbers and warns about a delimiter that never comes.
+  New page: Input, here-docs and pipes (docs/scripting/input-and-pipes.md).
+- **Line continuation in files.** A trailing backslash joins the next line in `.sc` files, funcs and
+  `source`, quote aware, never after a `#` comment, and not inside a quoted here-doc. Error line
+  numbers still name the file's own lines.
 - **`sed`, as a built-in command.** The core of GNU sed, and it works on Windows: `s` (with `g`, `I`,
   `p` and a match number), `d`, `p`, `a`, `i`, `c`, `y`, `q`, `Q`, `=` and `{ }`, with line, `$`, regex,
   range (`3,5`, `/a/,/b/`, `3,+2`), `first~step` and `!` addresses, and `-n -e -f -E -r -s -i[SUFFIX]`.

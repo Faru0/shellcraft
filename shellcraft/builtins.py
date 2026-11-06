@@ -1346,27 +1346,46 @@ def _more(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
 READ_DOC = """# read
 
-Ask for a value and keep it in a shell variable, like bash's `read`. The Python spelling works too,
-on a line of its own: `name = input("What is your name? ")`. Inside a Python-style block,
-`input()` also works within any expression: `while -py input("Again? ") == "y":`.
+Read a line into shell variables, like bash's `read`. With nothing attached it asks you at the
+prompt; with piped or redirected input it takes the next line of that, so it works in a loop over
+a file. The Python spelling asks too, on a line of its own: `name = input("What is your name? ")`.
+Inside a Python-style block, `input()` also works within any expression:
+`while -py input("Again? ") == "y":`.
 
 ## Usage
 
 ```
+read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SECONDS] [NAME...]
 read NAME                       # read a line into $NAME
 read -p "Your name? " NAME      # with a prompt
 read -s -p "Token: " TOKEN      # without echoing what is typed
+read first rest                 # split on $IFS: the last name gets all that is left
+read                            # no name: the whole line goes in $REPLY
+read a b <<< "x y"              # from a here-string
+while read -r a b; do echo "$b $a"; done < pairs.txt
+echo "one two" | read a b       # piped input
 name = input("Your name? ")     # the same, Python style (also inside blocks)
 count = int(input("How many? "))   # asks again until the answer is a whole number (kept as one)
-ratio = float(input("Ratio? "))    # … or any number
+ratio = float(input("Ratio? "))    # ... or any number
 ```
 
 ## Options
 
 | Option | Meaning |
 | --- | --- |
-| `-p PROMPT`, `--prompt PROMPT` | The text shown before the answer. |
+| `-r` | Keep backslashes as typed. Without it `\\x` is plain `x` and backslash + new line continues the line. |
+| `-p PROMPT`, `--prompt PROMPT` | The text shown before the answer (only when it asks you). |
 | `-s`, `--silent` | Don't echo the answer (passwords, tokens). |
+| `-n N` | Read at most N characters (piped or redirected input only). |
+| `-d DELIM` | End the line at DELIM instead of a new line (piped or redirected input only). |
+| `-t SECONDS` | Accepted and ignored for piped input (it is already there); not supported when asking you. |
+
+A line is split where `$IFS` says (blanks, tabs and new lines until you set it). The status is 1
+at the end of the input, so `while read line; do ...; done` stops there; a last line with no new
+line at its end is still stored, then the status is 1. `read -a` (arrays) is not supported.
+In bash, `echo x | read v` loses `v` (the pipe runs in a subshell); here it stays set. In a loop
+that is piped into, such as `cat f | while read a; do ...; done`, variables set inside do not
+last after the loop, as in bash.
 
 The variable lasts for the session: later lines use it as `$NAME` (`echo hello $name`), and
 `export NAME` passes it to programs. Useful in `~/.shellcraft/rc` to ask something at startup.
@@ -1383,27 +1402,99 @@ read -s -p "API token: " token
 """
 
 
-@builtin("read", "Ask for a value and keep it in a shell variable", "read [-p PROMPT] [-s] NAME",
+def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
+    """`read`'s options (bash style: combined flags, a value joined or in the next word) and
+    its names."""
+    opts: dict[str, Any] = {"raw": False, "prompt": "", "silent": False, "n": None, "delim": "\n", "timeout": None}
+    long = {"--prompt": "p", "--silent": "s"}
+    i = 0
+    while i < len(args) and args[i].startswith("-") and args[i] != "-":
+        word = args[i]
+        i += 1
+        if word == "--":
+            break
+        flags: list[tuple[str, str | None]] | None = [(long[word], None)] if word in long else None
+        if flags is None:
+            flags = []
+            for k, c in enumerate(word[1:], 1):
+                if c in "rs":
+                    flags.append((c, None))
+                elif c in "pndtu":
+                    given = word[k + 1:]
+                    if not given:
+                        if i >= len(args):
+                            raise CommandError(f"read: -{c}: option requires an argument", 2)
+                        given, i = args[i], i + 1
+                    flags.append((c, given))
+                    break
+                elif c == "a":
+                    raise CommandError("read: -a: arrays are not supported yet", 2)
+                elif c == "e":
+                    raise CommandError("read: -e: line editing is not supported (the prompt already has it)", 2)
+                else:
+                    raise CommandError(f"read: -{c}: invalid option", 2)
+        for c, value in flags:
+            if c == "r":
+                opts["raw"] = True
+            elif c == "s":
+                opts["silent"] = True
+            elif c == "p":
+                opts["prompt"] = value if value is not None else ""
+                if word in long and i < len(args):  # --prompt TEXT
+                    opts["prompt"], i = args[i], i + 1
+            elif c == "u":
+                raise CommandError("read: -u: file descriptors are not supported (use < FILE)", 2)
+            elif c == "d":
+                opts["delim"] = value[:1] if value else "\0"
+            else:  # n, t: a number
+                try:
+                    number = float(value or "")
+                except ValueError:
+                    raise CommandError(f"read: {value}: invalid number", 2) from None
+                if c == "n":
+                    opts["n"] = max(int(number), 0)
+                else:
+                    opts["timeout"] = number
+    return opts, args[i:]
+
+
+@builtin("read", "Read a line into shell variables (asks you, or takes piped input)",
+         "read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SEC] [NAME...]",
          stateful=True, direct=True, doc=READ_DOC)
 def _read(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    from shellcraft import ask
-    from shellcraft.modkit import ArgParser
+    from shellcraft import ask, inputs
+    from shellcraft.pipeline import assign_target, set_variable
 
-    parser = ArgParser("read")
-    parser.add_argument("-p", "--prompt", default="")
-    parser.add_argument("-s", "--silent", action="store_true")
-    parser.add_argument("name")
-    opts = parser.parse_args(args)
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", opts.name):
-        raise CommandError(f"read: invalid variable name '{opts.name}'")
-    try:
-        ctx.variables[opts.name] = ask.ask(ctx, opts.prompt, hidden=opts.silent)
-    except ask.AskError as exc:
-        raise CommandError(str(exc).replace("input:", "read:", 1), exc.status) from None
-    return ""
+    opts, names = _read_options(args)
+    for name in names:
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+            raise CommandError(f"read: invalid variable name '{name}'")
+    source = inputs.attached(stdin)
+    ended = True
+    if source is None:  # nothing attached: ask at the prompt
+        if opts["n"] is not None or opts["delim"] != "\n":
+            raise CommandError("read: -n and -d read piped or redirected input; the prompt reads whole lines", 2)
+        if opts["timeout"] is not None:
+            raise CommandError("read: -t does not work at the prompt (it needs piped or redirected input)", 2)
+        try:
+            typed = ask.ask(ctx, opts["prompt"], hidden=opts["silent"])
+        except ask.AskError as exc:
+            raise CommandError(str(exc).replace("input:", "read:", 1), exc.status) from None
+        chars = inputs.text_chars(typed, opts["raw"])
+    else:
+        chars, ended = inputs.read_record(source, opts["delim"], opts["n"], opts["raw"])
+    if names:
+        ifs = ctx.variables.get("IFS", inputs.BLANKS)
+        values = inputs.split_fields(chars, ifs, len(names))
+    else:
+        names, values = ["REPLY"], ["".join(c for c, _ in chars)]
+    target = assign_target.get()
+    for name, value in zip(names, values):
+        set_variable(ctx, name, value, target)
+    return "" if ended else WithStatus("", 1)
 
 
-SOURCE_DOC = """# source
+SOURCE_DOC = r"""# source
 
 Run a file of ShellCraft command lines, as if each one were typed at the prompt: builtins,
 modules, aliases, `export`, `cd`, `theme`, `sub`, and `for` / `if` blocks over several lines.
@@ -1417,6 +1508,11 @@ source FILE
 source ~/.shellcraft/rc      # run the startup file again
 source -n FILE               # check it without running anything
 ```
+
+## Long lines and here-docs
+
+A line that ends in `\` joins the next one. Here-docs (`cat <<EOF` ... `EOF`) and here-strings
+(`<<< text`) work as they do at the prompt, and `source -n` counts the lines inside them.
 
 ## Checking a file first
 

@@ -76,6 +76,7 @@ everything.
 
 - [Scripting guide](scripting/README.md): where scripts live, how to try them, and how ShellCraft differs from bash
 - [Variables and input](scripting/variables-and-input.md): variables, quoting, defaults and `${...}` expansion, arithmetic, asking the user
+- [Input, here-docs and pipes](scripting/input-and-pipes.md): `read` from files and pipes, `<<<`, `<<EOF`, `cmd | while read`, joining lines with `\`
 - [Printing text](scripting/printing.md): `echo`, several lines, `printf` columns, `print()` and f-strings, colors, files
 - [Conditions and choices](scripting/conditions.md): `if`, tests, `&&` and `||`, `case`
 - [Loops and menus](scripting/loops.md): `for`, `while`, reading a file, `break`, `select` menus

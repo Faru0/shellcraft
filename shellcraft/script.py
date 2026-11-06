@@ -44,7 +44,7 @@ import operator
 import os
 import re
 import string
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
@@ -52,7 +52,8 @@ from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 from shellcraft import getopts, traps
 from shellcraft import parser as shparser
 from shellcraft.context import ShellContext, to_text
-from shellcraft.parser import ParseError, find_closing_paren
+from shellcraft.inputs import Input
+from shellcraft.parser import ParseError, _closing_double_paren, find_closing_paren
 
 KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
             "case", "esac", "select", "def", "try", "except", "finally")
@@ -99,7 +100,7 @@ class Simple:
 class Chain:
     """`a && b || c`: each part runs depending on the status so far, left to right."""
 
-    parts: list[Simple | Jump]  # a Jump only after the first: `[ -f x ] || return 1`
+    parts: list[Simple | Jump | PipedInto]  # a Jump only after the first: `[ -f x ] || return 1`
     ops: list[str]
     pos: int
 
@@ -199,6 +200,18 @@ class Piped:
 
 
 @dataclass
+class PipedInto:
+    """`cmd | while read x; do …; done` (also `until`, `for`, `if`, `case`): the command's output
+    is the input of the block, which reads it line by line (`read`). As in bash the block is a
+    subshell: variables it sets do not last after it."""
+
+    source: Simple  # the command (or pipeline) on the left
+    stmt: Stmt  # the compound statement on the right
+    pos: int
+    mode: str = "sh"
+
+
+@dataclass
 class Assign:
     """`NAME = EXPR` or `NAME += EXPR` (`-=`, `*=`, `/=`, `//=`, `%=`) in a -py block or a `def`:
     the value is a Python expression, kept as text in the shell variable."""
@@ -232,7 +245,7 @@ class Print:
     tree: ast.Expression
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, Function, Select, Assign, Try, Print]
+Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign, Try, Print]
 
 
 @dataclass
@@ -304,6 +317,9 @@ def join_continuation(text: str, more: str) -> str:
                          or (exc is not None and exc.mode == "py" and first in ("}", "else", "elif"))):
         join = " "
     return head + join + more
+
+
+PIPE_BLOCKS = ("while", "until", "for", "if", "case")  # what `cmd | …` can feed (not `select`: a command name)
 
 
 class _Parser:
@@ -860,7 +876,7 @@ class _Parser:
 
     def _chain(self) -> Stmt:
         start = self.i
-        parts: list[Simple | Jump] = [self._pipeline()]
+        parts: list[Simple | Jump | PipedInto] = [self._pipeline()]
         ops: list[str] = []
         while True:
             self._skip_blanks()
@@ -876,7 +892,7 @@ class _Parser:
             parts.append(self._jump(word) if word in ("break", "continue", "return") else self._pipeline())
         return parts[0] if not ops else Chain(parts, ops, start)
 
-    def _pipeline(self) -> Simple:
+    def _pipeline(self) -> Simple | PipedInto:
         negate = False
         if self.s.startswith("!", self.i) and self.i + 1 < self.n and self.s[self.i + 1] in " \t":
             negate = True
@@ -884,7 +900,20 @@ class _Parser:
             self._skip_blanks()
         simple = self._simple(stop_at_open=False)
         simple.negate = negate
+        if self.i < self.n and self.s[self.i] == "|" and self._pipes_into_block(self.i):
+            self.i += 1
+            self._skip_space()
+            return PipedInto(simple, self._statement(), simple.pos, self.mode)
         return simple
+
+    def _pipes_into_block(self, i: int) -> bool:
+        """Whether the `|` at `i` is followed by a loop, `if` or `case`: `cmd | while read x; …`."""
+        if self.mode not in ("sh", "top") or self.s.startswith("||", i) or self.s.startswith("|&", i):
+            return False
+        j = i + 1
+        while j < self.n and self.s[j] in " \t\r\n":
+            j += 1
+        return self._bare_word(j) in PIPE_BLOCKS
 
     def _simple(self, stop_at_open: bool) -> Simple:
         start, quote = self.i, None
@@ -915,6 +944,8 @@ class _Parser:
                 continue
             elif ch in ";\n" or (not brackets and (self.s.startswith("&&", self.i) or self.s.startswith("||", self.i))):
                 break
+            elif ch == "|" and not brackets and self._pipes_into_block(self.i):
+                break  # `cmd | while read x; do …; done`: the block is parsed after the command
             elif self.depth and self._is_close(self.i):
                 break
             elif stop_at_open and self._is_open(self.i):
@@ -927,7 +958,13 @@ class _Parser:
         return Simple(text, start, self.mode)
 
     def _skip_substitution(self) -> None:
-        """At `$(` in bash mode: check the command inside and move past its `)`."""
+        """At `$(` in bash mode: check the command inside and move past its `)`. `$(( … ))` is
+        arithmetic, not a command: its `<<` is a shift, not a here-document."""
+        if self.s.startswith("$((", self.i):
+            arith_end = _closing_double_paren(self.s, self.i + 3)
+            if arith_end is not None:
+                self.i = arith_end + 2
+                return
         close = find_closing_paren(self.s, self.i + 2)
         if close is None:
             raise self._incomplete("missing ')'", " ")
@@ -2010,7 +2047,7 @@ def _run_function(fn: Function, args: list[str], stdin: str, ctx: ShellContext, 
     runner = _Runner(ctx)
     runner.collect_only = not live
     runner.frame = {}
-    runner.stdin = stdin
+    runner.stdin = stdin if isinstance(stdin, Input) or not stdin else Input(stdin)  # `read` takes it line by line
     if cmd is not None and cmd.stderr is not None:
         runner.stderr_sink = stderr_file_sink(cmd.stderr)
     elif cmd is not None and cmd.merge_stderr:
@@ -2070,7 +2107,7 @@ class _Runner:
         # In a function call: the values `local` replaced (None: the variable did not exist),
         # put back when the call ends; and the function's input, which its commands read.
         self.frame: dict[str, str | None] | None = parent.frame if parent else None
-        self.stdin = parent.stdin if parent else ""
+        self.stdin: str = parent.stdin if parent else ""
         # A function call's or block's `2> file` / `2>&1`: where its errors are reported.
         self.stderr_sink: Callable[[str], None] | None = None
         # `try` bodies being run by this runner: a failing command jumps to `except`. A function
@@ -2173,6 +2210,8 @@ class _Runner:
             self.run_case(stmt)
         elif isinstance(stmt, Piped):
             self.run_piped(stmt)
+        elif isinstance(stmt, PipedInto):
+            self.run_pipedinto(stmt)
         elif isinstance(stmt, Function):
             self.define(stmt)
         elif isinstance(stmt, Select):
@@ -2305,10 +2344,10 @@ class _Runner:
         self.ctx.last_status = 0
         return 0, None
 
-    def run_simple(self, stmt: Simple | str, show_errors: bool = True) -> tuple[int, Any]:
+    def run_simple(self, stmt: Simple | str, show_errors: bool = True, live: bool | None = None) -> tuple[int, Any]:
         """Run one pipeline; returns (status, output). Bash-mode statements split unquoted
         expansions into words and run `$( … )` (not inside `[[ … ]]`, as in bash)."""
-        from shellcraft.pipeline import PipelineError, UnboundError, _run_parsed, assign
+        from shellcraft.pipeline import PipelineError, UnboundError, _run_parsed, assign, assign_target
 
         if isinstance(stmt, str):
             stmt = Simple(stmt, 0, "py")
@@ -2320,6 +2359,7 @@ class _Runner:
             asked = self.run_input(stmt)
             if asked is not None:
                 return asked, None
+        token = assign_target.set(self.vars)  # `read` sets its variables where `x=1` would
         try:
             if assign(stmt.text, self.ctx, self.variables(), self.substitute if expands else None, target=self.vars):
                 self.ctx.last_status = 0
@@ -2327,13 +2367,15 @@ class _Runner:
             result = _run_parsed(stmt.text, self.ctx, self.variables(),
                                  split=sh and not stmt.text.lstrip().startswith("[["),
                                  substitute=self.substitute if expands else None, glob=expands,
-                                 stdin=self.stdin, live=self.shows_live)
+                                 stdin=self.stdin, live=self.shows_live if live is None else live)
         except (ParseError, PipelineError) as exc:
             if show_errors:
                 self.report(exc, stmt.text)
             if isinstance(exc, UnboundError):  # `set -u`: the script stops here
                 raise _Abort(exc, stmt.text, reported=show_errors, stops=True) from None
             result = None
+        finally:
+            assign_target.reset(token)
         output = None if result is None else result.output
         if stmt.negate:
             self.ctx.last_status = 0 if self.ctx.last_status else 1
@@ -2478,7 +2520,7 @@ class _Runner:
         """`a && b || c`. Under `set -e` only the last part's failure stops the script, and only
         when it ran: `false && x` goes on, `x && false` stops."""
         first = stmt.parts[0]
-        assert isinstance(first, Simple)  # a Jump only ever follows && / ||
+        assert not isinstance(first, Jump)  # a Jump only ever follows && / ||
         last = len(stmt.parts) - 1
         status = self.run_part(first, last == 0)
         for k, (op, part) in enumerate(zip(stmt.ops, stmt.parts[1:]), 1):
@@ -2488,9 +2530,13 @@ class _Runner:
                     return
                 status = self.run_part(part, k == last)
 
-    def run_part(self, part: Simple, last: bool) -> int:
+    def run_part(self, part: Simple | PipedInto, last: bool) -> int:
         """One part of an `&&` / `||` chain; `set -e` applies to the last one only."""
         traps.new_command(self.ctx)
+        if isinstance(part, PipedInto):
+            with _no_errexit(self.ctx) if not last else nullcontext():
+                self.run_pipedinto(part)
+            return self.ctx.last_status
         if last and not part.negate:
             status, output = self.run_simple(part)
         else:
@@ -2624,12 +2670,27 @@ class _Runner:
         self.ctx.last_status = 0
 
     def run_piped(self, stmt: Piped) -> None:
-        """Run the block with its output collected, then feed that to the tail pipeline."""
+        """Run the block with its output collected, then feed that to the tail pipeline. A
+        `< file`, `<<< text` or here-document on the tail is the block's input, not the tail's."""
         from shellcraft.pipeline import PipelineError, UnboundError, _run_parsed
 
+        sh = stmt.mode == "sh"
+        parsed, block_input = None, None
+        if "<" in stmt.tail:
+            try:
+                parsed, block_input = self._block_input(stmt)
+            except shparser.UnboundVariable:
+                raise
+            except (ParseError, PipelineError) as exc:
+                self.ctx.last_status = 2 if isinstance(exc, ParseError) else getattr(exc, "status", 1)
+                self.report(exc, stmt.tail)
+                self.check_errexit(self.ctx.last_status, stmt.tail)
+                return
         inner = _Runner(self.ctx, parent=self)
         inner.vars = self.vars  # the same scope: `for … done | sort` is not a subshell for variables
         inner.collect_only = True
+        if block_input is not None:
+            inner.stdin = block_input
         inner.stderr_sink = self._block_stderr(stmt, inner)
         if inner.stderr_sink is not None:
             self.ctx.stderr_sinks.append(inner.stderr_sink)
@@ -2645,11 +2706,10 @@ class _Runner:
                 self.ctx.stderr_sinks.pop()
         block_status = self.ctx.last_status
         text = "".join(inner.collected)
-        sh = stmt.mode == "sh"
         try:
             result = _run_parsed(stmt.tail, self.ctx, self.variables(), split=sh,
                                  substitute=self.substitute, glob=True, stdin=text, allow_leading_pipe=True,
-                                 live=self.shows_live)
+                                 live=self.shows_live, parsed=parsed)
         except (ParseError, PipelineError) as exc:
             self.report(exc, stmt.tail)
             if isinstance(exc, UnboundError):
@@ -2661,6 +2721,45 @@ class _Runner:
         if "pipefail" in self.ctx.options and block_status and not self.ctx.last_status:
             self.ctx.last_status = block_status
         self.check_errexit(self.ctx.last_status, stmt.tail)
+
+    def _block_input(self, stmt: Piped) -> tuple[Any, Input | None]:
+        """The tail parsed, and the block's input when it has one: `done < file`, `done <<< text`
+        or a here-document. That input is taken off the tail, which would otherwise print it."""
+        from shellcraft.pipeline import read_stdin_file
+
+        pipeline = shparser.parse(stmt.tail, self.variables(), split=stmt.mode == "sh",
+                                  substitute=self.substitute, glob=True, allow_leading_pipe=True)
+        first = pipeline.segments[0] if pipeline and pipeline.segments else None
+        if pipeline is None or first is None or first.name:
+            return pipeline, None
+        if pipeline.stdin_text is not None:
+            text = pipeline.stdin_text
+        elif pipeline.stdin_path is not None:
+            text = read_stdin_file(pipeline)
+        else:
+            return pipeline, None
+        pipeline.stdin_text = pipeline.stdin_path = None
+        return pipeline, Input(text)
+
+    def run_pipedinto(self, stmt: PipedInto) -> None:
+        """`cmd | while read x; do …; done`: the command's output, collected, is what the block
+        reads. The block runs on a copy of the variables, as a subshell would."""
+        _, output = self.run_simple(stmt.source, live=False)
+        head_status = self.ctx.last_status
+        inner = _Runner(self.ctx, parent=self)
+        inner.stdin = Input(to_text(output) if output is not None else "")
+        try:
+            inner.run_list([stmt.stmt])
+        except (_Break, _Continue):
+            pass
+        except _Abort as exc:
+            if not exc.reported:
+                raise
+        text = "".join(inner.collected)
+        if text:
+            self.show(text)
+        if "pipefail" in self.ctx.options and head_status and not self.ctx.last_status:
+            self.ctx.last_status = head_status
 
     def _block_stderr(self, stmt: Piped, inner: _Runner) -> Callable[[str], None] | None:
         """`done 2> err.txt` / `done 2>&1 | …`: where the block's error stream goes (its `>&2`

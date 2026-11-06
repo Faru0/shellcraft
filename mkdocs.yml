@@ -68,6 +68,7 @@ nav:
       - Pipes and scripting: scripting.md
       - Scripting guide: scripting/README.md
       - Variables and input: scripting/variables-and-input.md
+      - Input, here-docs and pipes: scripting/input-and-pipes.md
       - Printing text: scripting/printing.md
       - Conditions and choices: scripting/conditions.md
       - Loops and menus: scripting/loops.md

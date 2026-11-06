@@ -329,7 +329,8 @@ the script uses the same date.
 Sometimes a script needs something only the person at the keyboard knows: which environment to
 deploy to, a project name, a password. There are two ways to ask a question and keep the answer.
 Both only work in the interactive shell: at the prompt, in the rc file, in startup files and in
-funcs.
+funcs. (`read` can also take its line from a file, a pipe or a string instead of asking you: see
+[Input, here-docs and pipes](input-and-pipes.md).)
 
 **`input()`** reads like Python. It works on a line of its own, and inside loops, `if` blocks and
 functions:

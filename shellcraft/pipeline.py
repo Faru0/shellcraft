@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
@@ -18,6 +19,7 @@ import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, 
 from shellcraft import aliases, arith, streams, traps
 from shellcraft.builtins import BUILTINS
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
+from shellcraft.inputs import Input
 from shellcraft.modkit import ModuleError
 from shellcraft.parser import Command, ParseError, Pipeline, UnboundVariable, parse, tokenize
 from shellcraft.streams import Cancelled, Channel, Lines, UpstreamFailed
@@ -126,12 +128,13 @@ class Variables(Mapping[str, str]):
 def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
-    from shellcraft import ask, curlpaste, script
+    from shellcraft import ask, curlpaste, heredocs, script
     from shellcraft.parser import join_continued_lines, split_background, strip_comments
 
-    # Comments first (`cmd  # note`, a `# …` line), then a pasted curl command: Windows' "Copy as
-    # cURL (cmd)" form, and lines continued with `\`.
-    line = join_continued_lines(curlpaste.from_cmd(strip_comments(line)))
+    # Here-document bodies first (they must not be read as commands or have their `#` taken for a
+    # comment), then comments (`cmd  # note`, a `# …` line), then a pasted curl command: Windows'
+    # "Copy as cURL (cmd)" form, and lines continued with `\`.
+    line = join_continued_lines(curlpaste.from_cmd(strip_comments(heredocs.encode(line, join=False))))
 
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program
@@ -253,6 +256,11 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
     return True
 
 
+# Where a builtin that sets variables (`read`) puts them: the running script's own store, which a
+# piped loop keeps apart from the shell's. None: the shell's variables.
+assign_target: ContextVar[dict[str, str] | None] = ContextVar("assign_target", default=None)
+
+
 def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str] | None = None) -> None:
     """Set a shell variable (in `target`, default the shell's) as `NAME=VALUE` does: shown by
     `set -x`, and passed on to commands when it is exported."""
@@ -267,9 +275,11 @@ def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str
 
 def _run_parsed(line: str, ctx: ShellContext, variables: Mapping[str, str], split: bool = False,
                 substitute: Any = None, glob: bool = False, stdin: str = "",
-                allow_leading_pipe: bool = False, live: bool = False) -> PipelineResult | None:
+                allow_leading_pipe: bool = False, live: bool = False,
+                parsed: Pipeline | None = None) -> PipelineResult | None:
+    """Parse `line` and run it (`parsed`: already parsed, run as it is)."""
     try:
-        pipeline = parse(line, variables, split, substitute, glob, allow_leading_pipe)
+        pipeline = parsed or parse(line, variables, split, substitute, glob, allow_leading_pipe)
     except UnboundVariable as exc:  # `set -u`
         ctx.last_status = STATUS_ERROR
         raise UnboundError(1, 1, exc.name, str(exc)) from None
@@ -319,12 +329,10 @@ def run_pipeline(pipeline: Pipeline, ctx: ShellContext, stdin: str = "", live: b
             raise PipelineError(index, total, cmd.name, f"{cmd.name} is a func: it runs on its own line, not in a "
                                                         f"pipeline (func show {cmd.name})")
     data: Any = stdin
-    if pipeline.stdin_path is not None:
-        try:
-            data = Path(pipeline.stdin_path).read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            raise PipelineError(1, total, pipeline.segments[0].name or "<",
-                                f"cannot read {pipeline.stdin_path}: {exc.strerror or exc}") from exc
+    if pipeline.stdin_text is not None:  # `<<< word` and here-documents
+        data = Input(pipeline.stdin_text)
+    elif pipeline.stdin_path is not None:
+        data = Input(read_stdin_file(pipeline, total))
 
     segments = [(index, cmd) for index, cmd in enumerate(pipeline.segments, start=1) if cmd.name]
     output: Any = data
@@ -443,8 +451,23 @@ def _as_error(cmd: Command, exc: BaseException, index: int, total: int) -> Pipel
     return error
 
 
+def read_stdin_file(pipeline: Pipeline, total: int = 1) -> str:
+    """The text of `< file` (PipelineError when it can't be read)."""
+    path = pipeline.stdin_path or ""
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise PipelineError(1, total, pipeline.segments[0].name or "<",
+                            f"cannot read {path}: {exc.strerror or exc}") from exc
+
+
 def _stdin_for(cmd: Command, upstream: Any) -> Any:
-    """What a command reads: Lines for a streaming builtin, else the whole text (waiting for it)."""
+    """What a command reads: Lines for a streaming builtin, else the whole text (waiting for it).
+    `read` always gets an Input (a pipe that said nothing is still input, not the terminal)."""
+    if isinstance(upstream, Input):
+        return upstream
+    if cmd.name == "read" and isinstance(upstream, Channel):
+        return Input(Lines(upstream).read())
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None and builtin.streams:
         return Lines(upstream if isinstance(upstream, Channel) else to_text(upstream))

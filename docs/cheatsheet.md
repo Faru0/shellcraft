@@ -86,6 +86,13 @@ echo ${f%.txt} ${f##*/} ${#f} ${f^^} ${f/a/b}    # trim, length, capitals, repla
 name = input("Your name? ")                      # ask, Python style (anywhere, also in blocks); input(f"…") too
 read -p "Env? " env                              # ask, bash style
 read -s -p "Token: " token                       # ask without showing it
+read a b <<< "x y z"                             # from a string: a=x, b="y z" (no name: $REPLY, IFS splits)
+while read -r k v; do echo $v; done < file       # a file, line by line; also: cmd | while read ...
+cat <<EOF                                        # a block of text: $x and $(cmd) expand;
+hello $USER                                      # <<'EOF' keeps it literal, <<-EOF strips tabs
+EOF
+echo a \
+  b                                              # a trailing backslash joins the next line
 echo -e "line 1\nline 2"                         # several lines
 printf "%-10s %5.1f\n" cpu 42.5                  # columns and numbers
 

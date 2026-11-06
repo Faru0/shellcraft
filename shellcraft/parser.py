@@ -35,7 +35,7 @@ from shellcraft import arith
 
 # Longest first. The `2>` forms and a lone `&` only count at the start of a word, as in POSIX
 # shells, so `a2>b` is `a2 > b` and a URL's `?a=1&b=2` stays one word.
-OPERATORS = ("2>&1", "1>&2", ">&2", "2>>", "2>", "&>", "|", ">>", ">", "<")
+OPERATORS = ("2>&1", "1>&2", ">&2", "2>>", "2>", "&>", "|", ">>", ">", "<<<", "<<", "<")
 UNSUPPORTED = (">&", "&&", "||", ";", "&")
 _WORD_START_ONLY = ("2>&1", "1>&2", "2>>", "2>", "&")
 TO_STDERR = (">&2", "1>&2")
@@ -95,6 +95,7 @@ class Pipeline:
     segments: list[Command]
     redirect: Redirect | None = None
     stdin_path: str | None = None  # `< file`
+    stdin_text: str | None = None  # `<<< word`, or a here-document: the first command's input, as text
 
 
 def _expand_simple(word: str, variables: Mapping[str, str]) -> str:
@@ -632,6 +633,10 @@ def join_continued_lines(line: str) -> str:
             if line.startswith("\\\r\n", i):
                 i += 3
                 continue
+            if not quote and i + 1 < n and line[i + 1] == "\\":  # `\\` + new line is no continuation
+                out.append("\\\\")
+                i += 2
+                continue
         out.append(ch)
         i += 1
     return "".join(out)
@@ -680,23 +685,7 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
         literal: list[bool] = []  # per character: was it quoted (a `[[ x == "*" ]]` pattern takes it as text)?
 
         def expansion(at: int, quoted: bool = False) -> tuple[str, int] | None:
-            if line.startswith("$((", at):
-                close = _closing_double_paren(line, at + 3)
-                if close is None:
-                    raise ParseError("missing '))' for '$(('", at)
-                try:
-                    expr = _arith_text(line[at + 3:close], variables, substitute)
-                    return str(arith.evaluate(expr, variables)), close + 2
-                except arith.ArithError as exc:
-                    if variables is None:  # a first look at the line, without its variables: `$((a / b))`
-                        return line[at:close + 2], close + 2  # would divide by 0 here; it runs with them later
-                    raise ParseError(f"$(( )): {exc}", at) from None
-            if substitute is not None and line.startswith("$(", at):
-                close = find_closing_paren(line, at + 2)
-                if close is None:
-                    raise ParseError("missing ')' for '$('", at)
-                return substitute(line[at + 2:close]).rstrip("\n"), close + 1
-            return expand_variable(line, at, variables, substitute, quoted)
+            return expansion_at(line, at, variables, substitute, quoted)
 
         def add(text: str, may_glob: bool, quoted_text: bool | None = None) -> None:
             buf.append(text)
@@ -781,6 +770,29 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
     return tokens
 
 
+def expansion_at(line: str, at: int, variables: Mapping[str, str] | None,
+                 substitute: Callable[[str], str] | None, quoted: bool = False) -> tuple[str, int] | None:
+    """At a `$` (line[at]): (the text it expands to, index after it) for `$(( … ))`, `$( … )` (when
+    `substitute` is given) and a variable reference, else None."""
+    if line.startswith("$((", at):
+        close = _closing_double_paren(line, at + 3)
+        if close is None:
+            raise ParseError("missing '))' for '$(('", at)
+        try:
+            expr = _arith_text(line[at + 3:close], variables, substitute)
+            return str(arith.evaluate(expr, variables)), close + 2
+        except arith.ArithError as exc:
+            if variables is None:  # a first look at the line, without its variables: `$((a / b))`
+                return line[at:close + 2], close + 2  # would divide by 0 here; it runs with them later
+            raise ParseError(f"$(( )): {exc}", at) from None
+    if substitute is not None and line.startswith("$(", at):
+        close = find_closing_paren(line, at + 2)
+        if close is None:
+            raise ParseError("missing ')' for '$('", at)
+        return substitute(line[at + 2:close]).rstrip("\n"), close + 1
+    return expand_variable(line, at, variables, substitute, quoted)
+
+
 def _emit(tokens: list[Token], word: str, start: int, globbable: list[bool], glob: bool) -> None:
     """Append a word, expanded into file names when it is an unquoted glob pattern."""
     if glob and any(c in "*?[" and g for c, g in zip(word, globbable)):
@@ -826,6 +838,18 @@ def _breaks_word(line: str, i: int) -> bool:
     return any(line.startswith(o, i) for o in OPERATORS + UNSUPPORTED if o not in _WORD_START_ONLY)
 
 
+def _decode_heredoc(word: str) -> tuple[str, bool] | None:
+    from shellcraft import heredocs
+
+    return heredocs.decode(word)
+
+
+def _expand_heredoc(body: str, variables: Mapping[str, str] | None, substitute: Callable[[str], str] | None) -> str:
+    from shellcraft import heredocs
+
+    return heredocs.expand(body, variables, substitute)
+
+
 def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = False,
           substitute: Callable[[str], str] | None = None, glob: bool = False,
           allow_leading_pipe: bool = False) -> Pipeline | None:
@@ -840,6 +864,7 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
     current: list[Token] = []
     redirect: Redirect | None = None
     stdin_path: str | None = None
+    stdin_text: str | None = None
     stderr: Redirect | None = None
     merge_stderr = to_stderr = False
     leading = allow_leading_pipe
@@ -872,13 +897,24 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
         elif tok.op:  # > >> < 2> 2>> &>
             if not current and not (leading and not segments):
                 raise ParseError(f"missing command before '{tok.value}'", tok.pos)
+            if tok.value == "<<":
+                raise ParseError("a here-document needs its lines after this one and a delimiter line "
+                                 "(cat <<EOF, the text, then EOF alone); for one line use <<< \"text\"", tok.pos)
             if i + 1 >= len(tokens) or tokens[i + 1].op:
-                raise ParseError(f"missing file name after '{tok.value}'", tok.pos)
+                raise ParseError("missing word after '<<<'" if tok.value == "<<<"
+                                 else f"missing file name after '{tok.value}'", tok.pos)
             target = tokens[i + 1].value
-            if tok.value == "<":
-                if segments or stdin_path is not None:
-                    raise ParseError("'<' only applies to the first command of a pipeline", tok.pos)
-                stdin_path = target
+            if tok.value in ("<", "<<<"):
+                if segments or stdin_path is not None or stdin_text is not None:
+                    raise ParseError(f"'{tok.value}' only applies to the first command of a pipeline, once",
+                                     tok.pos)
+                if tok.value == "<":
+                    stdin_path = target
+                elif (here := _decode_heredoc(target)) is not None:  # a here-document's body
+                    body, literal = here
+                    stdin_text = body if literal else _expand_heredoc(body, variables, substitute)
+                else:
+                    stdin_text = target + "\n"
             elif tok.value in ("2>", "2>>"):
                 stderr = Redirect(target, append=tok.value == "2>>")
             elif tok.value == "&>":
@@ -897,7 +933,8 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
         i += 1
 
     if not current:
-        if leading and not segments and (redirect is not None or stdin_path is not None or stderr is not None
+        if leading and not segments and (redirect is not None or stdin_path is not None
+                                         or stdin_text is not None or stderr is not None
                                          or merge_stderr or to_stderr):
             # `} > out`, `done 2> err.txt`, `done >&2`: only a redirection of the block
             segments.append(Command("", [], stderr, merge_stderr, to_stderr=to_stderr))
@@ -905,13 +942,13 @@ def parse(line: str, variables: Mapping[str, str] | None = None, split: bool = F
             raise ParseError("pipeline ends with '|'", tokens[-1].pos)
         elif not segments:
             raise ParseError("expected a command", tokens[0].pos)
-        elif redirect is None and stdin_path is None:
+        elif redirect is None and stdin_path is None and stdin_text is None:
             raise ParseError("pipeline ends with '|'", tokens[-1].pos)
         else:
             raise ParseError("redirection must be the last part of a pipeline", tokens[-1].pos)
     else:
         close_segment(tokens[-1].pos)
-    return Pipeline(segments, redirect, stdin_path)
+    return Pipeline(segments, redirect, stdin_path, stdin_text)
 
 
 def split_background(line: str) -> str | None:

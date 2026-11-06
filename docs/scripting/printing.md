@@ -54,8 +54,10 @@ spelled differently, is empty, so it leaves a gap. The same happens to a `$` you
 ## Several lines at once
 
 You'll want this for a welcome message, a short help text or a list of reminders. ShellCraft has
-no heredoc (`cat <<EOF`), and a quoted string can't run across several lines of a script. There are
-four other ways to print a block of text. Pick the one that reads best to you.
+a quoted string can't run across several lines of a script. There are five ways to print a block of
+text. A [here-doc](input-and-pipes.md#here-docs) (`cat <<EOF`) is the plainest for a long block: you
+write the text as it is and end it with a line holding only `EOF`. The other four are below. Pick the one
+that reads best to you.
 
 **One `echo` per line.** The plainest way, and the easiest to edit later:
 

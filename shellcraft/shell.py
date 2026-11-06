@@ -1850,11 +1850,11 @@ class Shell:
         """While a `{` or `(` is still open, read more lines (with a `┆ …` prompt) and join them
         into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing. A colon
         header (`for -py x in a b:`) reads a Python-style block instead (_read_block)."""
-        from shellcraft import indent
+        from shellcraft import heredocs, indent
 
         if indent.opens_block(line):
             return self._read_block(line)
-        while script.incomplete(line) is not None or _continued(line):
+        while (wanted := _wants_more(line)) is not None:
             try:
                 more = self._ask(self._continuation_prompt)
             except KeyboardInterrupt:
@@ -1862,12 +1862,16 @@ class Shell:
                 return None
             except EOFError:
                 try:
-                    script.parse_script(line)
+                    if wanted == "heredoc":
+                        heredocs.encode(line, strict=True, join=False)
+                    script.parse_script(heredocs.encode(line, join=False))
                 except ParseError as exc:
                     show_error(self.ui, ParseError(f"{exc.message} (end of input)", exc.pos), line)
                 self.ctx.last_status = STATUS_SYNTAX
                 return None
-            if _continued(line):  # `\` (or a cmd-style curl line's `^`) at the end: the next line goes on it
+            if wanted != "block" or heredocs.encode(line, join=False) != line:
+                # `\` at the end, a here-document still open, or a block after a here-document:
+                # the lines stay apart (the body must not be joined into one line)
                 line = line + "\n" + more
             elif more.strip():
                 line = script.join_continuation(line, more)  # adds `;` only where one is needed
@@ -1979,6 +1983,20 @@ def restore_tty(saved: Any) -> None:
         termios.tcsetattr(fd, termios.TCSANOW, before)
     except Exception:  # noqa: BLE001 — the terminal is gone
         pass
+
+
+def _wants_more(line: str) -> str | None:
+    """Why the line typed so far needs another one: "heredoc" (a `<<EOF` whose delimiter line has
+    not come), "continued" (a `\\` at the end), "block" (an open `for` / `if` / `{`), else None."""
+    from shellcraft import heredocs
+
+    try:
+        heredocs.encode(line, strict=True, join=False)
+    except heredocs.Unterminated:
+        return "heredoc"
+    if _continued(line):
+        return "continued"
+    return "block" if script.incomplete(heredocs.encode(line, join=False)) is not None else None
 
 
 def _continued(line: str) -> bool:

@@ -98,6 +98,7 @@ before it:
 | Page | You'll learn |
 | --- | --- |
 | [Variables and input](variables-and-input.md) | Variables, quoting, default values, `${…}` trimming and lengths, arithmetic, asking the user with `input()` and `read`, environment variables |
+| [Input, here-docs and pipes](input-and-pipes.md) | Reading a file line by line with `read`, splitting on `IFS`, here-strings (`<<<`), here-docs (`<<EOF`), piping into a loop, joining lines with `\` |
 | [Printing text](printing.md) | `echo`, several lines at once, `printf` for columns and numbers, colors, errors, writing to files |
 | [Conditions and choices](conditions.md) | `if`, `elif`, `else`, every test, `&&` and `||`, `case` for picking between choices, Python conditions |
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
@@ -190,10 +191,10 @@ copying a script from the web and a line fails, look for it here:
 
 | In bash you'd write | In ShellCraft | Where |
 | --- | --- | --- |
-| `cat <<EOF` (a heredoc) | `echo -e "line 1\nline 2"`, `printf`, or keep the text in a file and `cat` it | [Printing text](printing.md#several-lines-at-once) |
+| `cat <<EOF` (a heredoc), `<<<` | The same: `cat <<EOF`, `<<'EOF'`, `<<-EOF` and `read x <<< "text"` all work | [Input, here-docs and pipes](input-and-pipes.md#here-docs) |
 | A quoted string over several lines | `echo -e` with `\n`, or one `echo` per line | [Printing text](printing.md#several-lines-at-once) |
-| `while read line; do … done < file` | `for -py line in (cat file):` and an indented body | [Loops and menus](loops.md#go-through-a-file-line-by-line) |
-| `read` from a pipe | `read` always asks the person at the keyboard | [Variables and input](variables-and-input.md#ask-the-user) |
+| `while read line; do … done < file`, `cmd \| while read …` | The same. Also `for -py line in (cat file):` for whole lines | [Input, here-docs and pipes](input-and-pipes.md#read-a-line-from-a-file) |
+| `IFS= read -r line`, `read -a` | Not yet: set `IFS` on its own line before the loop. Arrays are not supported | [Input, here-docs and pipes](input-and-pipes.md#if-it-doesnt-work) |
 | Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
 | `(( n > 3 ))` and `let` | `[ $n -gt 3 ]` and `n=$((n + 1))` | [Conditions and choices](conditions.md#comparing-numbers) |
 | `{ cmd1; cmd2; }` to group | An `if` block, or a function | [Conditions and choices](conditions.md#if-then-else) |

@@ -112,14 +112,16 @@ def rc_path(home: Path | None = None) -> Path:
 
 def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]:
     """(first line number, command) for each command in a file of ShellCraft lines: blank lines
-    and `#` comments skipped, an unfinished `for` / `if` / `{` joined with the lines after it, as
-    the prompt does. A block still open at the end is returned as is (running it reports why).
+    and `#` comments skipped, a line ending in `\\` joined with the next, a here-document's lines
+    carried in its command (shellcraft.heredocs), an unfinished `for` / `if` / `{` joined with the
+    lines after it, as the prompt does. A block still open at the end is returned as is (running it reports why).
     Python-style colon blocks are turned into the brace form first (shellcraft.indent); one that is
     indented wrongly raises indent.IndentError (with colon_blocks False, the lines are left as
     they are)."""
-    from shellcraft import indent, script
+    from shellcraft import heredocs, indent, script
     from shellcraft.parser import strip_comments
 
+    text = heredocs.encode(text)  # here-documents into their command lines, `\\` lines joined (the line count stays)
     out: list[tuple[int, str]] = []
     pending: tuple[int, str] | None = None
     colon = colon_blocks and indent.has_colon_block(text)
