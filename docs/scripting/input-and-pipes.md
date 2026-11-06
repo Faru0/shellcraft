@@ -269,9 +269,9 @@ Put the pipe, `<` or `<<<` on the loop or the `read`, not on a later line.
 **The variable is empty after my loop.** The loop was piped into, so it ran on a copy. Use
 `done < file` or `done <<EOF`, or print inside the loop.
 
-**`while IFS= read -r line` doesn't work.** A variable set in front of a single command
-(`IFS= read`) is not supported yet. Set `IFS` on its own line before the loop, and put the old value
-back after it.
+**`while IFS= read -r line` says "quote a value that contains spaces".** A variable set in front of
+a single command (`IFS= read`) is not supported yet. Set `IFS` on its own line before the loop, and
+put the old value back after it. (The loop stops after the message instead of running forever.)
 
 **A quoted string over several lines is cut at the end of a line.** In a script file each line is
 read on its own. Use a here-doc or `echo -e "line 1\nline 2"` for a block of text.

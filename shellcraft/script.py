@@ -2369,6 +2369,8 @@ class _Runner:
                                  substitute=self.substitute if expands else None, glob=expands,
                                  stdin=self.stdin, live=self.shows_live if live is None else live)
         except (ParseError, PipelineError) as exc:
+            if isinstance(exc, ParseError) and not isinstance(exc, shparser.UnboundVariable):
+                self.ctx.last_status = 2  # a line that won't parse failed: `while <bad line>` must end
             if show_errors:
                 self.report(exc, stmt.text)
             if isinstance(exc, UnboundError):  # `set -u`: the script stops here
@@ -2708,7 +2710,7 @@ class _Runner:
         text = "".join(inner.collected)
         try:
             result = _run_parsed(stmt.tail, self.ctx, self.variables(), split=sh,
-                                 substitute=self.substitute, glob=True, stdin=text, allow_leading_pipe=True,
+                                 substitute=self.substitute, glob=True, stdin=Input(text), allow_leading_pipe=True,
                                  live=self.shows_live, parsed=parsed)
         except (ParseError, PipelineError) as exc:
             self.report(exc, stmt.tail)

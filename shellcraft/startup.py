@@ -149,6 +149,7 @@ sourcing: list[str] = []  # the files being sourced, innermost last (`env set` r
 
 def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
     """Say which line of which file failed, then show the error as the prompt would."""
+    from shellcraft import heredocs
     from shellcraft.context import ShellExit
 
     if isinstance(exc, ShellExit):
@@ -158,7 +159,7 @@ def _report(ctx: Any, exc: Exception, where: str, line: str) -> None:
 
         ctx.emit(Text(f"✗ {where}", style="sc.warning"))
     if ctx.emit_error is not None:
-        ctx.emit_error(exc, line)
+        ctx.emit_error(exc, heredocs.readable(line))
 
 
 def source(path: Path, ctx: Any, label: str | None = None, session: bool = False) -> tuple[int, int]:
@@ -169,6 +170,7 @@ def source(path: Path, ctx: Any, label: str | None = None, session: bool = False
     the file for `env` (a profile's rc: `profile:osint`); by default its file name. The file has its
     own traps (`trap`, shellcraft.traps), its EXIT trap running when it ends; with `session` (the rc
     file, startup scripts) they are the session's, as in ~/.bashrc."""
+    from shellcraft import heredocs
     from shellcraft.indent import IndentError
     from shellcraft.pipeline import UnboundError, errexit, run_line
 
@@ -189,7 +191,7 @@ def source(path: Path, ctx: Any, label: str | None = None, session: bool = False
         with traps.frame(ctx) if not session else contextlib.nullcontext():  # its own traps
             for number, line in commands:
                 ran += 1
-                where = f"{Path(path).name}:{number}: {line}"
+                where = f"{Path(path).name}:{number}: {heredocs.readable(line)}"
                 try:
                     result = run_line(line, ctx)
                 except KeyboardInterrupt as exc:  # Ctrl-C: the INT trap; this file stops here; the shell goes on

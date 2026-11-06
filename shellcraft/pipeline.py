@@ -464,13 +464,13 @@ def read_stdin_file(pipeline: Pipeline, total: int = 1) -> str:
 def _stdin_for(cmd: Command, upstream: Any) -> Any:
     """What a command reads: Lines for a streaming builtin, else the whole text (waiting for it).
     `read` always gets an Input (a pipe that said nothing is still input, not the terminal)."""
-    if isinstance(upstream, Input):
-        return upstream
-    if cmd.name == "read" and isinstance(upstream, Channel):
-        return Input(Lines(upstream).read())
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None and builtin.streams:
         return Lines(upstream if isinstance(upstream, Channel) else to_text(upstream))
+    if isinstance(upstream, Input):  # `< file`, `<<<`, a loop's input: the same object, so reads carry on
+        return upstream
+    if cmd.name == "read" and isinstance(upstream, Channel):
+        return Input(Lines(upstream).read())
     if isinstance(upstream, Channel):
         return Lines(upstream).read()
     return to_text(upstream)

@@ -16,11 +16,13 @@ way, the next one left empty.
 from __future__ import annotations
 
 import base64
+import re
 from typing import Callable, Mapping
 
 from shellcraft.parser import ParseError, _closing_double_paren, comment_at
 
 MARK = "@@HD"
+_MARKED = re.compile(r"<<<" + MARK + r"[le][A-Za-z0-9_-]*")
 BLANKS = " \t"
 
 
@@ -49,6 +51,11 @@ def decode(word: str) -> tuple[str, bool] | None:
     except ValueError:
         return None
     return body, word[len(MARK)] == "l"
+
+
+def readable(text: str) -> str:
+    """`text` (a command from encode) with each marker shown as `<<(here-document)`, for messages."""
+    return _MARKED.sub("<<(here-document)", text) if MARK in text else text
 
 
 def expand(body: str, variables: Mapping[str, str] | None,

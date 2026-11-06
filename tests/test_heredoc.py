@@ -233,3 +233,15 @@ def test_the_prompt_reads_a_loop_over_a_here_document(repl):
 def test_an_unfinished_here_document_is_reported_at_end_of_input(repl):
     sh, text = repl("cat <<EOF", "never ends")
     assert "wanted 'EOF'" in text and sh.ctx.last_status == 2
+
+
+def test_errors_show_the_command_not_the_body_marker(ctx, tmp_path):
+    shown = run_file(ctx, tmp_path, "nosuchcmd <<EOF\nx\nEOF\n")
+    assert "t.sc:1: nosuchcmd <<(here-document)" in shown and "@@HD" not in shown
+
+
+def test_a_func_file_with_a_here_document_runs(ctx, tmp_path):
+    path = tmp_path / "greet.sc"
+    path.write_text("greet() {\n  cat <<EOF\nhello $1\nEOF\n}\ngreet Ada\n")
+    assert run_file(ctx, tmp_path, path.read_text()) == "hello Ada\n"
+    assert funcs.parse("# func: x\n\ncat <<EOF\nhi\nEOF\n", "x").steps[0].startswith("cat <<<@@HD")

@@ -218,3 +218,26 @@ def test_the_checker_walks_a_piped_block(ctx):
 def test_input_is_text_that_commands_can_read_whole():
     source = Input("a\nb\n")
     assert source == "a\nb\n" and source.pos == 0 and not source.at_end()
+
+
+def test_streaming_commands_read_a_redirected_file_whole(ctx, tmp_path):
+    (tmp_path / "f").write_text("a b\nb c\nx y\n")
+    for command, expected in (("grep b < f", "a b\nb c\n"), ("head -n 1 < f", "a b\n"), ("wc -l < f", "3\n"),
+                              ("sort -r < f", "x y\nb c\na b\n"), ("sed -n 2p < f", "b c\n"),
+                              ("cat < f | grep x", "x y\n"), ('grep b <<< "abc"', "abc\n")):
+        assert out(ctx, command).strip().split() == expected.strip().split(), command
+    (tmp_path / "other").write_text("o\n")
+    # a command in the loop body that ignores stdin leaves the loop's input alone
+    assert out(ctx, "while read l; do cat other; done < f") == "o\n" * 3
+
+
+def test_a_line_that_will_not_parse_ends_a_while_loop(ctx, tmp_path):
+    (tmp_path / "f").write_text("a\nb\n")
+    result = run_line("while IFS= read -r l; do echo got $l; done < f", ctx)  # a prefix assignment: not yet
+    assert "got a" not in to_text(result.output) and "parse error" in to_text(result.output)  # it used to loop forever
+    assert out(ctx, "n=0; until nosuchcmd; do n=$((n+1)); [ $n = 3 ] && break; done; echo $n").endswith("3\n")
+
+
+def test_an_empty_loop_piped_into_read_is_input_not_a_prompt(ctx):
+    ctx.interactive = True  # a prompt would be tried (and fail: no terminal) if nothing were attached
+    assert run_line("for x in; do echo $x; done | read v", ctx).status == 1

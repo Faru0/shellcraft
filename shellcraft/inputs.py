@@ -114,3 +114,4 @@ def split_fields(chars: Chars, ifs: str, count: int) -> list[str]:
     fields += [""] * (count - 1 - len(fields))
     fields.append("".join(c for c, _ in chars[pos:end]))
     return fields
+
