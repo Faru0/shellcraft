@@ -9,7 +9,7 @@ from shellcraft import check, indent, script
 from shellcraft.context import ShellContext, to_text
 from shellcraft.loader import ModuleRegistry
 from shellcraft.parser import ParseError
-from shellcraft.pipeline import PipelineError, run_line
+from shellcraft.pipeline import run_line
 from shellcraft.themes import UI, all_themes
 
 
@@ -99,13 +99,14 @@ def test_def_parameters_and_locals(ctx):
     assert ctx.variables["n"] == "outer" and "tmp" not in ctx.variables
 
 
-def test_outside_py_mode_nothing_changes(ctx):
-    assert script.parse_script("x = 5").stmts[0] == script.Simple("x = 5", 0, "top")
-    with pytest.raises(PipelineError, match="command not found: x"):  # a command named x
-        out(ctx, "x = 5")
-    assert "x" not in ctx.variables
+def test_outside_py_mode_it_assigns_too_unless_the_name_is_a_command(ctx):
+    stmt = script.parse_script("x = 5").stmts[0]  # item 22: Python's assignment at the top level
+    assert isinstance(stmt, script.Assign) and stmt.command == script.Simple("x = 5", 0, "top")
+    out(ctx, "x = 5")
+    assert ctx.variables["x"] == "5"
     out(ctx, "for i in 1; do y = 5; done")
-    assert "y" not in ctx.variables
+    assert ctx.variables["y"] == "5"
+    assert out(ctx, "echo = 5") == "= 5\n"  # a builtin's name stays a command
     out(ctx, "for -py i in 1:\n    z=5\n    w=a")  # the bash form still works in a -py block
     assert (ctx.variables["z"], ctx.variables["w"]) == ("5", "a")
 

@@ -182,13 +182,11 @@ def test_print_is_checked_when_the_block_is_read(ctx):
         assert problem in info.value.message
 
 
-def test_print_at_the_prompt_stays_a_command(ctx):
-    with pytest.raises(PipelineError) as info:
-        out(ctx, 'print("x")')
-    assert "command not found" in str(info.value) and "use echo" in str(info.value)
-    with pytest.raises(PipelineError, match="here use echo"):
+def test_print_with_parentheses_works_at_the_prompt_and_in_bash(ctx):
+    assert out(ctx, 'print("x")') == "x\n"
+    assert out(ctx, 'f() { print("x"); }; f') == "x\n"  # a bash function body too (item 22)
+    with pytest.raises(PipelineError, match="use echo"):  # without parentheses it is no command
         out(ctx, "print hello")
-    assert "command not found" in out(ctx, 'f() { print("x"); }; f')  # a bash function body stays bash
 
 
 def test_print_traces_with_set_x(ctx):

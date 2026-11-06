@@ -2857,7 +2857,7 @@ builtin("if", "Run commands when a condition holds (bash syntax, or -py)",
 PRINT_DOC = r"""# print
 
 Print text from Python code, with f-strings and `.format()`. `print(…)` is a statement inside a
-`-py` block or a `def`. At the prompt and on bash lines, use `echo` or `printf`.
+`-py` block, a `def`, a bash block, a file or the prompt. Without parentheses (`print hello`), use `echo` or `printf`.
 
 ## Usage
 
@@ -2905,7 +2905,7 @@ See also: `man echo`, `man printf`, `man def`, `man if`.
 @builtin("print", "Print text from Python code (in a -py block or def)", "print(VALUE, …, sep=\" \", end=\"\\n\")",
         doc=PRINT_DOC, hidden=True)
 def _print(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    raise CommandError("print: print(…) is Python, for a -py block or a def; here use echo (see: man print)")
+    raise CommandError("print: write print(\"text\") with parentheses, or use echo (see: man print)")
 
 
 TRY_DOC = r"""# try

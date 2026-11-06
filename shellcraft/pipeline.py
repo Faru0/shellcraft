@@ -142,6 +142,8 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     line = join_continued_lines(curlpaste.from_cmd(rewrite_backticks(
         strip_comments(heredocs.encode(line, join=False)))))
 
+    if (called := script.bare_call(line, ctx.functions)) is not None:
+        line = called  # `hi()` for a function that exists: call it
     background = split_background(line)
     if background is not None:  # `cmd &`: the same as `sub cmd`, without attaching to a program
         from shellcraft.builtins import start_background
@@ -951,7 +953,7 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
         name, value = next(iter(cmd.env.items()))
         suffix += f" (to set {name} to a value with spaces, quote it: {name}=\"{value} {cmd.name}\")"
     if cmd.name.startswith("print("):
-        suffix = " — print(…) works in a -py block or a def; here use echo (see: man print)"
+        suffix = " — write print(\"text\") with the quotes, or use echo (see: man print)"
     raise CommandError(f"command not found: {cmd.name}{suffix}", STATUS_NOT_FOUND)
 
 

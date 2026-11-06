@@ -215,8 +215,9 @@ Set the variable, or pass the argument.
 
 ### `command not found: x` after `x = 5`
 
-At the prompt and in bash-style lines, spaces around `=` make `x` a command. Write `x=5`. The
-form with spaces works only inside a `-py` block or a `def`, see
+This only happens when `x` is also the name of a command, such as a function or an alias you made:
+then `x = 5` runs that command with `= 5` as its arguments. Pick another name for the variable, or
+write `x=5` with no spaces. Otherwise `x = 5` is Python's assignment and works anywhere, see
 [Python assignment](scripting.md#python-assignment).
 
 ### `can only concatenate str (not "int") to str (values set from bash are text: …)`

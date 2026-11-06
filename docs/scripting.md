@@ -92,8 +92,8 @@ echo ${f/old/new} ${f^^} ${f:0:3}   # replace (// for all), capitals (,, small),
 ```
 
 A variable you never set is empty, as in bash: `echo "[$nope]"` prints `[]`. `set -u` makes it an
-error instead. There are no spaces around the `=`. `x = 5` at the prompt runs a command named `x` and fails with
-`command not found: x`. Python-style blocks are the exception, see
+error instead. `x=5` has no spaces around the `=`. `x = 5` with spaces is Python's assignment: it works
+at the prompt, in a file and in blocks, unless `x` is the name of a command, see
 [Python assignment](#python-assignment).
 
 The `${…}` forms are bash's: `:-` `:=` `:+` `:?` for defaults (`${n:=5}` also sets it), `#` and
@@ -246,12 +246,11 @@ for -py f in a.txt b.txt:
 A number, `True` or `False` keeps its type for later Python code (`n = 5` then `n + 1` is 6),
 and `$n` gives bash the text `5`. Values set the bash way (`x=5`, `read`, loop words, arguments)
 are text: use `int(x)` in Python. `input()` works anywhere in a Python expression
-(`while -py input("Again? ") == "y":`), and `int(input(…))` asks again until it gets a number. At
-the prompt and in bash blocks
-`x = 5` stays a command named `x`, so it fails with `command not found: x`. `x=5` works
+(`while -py input("Again? ") == "y":`), and `int(input(…))` asks again until it gets a number. `x = 5` works at the prompt, in a file and in bash blocks too, unless `x` is the name of a builtin,
+module, alias or function (then the line is that command). `x=5` works
 everywhere. f-strings and `.format()` work wherever Python is read, with the whole format
 language (`{price:.2f}`, `{n:,}`, `{name:<10}`), and `input(f"Age of {who}? ")` too. `print(…)`
-works inside a `-py` block or a `def` only. `man print` has the details.
+works anywhere, and so does calling a `def` on a line of its own (`add(1, 2)`). `man print` has the details.
 
 ### What both styles share
 

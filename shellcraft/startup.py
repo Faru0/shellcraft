@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from shellcraft import traps
+from shellcraft.parser import ParseError
 
 FOLDER = "startup"
 SUFFIX = ".sc"
@@ -110,7 +111,8 @@ def rc_path(home: Path | None = None) -> Path:
     return home / RC_FILE
 
 
-def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]:
+def logical_lines(text: str, colon_blocks: bool = True,
+                  known: set[str] | None = None) -> list[tuple[int, str]]:
     """(first line number, command) for each command in a file of ShellCraft lines: blank lines
     and `#` comments skipped, a line ending in `\\` joined with the next, a here-document's lines
     carried in its command (shellcraft.heredocs), an unfinished `for` / `if` / `{` joined with the
@@ -124,6 +126,7 @@ def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]
     text = heredocs.encode(text)  # here-documents into their command lines, `\\` lines joined (the line count stays)
     out: list[tuple[int, str]] = []
     pending: tuple[int, str] | None = None
+    defined = set(known or ())
     colon = colon_blocks and indent.has_colon_block(text)
     lines = indent.to_braces(text) if colon else enumerate(text.splitlines(), 1)
     for number, raw in lines:
@@ -134,12 +137,28 @@ def logical_lines(text: str, colon_blocks: bool = True) -> list[tuple[int, str]]
             pending = (number, line)
         elif line:
             pending = (pending[0], script.join_continuation(pending[1], line))
-        if pending is not None and script.incomplete(pending[1]) is None:
+        if pending is not None and script.incomplete(pending[1], defined) is None:
             out.append(pending)
+            _note_functions(pending[1], defined)
             pending = None
     if pending is not None:
         out.append(pending)
     return out
+
+
+def _note_functions(command: str, defined: set[str]) -> None:
+    """Add the names of the functions `command` defines (`def f(…)`, `f() { … }`) to `defined`."""
+    from shellcraft import script
+
+    if "def " not in command and "()" not in command and "function " not in command:
+        return
+    try:
+        program = script.parse_script(command)
+    except ParseError:
+        return
+    for stmt in program.stmts if program else []:
+        if isinstance(stmt, script.Function):
+            defined.add(stmt.name)
 
 
 SKIPPED = " (set -e: the rest of the file was skipped)"
@@ -182,7 +201,7 @@ def source(path: Path, ctx: Any, label: str | None = None, session: bool = False
     sourcing.append(label or Path(path).name)
     try:
         try:
-            commands = logical_lines(text)
+            commands = logical_lines(text, known=set(ctx.functions))
         except IndentError as exc:  # like Python: a badly indented file doesn't run at all
             raw = text.splitlines()[exc.line - 1] if 0 < exc.line <= len(text.splitlines()) else ""
             _report(ctx, exc, f"{Path(path).name}:{exc.line}: {raw.strip()}", raw)

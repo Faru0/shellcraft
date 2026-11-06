@@ -194,10 +194,13 @@ copying a script from the web and a line fails, look for it here:
 | `cat <<EOF` (a heredoc), `<<<` | The same: `cat <<EOF`, `<<'EOF'`, `<<-EOF` and `read x <<< "text"` all work | [Input, here-docs and pipes](input-and-pipes.md#here-docs) |
 | A quoted string over several lines | `echo -e` with `\n`, or one `echo` per line | [Printing text](printing.md#several-lines-at-once) |
 | `while read line; do … done < file`, `cmd \| while read …` | The same. Also `for -py line in (cat file):` for whole lines | [Input, here-docs and pipes](input-and-pipes.md#read-a-line-from-a-file) |
-| `IFS= read -r line`, `read -a` | Not yet: set `IFS` on its own line before the loop. Arrays are not supported | [Input, here-docs and pipes](input-and-pipes.md#if-it-doesnt-work) |
+| `IFS= read -r line` | The same: a variable in front of a command is set for that command only | [Input, here-docs and pipes](input-and-pipes.md#if-it-doesnt-work) |
+| `read -a` (into an array) | Not yet: arrays are not supported | [Loops and menus](loops.md#loop-over-a-list) |
 | Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
-| `(( n > 3 ))` and `let` | `[ $n -gt 3 ]` and `n=$((n + 1))` | [Conditions and choices](conditions.md#comparing-numbers) |
-| `{ cmd1; cmd2; }` to group | An `if` block, or a function | [Conditions and choices](conditions.md#if-then-else) |
+| `(( n > 3 ))`, `let`, `for ((i=0;i<3;i++))` | The same, and `[ $n -gt 3 ]`, `n=$((n + 1))` still work | [Variables and input](variables-and-input.md#arithmetic-as-a-command) |
+| `{ cmd1; cmd2; } \| sort`, `( cd /tmp; ls )` | The same | [Input, here-docs and pipes](input-and-pipes.md#group-commands) |
+| `eval`, `exec` | The same | [Functions](functions.md#run-text-as-a-command-eval-and-exec) |
+| `` `date` `` and `echo {a,b}{1,2}` | The same: backticks and braces work on every line | [Printing text](printing.md#repeat-and-combine-with-braces) |
 | `awk` and other Linux programs | ShellCraft's own `sed`, `grep`, `cut`, `tr`, `sort`, `jq`… OS programs only run with `settings system_commands on` | [Pipes and scripting](../scripting.md) |
 
 One smaller difference catches people out: a variable stays one piece wherever you use it, spaces

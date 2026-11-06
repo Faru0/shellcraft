@@ -239,6 +239,82 @@ count is 2
 A common slip is `count=count+1`. With no `$(( ))`, there's no sum: `count` becomes the text
 `count+1`.
 
+### Change a variable while you add
+
+Inside `$(( ))` you can also set a variable, the way C and bash do. `n=4` sets `n` and gives 4. `n++`
+and `n--` add or take one away (`++n` and `--n` do it before the value is used), and `+=`, `-=`, `*=`,
+`/=`, `%=`, `<<=`, `>>=`, `&=`, `|=`, `^=` and `**=` change `n` by the number on the right. A comma
+does several in a row, and the last one is the answer:
+
+<!-- run -->
+```
+n=5
+echo "$((n++)) then $n"
+echo "$((n += 10)) now"
+echo "$((a = 2, b = a * 3)) and a is $a, b is $b"
+```
+
+<!-- output -->
+```
+5 then 6
+16 now
+6 and a is 2, b is 6
+```
+
+### Arithmetic as a command
+
+You don't need the `echo` and `$( )` to do a sum. `(( ))` runs the arithmetic and prints nothing.
+Its status is 0 when the result is **not** zero and 1 when it is zero, so it works as a test in
+`if`, `while`, `&&` and `||`. Inside, you can leave out the `$` and the spaces don't matter:
+
+<!-- run -->
+```
+count=0
+(( count++ ))
+(( count += 4 ))
+echo "count is $count"
+if (( count > 3 )); then echo "more than three"; fi
+(( count == 5 )) && echo "exactly five"
+```
+
+<!-- output -->
+```
+count is 5
+more than three
+exactly five
+```
+
+`let` does the same with quoted words: `let n=n+1` or `let "total = a * b" count++`. Its status follows
+the last result, like `(( ))`. A division by zero, or a result that isn't arithmetic, prints
+`(( )): division by zero` and the status is 1.
+
+### Numbers that can't change, and numbers that count
+
+`readonly` locks a variable. Changing it or using `unset` on it fails with `NAME: readonly
+variable`. It lasts for the session. `declare -i` makes a variable an integer: every value you give
+it is worked out, so `n=2+3` stores 5. `declare -r` is `readonly`, `declare -x` is `export`, and the
+flags combine (`declare -ir limit=10`). `declare -p` lists what you set:
+
+<!-- run -->
+```
+readonly PI=3
+declare -i total=2+3
+total=total*4
+echo "PI is $PI, total is $total"
+declare -p PI total
+```
+
+<!-- output -->
+```
+PI is 3, total is 20
+declare -r PI="3"
+declare -i total="20"
+```
+
+Two variables are made for you. `$RANDOM` is a different number from 0 to 32767 each time you read
+it, so `$((RANDOM % 6 + 1))` is a dice roll. `$SECONDS` counts the seconds since the shell started;
+set it to 0 (`SECONDS=0`) to time something.
+
 ## Python style: name = value
 
 Inside a Python-style block (`for -py`, `if -py`, `while -py` and the rest) and in a `def`, the right
@@ -302,8 +378,23 @@ To build text out of variables, use an f-string: `msg = f"{first} has {count} fi
 the values between the braces, and `print(msg)` prints it. See
 [Build text with f-strings and print](python-style.md#build-text-with-f-strings-and-print).
 
-Outside these blocks, at the prompt or in a bash block, `x = 5` with spaces runs a command called
-`x`, as in bash. The bash form `name=value` works everywhere, Python-style blocks included.
+The same `name = value` works outside these blocks too: at the prompt, in a file and in a bash block,
+so `count = 0` and `greeting = f"hello {name}"` do what they look like. The one exception is a name
+that is also a command: `echo = 5` runs `echo`, and so does `x = 5` when you made a function or alias
+called `x`. The bash form `name=value`, with no spaces, works everywhere.
+
+<!-- run -->
+```
+count = 0
+greeting = "hello"
+count += 2
+print(f"{greeting}, count is {count}")
+```
+
+<!-- output -->
+```
+hello, count is 2
+```
 
 ## Save a command's output
 
@@ -319,6 +410,10 @@ cat notes.txt
 ```
 
 You'll see `Notes for` and today's date, like `Notes for 2026-10-27`.
+
+Backticks do the same: `` today=`date +%Y-%m-%d` `` is the older spelling of the line above, and
+it still turns up in scripts you copy. Use `$( )` in your own, because it nests and reads better.
+A backtick with no partner is an error: `unterminated ` quote`.
 
 The command runs once, when the line that sets `today` runs. After that, `$today` is plain text,
 so it won't change if the script runs past midnight. That's usually what you want: every line of
@@ -654,6 +749,13 @@ export DEPLOY_ENV=$env                       # bash's way, from a variable you a
 Use them in a script the same way, with a `$`: `echo $API_URL`. Variables from your system, like
 `$HOME` and `$PATH`, work too. [Pipes and scripting](../scripting.md#environment-variables) has
 the details.
+
+To give a variable to one command only, put it in front of the command: `LANG=C sort names.txt`.
+ShellCraft sets it as a shell variable and in the environment for that command, then puts back what
+was there before (or removes it). `IFS= read -r line` uses this to keep the spaces in a line, and
+`A=1 B=2 cmd` sets two. A line of only assignments (`a=1 b=2`) sets them for good, as you would
+expect. Values with spaces still need quotes, `A="x y" cmd`; `z=a b` runs `b` with `z` set to `a`,
+as in bash.
 
 ## Remove a variable
 

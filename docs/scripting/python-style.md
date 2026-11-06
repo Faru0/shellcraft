@@ -261,10 +261,10 @@ number.
 
 Some things work differently from Python:
 
-- Assignment only works inside a Python-style block or a `def`. At the prompt or in a bash block,
-  `x = 5` with spaces runs a command named `x`, as it would in bash, and you see
-  `command not found: x`. `name=value` with no spaces works everywhere. The exception is
-  `name = input("…")`, which works anywhere (see [Ask the user](#ask-the-user)).
+- Assignment with spaces works anywhere: in a Python-style block, in a `def`, at the prompt, in a file
+  and in a bash block. The one exception is a name that is also a command (a builtin, module, alias
+  or function): `echo = 5` and `ll = 5` run that command. `name=value` with no spaces is the bash
+  form and works everywhere. `name = input("…")` works anywhere too (see [Ask the user](#ask-the-user)).
 - `+=` with text on the right joins the text: when `size` came from bash, `total += size` turns
   `"0"` into `"0120"`. Write `total += int(size)` to add.
 - `$name` isn't filled in inside a Python string. `msg = "file $n"` stores `file $n` as it is.
@@ -388,8 +388,9 @@ send it. So a few things that Python allows are refused, each with a message tha
 
 ### Where print works
 
-`print(…)` is a line of its own inside a Python-style block or a `def`. At the prompt and in
-bash lines, `print` isn't a command: there you use `echo` or `printf`. One `print` always ends
+`print(…)` is a line of its own. It works in a Python-style block, in a `def`, at the prompt and in
+a bash block. Without the parentheses (`print hello`) `print` isn't a command: use `echo` or
+`printf`. And `echo f"…"` is still a bash line that prints the `f`. One `print` always ends
 its own line, so `end=""` can't join two of them; build the whole line first and print it once.
 If a value can't be worked out, the line reports the error and its status is 1, which `set -e`
 and `try` see like any other failing command.

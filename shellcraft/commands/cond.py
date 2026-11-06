@@ -186,6 +186,7 @@ test EXPRESSION
 | `A -eq B`, `-ne`, `-lt`, `-le`, `-gt`, `-ge` | Integer comparisons. |
 | `-e F`, `-f F`, `-d F`, `-s F` | F exists / is a file / is a directory / is a non-empty file. |
 | `-r F`, `-w F`, `-x F`, `-L F` | F is readable / writable / executable / a symbolic link. |
+| `-t FD` | File descriptor FD is a terminal (`[ -t 1 ]`: standard output, `[ -t 0 ]`: input). |
 | `! E`, `E -a E`, `E -o E`, `( E )` | Not, and, or, grouping. |
 | `E && E`, `E \\|\\| E` | `[[ ]]` only: and, or. `&&` binds tighter than `\\|\\|`, as in bash. |
 
@@ -194,10 +195,13 @@ Inside `[[ ]]`, `&&` and `||` join tests the bash way: `[[ -f $f && $f == *.log 
 `<` and `>` are redirections in ShellCraft, so compare numbers with `-lt` / `-gt`. Quote variables
 in `[ ]`, as in bash: `[ "$x" = "a b" ]`; in `[[ ]]` they are never split.
 
+For arithmetic comparisons without `-lt` and friends, `(( n > 3 ))` is a command of its own (`man let`).
+
 ## Examples
 
 ```
 for f in *.log; do if [ -s "$f" ]; then echo "$f"; fi; done
+if [ -t 1 ]; then echo "a terminal"; fi
 [[ $host == *.gov ]] && queryDns $host
 if [ "$n" -gt 3 -a -d out ]; then echo big; fi
 if [[ -f config.json && ( $env == prod || $env == staging ) ]]; then echo deploy; fi

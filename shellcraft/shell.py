@@ -1861,7 +1861,7 @@ class Shell:
 
         if indent.opens_block(line):
             return self._read_block(line)
-        while (wanted := _wants_more(line)) is not None:
+        while (wanted := _wants_more(line, self.ctx.functions)) is not None:
             try:
                 more = self._ask(self._continuation_prompt)
             except KeyboardInterrupt:
@@ -1992,7 +1992,7 @@ def restore_tty(saved: Any) -> None:
         pass
 
 
-def _wants_more(line: str) -> str | None:
+def _wants_more(line: str, known: Any = frozenset()) -> str | None:
     """Why the line typed so far needs another one: "heredoc" (a `<<EOF` whose delimiter line has
     not come), "continued" (a `\\` at the end), "block" (an open `for` / `if` / `{`), else None."""
     from shellcraft import heredocs
@@ -2003,7 +2003,7 @@ def _wants_more(line: str) -> str | None:
         return "heredoc"
     if _continued(line):
         return "continued"
-    return "block" if script.incomplete(heredocs.encode(line, join=False)) is not None else None
+    return "block" if script.incomplete(heredocs.encode(line, join=False), known) is not None else None
 
 
 def _continued(line: str) -> bool:

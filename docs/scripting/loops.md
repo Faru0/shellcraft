@@ -185,6 +185,35 @@ A range with braces only takes plain numbers. `{1..$count}` doesn't count: the l
 the text `{1..3}`. When the end comes from a variable, use `seq`, which counts too:
 `for n in $(seq 1 $count); do … done`. In Python style, `for -py n in 1..$count:` works as well.
 
+### The C-style loop
+
+If you know C or bash, `for ((start; test; step))` counts with arithmetic. The first part runs once,
+the loop goes on while the second part is not zero, and the third runs after each round. Leave a
+part empty and it does nothing (an empty test is always true):
+
+<!-- run -->
+```
+for ((i = 1; i <= 3; i++)); do
+  echo "round $i"
+done
+for ((a = 0, b = 10; a < b; a += 4, b -= 1)); do
+  echo "a=$a b=$b"
+done
+```
+
+<!-- output -->
+```
+round 1
+round 2
+round 3
+a=0 b=10
+a=4 b=9
+```
+
+Unlike `{1..$n}`, the end can come from a variable: `for ((i = 1; i <= count; i++))`. `break` and
+`continue` work as in any loop, and `continue` still runs the step. The spaces inside `(( ))` are
+yours to choose.
+
 ## Loop over files
 
 This is the loop you'll write most: do something to every file that matches a pattern. A pattern
@@ -475,6 +504,10 @@ liftoff!
 `countdown=$((countdown - 1))` takes one away. When `countdown` reaches 0, the test fails and the
 loop ends. Without that last line, `countdown` would stay 3 forever. If that happens, press Ctrl-C
 to stop the loop.
+
+The condition can be arithmetic too. `while (( countdown > 0 ))` is the same loop without the
+brackets and the `-gt`, and `(( countdown-- ))` takes one away. See
+[Arithmetic as a command](variables-and-input.md#arithmetic-as-a-command).
 
 `until` is the opposite: it runs until the condition holds. Pick whichever reads more naturally.
 "Until we've tried three times" reads better than "while we've tried fewer than three times":

@@ -70,7 +70,8 @@ _FUNCTION_DEF = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\([ \t]*\)")  # name
 _EMPTY_PARENS = re.compile(r"[ \t]*\([ \t]*\)")
 # `count = 0`, `count += 1` in py mode (`x=5`, with no spaces, stays the bash assignment)
 _PY_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(//=|\+=|-=|\*=|/=|%=|=)(?!=)([ \t]*)")
-_PRINT_CALL = re.compile(r"print[ \t]*\(")  # `print(…)` in py mode
+_PRINT_CALL = re.compile(r"print[ \t]*\(")  # `print(…)`
+_CALL = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(")  # `add(1, 2)`: a function call on a line of its own
 MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
 
@@ -252,6 +253,18 @@ class Assign:
     text: str  # the expression, as typed
     pos: int
     tree: ast.Expression
+    command: Simple | None = None  # outside -py: the line as a command, run instead when NAME names one
+
+
+@dataclass
+class Call:
+    """`name(args)` on a line of its own: the shell function (a `def` or bash) is called with the
+    values; what it printed or returned is shown."""
+
+    name: str
+    text: str  # the call, as typed
+    pos: int
+    tree: ast.Expression
 
 
 @dataclass
@@ -277,7 +290,7 @@ class Print:
 
 
 Stmt = Union[Simple, Arith, CFor, Group, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign,
-             Try, Print]
+             Call, Try, Print]
 
 
 @dataclass
@@ -323,11 +336,24 @@ def _ends_parameter(text: str, i: int) -> bool:
     return opened >= 0 and "}" not in text[opened:i]
 
 
-def incomplete(text: str) -> str | None:
+BARE_CALL = re.compile(r"[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*\([ \t]*\)[ \t]*")
+
+
+def bare_call(text: str, known: Mapping[str, Any] | set[str] | frozenset[str]) -> str | None:
+    """The function name when `text` is just `name()` and `name` is a function that exists: a call,
+    not the start of a definition (`name()` then `{` on the next line)."""
+    match = BARE_CALL.fullmatch(text)
+    return match.group(1) if match and match.group(1) in known else None
+
+
+def incomplete(text: str, known: Mapping[str, Any] | set[str] | frozenset[str] = frozenset()) -> str | None:
     """The joiner for a continuation line when `text` is an unfinished script, else None.
-    Comments don't count: `for x in a b; do  # loop` is unfinished, `echo { # note` isn't."""
+    Comments don't count: `for x in a b; do  # loop` is unfinished, `echo { # note` isn't.
+    `known` names the functions that exist: `hi()` alone is then a call, not an unfinished definition."""
     from shellcraft.parser import strip_comments
 
+    if known and bare_call(strip_comments(text), known):
+        return None
     exc = _incomplete_error(strip_comments(text))
     return None if exc is None else exc.join
 
@@ -484,12 +510,43 @@ class _Parser:
         if word in SH_RESERVED:
             owner = "for" if word in ("do", "done") else "if"
             raise self._error(f"'{word}' without a matching {owner}", start)
-        if self.mode == "py" and _PRINT_CALL.match(self.s, start):
+        if _PRINT_CALL.match(self.s, start):
             return self._print()
-        if self.mode == "py" and (match := _PY_ASSIGN.match(self.s, start)) and \
-                (match.group(3) != "=" or match.group(2) or match.group(4)):
-            return self._assign(match)
+        if match := _PY_ASSIGN.match(self.s, start):
+            # Python's `x = 5`: in a -py block always; elsewhere unless NAME is a builtin (`echo = hi`)
+            # or the `=` has a space after it only (`IFS= read x`: a variable for one command)
+            if self.mode == "py":
+                if match.group(3) != "=" or match.group(2) or match.group(4):
+                    return self._assign(match)
+            elif match.group(3) != "=" or match.group(2):
+                from shellcraft.builtins import BUILTINS
+
+                if match.group(1) not in BUILTINS:
+                    return self._assign(match)
+        if (call := _CALL.match(self.s, start)) and call.group(1) not in KEYWORDS and (
+                self.mode == "py" or self.s[call.end():call.end() + 1] not in (")", " ", "\t")):
+            found = self._call(call)
+            if found is not None:
+                return found
         return self._chain()
+
+    def _call(self, match: re.Match[str]) -> Call | None:
+        """`name(args)` alone on its line (a function call); None when something else follows the `)`."""
+        start = self.i
+        close = find_closing_paren(self.s, match.end())
+        if close is None:
+            return None
+        end = close + 1
+        while end < self.n and self.s[end] in " \t":
+            end += 1
+        if end < self.n and self.s[end] not in ";\n" and not (self.depth and self._is_close(end)):
+            return None
+        text = self.s[start:close + 1]
+        tree = compile_condition(text, start, match.group(1), "call")
+        if not (isinstance(tree.body, ast.Call) and isinstance(tree.body.func, ast.Name)):
+            return None
+        self.i = close + 1
+        return Call(match.group(1), text, start, tree)
 
     def _assign(self, match: re.Match[str]) -> Stmt:
         """`NAME = EXPR` / `NAME += EXPR` in py mode. `NAME = input("…")` with a string prompt stays
@@ -505,7 +562,8 @@ class _Parser:
             raise self._error(f"{name} {op}: missing a value after '{op}'", start)
         if "$(" in expr:
             raise self._error(f"{name} {op}: $( … ) is bash: write {name}=$(command), with no spaces", start)
-        return Assign(name, op, expr, start, compile_condition(expr, start, f"{name} {op}", "value"))
+        command = None if self.mode == "py" else Simple(self.s[start:self.i], start, self.mode)
+        return Assign(name, op, expr, start, compile_condition(expr, start, f"{name} {op}", "value"), command)
 
     def _print(self) -> Print:
         """`print(EXPR, …, sep=…, end=…)` in py mode: checked now, so `source -n` reports a bad one."""
@@ -2260,7 +2318,12 @@ class _Runner:
         elif isinstance(stmt, Select):
             self.run_select(stmt)
         elif isinstance(stmt, Assign):
-            self.run_assign(stmt)
+            if stmt.command is not None and self.is_command(stmt.name):
+                self.run_stmt(stmt.command)  # `ll = 5` with ll an alias: the line is a command
+            else:
+                self.run_assign(stmt)
+        elif isinstance(stmt, Call):
+            self.run_call(stmt)
         elif isinstance(stmt, Try):
             self.run_try(stmt)
         elif isinstance(stmt, Print):
@@ -2486,6 +2549,34 @@ class _Runner:
             return
         set_variable(self.ctx, stmt.name, as_variable(value), self.vars)
         self.ctx.last_status = 0
+
+    def is_command(self, name: str) -> bool:
+        """Whether `name` is something a line can run: a module, alias, function, `def` or func
+        (builtins are told apart when the line is parsed)."""
+        from shellcraft import aliases, funcs
+
+        ctx = self.ctx
+        return (ctx.registry.get(name) is not None or name in ctx.functions
+                or (ctx.allow_aliases and name in aliases.get_all(ctx.config))
+                or (ctx.allow_aliases and funcs.as_command(ctx, name) is not None))
+
+    def run_call(self, stmt: Call) -> None:
+        """`add(1, 2)` on a line of its own: call the function and show what it printed or returned."""
+        from shellcraft.pipeline import PipelineError
+
+        names = python_names(self.vars, self.ctx.last_status)
+        self.ctx.last_status = 0
+        try:
+            value = evaluate(stmt.tree, names, self.call_function, self.ask_input)
+        except ConditionError as exc:
+            self.report(PipelineError(1, 1, stmt.name, f"{stmt.name}: {exc}", exc.status), stmt.text)
+            self.ctx.last_status = exc.status
+            self.check_errexit(exc.status, stmt.text)
+            return
+        if value is not None and value != "":
+            text = str(value)
+            self.show(text if text.endswith("\n") else text + "\n")
+        self.check_errexit(self.ctx.last_status, stmt.text)
 
     def run_print(self, stmt: Print) -> None:
         """`print(…)`: each value as text (`True` / `False` for a bool), joined with `sep` (a

@@ -729,7 +729,7 @@ unset -f NAME...           # remove shell functions (man function)
 
 `$HOME`, `$PATH` and other environment variables expand in the interactive shell without an
 `export`. Over MCP, only variables set in the script itself expand, so a client can't read
-secrets with `$NAME`. Arithmetic: `$((n + 1))`, see `man if` for the operators.
+secrets with `$NAME`. Arithmetic: `$((n + 1))`, `(( n++ ))` and `let`, see `man let`.
 
 ## Examples
 

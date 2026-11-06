@@ -53,8 +53,8 @@ spelled differently, is empty, so it leaves a gap. The same happens to a `$` you
 
 ## Several lines at once
 
-You'll want this for a welcome message, a short help text or a list of reminders. ShellCraft has
-a quoted string can't run across several lines of a script. There are five ways to print a block of
+You'll want this for a welcome message, a short help text or a list of reminders. In a script
+file a quoted string can't run across several lines, so there are five ways to print a block of
 text. A [here-doc](input-and-pipes.md#here-docs) (`cat <<EOF`) is the plainest for a long block: you
 write the text as it is and end it with a line holding only `EOF`. The other four are below. Pick the one
 that reads best to you.
@@ -123,6 +123,37 @@ cat ~/.shellcraft/welcome.txt
 ```
 
 The text comes out exactly as it is in the file, spaces and blank lines included.
+
+## Repeat and combine with braces
+
+Braces write several words in one go. `{a,b,c}` stands for the three choices, `{1..5}` counts, and
+`{01..03}` keeps the zero padding. The words around the braces are repeated for each choice, so
+you can type a pattern once instead of a list:
+
+<!-- run -->
+```
+echo file-{a,b,c}.txt
+echo {1..5}
+echo {01..03}
+echo {a..e..2}
+echo {red,green}-{small,large}
+```
+
+<!-- output -->
+```
+file-a.txt file-b.txt file-c.txt
+1 2 3 4 5
+01 02 03
+a c e
+red-small red-large green-small green-large
+```
+
+It works on any command line, so `mkdir -p project/{src,tests,docs}` makes three folders and
+`touch note{1..3}.txt` makes three files. ShellCraft does this before it looks at variables, as bash
+does, so `{1..$n}` doesn't count: the end of the range has to be a plain number. Braces inside
+quotes, `${name}`, `$( )` and a lone `{}` (the one `find -exec` uses) are left alone. A list that
+would make more than 100000 words stops with an error. `jq` gets its arguments untouched, because
+a jq filter is full of braces.
 
 ## Columns and numbers with printf
 
@@ -193,6 +224,22 @@ prints `one and `. If a `%d` gets something that isn't a number, `printf` stops 
 Each command's output ends on its own line in ShellCraft. So two `printf` commands without `\n`
 still print on two lines. To build one line out of pieces, collect them in a variable and print it
 once, as in [Count with a range](loops.md#count-with-a-range).
+
+To keep the result instead of printing it, give `printf` a variable name with `-v`. It is the way
+to pad or round a value you want to use later:
+
+<!-- run -->
+```
+printf -v ticket "T-%05d" 42
+echo "your ticket is $ticket"
+```
+
+<!-- output -->
+```
+your ticket is T-00042
+```
+
+`printf -v` sets a shell variable, so it isn't available to MCP clients; plain `printf` is.
 
 ## A table from a loop
 

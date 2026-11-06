@@ -504,6 +504,29 @@ Only functions defined in the shell can be called this way, plus the built-in on
 Calling a name that isn't a function stops with `NAME is not a function`, followed by the list of
 built-in ones. Keyword arguments (`add(a=1)`) aren't supported. A function can call itself, up to 100 calls deep.
 
+A call can also stand on a line of its own, at the prompt, in a file or in a bash block: `add(1, 2)`
+runs `add` and shows what it returned (or printed), and `print(add(1, 2) * 10)` uses it. With
+empty brackets, `hi()`, the line is a call when `hi` already exists. Otherwise it is the start of a
+definition (`hi()` and then `{` on the next line), so define your function first.
+
+<!-- run -->
+```
+def add(a, b):
+    return int(a) + int(b)
+def wave():
+    echo "wave"
+add(2, 3)
+wave()
+print(add(2, 3) * 10)
+```
+
+<!-- output -->
+```
+5
+wave
+50
+```
+
 ## Options like -v and -f FILE
 
 Commands take options: `ls -l`, `grep -i word`. Once a function has more than one or two
@@ -623,6 +646,40 @@ the later lines depend on the earlier ones, you want more than that.
   function ends.
 - [Catch failures with try](errors.md#catch-failures-with-try), to handle a failure and carry on,
   in bash style or Python style.
+
+## Run text as a command: eval and exec
+
+`eval` runs text as if you had typed it. Use it when a command is built from pieces: the arguments are
+joined with spaces and run in the current shell, so variables it sets stay set:
+
+<!-- run -->
+```
+action="echo hello"
+eval $action
+name=total
+eval "$name=42"
+echo "total is $total"
+eval 'for i in 1 2; do echo "round $i"; done'
+```
+
+<!-- output -->
+```
+hello
+total is 42
+round 1
+round 2
+```
+
+Quote what you pass to `eval` with single quotes when it holds a `$` that the text itself should
+expand, as in the loop above; otherwise your own line expands it first. Be careful with text from
+outside: `eval` runs whatever it is given. It nests a few levels only, so text that evals itself
+stops with an error.
+
+`exec COMMAND ARGS` runs the command and then ends the shell, or the script that called it, with
+the command's status. It is rare at the prompt and useful at the end of a script (`exec cleanup.sh`).
+`exec` on its own does nothing, and redirecting the whole shell (`exec > file`) isn't supported:
+group the commands instead, `{ cmd1; cmd2; } > file`. A command that isn't found gives the error
+and leaves the shell open.
 
 ## Keep your functions
 

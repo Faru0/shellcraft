@@ -95,6 +95,10 @@ echo a \
   b                                              # a trailing backslash joins the next line
 echo -e "line 1\nline 2"                         # several lines
 printf "%-10s %5.1f\n" cpu 42.5                  # columns and numbers
+printf -v padded "%05d" 42                       # into a variable instead of the screen
+echo {a,b}{1,2} file{01..03}.txt                 # braces: a1 a2 b1 b2, then file01.txt file02.txt file03.txt
+echo `date +%Y`                                  # backticks: the old spelling of $(date +%Y)
+LANG=C sort names.txt                            # a variable for that one command only (IFS= read -r line)
 
 if [ $n -gt 3 ]; then echo big; elif [ $n -eq 3 ]; then echo three; else echo small; fi
 [ -f app.log ] && echo found || echo missing
@@ -103,11 +107,18 @@ case $env in dev|test) echo safe ;; prod) echo careful ;; *) echo "?" ;; esac
 for f in *.log; do echo $f; done                 # also {1..5}, $(cat list), "a b c"
 for -py line in (cat hosts.txt) { echo $line }   # a file, line by line
 n=0; while [ $n -lt 3 ]; do n=$((n + 1)); done
+for ((i = 0; i < 3; i++)); do echo $i; done      # the C-style loop
+((n++)); (( n > 2 )) && echo big                 # arithmetic as a command: 0 when the result is not zero
+let n=n+1; echo $((n++)) $((m = 4)) $RANDOM $SECONDS   # let; ++ and = inside $(( )); a random number; seconds
+readonly PI=3; declare -i total=2+3              # PI can't change; total evaluates arithmetic (declare -x: export)
 while :; do read -p "q to quit: " a; [ "$a" = q ] && break; done   # : is always true
 [[ $f == *.txt ]]                                # a pattern; [[ $f == "*.txt" ]] is the plain text
 select env in dev prod; do echo $env; break; done   # a numbered menu
 
 greet() { local who=${1:-friend}; echo "hi $who"; }
+{ echo a; echo b; } | wc -l                      # a group: one pipe or redirect for several commands
+( cd /tmp; ls ) > listing.txt                    # a subshell: its cd and variables stay inside it
+cmd="echo hi"; eval $cmd                         # run text as a command;  exec CMD runs it, then ends the shell
 need() { [ -n "$1" ] || return 1; echo "got $1"; }
 total=$(add 2 3)                                 # a function's output as a value
 
@@ -136,7 +147,7 @@ while -py int(n) < 3:                            # while -py True: … break
     n += 1                                       # also = -= *= /= //= %= (in a block or def)
     msg = f"{n:>3} of {total}"                   # f-strings and "{}-{}".format(a, b)
     ok = n > 1                                   # numbers and True/False keep their type; $ok is text
-    print(msg, "done", sep=" | ")                # print (in a block or def): like echo
+    print(msg, "done", sep=" | ")                # print: like echo, anywhere
 match env:                                       # case "a" | "b":   case _: (anything else)
     case "prod":
         echo careful
@@ -153,6 +164,7 @@ def add(a, b):                                   # add 1 2: status 3; add 300 4 
 def is_weekend(day):                             # return True / False for a check
     return day in ("Sat", "Sun")
 if -py is_weekend("Sun"): echo rest              # call a function from Python, with brackets
+x = 5; x += 1; add(1, 2)                         # Python style works at the prompt and in a file too
 try:                                             # the first failing command jumps to except
     ./deploy.sh
 except as rc:                                    # rc and $?: the failing status

@@ -7,6 +7,32 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Brace expansion on every line.** `echo {a,b}{1,2}`, `mkdir -p proj/{src,tests}`, `{1..5}`,
+  `{01..10}`, `{a..e..2}` expand on plain command lines (and in blocks), not just in `for` lists.
+  Quoted braces, `${x}`, `$( )`, a lone `{}` and `jq`'s arguments are left alone.
+- **Backticks.** `` `cmd` `` works like `$(cmd)` (not inside single quotes or comments); an unmatched
+  backtick is an error.
+- **`VAR=x cmd`.** A variable in front of a command is set, as a shell variable and in the
+  environment, for that command only and then put back: `LANG=C sort f`, `IFS= read -r line`,
+  `IFS=: read a b <<< "x:y"`. `a=1 b=2` alone still sets both for good. `z=a b` now runs `b` with
+  `z=a`, as in bash (it used to say "quote a value that contains spaces").
+- **Arithmetic commands.** `(( n++ ))`, `(( a > b ))` (status 0 when the result is not zero),
+  `if (( … ))`, `while (( … ))`, the C-style `for ((i=0; i<3; i++)); do … done`, `let`, and
+  assignments inside `$(( ))`: `$((n=4))`, `$((n++))`, `+=` and the other `op=` forms, `++`, `--`
+  and `,`. `readonly NAME[=VALUE]`, `declare -i -r -x -p NAME[=VALUE]` (read-only names refuse
+  changes, `unset` and `local`; integer names evaluate arithmetic on every assignment), `$RANDOM`,
+  `$SECONDS` (assignable), `printf -v VAR FORMAT ARG...` and `[ -t FD ]`. `declare -a`, `-A`, `-l`
+  and `-u` are refused, and `declare` in a function does not make a local.
+- **Grouping, `eval` and `exec`.** `{ a; b; } | cmd`, `{ a; b; } > file`, `( cd dir; cmd )` (a
+  subshell: its variables, directory, options, functions and traps are gone afterwards, and `exit`
+  only ends it), with `2>&1`, `&&` and `||` after a group, and `cmd | { read a; echo $a; }`.
+  `eval STRING...` runs the joined text in the current shell; `exec CMD` runs the command, then ends
+  the shell or script with its status (`exec > file` is refused).
+- **Python-style lines outside `-py` blocks.** `x = 5`, `count += 1`, `print(f"hi {name}")` and
+  `add(1, 2)` (a call of a `def` or function, alone on its line) now work at the prompt, in files
+  and in bash blocks, with the same typed values as in `-py` blocks. A name that is a builtin,
+  module, alias or function stays a command (`echo = 5` runs echo). `hi()` calls an existing function;
+  with no function of that name it is still the start of a definition (`hi()` then `{`).
 - **`read` takes piped and redirected input, and loops can be fed.** `read [-r] [-p P] [-s] [-n N]
   [-d D] [-t SEC] [NAME...]` reads the next line of attached input, splits it on `$IFS` (the last
   name gets the rest, no name sets `REPLY`) and ends with status 1 at the end of the input; with

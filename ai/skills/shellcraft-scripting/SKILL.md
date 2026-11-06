@@ -52,14 +52,16 @@ alert, or write the script so it takes its values as arguments.
   with `can only concatenate str`. Use `int(n) == 3`, or compare to `"3"`. A value set in Python
   (`n = 3` inside a `-py` block or `def`, or `int(input(...))`) keeps its type; bash reads it
   as the text `3`.
-- **`x = 5` only works inside a Python-style block or a `def`.** At the top of a file it is
-  `command not found: x`. There, write `x=5` with no spaces. (`name = input("…")` works anywhere.)
+- **`x = 5` works anywhere** (the prompt, a file, bash blocks, `-py` blocks, `def`), with the same
+  typed values. It is a command instead when `x` is a builtin, module, alias, function or `def`
+  (`echo = 5` runs echo); then use another name or write `x=5` with no spaces. `x=5` is the bash form.
 - **`$name` is not expanded inside a Python string.** Write `f"hi {name}"` (no `$` inside the
   braces). `echo f"…"` is a bash line and prints the `f`. Use `print(f"…")` inside a block, or
   `echo "hi $name"`.
-- **`print()` is only for Python-style blocks and `def`.** At the prompt and in bash lines use
-  `echo` or `printf`.
-- **No arrays, lists or dicts yet.** `a=(x y)` fails with `quote a value that contains spaces`
+- **`print(...)` and `add(1, 2)` work anywhere** on a line of their own (a bare call shows what the
+  `def` returned or printed). `print hello` without parentheses is not a command: use `echo`. A call
+  with empty parentheses (`hi()`) works when `hi` is already defined; it must be alone on its line.
+- **No arrays, lists or dicts yet.** `a=(x y)` fails with `command not found: y)`
   and `${a[0]}` with `bad substitution`. Use a text of words and a `for` loop, or one item per line
   in a file read with `for -py line in (cat FILE):`.
 - **An unset variable is empty,** as in bash. Use `${v:-default}`, `: ${v:=default}` to set it

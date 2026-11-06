@@ -69,7 +69,8 @@ ada uses /bin/zsh
 ```
 
 Put the old value back afterwards (the last line), or every later `read` keeps splitting on colons.
-A single space (or any run of spaces) between words counts as one separator. Any other separator
+Or put the setting in front of the `read`, which changes it for that command only:
+`IFS=: read user shell <<< "ada:/bin/zsh"`. A single space (or any run of spaces) between words counts as one separator. Any other separator
 character counts once each, so `a::b` has an empty middle field.
 
 ### Options
@@ -231,6 +232,56 @@ files, in funcs and in files you `source`, and `source -n` counts the lines insi
 If the ending word never comes, the text runs to the end of the file (bash does the same, with a
 warning) and `source -n` warns about it.
 
+## Group commands
+
+Sometimes one pipe or one redirect should cover several commands. Put them in braces, or in
+parentheses, and the group acts as a single command:
+
+<!-- run -->
+```
+{ echo "banana"; echo "apple"; echo "cherry"; } | sort
+{ echo "first"; echo "second"; } > list.txt
+cat list.txt
+```
+
+<!-- output -->
+```
+apple
+banana
+cherry
+first
+second
+```
+
+`{ cmd1; cmd2; }` runs in the shell as it is: variables it sets are still set afterwards. Write the
+space after `{` and the `;` (or a new line) before `}`. `( cmd1; cmd2 )` is a **subshell**: it runs
+on a copy, so its variables, its `cd`, its `set` options and the functions it defines are gone when it
+ends, and an `exit` inside only ends the group:
+
+<!-- run -->
+```
+x=1
+{ x=2; }
+echo "after braces: $x"
+( x=3; cd /tmp; echo "inside: $x in $(pwd)" )
+echo "after parentheses: $x"
+( exit 4 )
+echo "the subshell's status was $?"
+```
+
+<!-- output -->
+```
+after braces: 2
+inside: 3 in /tmp
+after parentheses: 2
+the subshell's status was 4
+```
+
+A group can be piped into (`echo hi | { read a; echo "got $a"; }`), followed by `2>&1`, and joined
+with `&&` and `||` like any command (`{ make; make test; } && echo done`). `break` and `continue`
+inside `{ }` act on the loop around it. A Python-style block, `for -py x in a b { … }`, keeps its own
+braces and is not a group.
+
 ## Join a long command over several lines
 
 A backslash as the last character of a line joins it with the next one. That's how you keep a long
@@ -269,9 +320,13 @@ Put the pipe, `<` or `<<<` on the loop or the `read`, not on a later line.
 **The variable is empty after my loop.** The loop was piped into, so it ran on a copy. Use
 `done < file` or `done <<EOF`, or print inside the loop.
 
-**`while IFS= read -r line` says "quote a value that contains spaces".** A variable set in front of
-a single command (`IFS= read`) is not supported yet. Set `IFS` on its own line before the loop, and
-put the old value back after it. (The loop stops after the message instead of running forever.)
+**A variable in front of a command, like `IFS= read -r line`, does what it says.** It is set for that
+one command and put back afterwards, so `while IFS= read -r line; do … done < file` keeps the spaces
+at the start and end of each line. See
+[Environment variables](variables-and-input.md#environment-variables).
+
+**`{ echo hi }` says it is missing `}`.** The closing brace is a word of its own, and a command before
+it ends with `;` or a new line: `{ echo hi; }`.
 
 **A quoted string over several lines is cut at the end of a line.** In a script file each line is
 read on its own. Use a here-doc or `echo -e "line 1\nline 2"` for a block of text.

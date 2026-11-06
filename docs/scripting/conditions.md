@@ -215,6 +215,29 @@ full" branch would never run, because only the first branch that matches runs.
 
 To compare the result of a sum, work it out with `$(( ))` first: `[ $((a + b)) -gt 10 ]`.
 
+`(( ))` is a shorter way to write the same thing. It takes ordinary symbols (`>`, `<=`, `==`, `&&`),
+needs no `$`, and its status is 0 when the answer is true, so it fits `if`:
+
+<!-- run -->
+```
+disk=91
+limit=90
+if (( disk >= limit && disk < 100 )); then
+  echo "disk is almost full: $disk%"
+fi
+(( disk % 2 )) && echo "odd"
+```
+
+<!-- output -->
+```
+disk is almost full: 91%
+odd
+```
+
+`(( x ))` is true when `x` is not zero. Inside `(( ))` you can also set variables (`(( n++ ))`), see
+[Arithmetic as a command](variables-and-input.md#arithmetic-as-a-command). A single bracket
+(`if (x)`) is still Python style and needs `-py`.
+
 `=` compares text and `-eq` compares numbers, and they can disagree: `[ 10 = 10.0 ]` is false
 because the text differs, while `[ 10 -eq 010 ]` is true because the numbers are the same. A value
 that isn't a whole number can't be compared with `-eq` and the others:
@@ -235,6 +258,7 @@ tests check a path:
 | `[ -d PATH ]` | It's a folder |
 | `[ -s PATH ]` | It's a file with something in it |
 | `[ -r PATH ]`, `[ -w PATH ]`, `[ -x PATH ]` | You can read it, write it, run it |
+| `[ -t FD ]` | File descriptor FD is a terminal: `[ -t 1 ]` for output, `[ -t 0 ]` for input |
 
 <!-- run -->
 ```
