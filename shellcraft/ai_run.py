@@ -9,7 +9,8 @@ Four answers, in this order (shellcraft.ai_policy has the rules and the roles):
 - **read-only**: every command in the line is a builtin that neither changes shell state, nor
   writes files, nor reveals secrets (the same rule the MCP sandbox applies to
   `shellcraft_pipeline`), or a module; no redirection to a file, no `&`, no `sub`, no loop or
-  function, no OS program, no alias or shell function (either could hide anything). It runs at
+  function, no `$( )` or backticks (they run commands), no OS program, no alias or shell function
+  (either could hide anything). It runs at
   once.
 - **granted**: an `allow` rule matches, or the `ai_access` setting is on (the default; a session
   grant approved with `review approve` also turns it on). Everything runs at once.
@@ -22,6 +23,7 @@ its trace (`[N] done: ✦ AI: …` and the output) above the prompt, as for `cmd
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from shellcraft import ai_policy, aliases
@@ -35,9 +37,13 @@ if TYPE_CHECKING:
 MAX_NAME = 40
 
 
+_SUBSTITUTION = re.compile(r"\$\((?!\()|`")  # $( ) or a backtick, not $(( )) arithmetic
+
+
 def read_only(line: str, ctx: ShellContext) -> bool:
-    """Whether `line` only reads: see the module doc. Anything the parser can't place is not."""
-    if not line.strip() or split_background(line) is not None:
+    """Whether `line` only reads: see the module doc. Anything the parser can't place is not, and
+    neither is a command substitution (`echo $(rm x)` runs the rm), even inside quotes."""
+    if not line.strip() or split_background(line) is not None or _SUBSTITUTION.search(line):
         return False
     try:
         program = parse_script(line)

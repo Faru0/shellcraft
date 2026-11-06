@@ -5,6 +5,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command substitution is no longer "read-only" for the AI co-pilot.** `echo $(rm x)` ran the `rm`
+  without asking, because only the outer `echo` was checked. A line with `$( )` or backticks now needs
+  a session grant or a review like any other write.
+
 ### Added
 
 - **Brace expansion on every line.** `echo {a,b}{1,2}`, `mkdir -p proj/{src,tests}`, `{1..5}`,

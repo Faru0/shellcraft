@@ -190,7 +190,7 @@ With access off, `run_in_shell` works in two tiers.
 1. **Read-only commands run at once.** These are commands such as `grep`, `cat`, `jq` and the query
    modules. A line counts as read-only when every command in it is a builtin that doesn't write
    files, change the shell's state or reveal secrets, or is a module. It also needs no redirection
-   to a file, no `&`, no `sub`, no loop or function, no OS program, and no alias or shell function,
+   to a file, no `&`, no `sub`, no loop or function, no `$( )` or backticks (they run commands), no OS program, and no alias or shell function,
    since those could stand for anything.
 2. **Anything else waits for you.** It shows in the review queue as `AI wants to run: command`.
    `review approve` runs it in your shell with your permissions and gives the AI the output.

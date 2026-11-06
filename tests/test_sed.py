@@ -153,3 +153,10 @@ def test_the_sandbox_refuses_in_place_only(ctx, f):
     with pytest.raises(PipelineError, match="not available in this context"):
         run_line("sed -i s/unix/linux/ f.txt", ctx)
     assert f.read_text() == TEXT
+
+
+def test_a_command_substitution_is_never_read_only(ctx, f):
+    """`echo $(rm x)` would run the rm, so the AI needs a grant for anything with $( ) or backticks."""
+    for line in ("echo $(rm x)", "echo `rm x`", "cat $(echo f.txt)", 'echo "$(date)"', "echo '$(x)'"):
+        assert not ai_run.read_only(line, ctx), line
+    assert ai_run.read_only("echo $((1+2))", ctx)
