@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -66,6 +67,11 @@ class ShellContext:
     # Funcs made in this session without --save (shellcraft.funcs.Func), by name.
     funcs: dict[str, Any] = field(default_factory=dict)
     positional: list[list[str]] = field(default_factory=list)
+    # `readonly` / `declare -r` names (assigning or unsetting them is an error), `declare -i` names
+    # (their value is arithmetic on every assignment), and the time `$SECONDS` counts from.
+    readonly: set[str] = field(default_factory=set)
+    integers: set[str] = field(default_factory=set)
+    seconds_origin: float = field(default_factory=time.monotonic)
     # `set -e` / `-u` / `-x` / `-o pipefail`, by long name: errexit, nounset, xtrace, pipefail.
     options: set[str] = field(default_factory=set)
     # Above 0 while `set -e` doesn't apply: an `if` / `while` test, the left side of `&&` / `||`,

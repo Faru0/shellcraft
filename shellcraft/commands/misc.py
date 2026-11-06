@@ -104,7 +104,12 @@ def _quote(value: str) -> str:
     return value if re.fullmatch(r"[A-Za-z0-9_./:=@+-]+", value) else "'" + value.replace("'", "'\\''") + "'"
 
 
-@builtin("printf", "Print formatted text", "printf FORMAT [ARG...]", category="text", doc="""\
+def _printf_sets_variable(args: list[str]) -> bool:
+    return args[:1] == ["-v"]
+
+
+@builtin("printf", "Print formatted text", "printf [-v VAR] FORMAT [ARG...]", category="text",
+         writes_if=_printf_sets_variable, doc="""\
 # printf
 
 Print ARGs according to FORMAT, as the C / bash `printf`. The format is reused until every
@@ -125,6 +130,17 @@ argument is consumed, so `printf "%s\\n" a b c` prints three lines. No newline i
 
 Escapes in FORMAT: `\\n`, `\\t`, `\\r`, `\\\\`, `\\a`, `\\e`, `\\0`.
 
+## Into a variable
+
+`printf -v NAME FORMAT [ARG...]` puts the text in the variable NAME instead of printing it:
+
+```
+printf -v padded "%05d" 42
+echo $padded               # 00042
+```
+
+It sets a shell variable, so it is not available to MCP clients.
+
 ## Examples
 
 ```
@@ -134,6 +150,11 @@ printf "%s\\n" *.py
 ```
 """)
 def printf(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    target = None
+    if args[:1] == ["-v"]:
+        if len(args) < 3 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args[1]):
+            raise ModuleError("printf: usage: printf -v NAME FORMAT [ARG...]")
+        target, args = args[1], args[2:]
     if not args:
         raise ModuleError("printf: missing FORMAT (usage: printf FORMAT [ARG...])")
     fmt, rest = args[0], args[1:]
@@ -142,6 +163,11 @@ def printf(ctx: ShellContext, args: list[str], stdin: str) -> str:
     while rest and uses_args:
         more, rest = _printf_once(fmt, rest)
         text += more
+    if target is not None:
+        from shellcraft.pipeline import assign_target, set_variable
+
+        set_variable(ctx, target, text, assign_target.get())
+        return ""
     return text
 
 
@@ -725,6 +751,8 @@ def export(ctx: ShellContext, args: list[str], stdin: str) -> str:
         name, sep, value = arg.partition("=")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
             raise CommandError(f"export: '{name}': not a valid identifier")
+        if sep and name in ctx.readonly:
+            raise CommandError(f"export: {name}: readonly variable")
         if sep:
             ctx.variables[name] = os.path.expanduser(value) if value.startswith("~") else value  # as bash does
         elif name not in ctx.variables:
@@ -750,6 +778,9 @@ def unset(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if not args:
         raise CommandError("unset: usage: unset NAME... | unset -f NAME...")
     for name in args:
+        if name in ctx.readonly:
+            raise CommandError(f"unset: {name}: cannot unset: readonly variable")
+    for name in args:
         ctx.variables.pop(name, None)
         if ctx.exported.pop(name, None) is not None or name in ctx.env_vars:
             os.environ.pop(name, None)  # bash: gone for the session (`env unset` restores a host value)
@@ -757,30 +788,164 @@ def unset(ctx: ShellContext, args: list[str], stdin: str) -> str:
     return ""
 
 
-@builtin("declare", "Show shell functions: declare -f [NAME...] / -F", "declare -f [NAME...] | declare -F",
-         category="shell", stateful=True, doc="""\
-# declare
+DECLARE_DOC = """# declare
 
-Show the shell functions defined in this session (`man function`).
+Give variables attributes, or show functions.
+
+## Usage
 
 ```
-declare -f            # every function, as it was defined
-declare -f NAME...    # just these
-declare -F            # just the names
+declare -i NAME[=VALUE]...   # an integer: every value is arithmetic (n=2+3 gives 5)
+declare -r NAME[=VALUE]...   # read-only: it can't be changed or unset (the same as readonly)
+declare -x NAME[=VALUE]...   # exported to the environment (the same as export)
+declare -ir NAME=5           # flags combine
+declare -p [NAME...]         # list variables with attributes, as declare commands
+declare -f NAME...           # these functions as defined (no names: every function)
+declare -F                   # just the function names
 ```
 
-Only `-f` and `-F` are supported; for variables use `NAME=VALUE`, `export` and `unset`.
-""")
+An integer variable that gets a value that is not arithmetic is an error. A read-only variable
+refuses a new value and `unset` with `NAME: readonly variable`.
+
+Unlike bash, `declare NAME=VALUE` in a function does not make the variable local; use `local`.
+`-a`, `-A` (arrays), `-l`, `-u` and `+` flags are not supported.
+"""
+
+
+@builtin("declare", "Give variables attributes (-i -r -x -p), or show functions (-f -F)",
+         "declare [-irx] NAME[=VALUE]... | declare -p [NAME...] | declare -f [NAME...] | declare -F",
+         category="shell", stateful=True, doc=DECLARE_DOC)
 def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
-    if not args or args[0] not in ("-f", "-F"):
-        raise CommandError("declare: only -f and -F are supported (variables: NAME=VALUE, export, unset)")
-    names = args[1:] or sorted(ctx.functions)
-    missing = [n for n in names if n not in ctx.functions]
-    if args[0] == "-F":
-        text = lines_out(f"declare -f {n}" for n in names if n in ctx.functions)
-    else:
-        text = "".join(ctx.functions[n].text.rstrip() + "\n" for n in names if n in ctx.functions)
-    return WithStatus(text, 1) if missing else text
+    from shellcraft.pipeline import assign_target, set_variable
+
+    if args and args[0] in ("-f", "-F"):
+        names = args[1:] or sorted(ctx.functions)
+        missing = [n for n in names if n not in ctx.functions]
+        if args[0] == "-F":
+            text = lines_out(f"declare -f {n}" for n in names if n in ctx.functions)
+        else:
+            text = "".join(ctx.functions[n].text.rstrip() + "\n" for n in names if n in ctx.functions)
+        return WithStatus(text, 1) if missing else text
+    flags: set[str] = set()
+    words: list[str] = []
+    for arg in args:
+        if arg.startswith("-") and len(arg) > 1 and not words:
+            for flag in arg[1:]:
+                if flag not in "irxp":
+                    raise CommandError(f"declare: -{flag}: not supported (supported: -i -r -x -p, -f -F)")
+                flags.add(flag)
+        else:
+            words.append(arg)
+    if "p" in flags:
+        return _declare_list(ctx, words)
+    if not words:
+        raise CommandError("declare: usage: declare [-irx] NAME[=VALUE]... | declare -p | declare -f | declare -F")
+    target = assign_target.get()
+    for word in words:
+        name, sep, value = word.partition("=")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise CommandError(f"declare: '{name}': not a valid identifier")
+        if "i" in flags:
+            ctx.integers.add(name)
+        if sep:
+            set_variable(ctx, name, value, target)
+        elif "i" in flags and name in ctx.variables:
+            set_variable(ctx, name, ctx.variables[name], target)  # an existing value becomes arithmetic
+        if "x" in flags:
+            if name not in ctx.variables and name not in os.environ:
+                set_variable(ctx, name, "", target)
+            export(ctx, [name], "")
+        if "r" in flags:
+            ctx.readonly.add(name)
+    return ""
+
+
+def _declare_list(ctx: ShellContext, names: list[str]) -> Any:
+    """`declare -p`: each variable that has an attribute (all of `names`, if given) as a declare command."""
+    attributed = ctx.readonly | ctx.integers | set(ctx.exported)
+    shown = names or sorted(attributed)
+    lines, missing = [], []
+    for name in shown:
+        if name not in ctx.variables and name not in attributed:
+            missing.append(name)
+            continue
+        flags = "".join(f for f, on in (("i", name in ctx.integers), ("r", name in ctx.readonly),
+                                        ("x", name in ctx.exported)) if on)
+        value = ctx.variables.get(name, ctx.exported.get(name, ""))
+        lines.append(f'declare -{flags or "-"} {name}="{value}"')
+    if missing:
+        raise CommandError("declare: " + ", ".join(missing) + ": not found")
+    return lines_out(lines)
+
+
+READONLY_DOC = """# readonly
+
+Make variables that can't be changed or removed, as in bash.
+
+```
+readonly NAME=VALUE...   # set it and lock it
+readonly NAME...         # lock the current value
+readonly -p              # list them (also: readonly with no arguments)
+```
+
+Assigning to one, or using `unset`, `read`, `let` or `local` on it, fails with `NAME: readonly
+variable`. It lasts for the session. `declare -r` does the same.
+"""
+
+
+@builtin("readonly", "Make variables read-only", "readonly [-p] [NAME[=VALUE]...]", category="shell",
+         stateful=True, doc=READONLY_DOC)
+def readonly(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft.pipeline import assign_target, set_variable
+
+    names = [a for a in args if a != "-p"]
+    if not names:
+        return lines_out(f'declare -r {n}="{ctx.variables.get(n, "")}"' for n in sorted(ctx.readonly))
+    for arg in names:
+        if arg.startswith("-"):
+            raise CommandError(f"readonly: {arg}: not supported (usage: readonly [-p] [NAME[=VALUE]...])")
+        name, sep, value = arg.partition("=")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise CommandError(f"readonly: '{name}': not a valid identifier")
+        if sep:
+            set_variable(ctx, name, value, assign_target.get())
+        ctx.readonly.add(name)
+    return ""
+
+
+LET_DOC = """# let
+
+Do arithmetic and assign the result, as in bash. Each argument is one expression.
+
+```
+let n=n+1                # the same as n=$((n + 1))
+let "total = a * b" i++  # quote an expression that has spaces
+let "n > 3"              # the status says whether the result is not zero
+```
+
+The expression takes the operators of `$(( ))` plus assignments (`=`, `+=`, `-=`, `*=`, `/=`, `%=`,
+`<<=`, `>>=`, `&=`, `|=`, `^=`), `++` and `--`, and `,`. The status is 0 when the last result is not
+zero and 1 when it is zero, so `let` fits in an `if`. `(( EXPR ))` is the same thing without the
+quotes. See `man if`.
+"""
+
+
+@builtin("let", "Do arithmetic: let n=n+1", "let EXPRESSION...", category="shell", stateful=True, direct=True,
+         doc=LET_DOC)
+def let(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft import arith
+    from shellcraft.pipeline import Variables, assign_target
+
+    if not args:
+        raise CommandError("let: expression expected", 2)
+    variables = Variables(ctx, assign_target.get())
+    value = 0
+    for expression in args:
+        try:
+            value = arith.execute(expression, variables, variables.assign)
+        except arith.ArithError as exc:
+            raise CommandError(f"let: {expression}: {exc}") from None
+    return "" if value else WithStatus("", 1)
 
 
 @builtin("shift", "Drop a shell function's first arguments", "shift [N]", category="shell", stateful=True,

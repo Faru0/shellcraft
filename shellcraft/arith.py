@@ -45,6 +45,76 @@ def evaluate(text: str, variables: Mapping[str, str] | None = None) -> int:
     return _eval(tree.body, variables or {})
 
 
+_ASSIGN_OP = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(\*\*=|<<=|>>=|[-+*/%&|^]?=)(?!=)(.*)$", re.S)
+_STEP = re.compile(r"^(?:(\+\+|--)\s*([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*(\+\+|--))$")
+
+
+def split_commas(text: str) -> list[str]:
+    """`a=1, b=2` → the parts between commas outside parentheses."""
+    parts: list[str] = []
+    level, start = 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            level += 1
+        elif ch == ")":
+            level -= 1
+        elif ch == "," and level == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def split_semicolons(text: str) -> list[str]:
+    """`i=0; i<3; i++` → the parts between `;` outside parentheses."""
+    parts: list[str] = []
+    level, start = 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            level += 1
+        elif ch == ")":
+            level -= 1
+        elif ch == ";" and level == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def execute(text: str, variables: Mapping[str, str] | None, assign: Callable[[str, str], None] | None) -> int:
+    """`evaluate` plus what `(( … ))`, `let` and `$(( … ))` also do in bash: assignments (`n = 4`,
+    `n += 2`, `-= *= /= %= <<= >>= &= |= ^= **=`), `++` and `--` (before or after a name) and `,` between
+    expressions. `assign(name, text)` stores a result; the value is the last expression's."""
+    value = 0
+    for part in split_commas(text):
+        value = _execute_one(part.strip(), variables, assign)
+    return value
+
+
+def _execute_one(text: str, variables: Mapping[str, str] | None, assign: Callable[[str, str], None] | None) -> int:
+    def store(name: str, number: int) -> None:
+        if assign is not None:
+            assign(name, str(number))
+        if isinstance(variables, dict):
+            variables[name] = str(number)  # a later part of the same expression sees it
+
+    if (step := _STEP.match(text)):
+        name = step.group(2) or step.group(3)
+        sign = 1 if (step.group(1) or step.group(4)) == "++" else -1
+        old = evaluate(name, variables)
+        store(name, old + sign)
+        return old + sign if step.group(1) else old
+    if (match := _ASSIGN_OP.match(text)):
+        name, op, rest = match.group(1), match.group(2), match.group(3)
+        rest = rest.strip()
+        value = _execute_one(rest, variables, assign) if _ASSIGN_OP.match(rest) else evaluate(rest, variables)
+        if op != "=":
+            value = evaluate(f"({evaluate(name, variables)}) {op[:-1]} ({value})", None)
+        store(name, value)
+        return value
+    return evaluate(text, variables)
+
+
 def _to_python(text: str) -> str:
     """Bash spellings to Python ones: `&&` → and, `||` → or, `!x` → not x, `a ? b : c` → (b if a else c)."""
     match = _TERNARY.match(text)

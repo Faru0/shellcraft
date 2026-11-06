@@ -346,7 +346,7 @@ def _expand_word(text: str, variables: Mapping[str, str], substitute: Callable[[
             if close is None:
                 raise ParseError("missing '))' for '$(('", pos)
             try:
-                return str(arith.evaluate(_arith_text(text[at + 3:close], variables, substitute), variables)), close + 2
+                return str(run_arith(_arith_text(text[at + 3:close], variables, substitute), variables)), close + 2
             except arith.ArithError as exc:
                 raise ParseError(f"$(( )): {exc}", pos) from None
         if text.startswith("$(", at):
@@ -392,6 +392,14 @@ def _expand_word(text: str, variables: Mapping[str, str], substitute: Callable[[
             add(ch, False)
             i += 1
     return "".join(out)
+
+
+def run_arith(expr: str, variables: Mapping[str, str] | None) -> int:
+    """`$(( … ))`: the value of `expr`; an assignment in it (`n=4`, `n++`) sets the variable the way `n=4`
+    on its own line would. Without variables (a first look at the line) nothing is set."""
+    if variables is None:
+        return arith.execute(expr, None, None)
+    return arith.execute(expr, variables, lambda name, value: _assign(variables, name, value))
 
 
 def _arith_text(text: str, variables: Mapping[str, str] | None,
@@ -873,7 +881,7 @@ def expansion_at(line: str, at: int, variables: Mapping[str, str] | None,
             raise ParseError("missing '))' for '$(('", at)
         try:
             expr = _arith_text(line[at + 3:close], variables, substitute)
-            return str(arith.evaluate(expr, variables)), close + 2
+            return str(run_arith(expr, variables)), close + 2
         except arith.ArithError as exc:
             if variables is None:  # a first look at the line, without its variables: `$((a / b))`
                 return line[at:close + 2], close + 2  # would divide by 0 here; it runs with them later

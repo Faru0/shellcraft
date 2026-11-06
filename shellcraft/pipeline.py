@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -87,6 +88,10 @@ class Variables(Mapping[str, str]):
                 return args[int(name) - 1] if int(name) <= len(args) else ""
         if name == "#" and not self.ctx.positional:
             return "0"  # no arguments outside a function, as in bash
+        if name == "RANDOM":
+            return str(random.randint(0, 32767))
+        if name == "SECONDS":
+            return str(int(time.monotonic() - self.ctx.seconds_origin))
         if name in self.extra:
             return self.extra[name]
         if name in self.ctx.variables:
@@ -281,7 +286,23 @@ assign_target: ContextVar[dict[str, str] | None] = ContextVar("assign_target", d
 
 def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str] | None = None) -> None:
     """Set a shell variable (in `target`, default the shell's) as `NAME=VALUE` does: shown by
-    `set -x`, and passed on to commands when it is exported."""
+    `set -x`, and passed on to commands when it is exported. A `readonly` name is refused; a
+    `declare -i` name takes the value of the arithmetic in `value`; `SECONDS=0` restarts the
+    clock and `RANDOM=n` seeds the generator."""
+    if name in ctx.readonly:
+        raise PipelineError(1, 1, name, f"{name}: readonly variable")
+    if name in ctx.integers:
+        try:
+            value = str(arith.execute(value, Variables(ctx, target), None)) if value.strip() else "0"
+        except arith.ArithError as exc:
+            raise PipelineError(1, 1, name, f"{name}: {exc}") from None
+    if name in ("SECONDS", "RANDOM"):
+        number = int(value) if re.fullmatch(r"-?\d+", value.strip()) else 0
+        if name == "SECONDS":
+            ctx.seconds_origin = time.monotonic() - number
+        else:
+            random.seed(number)
+        return
     if "xtrace" in ctx.options:  # `set -x`
         write_stderr(ctx, f"+ {name}={_trace_word(value)}")
     store = ctx.variables if target is None else target
@@ -424,7 +445,7 @@ PIPEFAIL_WAIT = 2.0  # seconds to wait for an earlier segment's status under `se
 def _main_thread(cmd: Command, ctx: ShellContext | None = None) -> bool:
     builtin = BUILTINS.get(cmd.name)
     if builtin is not None:
-        return builtin.stateful or builtin.direct
+        return builtin.stateful or builtin.direct or (cmd.name == "printf" and cmd.args[:1] == ["-v"])
     return ctx is not None and _func_command(cmd, ctx) is not None  # a func runs its lines here
 
 
@@ -777,7 +798,7 @@ def run_argv(argv: list[str], ctx: ShellContext, stdin: str = "") -> Any:
 # Shell functions take precedence over builtins, modules and programs, as in bash, except for
 # these, which keep the shell in charge of itself (the "special builtins" that matter here).
 SPECIAL_BUILTINS = frozenset({"exit", "export", "unset", "source", ".", "local", "declare", "alias", "unalias",
-                              "shift", "set", "trap"})
+                              "shift", "set", "trap", "let", "readonly"})
 
 
 def _run_command(cmd: Command, stdin: str, ctx: ShellContext) -> Any:

@@ -78,8 +78,8 @@ def test_declare_type_which_unset(ctx):
     assert out(ctx, "declare -F") == "declare -f greet\n"
     assert out(ctx, "type -t greet") == "function\n" and out(ctx, "type greet").startswith("greet is a function")
     assert "greet: shell function" in out(ctx, "which greet")
-    with pytest.raises(PipelineError, match="only -f and -F"):
-        run_line("declare -x X=1", ctx)
+    with pytest.raises(PipelineError, match="not supported"):
+        run_line("declare -a X=1", ctx)
     run_line("unset -f greet", ctx)
     assert ctx.functions == {}
     with pytest.raises(PipelineError, match="command not found: greet"):

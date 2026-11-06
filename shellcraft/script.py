@@ -49,7 +49,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 
-from shellcraft import getopts, traps
+from shellcraft import arith, getopts, traps
 from shellcraft import parser as shparser
 from shellcraft.braces import MAX_RANGE, brace_expand  # noqa: F401  (re-exported)
 from shellcraft.context import ShellContext, to_text
@@ -96,10 +96,31 @@ class Simple:
 
 
 @dataclass
+class Arith:
+    """`(( EXPR ))`: arithmetic as a command. Assignments and `++` work; the status is 0 when
+    the value is not zero, and nothing is printed."""
+
+    text: str  # the expression, as typed
+    pos: int
+    negate: bool = False
+
+
+@dataclass
+class CFor:
+    """`for (( init; cond; step )); do LIST; done`: the C-style loop. An empty `cond` is true."""
+
+    init: str
+    cond: str
+    step: str
+    body: list[Stmt]
+    pos: int
+
+
+@dataclass
 class Chain:
     """`a && b || c`: each part runs depending on the status so far, left to right."""
 
-    parts: list[Simple | Jump | PipedInto]  # a Jump only after the first: `[ -f x ] || return 1`
+    parts: list[Simple | Jump | PipedInto | Arith]  # a Jump only after the first: `[ -f x ] || return 1`
     ops: list[str]
     pos: int
 
@@ -244,7 +265,8 @@ class Print:
     tree: ast.Expression
 
 
-Stmt = Union[Simple, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign, Try, Print]
+Stmt = Union[Simple, Arith, CFor, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign,
+             Try, Print]
 
 
 @dataclass
@@ -876,7 +898,7 @@ class _Parser:
 
     def _chain(self) -> Stmt:
         start = self.i
-        parts: list[Simple | Jump | PipedInto] = [self._pipeline()]
+        parts: list[Simple | Jump | PipedInto | Arith] = [self._pipeline()]
         ops: list[str] = []
         while True:
             self._skip_blanks()
@@ -892,12 +914,14 @@ class _Parser:
             parts.append(self._jump(word) if word in ("break", "continue", "return") else self._pipeline())
         return parts[0] if not ops else Chain(parts, ops, start)
 
-    def _pipeline(self) -> Simple | PipedInto:
+    def _pipeline(self) -> Simple | PipedInto | Arith:
         negate = False
         if self.s.startswith("!", self.i) and self.i + 1 < self.n and self.s[self.i + 1] in " \t":
             negate = True
             self.i += 1
             self._skip_blanks()
+        if self.mode != "py" and self.s.startswith("((", self.i):
+            return self._arith(negate)
         simple = self._simple(stop_at_open=False)
         simple.negate = negate
         if self.i < self.n and self.s[self.i] == "|" and self._pipes_into_block(self.i):
@@ -905,6 +929,23 @@ class _Parser:
             self._skip_space()
             return PipedInto(simple, self._statement(), simple.pos, self.mode)
         return simple
+
+    def _arith(self, negate: bool) -> Arith:
+        """`(( EXPR ))`: the text up to the matching `))`; nothing but a separator may follow."""
+        start = self.i
+        close = _closing_double_paren(self.s, start + 2)
+        if close is None:
+            if "))" in self.s[start:]:
+                raise self._error("(( )): unbalanced parentheses in the expression", start)
+            raise self._incomplete("missing '))' for '(('", " ")
+        text = self.s[start + 2:close].strip()
+        if not text:
+            raise self._error("(( )): empty expression", start)
+        self.i = close + 2
+        self._skip_blanks()
+        if not (self._at_end() or self.s[self.i] in ";\n|&" or self._is_close(self.i)):
+            raise self._error(f"expected ';' or a new line after '(( {text} ))'")
+        return Arith(text, start, negate)
 
     def _pipes_into_block(self, i: int) -> bool:
         """Whether the `|` at `i` is followed by a loop, `if` or `case`: `cmd | while read x; …`."""
@@ -1036,11 +1077,13 @@ class _Parser:
         return False
 
     # for
-    def _for(self) -> For:
+    def _for(self) -> For | CFor:
         pos = self.i
         self.i += 3
         py = self._py_flag()
         self._skip_space()
+        if not py and self.s.startswith("((", self.i):
+            return self._for_c(pos)
         match = _NAME.match(self.s, self.i)
         if not match:
             if self._at_end():
@@ -1059,6 +1102,28 @@ class _Parser:
             raise self._error(f"for: expected 'in' after '{var}'")
         self.i += 2
         return self._for_py(var, pos) if py else self._for_sh(var, pos)
+
+    def _for_c(self, pos: int) -> CFor:
+        """`for (( init; cond; step )); do LIST; done`."""
+        close = _closing_double_paren(self.s, self.i + 2)
+        if close is None:
+            raise self._incomplete("for: missing '))'", " ")
+        parts = arith.split_semicolons(self.s[self.i + 2:close])
+        if len(parts) != 3:
+            raise self._error("for: write the loop as for ((init; condition; step)); do …; done")
+        self.i = close + 2
+        self._skip_space(separators=True)
+        if self._at_end():
+            raise self._incomplete("for: missing 'do'", " ")
+        if self._bare_word(self.i) != "do":
+            raise self._error(f"for: expected 'do', got '{self._bare_word(self.i)}'")
+        self.i += 2
+        self.loops += 1
+        try:
+            body, _ = self._in_mode("sh", lambda: self.parse_list(frozenset({"done"})))
+        finally:
+            self.loops -= 1
+        return CFor(parts[0].strip(), parts[1].strip(), parts[2].strip(), body, pos)
 
     def _for_sh(self, var: str, pos: int) -> For:
         items: list[Item] = []
@@ -1155,7 +1220,7 @@ class _Parser:
         def condition(what: str) -> Cond:
             self._skip_space()
             start = self.i
-            if self.s.startswith("(", self.i):
+            if self.s.startswith("(", self.i) and not self.s.startswith("((", self.i):
                 raise self._error(f"{what}: a ( … ) condition is Python: use `if -py ( … ) {{ … }}`, "
                                   "or a bash test: if [ … ]; then … fi")
             try:
@@ -2122,6 +2187,12 @@ class _Runner:
                 self.show(output)
             if not stmt.negate:
                 self.check_errexit(status, stmt.text)
+        elif isinstance(stmt, Arith):
+            status = self.run_arith(stmt)
+            if not stmt.negate:
+                self.check_errexit(status, f"(( {stmt.text} ))")
+        elif isinstance(stmt, CFor):
+            self.run_cfor(stmt)
         elif isinstance(stmt, Chain):
             self.run_chain(stmt)
         elif isinstance(stmt, For):
@@ -2260,6 +2331,10 @@ class _Runner:
             name, sep, value = token.value.partition("=")
             if not _NAME.fullmatch(name):
                 self.report(PipelineError(1, 1, "local", f"local: '{name}': not a valid identifier"), stmt.text)
+                self.ctx.last_status = 1
+                return 1, None
+            if name in self.ctx.readonly:
+                self.report(PipelineError(1, 1, "local", f"local: {name}: readonly variable"), stmt.text)
                 self.ctx.last_status = 1
                 return 1, None
             if name not in self.frame:
@@ -2456,9 +2531,15 @@ class _Runner:
                     return
                 status = self.run_part(part, k == last)
 
-    def run_part(self, part: Simple | PipedInto, last: bool) -> int:
+    def run_part(self, part: Simple | PipedInto | Arith, last: bool) -> int:
         """One part of an `&&` / `||` chain; `set -e` applies to the last one only."""
         traps.new_command(self.ctx)
+        if isinstance(part, Arith):
+            with _no_errexit(self.ctx) if not (last and not part.negate) else nullcontext():
+                status = self.run_arith(part)
+                if last and not part.negate:
+                    self.check_errexit(status, f"(( {part.text} ))")
+            return status
         if isinstance(part, PipedInto):
             with _no_errexit(self.ctx) if not last else nullcontext():
                 self.run_pipedinto(part)
@@ -2473,6 +2554,57 @@ class _Runner:
         if last and not part.negate:
             self.check_errexit(status, part.text)
         return status
+
+    def arith_value(self, text: str) -> int:
+        """The value of an arithmetic expression (`(( ))`, `let`, a C-style `for`): `${…}` and `$( )` in it
+        expand first, and assignments set shell variables (in this scope)."""
+        variables = self.variables()
+        text = shparser._arith_text(text, variables, self.substitute)
+        while (at := text.find("$(")) != -1 and not text.startswith("$((", at):
+            close = find_closing_paren(text, at + 2)
+            if close is None:
+                break
+            text = text[:at] + self.substitute(text[at + 2:close]).strip() + text[close + 1:]
+        return arith.execute(text, variables, variables.assign)
+
+    def run_arith(self, stmt: Arith) -> int:
+        """`(( EXPR ))`: status 0 when the value is not zero (1 when it is, or on an error)."""
+        from shellcraft.pipeline import PipelineError
+
+        try:
+            status = 0 if self.arith_value(stmt.text) else 1
+        except (arith.ArithError, PipelineError) as exc:
+            message = exc.message if isinstance(exc, PipelineError) else str(exc)
+            self.report(PipelineError(1, 1, "((", f"(( {stmt.text} )): {message}"), f"(( {stmt.text} ))")
+            status = 1
+        if stmt.negate:
+            status = 0 if status else 1
+        self.ctx.last_status = status
+        return status
+
+    def run_cfor(self, stmt: CFor) -> None:
+        """`for ((init; cond; step))`: init once, then while cond is not zero (or empty): the body, step."""
+        from shellcraft.pipeline import PipelineError
+
+        def value(text: str) -> int:
+            try:
+                return self.arith_value(text)
+            except (arith.ArithError, PipelineError) as exc:
+                message = exc.message if isinstance(exc, PipelineError) else str(exc)
+                raise _Abort(PipelineError(1, 1, "for", f"(( {text} )): {message}"), text) from None
+
+        self.ctx.last_status = 0
+        if stmt.init:
+            value(stmt.init)
+        while not stmt.cond or value(stmt.cond):
+            try:
+                self.run_list(stmt.body)
+            except _Break:
+                break
+            except _Continue:
+                pass
+            if stmt.step:
+                value(stmt.step)
 
     def run_for(self, stmt: For) -> None:
         values = self.items(stmt)

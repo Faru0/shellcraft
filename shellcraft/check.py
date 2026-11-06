@@ -229,6 +229,8 @@ class _Walker:
                 self._simple(stmt.text, span, top)
         elif isinstance(stmt, script.Chain):
             self.walk(stmt.parts, span, top)
+        elif isinstance(stmt, script.CFor):
+            self.walk(stmt.body, span, top)
         elif isinstance(stmt, (script.For, script.Select)):
             self._items(stmt.items, span, top)
             self.walk(stmt.body, span, top)
@@ -371,7 +373,7 @@ def _nodes(stmt: Any) -> list[Any]:
     children: list[Any] = []
     if isinstance(stmt, script.Chain):
         children = list(stmt.parts)
-    elif isinstance(stmt, (script.For, script.Select, script.Function)):
+    elif isinstance(stmt, (script.For, script.Select, script.Function, script.CFor)):
         children = list(stmt.body)
     elif isinstance(stmt, script.If):
         for cond, body in stmt.branches:

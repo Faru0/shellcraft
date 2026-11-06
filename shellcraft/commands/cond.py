@@ -19,7 +19,16 @@ _FILE_TESTS = {
     "-h": os.path.islink, "-s": lambda p: os.path.isfile(p) and os.path.getsize(p) > 0,
     "-r": lambda p: os.access(p, os.R_OK), "-w": lambda p: os.access(p, os.W_OK),
     "-x": lambda p: os.access(p, os.X_OK),
+    "-t": lambda fd: _is_tty(fd),
 }
+def _is_tty(fd: str) -> bool:
+    """`[ -t FD ]`: whether file descriptor FD (1 is standard output) is a terminal."""
+    try:
+        return fd.isdigit() and os.isatty(int(fd))
+    except OSError:
+        return False
+
+
 _STRING_TESTS = {"-z": lambda s: s == "", "-n": lambda s: s != ""}
 _UNARY = set(_FILE_TESTS) | set(_STRING_TESTS)
 _INT_OPS = {"-eq": int.__eq__, "-ne": int.__ne__, "-lt": int.__lt__, "-le": int.__le__,
