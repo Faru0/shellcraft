@@ -79,6 +79,38 @@ docs cover it, and anything left out. An item is done only when the full test su
   - [x] **15c.** docs/README.md, curl.md, mcp-and-ai.md, subshells.md, profiles.md, aliases-and-history.md, keyboard-and-mouse.md, settings-and-themes.md, your-shellcraft-folder.md, modules/*.md
     - Notes: curl.md cert section checked against code (all messages and the drive and \: rules match), added that any .p12 needs cryptography and only PEM or P12 types; README router lists ${...}, print() and f-strings, client certs; other pages needed no change
 
+## Round 3: bash gaps found by probing, and funcs by name
+
+Found by running about 150 bash and Python-style snippets through the shell. Plan: `~/.claude/plans`
+(not in the repo); the list below is the contract. Same rules as above.
+
+- [ ] **16. Stdin for `read`, loops and pipes**: `read -r -n -d -t NAME...` (IFS split, `REPLY`), `while read a b; do ...; done < file`, `cmd | while read ...`, `cmd | for/if/case/{ }`
+  - Done when: `read` takes its line from piped / redirected input and ends with status 1 at the end of it; `done < file` feeds the loop (today it prints the file); `cat f | while read a b; do echo $b; done` works; with no input attached `read` still asks on the terminal; tests, docs
+  - Notes:
+- [ ] **17. Here-docs and here-strings**: `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<< "text"`
+  - Done when: in `.sc` files, funcs, `source`, `run_line` and typed at the prompt (continuation until the delimiter); unquoted bodies expand `$x`, `${}`, `$()`, quoted ones do not; `<<-` strips tabs; works on commands and on loops (`done <<< "a b"`); `source -n` line numbers stay right; tests, docs
+  - Notes:
+- [ ] **18. Line continuation**: a trailing `\` joins the next line in `.sc`, `.func` and `source`
+  - Done when: joined like bash (quote aware, not in a comment, not in a quoted here-doc); error line numbers still point at the right file line; tests, docs
+  - Notes:
+- [ ] **19. Brace expansion on plain lines, backticks, `VAR=x cmd`**
+  - Done when: `echo {a,b}{1,2}` and `{1..4}` expand (not in quotes or for `jq`); `` `cmd` `` works like `$(cmd)`; `FOO=1 cmd` sets FOO for that command only, in the shell variables and the environment, and restores it; `a=1 b=2` alone is still an assignment; tests, docs
+  - Notes:
+- [ ] **20. Arithmetic commands**: `((n++))`, `if (( a > b ))`, `for ((i=0;i<3;i++))`, `let`, `readonly`, `declare -i -r -x`, `$((n=4))`, `$RANDOM`, `$SECONDS`, `printf -v`, `[ -t FD ]`
+  - Done when: each works as in bash (status 0 when the result is nonzero), readonly names refuse changes and unset, integer names evaluate on assignment; tests, docs
+  - Notes:
+- [ ] **21. Grouping, `eval`, `exec`**: `{ a; b; } | cmd`, `( a; b ) > file`, `eval STRING`, `exec CMD`
+  - Done when: `{ }` shares variables, `( )` does not and restores the directory; pipes, redirects, `&&` apply to a group; `eval` runs the joined text in the current shell and returns its status; `exec` runs the command and ends the script or shell; tests, docs
+  - Notes:
+- [ ] **22. Top-level `x = 5`**: Python-style assignment and calls outside a `-py` block
+  - Done when: `NAME = EXPR` and `NAME += EXPR` (spaces around `=`) assign when NAME is not a known command; `x=5` unchanged; `print(...)` and a bare `def` call work at the top level; tests, docs
+  - Notes:
+- [ ] **23. Docs, man pages, scripting skill, changelog for 16 to 22**
+  - Notes:
+- [ ] **24. Every func runs by name, and `help` lists funcs**
+  - Done when: a func `cool_stuff` runs by typing `cool_stuff ARGS` (no `# command: yes` needed; the header stays accepted and ignored); builtins, modules, aliases and defs still win a name clash and `func list/show/check` say so; `help` has a "Your funcs" group, `help NAME`, `type`, `which`, `man`, Tab completion and "did you mean" know funcs; lookup stays fast and live (reads only NAME.func); never available over MCP; tests, docs
+  - Notes:
+
 ## Later
 
 Not part of this round.
