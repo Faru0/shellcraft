@@ -59,7 +59,6 @@ Here's what `recon.func` contains:
 # description: Quick look at a domain: its subdomains and DNS records
 # system: no
 # output: show
-# command: yes
 # usage: recon DOMAIN
 queryCert -s $1 > subs-$1.txt
 queryDns $1
@@ -80,7 +79,7 @@ Save the file and the func works at once. There's nothing to reload:
 
 ```
 func run recon example.com
-recon example.com            # the same, because the header says command: yes
+recon example.com            # the same: every func runs when you type its name
 ```
 
 ### The header
@@ -93,7 +92,6 @@ Every header line is optional. Leave one out and you get the default.
 | `# description: TEXT` | One line, shown by `func list` |
 | `# system: yes` | It runs OS programs, so it needs `settings system_commands on` |
 | `# output: show` | Every step's output is printed. `quiet` prints only `echo`, `printf` and steps starting with `@`. Errors always print |
-| `# command: yes` | Typing its name runs it, like a command. A builtin or module with the same name still wins |
 | `# usage: TEXT` | How to call it, shown by `func list` and `func show` |
 
 If a func has `system: yes` and OS commands are off, it won't start. You'll see
@@ -115,8 +113,15 @@ style: questions with `read` or `input()`, `if` and `case`, loops and menus. See
 
 ## Run it
 
-At the prompt, `func run NAME` followed by the arguments runs it. With `command: yes` in the header
-you can drop the `func run`.
+At the prompt, type the func's name followed by the arguments: a func called `cool_stuff` runs when
+you type `cool_stuff`. `func run NAME` does the same, and it is the way to reach a func whose name
+a builtin, a module, an alias or a shell function also has (those win when you just type the
+name). `func list`, `func show` and `func check` tell you when that happens. `help` lists your funcs
+in their own group, and `help NAME`, `man NAME`, `type NAME` and `which NAME` know them too.
+
+A func is picked up the moment its file exists, and a change or a delete shows at the next
+command. There is nothing to reload. Old files with a `# command: yes` line still work: the line is
+ignored, because nothing needs it now.
 
 ShellCraft doesn't print the commands themselves, the same as a bash script. You see each step's
 output, and when the func finishes you get one muted line:
@@ -374,7 +379,7 @@ until you leave ShellCraft unless you save it.
 | --- | --- |
 | `func new NAME` | Asks a few questions, then the steps one per line. An empty line ends |
 | `func new NAME -e` | Opens your editor instead (see [the editor](#the-editor)) |
-| `func new NAME 'CMD' 'CMD'` | All at once. Add `-d DESC`, `--system`, `--quiet`, `--command` |
+| `func new NAME 'CMD' 'CMD'` | All at once. Add `-d DESC`, `--system`, `--quiet` |
 | `--save` | Keep it on disk. Without it, the func lasts until you leave ShellCraft |
 | `-g` | With `--save`: keep it with your main setup instead of the active profile |
 | `func save NAME [-g]` | Put a func you made without `--save` on disk |
@@ -383,7 +388,7 @@ until you leave ShellCraft unless you save it.
 | `func check NAME` | Read it and run nothing: every line that won't parse and every unknown command, as `NAME:LINE: …` |
 | `func edit NAME` | Open it in your editor |
 | `func add NAME 'CMD'`, `insert NAME N 'CMD'`, `rm NAME N`, `move NAME FROM TO` | Change the steps |
-| `func set NAME FIELD VALUE` | Change a header line: `description`, `system`, `output`, `command`, `usage` |
+| `func set NAME FIELD VALUE` | Change a header line: `description`, `system`, `output`, `usage` |
 | `func rename OLD NEW`, `copy SRC DST [-g]`, `delete NAME [-y]` | Manage them |
 | `func export NAME FILE` (or `--all`), `func import FILE [-f] [-g]` | Share them as one JSON file |
 | `func path NAME` | Where its file is |
@@ -391,7 +396,7 @@ until you leave ShellCraft unless you save it.
 For example, to build the recon func without opening an editor:
 
 ```
-func new recon --save -d "domain recon" --command
+func new recon --save -d "domain recon"
 func add recon 'queryDns $1'
 func show recon
 ```

@@ -47,7 +47,7 @@ def test_the_examples_work_once_renamed(tmp_path):
     skel.seed(load_config(), tmp_path)
     (tmp_path / "funcs" / "example.func.sample").rename(tmp_path / "funcs" / "recon.func")
     recon = funcs.load_dir(tmp_path / "funcs", "default")["recon"]
-    assert recon.command and len(recon.steps) == 4
+    assert len(recon.steps) == 4
     assert startup.scripts(tmp_path / "startup") == []  # the .sc example doesn't run as it comes
     (tmp_path / "startup" / "10-example.sc.sample").rename(tmp_path / "startup" / "10-project.sc")
     assert [p.name for p in startup.scripts(tmp_path / "startup")] == ["10-project.sc"]

@@ -72,6 +72,8 @@ def _reads_only(name: str, ctx: ShellContext, names: dict[str, str], args: list[
         if builtin.writes_if is not None and builtin.writes_if(args or []):
             return False  # e.g. sed -i
         return not (builtin.stateful or builtin.writes or builtin.sensitive)
+    # A user func is neither a builtin nor a module, so it is never read-only: it can run anything
+    # (and funcs do not run at all over MCP, whose context has allow_aliases off).
     return ctx.registry.get(name) is not None
 
 

@@ -642,13 +642,14 @@ def command(ctx: ShellContext, args: list[str], stdin: Any) -> Any:
 # type
 
 Tell whether each NAME is an alias, a shell function, a shell keyword, a builtin, a module or a
-program on PATH, in bash's words (`ls is a shell builtin`); a function is shown with its body.
-`-t` prints just the kind: `alias`, `function`, `keyword`, `builtin`, `module` or `file`. `which`
+func of yours or a program on PATH, in bash's words (`ls is a shell builtin`); a function is shown with its body.
+`-t` prints just the kind: `alias`, `function`, `keyword`, `builtin`, `module`, `func` or `file`. `which`
 shows the same, with file paths.
 """)
 def type_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     import shutil
 
+    from shellcraft import funcs
     from shellcraft.highlight import KEYWORDS
 
     parser = ArgParser("type")
@@ -669,6 +670,9 @@ def type_cmd(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             lines.append("builtin" if opts.terse else f"{name} is a shell builtin")
         elif (spec := ctx.registry.get(name)) is not None:
             lines.append("module" if opts.terse else f"{name} is a ShellCraft module ({spec.path})")
+        elif ctx.allow_aliases and (func := funcs.lookup(ctx, name)) is not None:
+            where = str(func.path) if func.path else "this session"
+            lines.append("func" if opts.terse else f"{name} is a func ({where})")
         elif (path := shutil.which(name)) is not None:
             note = "" if ctx.allow_system else " (OS commands are off)"
             lines.append("file" if opts.terse else f"{name} is {path}{note}")

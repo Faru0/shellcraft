@@ -73,7 +73,7 @@ def date(ctx: ShellContext, args: list[str], stdin: str) -> str:
 # which
 
 Show what each NAME runs when you type it: an alias, a ShellCraft builtin, a module (with its
-file), or an OS program on your PATH. They are checked in that order, and the first match wins.
+file), one of your funcs, or an OS program on your PATH. They are checked in that order, and the first match wins.
 
 | Option | Meaning |
 | --- | --- |
@@ -90,6 +90,8 @@ which curl git
 ```
 """)
 def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
+    from shellcraft import funcs
+
     parser = ArgParser("which")
     parser.add_argument("-a", "--all", action="store_true")
     parser.add_argument("names", nargs="+")
@@ -111,6 +113,8 @@ def which(ctx: ShellContext, args: list[str], stdin: str) -> str:
             hits.append(f"{name}: ShellCraft module ({spec.path})")
         elif ctx.registry.is_disabled(name):
             hits.append(f"{name}: ShellCraft module, disabled ({ctx.registry.files[name]})")
+        if ctx.allow_aliases and (func := funcs.lookup(ctx, name)) is not None:
+            hits.append(f"{name}: func ({func.path or 'this session'})")
         if (path := shutil.which(name)) is not None:
             notes = [n for n, on in (("shadowed", bool(hits)), ("disabled: OS commands are off",
                                                                  not ctx.allow_system)) if on]

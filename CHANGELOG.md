@@ -22,6 +22,15 @@ and the project uses [semantic versioning](https://semver.org/).
 - **Line continuation in files.** A trailing backslash joins the next line in `.sc` files, funcs and
   `source`, quote aware, never after a `#` comment, and not inside a quoted here-doc. Error line
   numbers still name the file's own lines.
+- **Every func is a command.** A func in `~/.shellcraft/funcs/` runs when you type its name
+  (`cool_stuff` runs `cool_stuff.func`, with arguments), with no `# command: yes` line needed. A
+  builtin, module, alias or shell function of the same name still wins, and `func run NAME`
+  always reaches the func; `func list`, `show`, `check`, `new` and `save` tell you when a name is
+  hidden. `help` lists your funcs in a "Your funcs" group (not counted as commands), and `help NAME`,
+  `man NAME`, `type`, `which`, tab completion, highlighting and "did you mean" know them. A func is
+  found by its own file, so new, edited and deleted funcs show at once. `# command: yes` is still
+  read and ignored; `func set NAME command` and `func new --command` are accepted and do nothing.
+  Funcs still never run over MCP, and the AI co-pilot needs approval to run one.
 - **`sed`, as a built-in command.** The core of GNU sed, and it works on Windows: `s` (with `g`, `I`,
   `p` and a match number), `d`, `p`, `a`, `i`, `c`, `y`, `q`, `Q`, `=` and `{ }`, with line, `$`, regex,
   range (`3,5`, `/a/,/b/`, `3,+2`), `first~step` and `!` addresses, and `-n -e -f -E -r -s -i[SUFFIX]`.

@@ -273,7 +273,7 @@ class ShellCompleter(Completer):
             for name in self.ctx.functions:
                 entries[name] = "shell function"
             for name, func in funcs.available(self.ctx).items():
-                if func.command and name not in entries:
+                if name not in entries:
                     entries[name] = f"func · {func.description or 'runs its steps'}"
         for name in sorted(entries):
             if name.startswith(word):
@@ -394,15 +394,14 @@ class ShellCompleter(Completer):
             if args:
                 yield from self._complete(word, {"--save": "keep it on disk", "-e": "write it in your editor",
                                                  "-g": "the default setup's", "-d": "a description",
-                                                 "--system": "it runs OS commands", "--quiet": "quiet output",
-                                                 "--command": "typing its name runs it"})
+                                                 "--system": "it runs OS commands", "--quiet": "quiet output"})
             return
         if not args and action in ("show", "view", "check", "save", "edit", "add", "insert", "rm", "move", "set",
                                    "rename", "copy", "delete", "export", "path"):
             yield from self._complete(word, names | ({"--all": "every func"} if action == "export" else {}))
         elif action == "set" and len(args) == 1:
             yield from self._complete(word, {"description": "", "system": "yes|no", "output": "show|quiet",
-                                             "command": "yes|no", "usage": ""})
+                                             "usage": ""})
         elif action == "set" and len(args) == 2:
             values = {"system": ("yes", "no"), "command": ("yes", "no"), "output": funcs.OUTPUTS}.get(args[1], ())
             yield from self._complete(word, {v: "" for v in values})

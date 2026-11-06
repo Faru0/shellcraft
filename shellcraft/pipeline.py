@@ -422,7 +422,7 @@ def _shows_as_it_runs(cmd: Command, ctx: ShellContext) -> bool:
 
 
 def _func_command(cmd: Command, ctx: ShellContext) -> Any:
-    """The func a typed name runs (header `command: yes`), when no builtin or module has the name."""
+    """The func a typed name runs (every func is a command), when no builtin or module has the name."""
     if cmd.bypass or not cmd.name or cmd.name in BUILTINS or ctx.registry.get(cmd.name) is not None:
         return None
     from shellcraft import funcs
@@ -819,7 +819,7 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
         return _with_error_stream(cmd, ctx, call)
 
     func = _func_command(cmd, ctx)
-    if func is not None:  # `recon example.com`: a func whose header says `command: yes`
+    if func is not None:  # `recon example.com`: a func, run by its name
         from shellcraft.commands.func import run_func
 
         return run_func(ctx, func, list(cmd.args))
@@ -836,6 +836,10 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
         hint = f" — run: modules enable {cmd.name}" if ctx.allow_stateful else ""
         raise CommandError(f"module '{cmd.name}' is disabled{hint}", STATUS_NOT_FOUND)
     known = list(BUILTINS) + ctx.registry.names()
+    if ctx.allow_aliases:
+        from shellcraft import funcs
+
+        known += sorted(funcs.available(ctx))
     hint = difflib.get_close_matches(cmd.name, known, n=1)
     suffix = f" — did you mean '{hint[0]}'?" if hint else ""
     if cmd.name.startswith("print("):

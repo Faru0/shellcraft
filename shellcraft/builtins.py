@@ -231,14 +231,15 @@ HELP_DOC = """# help
 
 List every command, grouped by purpose: ShellCraft's own features first (with a description),
 then Shell, Files, Text, Scripting and System as a grid of names, and the modules last (with a
-description; ◆ marks one from your own folder). It is at most 100 columns wide and printed in
+description; ◆ marks one from your own folder), then your own funcs (`func`) by name, in a group
+that is left out when you have none. It is at most 100 columns wide and printed in
 full, never paged, so you can scroll back to it.
 
 ## Usage
 
 ```
 help               # the commands, grouped
-help -a            # every command with its description
+help -a            # every command with its description, your funcs too
 help NAME          # one command: its summary and usage (man NAME has the whole page)
 help -k WORD       # the commands whose name or summary mentions WORD
 ```
@@ -275,6 +276,7 @@ CATEGORY_GROUP = {"shell": "Shell", "text": "Text", "files": "Files", "info": "S
 # Commands that only make sense inside a shell function: not listed by `help` (they still
 # complete, run and have their own man page), and their pages are part of `man function`.
 FUNCTION_HELPERS = ("local", "shift", "declare")
+FUNC_GROUP = "Your funcs"  # the user's funcs: commands too, listed after the modules
 DESCRIBED = ("ShellCraft", "Modules")  # the groups listed with descriptions by a bare `help`
 HELP_SHORT = {  # one line each, for the ShellCraft group
     "profile": "Named setups: switch, create, save (bug bounty, OSINT…)",
@@ -316,6 +318,11 @@ def _help_entries(ctx: ShellContext) -> list[tuple[str, str, str, str]]:
         if ctx.registry.origin(name) == "user":
             summary = (summary + " " if summary else "") + "(user module)"
         rows.append(("Modules", name, summary, usage))
+    if ctx.allow_aliases:  # funcs run by name only where aliases do (not over MCP)
+        from shellcraft import funcs
+
+        for name, f in sorted(funcs.available(ctx).items()):
+            rows.append((FUNC_GROUP, name, f.description, f.usage or f"{name} [ARG...]"))
     return rows
 
 
@@ -369,7 +376,7 @@ def _help_screen(ctx: ShellContext, rows: list[tuple[str, str, str, str]], every
     assert ctx.ui is not None
     width = min(ctx.ui.console.width, HELP_WIDTH)
     registry = ctx.registry
-    builtins_shown = sum(1 for r in rows if r[0] != "Modules")
+    builtins_shown = sum(1 for r in rows if r[0] not in ("Modules", FUNC_GROUP))
     if search is not None:
         head = Text.assemble((" ⚡ShellCraft ", "sc.prompt"),
                              (f" {len(rows)} match{'es' if len(rows) != 1 else ''} for ", "sc.muted"),
@@ -387,8 +394,8 @@ def _help_screen(ctx: ShellContext, rows: list[tuple[str, str, str, str]], every
     # One cell width for every grid, so the names line up from one group to the next.
     cell = max([len(n) for g, items in groups.items() if g not in DESCRIBED for n, _ in items] or [8]) + 3
     for group, items in groups.items():
-        color = "sc.success" if group == "Modules" else "sc.path"
-        title = Text(f" {group} ", style="sc.success" if group == "Modules" else "sc.accent")
+        color = "sc.success" if group in ("Modules", FUNC_GROUP) else "sc.path"
+        title = Text(f" {group} ", style="sc.success" if group in ("Modules", FUNC_GROUP) else "sc.accent")
         title.stylize("bold")
         parts.append(Rule(title, align="left", style="sc.border"))
         if every or group in DESCRIBED:
@@ -453,6 +460,15 @@ def _help_described(ctx: ShellContext, group: str, items: list[tuple[str, str]],
     return grid
 
 
+def _func_for(ctx: ShellContext, name: str) -> Any:
+    """The user's func called `name` (None where funcs don't run by name, like over MCP)."""
+    if not ctx.allow_aliases:
+        return None
+    from shellcraft import funcs
+
+    return funcs.lookup(ctx, name)
+
+
 def _help_one(ctx: ShellContext, name: str) -> Any:
     """`help NAME`: the one-line summary and the usage, with a pointer to the man page."""
     spec = ctx.registry.get(name)
@@ -466,8 +482,16 @@ def _help_one(ctx: ShellContext, name: str) -> Any:
         kind = "shell keyword" if name in KEYWORDS_HELP else f"builtin ({b.category})"
     elif ctx.registry.is_disabled(name):
         raise CommandError(f"help: module '{name}' is disabled (modules enable {name})")
+    elif (func := _func_for(ctx, name)) is not None:
+        summary = func.description or f"func {name}"
+        usage = func.usage or f"{name} [ARG...]"
+        kind = f"func ({func.where})"
     else:
         known = list(BUILTINS) + ctx.registry.names()
+        if ctx.allow_aliases:
+            from shellcraft import funcs
+
+            known += sorted(funcs.available(ctx))
         close = difflib.get_close_matches(name, known, n=1)
         hint = f" — did you mean '{close[0]}'?" if close else ""
         raise CommandError(f"help: no such command '{name}'{hint}")
@@ -515,11 +539,26 @@ def _man(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     names = [a for a in args if a not in ("-p", "--print")]
     if len(names) != 1 or any(n.startswith("-") for n in names):
         raise CommandError("usage: man [-p] COMMAND")
-    doc = manual_text(ctx.registry, names[0])
+    name = names[0]
+    func = None if name in BUILTINS or ctx.registry.get(name) is not None else _func_for(ctx, name)
+    doc = _func_manual(func) if func is not None else manual_text(ctx.registry, name)
     # Like man(1), the viewer whatever the page's height; -p prints it.
     from rich.markdown import Markdown  # loaded on the first `man` (markdown-it is ~90 modules)
 
     return Paged(Markdown(doc), page=not print_it) if ctx.ui else doc
+
+
+def _func_manual(func: Any) -> str:
+    """The man page of a user func: its description, usage and steps."""
+    lines = [f"# {func.name}", "", func.description or f"A func of yours ({func.where}).", "", "## Usage", "",
+             "```", func.usage or f"{func.name} [ARG...]", "```", ""]
+    if func.notes:
+        lines += [func.notes.replace("# ", "", 1) if func.notes.startswith("# ") else func.notes, ""]
+    lines += ["## Steps", "", "```"] + list(func.steps) + ["```", ""]
+    where = str(func.path) if func.path else "this session only"
+    lines += [f"*A func of yours ({where}); `func show {func.name}` has the header, `func run {func.name}` "
+              "runs it when something else has its name.*", ""]
+    return "\n".join(lines)
 
 
 def manual_text(registry: Any, name: str) -> str:

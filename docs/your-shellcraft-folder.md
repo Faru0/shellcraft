@@ -79,7 +79,7 @@ cd ~/.shellcraft/funcs
 cp example.func.sample recon.func
 ```
 
-Now `recon` is a func you can run with `func run recon`, and you can edit the copy freely. The
+Now `recon` is a func you can run by typing `recon` (or `func run recon`), and you can edit the copy freely. The
 `.sample` file stays as a reference.
 
 ### Getting them back

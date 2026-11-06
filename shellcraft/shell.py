@@ -1454,6 +1454,13 @@ class Shell:
             summary = f"  — {spec.summary}" if spec.summary else ""
             return FormattedText([("class:toolbar.key", f" {resolved} ", page),
                                   ("class:toolbar", f" {usage}{summary}", page)])
+        func = funcs.as_command(self.ctx, resolved) if not words[0].startswith("\\") else None
+        if func is not None:
+            page = self._click(f"man {resolved}")
+            usage = func.usage or f"{func.name} [ARG...]"
+            summary = f"  — {func.description}" if func.description else ""
+            return FormattedText([("class:toolbar.key", f" {resolved} ", page),
+                                  ("class:toolbar", f" func: {usage}{summary}", page)])
         if len(words) == 1 and text.rstrip() == text:
             return FormattedText([("class:toolbar", " ")])  # still typing the name
         return FormattedText([("class:toolbar.error", f" {name}: command not found ")])

@@ -31,7 +31,7 @@ run:
 | The prompt | When you press Enter. A block over several lines waits for you to finish it | [Pipes and scripting](../scripting.md) |
 | `~/.shellcraft/rc` | Every time the shell starts | [Startup](../startup.md) |
 | `~/.shellcraft/startup/*.sc` | Right after the rc file, in name order | [Startup](../startup.md#startup-files) |
-| `~/.shellcraft/funcs/NAME.func` | When you type `func run NAME` (or `NAME`, with `command: yes`) | [Funcs](../funcs.md) |
+| `~/.shellcraft/funcs/NAME.func` | When you type its name, or `func run NAME` | [Funcs](../funcs.md) |
 | Any file | When you type `source FILE` | `man source` |
 
 Some ways to choose. Things you want every time, like a greeting or a few functions, go in the rc

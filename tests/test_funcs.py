@@ -62,7 +62,7 @@ def test_parse_and_render_round_trip():
                                                                                 "show", True, "recon DOMAIN")
     assert f.steps == ['echo "start $1"', "for x in a b; do echo item $x ; done", "@ echo marked"]
     again = funcs.parse(funcs.render(f), "recon")
-    assert again.steps == f.steps and again.usage == f.usage and again.command
+    assert again.steps == f.steps and again.usage == f.usage and not again.command  # `command` is read, never written
     bare = funcs.parse("ls\npwd\n", "plain")
     assert bare.output == "show" and not bare.system and bare.steps == ["ls", "pwd"]
 
@@ -119,8 +119,7 @@ def test_command_funcs_run_by_name_but_not_in_pipes(ctx):
     out(ctx, "func new greet --command 'echo func greet'")
     assert out(ctx, "greet") == "module greet"  # a module (or builtin) wins
     out(ctx, "func new plain 'echo plain'")
-    with pytest.raises(PipelineError, match="not found"):
-        run_line("plain", ctx)  # command: no
+    assert "plain" in out(ctx, "plain")  # every func runs by name, whatever its header says
 
 
 def test_default_and_profile_layers_and_where_saves_go(ctx):
@@ -152,9 +151,8 @@ def test_managing_steps_fields_names_and_files(ctx, tmp_path):
     out(ctx, "func rm m 2")
     assert funcs.find(ctx, "m").steps == ["echo three", "echo two"]
     out(ctx, "func set m description 'my func'")
-    out(ctx, "func set m command yes")
     f = funcs.find(ctx, "m")
-    assert f.description == "my func" and f.command and "# command: yes" in f.path.read_text()
+    assert f.description == "my func" and "# command" not in f.path.read_text()
     out(ctx, "func rename m m2")
     out(ctx, "func copy m2 m3")
     assert {"m2", "m3"} <= set(funcs.available(ctx)) and "m" not in funcs.available(ctx)
@@ -172,12 +170,12 @@ def test_managing_steps_fields_names_and_files(ctx, tmp_path):
 def test_guided_creation_and_background_run(ctx, monkeypatch, tmp_path):
     from shellcraft import ask
 
-    answers = iter(["does things", "n", "quiet", "y", "g DOMAIN", "echo step $1", "seq 2", ""])
+    answers = iter(["does things", "n", "quiet", "g DOMAIN", "echo step $1", "seq 2", ""])
     monkeypatch.setattr(ask, "ask", lambda c, prompt, hidden=False: next(answers))
     ctx.interactive = True
     out(ctx, "func new g --save")
     f = funcs.find(ctx, "g")
-    assert (f.description, f.output, f.command, f.usage) == ("does things", "quiet", True, "g DOMAIN")
+    assert (f.description, f.output, f.usage) == ("does things", "quiet", "g DOMAIN")
     assert f.steps == ["echo step $1", "seq 2"]
     from shellcraft.jobs import JobTable
 

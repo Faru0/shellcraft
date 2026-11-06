@@ -6,7 +6,6 @@ A func file (`NAME.func`) is a small header of `# key: value` lines, then the st
     # description: Quick domain recon: certificates, DNS, owners
     # system: no        (yes: it runs OS programs; refused while system_commands is off)
     # output: show      (show: each step's output prints | quiet: only echo / printf and @ steps)
-    # command: no       (yes: typing `recon` runs it, besides `func run recon`)
     # usage: recon DOMAIN
     queryCert -s $1 > subs-$1.txt
     queryDns $1
@@ -17,6 +16,10 @@ comments. `func run NAME ARGS` runs the steps one after another in the shell, as
 or `env set` stays), with `$1`, `$@` and `$#` set to ARGS, and stops at the first failing step.
 `-i` runs it isolated (the directory, variables, environment, aliases, theme and settings are put
 back afterwards, and nothing is saved meanwhile).
+
+Typing a func's name runs it, like any command (`recon example.com`); a builtin, module, alias
+or shell function of the same name wins, and `func run NAME` always reaches the func. An old
+`# command: yes` line is still read and ignored.
 
 They live in `~/.shellcraft/funcs/` (the default setup, available in every profile) and
 `~/.shellcraft/profiles/NAME/funcs/` (the active profile's, which win over a default one of the
@@ -61,7 +64,7 @@ class Func:
     description: str = ""
     system: bool = False
     output: str = "show"
-    command: bool = False
+    command: bool = False  # read from old files and ignored: every func runs by name
     usage: str = ""
     body: str = ""  # the lines after the header, comments included
     notes: str = ""  # `#` comment lines above the header (how to use it, who wrote it), kept as they are
@@ -131,8 +134,7 @@ def parse(text: str, name: str | None = None) -> Func:
 def render(func: Func) -> str:
     """The file's text: its notes, the header, then the body."""
     header = [f"# func: {func.name}", f"# description: {func.description}",
-              f"# system: {'yes' if func.system else 'no'}", f"# output: {func.output}",
-              f"# command: {'yes' if func.command else 'no'}"]
+              f"# system: {'yes' if func.system else 'no'}", f"# output: {func.output}"]
     if func.usage:
         header.append(f"# usage: {func.usage}")
     notes = func.notes + "\n\n" if func.notes else ""
@@ -240,12 +242,58 @@ def remove(ctx: Any, func: Func) -> None:
         func.path.unlink(missing_ok=True)
 
 
-def as_command(ctx: Any, name: str) -> Func | None:
-    """The func `name` runs when typed, if its header says `command: yes`."""
-    if not getattr(ctx, "allow_aliases", False) or not NAME.match(name or ""):
+def lookup(ctx: Any, name: str) -> Func | None:
+    """The func `name`, found by looking at its own file only (no scan of the folders), so it is
+    cheap enough for every command and every keystroke, and sees files added or edited live."""
+    from shellcraft import profiles
+
+    if not NAME.match(name or ""):
         return None
-    func = available(ctx).get(name)
-    return func if func is not None and func.command else None
+    session = getattr(ctx, "funcs", {}).get(name)
+    if session is not None:
+        return session
+    places = []
+    current = profiles.active(ctx.config)
+    if current:
+        places.append((profile_dir(current), current))
+    places.append((default_dir(), "default"))
+    for folder, where in places:
+        path = folder / f"{name}{SUFFIX}"
+        try:
+            func = parse(path.read_text(encoding="utf-8"), name)
+        except (OSError, UnicodeDecodeError):
+            continue
+        func.name, func.where, func.path = name, where, path
+        return func
+    return None
+
+
+def as_command(ctx: Any, name: str) -> Func | None:
+    """The func typing `name` runs (every func is a command), unless this shell can't run funcs
+    by name (the MCP server's context has allow_aliases off)."""
+    if not getattr(ctx, "allow_aliases", False):
+        return None
+    return lookup(ctx, name)
+
+
+def hidden_by(ctx: Any, name: str) -> str:
+    """What runs instead of the func `name` when typed ("a builtin", "a module", "an alias", "a
+    shell function"), or "" when the func itself runs."""
+    from shellcraft import aliases
+    from shellcraft.builtins import BUILTINS
+
+    try:
+        if name in aliases.get_all(ctx.config):
+            return "an alias"
+    except Exception:  # noqa: BLE001 — a broken alias file must not break func list
+        pass
+    if name in getattr(ctx, "functions", {}):
+        return "a shell function"
+    if name in BUILTINS:
+        return "a builtin"
+    if ctx.registry.get(name) is not None:
+        return "a module"
+    return ""
 
 
 # ── running ──────────────────────────────────────────────────────────────────

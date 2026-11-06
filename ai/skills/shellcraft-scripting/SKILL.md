@@ -17,12 +17,13 @@ from memory. The full guide is `docs/scripting/README.md` in the ShellCraft fold
 | --- | --- | --- |
 | `~/.shellcraft/rc` | at every start | `source ~/.shellcraft/rc` |
 | `~/.shellcraft/startup/NN-name.sc` | after rc, in name order | `source FILE` |
-| `~/.shellcraft/funcs/NAME.func` | `func run NAME ARGS`, or `NAME ARGS` when its header has `# command: yes` | `shellcraft func run NAME ARGS` from a terminal or cron (the exit code is the func's status) |
+| `~/.shellcraft/funcs/NAME.func` | `NAME ARGS`, or `func run NAME ARGS` (needed when a builtin, module or alias has the same name) | `shellcraft func run NAME ARGS` from a terminal or cron (the exit code is the func's status) |
 | any file | when sourced | `source FILE` |
 
-A func starts with `# func: NAME`, `# description: one line`, `# usage: NAME ARGS` and
-`# command: yes` comment lines, then one step per line; it stops at the first step that fails.
-Without `# command: yes`, typing the name says `command not found`: use `func run NAME ARGS`.
+A func starts with `# func: NAME`, `# description: one line` and `# usage: NAME ARGS` comment
+lines, then one step per line; it stops at the first step that fails. Every func runs when you type
+its name, and `help` lists them; a builtin, module, alias or shell function of the same name wins,
+so use `func run NAME ARGS` then. An old `# command: yes` line is ignored.
 
 ## The loop: write, check, run
 
@@ -74,7 +75,6 @@ alert, or write the script so it takes its values as arguments.
 ```
 # func: logs
 # description: List the .log files in a folder
-# command: yes
 # usage: logs [DIR]
 dir=${1:-.}
 for -py name in (ls $dir):

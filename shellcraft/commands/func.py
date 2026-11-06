@@ -18,7 +18,7 @@ from shellcraft.commands._io import user_path
 from shellcraft.context import CommandError, ShellContext, Styled, WithStatus
 
 USAGE = ("func [list | show NAME | check NAME | run [-i] [-b] [-q|-v] NAME [ARG...] | new NAME [-e] [--save] [-g] [-d DESC] "
-         "[--system] [--quiet] [--command] | save NAME [-g] | edit NAME | add NAME COMMAND | insert NAME N COMMAND | "
+         "[--system] [--quiet] | save NAME [-g] | edit NAME | add NAME COMMAND | insert NAME N COMMAND | "
          "rm NAME N | move NAME FROM TO | set NAME FIELD VALUE | rename OLD NEW | copy SRC DST [-g] | "
          "delete NAME [-y] | export NAME|--all [FILE] | import FILE [-f] [-g] | path [NAME]]")
 
@@ -28,6 +28,10 @@ Named scripts of ShellCraft lines, run when you call them: like the rc file, on 
 runs its steps one after another in your shell, as if you typed them (a `cd` or `env set`
 stays), with `$1`, `$@` and `$#` set to its arguments, and stops at the first step that fails.
 It is not a pipe stage: it runs on its own line.
+
+Every func is a command: a func called `cool_stuff` runs when you type `cool_stuff` (with
+arguments, `cool_stuff example.com`), and `help` lists your funcs. A builtin, module, alias or
+shell function with the same name wins when you type it; `func run NAME` always reaches the func.
 
 ## Usage
 
@@ -46,7 +50,7 @@ func new NAME --save                   # keep it on disk (the active profile's, 
 func save NAME [-g]                    # put a session func on disk
 func edit NAME                         # open it in your editor
 func add NAME 'COMMAND'                # append a step; insert NAME N 'COMMAND' / rm NAME N / move NAME FROM TO
-func set NAME FIELD VALUE              # description, system (yes/no), output (show/quiet), command (yes/no), usage
+func set NAME FIELD VALUE              # description, system (yes/no), output (show/quiet), usage
 func rename OLD NEW · copy SRC DST [-g] · delete NAME [-y]
 func export NAME|--all [FILE] · import FILE [-f] [-g]
 func path [NAME]                       # where it lives
@@ -59,7 +63,6 @@ func path [NAME]                       # where it lives
 # description: Quick domain recon: certificates, DNS, owners
 # system: no
 # output: show
-# command: yes
 # usage: recon DOMAIN
 queryCert -s $1 > subs-$1.txt
 queryDns $1
@@ -72,8 +75,9 @@ echo "recon of $1 done"
 | `description` | One line, shown by `func list` |
 | `system` | `yes`: it runs OS programs, so it is refused while OS commands are off (`settings system_commands on`) |
 | `output` | `show`: each step's output prints. `quiet`: only `echo` / `printf` steps and steps starting with `@` print; errors always do |
-| `command` | `yes`: typing `recon example.com` runs it, besides `func run recon example.com`. Builtins and modules with the same name win |
 | `usage` | How to call it, shown by `func list` and `func show` |
+
+An old `# command: yes` line in a file is still read and ignored; nothing needs it now.
 
 The command lines themselves are never printed (as in a bash script); a muted line ends the run:
 `✓ recon: 4 steps, 2.3 s`, or which step failed and why. A step is a whole command: a
@@ -100,7 +104,7 @@ Funcs are never available to AI clients over MCP.
 ## Examples
 
 ```
-func new recon --save -d "domain recon" --command
+func new recon --save -d "domain recon"
 func add recon 'queryDns $1'
 func run recon example.com
 recon example.com
@@ -154,6 +158,19 @@ def _flags(args: list[str], *names: str, values: tuple[str, ...] = (), stop_at_p
     return positional, found
 
 
+def _typed(ctx: ShellContext, name: str) -> str:
+    """What typing the func's name does."""
+    clash = funcs.hidden_by(ctx, name)
+    if clash:
+        return f"hidden by {clash} (use: func run {name})"
+    return f"typing {name} runs it"
+
+
+def _clash_note(ctx: ShellContext, name: str) -> str:
+    clash = funcs.hidden_by(ctx, name)
+    return f"  (typing {name} runs {clash}, not this func: use func run {name})" if clash else ""
+
+
 def _where(func: funcs.Func) -> str:
     return {"session": "session", "default": "default"}.get(func.where, f"◆ {func.where}")
 
@@ -173,13 +190,16 @@ def _list(ctx: ShellContext, args: list[str]) -> Any:
     plain = []
     for name in sorted(found):
         f = found[name]
-        flags = " ".join(x for x in ("sys" if f.system else "", "quiet" if f.output == "quiet" else "",
-                                      "cmd" if f.command else "") if x)
+        flags = " ".join(x for x in ("sys" if f.system else "", "quiet" if f.output == "quiet" else "") if x)
         hidden = funcs.shadowed(ctx, name)
         where = _where(f) + (f" (hides {hidden})" if hidden else "")
         desc = f.description + (f"  · {f.usage}" if f.usage else "")
+        clash = funcs.hidden_by(ctx, name)
+        if clash:
+            desc += f"  · hidden by {clash}: use func run {name}"
         table.add_row(name, where, desc, f"{len(f.steps)}: {funcs.preview(f, 44)}", flags)
-        plain.append(f"{name}\t{f.where}{f' (hides {hidden})' if hidden else ''}\t{f.description}\t{funcs.preview(f)}")
+        plain.append(f"{name}\t{f.where}{f' (hides {hidden})' if hidden else ''}\t{f.description}"
+                     f"{f' (hidden by {clash}: use func run {name})' if clash else ''}\t{funcs.preview(f)}")
     hint = Text("func show NAME · func run NAME [ARGS] · func new NAME · man func", style="sc.muted")
     return Styled(Group(table, hint), "\n".join(plain) + "\n")
 
@@ -201,7 +221,7 @@ def _show(ctx: ShellContext, args: list[str]) -> Any:
     head.add_column(overflow="fold")
     rows = [("description", f.description or "—"), ("usage", f.usage or f"{f.name} [ARG...]"),
             ("system", "yes (needs OS commands)" if f.system else "no"), ("output", f.output),
-            ("command", f"yes (typing {f.name} runs it)" if f.command else f"no (func run {f.name})"),
+            ("command", _typed(ctx, f.name)),
             ("where", f"{_where(f)}" + (f"  {f.path}" if f.path else "  (this session only: func save "
                                                                          f"{f.name} keeps it)"))]
     for key, value in rows:
@@ -216,9 +236,11 @@ def _show(ctx: ShellContext, args: list[str]) -> Any:
             steps.append_text(_rich_line(highlight(part, known)))
             steps.append("\n")
     steps.rstrip()
-    title = Text.assemble(("◆ " if f.command else "", "sc.accent"), (f.name, "bold sc.path"))
+    title = Text(f.name, style="bold sc.path")
     body = Group(title, head, Text(""), steps if f.steps else Text("(no steps yet)", style="sc.muted"))
     plain = funcs.render(f)
+    if funcs.hidden_by(ctx, f.name):
+        plain += f"# hidden by {funcs.hidden_by(ctx, f.name)} when typed (use: func run {f.name})\n"
     return Styled(body, plain)
 
 
@@ -231,7 +253,11 @@ def _check(ctx: ShellContext, args: list[str]) -> Any:
 
     text = f.path.read_text(encoding="utf-8") if f.path is not None and f.path.is_file() else funcs.render(f)
     report = check.check_text(text, f.name, ctx, steps=True)
-    return WithStatus(report.text(), report.status) if report.status else report.text()
+    out = report.text()
+    clash = funcs.hidden_by(ctx, f.name)
+    if clash:
+        out = f"{f.name}: hidden by {clash} when typed (use: func run {f.name})\n" + out
+    return WithStatus(out, report.status) if report.status else out
 
 
 # The input line's highlighting classes, in the theme's Rich styles (for `func show`).
@@ -348,17 +374,17 @@ def _say(ctx: ShellContext, text: str, style: str = "sc.muted") -> None:
 
 def _new(ctx: ShellContext, args: list[str]) -> Any:
     positional, flags = _flags(args, "-e", "--save", "-g", "--system", "--quiet", "--command", "-f",
-                               values=("-d",))
+                               values=("-d",))  # --command: accepted, every func runs by name now
     if not positional:
         raise CommandError("func new: usage: func new NAME [-e] [--save] [-g] [-d DESC] [--system] [--quiet] "
-                           "[--command] [COMMAND...]")
+                           "[COMMAND...]")
     name = funcs.check_name(positional[0])
     steps = positional[1:]
     if name in funcs.available(ctx) and not flags.get("-f"):
         raise CommandError(f"func new: '{name}' exists already (func edit {name}; -f replaces it)")
     interactive = ctx.interactive and ctx.ui is not None
     f = funcs.Func(name=name, description=flags.get("-d", ""), system=bool(flags.get("--system")),
-                   output="quiet" if flags.get("--quiet") else "show", command=bool(flags.get("--command")))
+                   output="quiet" if flags.get("--quiet") else "show")
     if steps:
         f.set_steps(steps)
     elif flags.get("-e"):
@@ -373,10 +399,10 @@ def _new(ctx: ShellContext, args: list[str]) -> Any:
         saved = funcs.save(f, folder, where)
         ctx.funcs.pop(name, None)
         return Text.assemble(("✓ ", "sc.success"), "func ", (name, "sc.path"), f" saved ({len(saved.steps)} steps, ",
-                             (_where(saved), "sc.accent"), ")", (f"  func run {name} · func show {name}", "sc.muted"))
+                             (_where(saved), "sc.accent"), ")", (f"  {name} · func show {name}" + _clash_note(ctx, name), "sc.muted"))
     ctx.funcs[name] = f
     return Text.assemble(("✓ ", "sc.success"), "func ", (name, "sc.path"), f" made for this session ({len(f.steps)} steps)",
-                         (f"  func save {name} keeps it · func run {name}", "sc.muted"))
+                         (f"  func save {name} keeps it · {name}" + _clash_note(ctx, name), "sc.muted"))
 
 
 def _guided(ctx: ShellContext, f: funcs.Func, flags: dict[str, Any]) -> funcs.Func:
@@ -388,8 +414,6 @@ def _guided(ctx: ShellContext, f: funcs.Func, flags: dict[str, Any]) -> funcs.Fu
     if not flags.get("--quiet"):
         f.output = "quiet" if _ask(ctx, "Output: show each step's output, or quiet (only echo and @ steps)",
                                    "show").lower().startswith("q") else "show"
-    if not flags.get("--command"):
-        f.command = _yes(ctx, f"Run it by typing just `{f.name}`?", False)
     f.usage = _ask(ctx, "Usage line (optional, e.g. recon DOMAIN)")
     _say(ctx, "The steps, one per line: any ShellCraft command, $1 $2 $@ for the arguments, @ in front to "
               "always show a step's output. An empty line finishes.")
@@ -434,7 +458,7 @@ def _save(ctx: ShellContext, args: list[str]) -> Any:
     saved = funcs.save(f, folder, where)
     ctx.funcs.pop(f.name, None)
     return Text.assemble(("✓ ", "sc.success"), "func ", (f.name, "sc.path"), " saved to ", (_where(saved), "sc.accent"),
-                         (f"  {saved.path}", "sc.muted"))
+                         (f"  {saved.path}" + _clash_note(ctx, f.name), "sc.muted"))
 
 
 def _edit(ctx: ShellContext, args: list[str]) -> Any:
@@ -507,10 +531,12 @@ def _set(ctx: ShellContext, args: list[str]) -> Any:
         raise CommandError(f"func set: usage: func set NAME FIELD VALUE (FIELD: {', '.join(FIELDS)})")
     f = funcs.find(ctx, args[0])
     field, value = args[1], " ".join(args[2:])
-    if field in ("system", "command"):
+    if field == "command":  # every func runs by name now: accepted so old scripts keep working
+        return Text(f"{f.name}: nothing to set, every func runs when you type its name", style="sc.muted")
+    if field == "system":
         if value.lower() not in ("yes", "no", "on", "off", "true", "false"):
             raise CommandError(f"func set: {field} is yes or no")
-        setattr(f, field, value.lower() in ("yes", "on", "true"))
+        f.system = value.lower() in ("yes", "on", "true")
     elif field == "output":
         if value not in funcs.OUTPUTS:
             raise CommandError("func set: output is show or quiet")

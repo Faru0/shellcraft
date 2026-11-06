@@ -324,7 +324,6 @@ for them instead of remembering each command. A [func](../funcs.md) is a file of
 ```
 # func: panel
 # description: A menu of everyday jobs
-# command: yes
 # usage: panel
 while true; do
   echo
@@ -346,7 +345,7 @@ done
 **How it works.** The `#` lines at the top describe the func. `func list` and `func show` show the
 description and the `usage` line.
 
-Because of `command: yes`, typing `panel` runs it too. A loop written over several lines counts as one
+Typing `panel` runs it too. A loop written over several lines counts as one
 step of the func.
 
 The body is the menu from [Menus that keep asking](loops.md#menus-that-keep-asking). `while true`
@@ -364,7 +363,6 @@ stops with a message if you forget it:
 ```
 # func: newproject
 # description: Make a project folder with a README and a notes file
-# command: yes
 # usage: newproject NAME
 if [ -z "$1" ]; then echo "usage: newproject NAME" >&2; false; fi
 mkdir -p ~/work/$1

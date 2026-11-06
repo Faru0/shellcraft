@@ -173,7 +173,6 @@ For a routine you run on demand that should stop at the first step that fails.
 ```
 # func: recon
 # description: Subdomains and DNS for a domain
-# command: yes
 # usage: recon DOMAIN
 queryCert -s $1 > subs-$1.txt
 queryDns $1
