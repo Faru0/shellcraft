@@ -132,7 +132,8 @@ class CFor:
 class Chain:
     """`a && b || c`: each part runs depending on the status so far, left to right."""
 
-    parts: list[Simple | Jump | PipedInto | Arith]  # a Jump only after the first: `[ -f x ] || return 1`
+    # a Jump only after the first part: `[ -f x ] || return 1`
+    parts: list[Simple | Jump | PipedInto | Arith | Group | Piped]
     ops: list[str]
     pos: int
 

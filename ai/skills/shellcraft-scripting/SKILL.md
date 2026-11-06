@@ -25,6 +25,16 @@ lines, then one step per line; it stops at the first step that fails. Every func
 its name, and `help` lists them; a builtin, module, alias or shell function of the same name wins,
 so use `func run NAME ARGS` then. An old `# command: yes` line is ignored.
 
+## Bash that works (so do not avoid it)
+
+Here-docs and here-strings (`cat <<EOF`, `<<'EOF'`, `<<-EOF`, `read a <<< "x y"`), `read` from a pipe or a
+file (`while IFS= read -r line; do …; done < file`, `cmd | while read …`), a trailing `\` to join
+lines, brace expansion (`{a,b}{1,2}`, `{1..5}`) and backticks on any line, `VAR=x cmd`, arithmetic
+(`(( n++ ))`, `if (( a > b ))`, `for ((i=0; i<3; i++))`, `let`, `$((n++))`, `$RANDOM`, `$SECONDS`),
+`readonly`, `declare -i -r -x`, `printf -v VAR`, `[ -t 1 ]`, groups (`{ a; b; } | cmd`,
+`( cd dir; cmd )`), `eval` and `exec`. Still missing: arrays, `declare -a` and `read -a`. A plain command line does not split words at
+spaces (a loop's `for x in $list` does).
+
 ## The loop: write, check, run
 
 1. **Write** the file with your own file tools. No MCP tool writes files.

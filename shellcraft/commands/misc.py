@@ -900,7 +900,7 @@ def readonly(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
     names = [a for a in args if a != "-p"]
     if not names:
-        return lines_out(f'declare -r {n}="{ctx.variables.get(n, "")}"' for n in sorted(ctx.readonly))
+        return lines_out([f'declare -r {n}="{ctx.variables.get(n, "")}"' for n in sorted(ctx.readonly)])
     for arg in names:
         if arg.startswith("-"):
             raise CommandError(f"readonly: {arg}: not supported (usage: readonly [-p] [NAME[=VALUE]...])")

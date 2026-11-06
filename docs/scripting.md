@@ -85,6 +85,12 @@ queryDns $host                   # $name expands anywhere outside single quotes
 echo "$HOME $PATH"               # environment variables work too (never over MCP)
 export API_URL=https://x.test    # ... and export makes a variable one; unset removes it
 n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons, && || !
+(( n++ )); (( n > 3 )) && echo big   # arithmetic as a command (status 0 when the result is not zero); also let
+echo $((i++)) $((m = 4)) $RANDOM $SECONDS   # ++ and = inside $(( )), a random number, seconds since start
+readonly PI=3; declare -i total=2+3   # a locked name; an integer that evaluates every value
+LANG=C sort names.txt            # a variable for that one command only (IFS= read -r line)
+echo {a,b}{1,2} `date +%Y`       # brace expansion and backticks, on every line
+printf -v padded "%05d" 42       # printf into a variable
 echo ${f:-none} ${#f}            # a default, the length
 echo ${f%.txt} ${f##*/}          # trim a pattern off the end / the start (% %% # ##)
 echo ${f/old/new} ${f^^} ${f:0:3}   # replace (// for all), capitals (,, small), a slice
@@ -161,11 +167,16 @@ while :; do read -p "cmd? " c; [ "$c" = q ] && break; done   # : is always true:
 case $f in *.py) echo python;; *.md|*.txt) echo text;; *) echo other;; esac
 select env in dev staging prod; do echo "deploy to $env"; break; done   # a numbered menu ($PS3, $REPLY)
 for f in *.log; do wc -l $f; done | sort -n | tail -3     # a whole loop can be piped or redirected
+for ((i = 0; i < 3; i++)); do echo $i; done               # the C-style loop (the test is arithmetic)
+{ echo a; echo b; } | sort                                # a group: one pipe or redirect for several commands
+( cd /tmp; ls ) > files.txt                               # a subshell: its cd and variables stay inside
+cmd="echo hi"; eval $cmd                                  # run text as a command; exec CMD: run it, end the shell
 [ -f hosts.txt ] && echo found || echo missing
 ```
 
 - Expansion inside these blocks is bash's: an unquoted `$x` or `$(…)` is split at whitespace.
-  Quote it to keep it whole: `"$x"`. The `for` list gets brace expansion and globs.
+  Quote it to keep it whole: `"$x"`. The `for` list gets brace expansion and globs (so does every
+  plain command line: `echo {a,b}{1,2}`).
 - Conditions are commands. A command that succeeds (status 0) counts as true. You can use
   `[ … ]`, `test`, `grep -q`, `true` and `false`, and `[[ … ]]`, which also understands `==`
   patterns, `=~` regexes, `<` / `>` / `<=` / `>=` text order, Python's `in` / `not in` / `is` /

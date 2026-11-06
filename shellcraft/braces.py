@@ -78,7 +78,8 @@ def brace_expand(word: str) -> list[str]:
 
 def _brace_group(word: str, i: int) -> tuple[int | None, list[str] | None]:
     """At `{`: (index of the matching `}`, the comma-separated parts or None when there's no comma)."""
-    level, quote, parts, last = 0, None, [], i + 1
+    parts: list[str] = []
+    level, quote, last = 0, None, i + 1
     j = i
     while j < len(word):
         ch = word[j]
