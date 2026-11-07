@@ -332,6 +332,18 @@ def _read(agg: Aggregator, folder: str, picks: list[tuple[str, Entry, int]], now
     return "".join(out)
 
 
+def _glob_overrides(pairs: list[str]) -> dict[str, str]:
+    """`--glob KIND=GLOB`: this call's file names, for when the EDR renames them; the config is not changed."""
+    out: dict[str, str] = {}
+    for pair in pairs:
+        kind, _, glob = pair.partition("=")
+        if not NAME_RE.match(kind) or not GLOB_RE.match(glob):
+            raise ModuleError(f"aggregator: --glob wants KIND=GLOB, like ps='ps_*.log' (a glob uses letters, digits "
+                              f"and . _ - * ?), not '{pair[:60]}'")
+        out[kind] = glob
+    return out
+
+
 def run(args: list[str], stdin: str) -> str:
     parser = ArgParser("aggregator")
     parser.add_argument("aggregator", nargs="?")
@@ -342,12 +354,13 @@ def run(args: list[str], stdin: str) -> str:
     parser.add_argument("--previous", type=int, default=0, metavar="N")
     parser.add_argument("--tail", type=int, metavar="LINES")
     parser.add_argument("--timeout", type=int, metavar="SECONDS")
+    parser.add_argument("--glob", action="append", default=[], metavar="KIND=GLOB")
     opts = parser.parse_args(args)
     if opts.list:
         return list_aggregators()
     if not opts.aggregator:
         raise ModuleError("aggregator: usage: aggregator --list | AGG | AGG DEVICE [KIND] [--digest] [--previous N] "
-                          "[--tail LINES]")
+                          "[--tail LINES] [--glob KIND=GLOB]")
     if opts.timeout is not None and not 1 <= opts.timeout <= MAX_TIMEOUT:
         raise ModuleError(f"aggregator: --timeout is 1 to {MAX_TIMEOUT} seconds")
     if not 0 <= opts.previous <= 50:
@@ -356,6 +369,7 @@ def run(args: list[str], stdin: str) -> str:
         raise ModuleError("aggregator: --tail is 1 to 5000 lines")
     timeout = opts.timeout or 30
     agg = _agg(opts.aggregator)
+    agg.files = {**agg.files, **_glob_overrides(opts.glob)}
     if not opts.device:
         return devices(agg, timeout)
     device = opts.device

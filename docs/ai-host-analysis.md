@@ -66,6 +66,12 @@ of file from their names (`ps-2026-11-07T1930.txt` is kind `ps`), and writes `~/
 and a watch plan with one entry per device. It only adds: a host, a plan or a server you already have is left
 alone, and `--dry-run` shows what would change. The steps it does are explained next.
 
+If the guess is wrong, or the names change, tell it. `--file ps='ps_*.log'` sets what a kind's files are called
+(repeat it for each kind), `--device web01=192.168.1.2` gives a folder a friendly name, and `--stale-minutes 60`
+changes the freshness limit. Passing `--file` beats the guess. To change an aggregator that is already set up,
+edit `aggregators.toml`, or for one call only ask for `aggregator edr web01 ps --glob ps='ps_*.log'`. The root
+folder is not a call option; it comes from the config or `--root` so the AI cannot point itself somewhere else.
+
 ## Set it up
 
 ### 1. Make ssh work without a password

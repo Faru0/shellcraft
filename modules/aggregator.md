@@ -25,6 +25,7 @@ aggregator AGGREGATOR DEVICE --digest        the summary and the newest file of 
 | `--digest` | With a device: the summary and the newest file of every kind, in one call. |
 | `--previous N` | Read the Nth run before the newest (1 is the one just before). |
 | `--tail LINES` | Only the last LINES lines of each file (1 to 5000). |
+| `--glob KIND=GLOB` | For this call only, use GLOB as the file names for KIND (repeatable). For when the EDR renames its files; the config is not changed. |
 | `--timeout SECONDS` | Give up after this long (default 30, at most 120). |
 
 ## Setting it up

@@ -225,3 +225,18 @@ def test_only_read_commands_ran_on_the_aggregator(agg):
     assert "-o BatchMode=yes" in logged and "ClearAllForwardings=yes" in logged
     for forbidden in (" rm ", " mv ", " cp ", "chmod", "sudo", " tee ", ">>", " > "):
         assert forbidden not in logged
+
+
+def test_glob_overrides_the_file_names_for_one_call(agg):
+    put(agg.dev / "proc_2026-11-08.log", "renamed ps output\n", 5)
+    with pytest.raises(ModuleError, match="has no file for"):
+        agg.run("edr", "web01", "lsof")
+    assert "renamed ps output" in agg.run("edr", "web01", "ps", "--glob", "ps=proc_*.log")
+    assert "812 1 nginx" in agg.run("edr", "web01", "ps")           # the config itself did not change
+    assert "proc_2026-11-08.log" in agg.run("edr", "web01", "--glob", "proc=proc_*.log")
+
+
+@pytest.mark.parametrize("pair", ["ps", "ps=", "ps=a/b", "ps=*;rm", "=x*", "p s=x*"])
+def test_a_bad_glob_option_is_refused(agg, pair):
+    with pytest.raises(ModuleError, match="--glob wants KIND=GLOB"):
+        agg.run("edr", "web01", "ps", "--glob", pair)

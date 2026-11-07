@@ -178,6 +178,32 @@ def test_an_aggregator_is_described_from_what_is_on_it(lab):
     assert "2 device folder(s)" in text(lines) and "fix" not in statuses(lines)
 
 
+def test_file_names_and_devices_you_pass_beat_the_guess(lab):
+    root = lab.tmp / "edr"
+    (root / "192.168.1.2").mkdir(parents=True)
+    (root / "192.168.1.2" / "ps-2026-11-07T1900.txt").write_text("x\n")
+    lab.setup(aggregator="edrbox", root=str(root), file_args=["ps=proc_*.log", "mem=free_*.out"],
+              device_args=["web01=192.168.1.2"], stale_minutes=90)
+    agg = tomllib.loads((lab.home / "aggregators.toml").read_text())["aggregators"]["edrbox"]
+    assert agg["files"] == {"ps": "proc_*.log", "mem": "free_*.out"} and agg["stale_minutes"] == 90
+    assert agg["devices"] == {"web01": "192.168.1.2"}
+
+
+@pytest.mark.parametrize("kw, message", [
+    ({"file_args": ["ps"]}, "expected KIND=GLOB"), ({"file_args": ["ps=a;b"]}, "expected KIND=GLOB"),
+    ({"device_args": ["w=../x"]}, "expected NAME=FOLDER"), ({"stale_minutes": 0}, "stale-minutes"),
+])
+def test_bad_file_device_and_stale_options_are_refused(lab, kw, message):
+    with pytest.raises(setup_mod.SetupError, match=message):
+        lab.setup(aggregator="edrbox", root="/srv/edr", **kw)
+    assert not (lab.home / "aggregators.toml").exists()
+
+
+def test_file_needs_an_aggregator(lab):
+    with pytest.raises(setup_mod.SetupError, match="go with --aggregator"):
+        lab.setup("web01", file_args=["ps=x*"])
+
+
 def test_an_aggregator_needs_a_real_root_and_both_options(lab):
     with pytest.raises(setup_mod.SetupError, match="go together"):
         lab.setup(aggregator="edrbox")

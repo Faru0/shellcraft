@@ -167,7 +167,23 @@ def infer_kinds(names: list[str]) -> dict[str, str]:
     return kinds
 
 
-def setup_aggregator(alias: str, root: str, dry_run: bool) -> tuple[list[Line], list[str]]:
+def _pairs(items: list[str] | None, flag: str, shape: str) -> dict[str, str]:
+    """`--file ps=ps_*.log` style pairs, checked with the same rules the aggregator module applies."""
+    out: dict[str, str] = {}
+    for item in items or []:
+        key, _, value = item.partition("=")
+        good = (re.match(r"^[A-Za-z][A-Za-z0-9_-]{0,40}$", key) and re.match(r"^[A-Za-z0-9._*?-]{1,100}$", value)
+                if flag == "--file" else
+                re.match(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$", key)
+                and re.match(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$", value) and ".." not in value)
+        if not good:
+            raise SetupError(f"{flag} {item[:60]}: expected {shape}")
+        out[key] = value
+    return out
+
+
+def setup_aggregator(alias: str, root: str, dry_run: bool, files: dict[str, str] | None = None,
+                     devices_map: dict[str, str] | None = None, stale: int = 30) -> tuple[list[Line], list[str]]:
     lines: list[Line] = []
     if not ROOT_RE.match(root) or ".." in root.split("/"):
         return [Line("fix", f"{root}: --root is an absolute path (letters, digits and . _ / @ + : ~ -, no ..)")], []
@@ -188,6 +204,7 @@ def setup_aggregator(alias: str, root: str, dry_run: bool) -> tuple[list[Line], 
         listing = _ssh(alias, f"cd {shlex.quote(root)}/{shlex.quote(device)} && ls -1 | head -n 300")
         for kind, glob in infer_kinds(listing.stdout.decode("utf-8", "replace").splitlines()).items():
             kinds.setdefault(kind, glob)
+    kinds = {**kinds, **(files or {})}                                   # what you passed wins over the guess
     if devices:
         seen = ", ".join(f"{k} = {g}" for k, g in kinds.items()) or "none recognised, using the defaults"
         lines.append(Line("info", f"kinds seen in {len(sample)} device folder(s): {seen}"))
@@ -196,11 +213,13 @@ def setup_aggregator(alias: str, root: str, dry_run: bool) -> tuple[list[Line], 
         lines.append(Line("skip", f"aggregator {alias}: already in {AGGREGATORS_FILE}"))
     else:
         files = kinds or DEFAULT_KINDS
-        text = (f"[aggregators.{alias}]\nhost = \"{alias}\"\nroot = \"{root}\"\nstale_minutes = 30\n\n"
+        text = (f"[aggregators.{alias}]\nhost = \"{alias}\"\nroot = \"{root}\"\nstale_minutes = {stale}\n\n"
                 f"[aggregators.{alias}.files]\n" + "".join(f'{k} = "{g}"\n' for k, g in files.items()))
+        if devices_map:
+            text += f"\n[aggregators.{alias}.devices]\n" + "".join(f'{k} = "{v}"\n' for k, v in devices_map.items())
         _append(path, text, dry_run)
         lines.append(Line("done", f"aggregator {alias}: written to {AGGREGATORS_FILE} (check the kinds and globs; "
-                                  "stale_minutes is 30)"))
+                                  f"stale_minutes is {stale})"))
     return lines, devices
 
 
@@ -255,11 +274,17 @@ def mcp_json(project: Path, force: bool, dry_run: bool) -> Line:
 # ── the two entry points ──────────────────────────────────────────────────────────────────────
 
 def setup(hosts: list[str], *, sudo: bool, aggregator: str | None, root: str | None, target: Path, project: Path,
-          force: bool, dry_run: bool) -> list[Line]:
+          force: bool, dry_run: bool, file_args: list[str] | None = None, device_args: list[str] | None = None,
+          stale_minutes: int = 30) -> list[Line]:
     if aggregator and not ALIAS_RE.match(aggregator.replace(".", "_")):
         raise SetupError(f"{aggregator}: not an aggregator name")
     if bool(aggregator) != bool(root):
         raise SetupError("--aggregator ALIAS and --root PATH go together")
+    files, device_map = _pairs(file_args, "--file", "KIND=GLOB"), _pairs(device_args, "--device", "NAME=FOLDER")
+    if (files or device_map) and not aggregator:
+        raise SetupError("--file and --device go with --aggregator")
+    if not 1 <= stale_minutes <= 100_000:
+        raise SetupError("--stale-minutes is a whole number of minutes")
     lines: list[Line] = []
     usable: list[str] = []
     if hosts or not aggregator:
@@ -270,7 +295,7 @@ def setup(hosts: list[str], *, sudo: bool, aggregator: str | None, root: str | N
                 usable.append(name)
     devices: list[str] = []
     if aggregator and root:
-        agg_lines, devices = setup_aggregator(aggregator, root, dry_run)
+        agg_lines, devices = setup_aggregator(aggregator, root, dry_run, files, device_map, stale_minutes)
         lines += agg_lines
     lines.append(mcp_json(project, force, dry_run))
     items = ai_install.select([], team=True)

@@ -5,6 +5,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Aggregator file names and devices can be passed as arguments.** `--setup-analyst --aggregator ALIAS --root PATH`
+  takes `--file KIND=GLOB`, `--device NAME=FOLDER` and `--stale-minutes N`, and the `aggregator` tool takes
+  `--glob KIND=GLOB` for one call when the EDR renames its files.
+
 ### Fixed
 
 - **The MCP server no longer answers `sshrun`, `aggregator`, `baseline` and `watchplan` from its five-minute memory.**

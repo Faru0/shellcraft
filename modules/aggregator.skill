@@ -11,7 +11,7 @@ is, and which are STALE or MISSING: a file that stopped updating is itself a fin
 newest file of every kind in one call. Use sshrun instead when you need live data from the device itself,
 or to confirm something the files suggest."""
 
-usage = "aggregator --list | AGGREGATOR [DEVICE [KIND]] [--digest] [--previous N] [--tail LINES] [--timeout SECONDS]"
+usage = "aggregator --list | AGGREGATOR [DEVICE [KIND]] [--digest] [--previous N] [--tail LINES] [--timeout SECONDS] [--glob KIND=GLOB]"
 
 examples = [
   '{"list": true}  -> "AGGREGATOR  HOST  ROOT  STALE\nedr  edr-box  /srv/edr  30m  ps,netstat,ss,lsof,ebpf"',
@@ -75,6 +75,13 @@ flag = "--tail"
 type = "integer"
 metavar = "LINES"
 description = "Only the last LINES lines of each file (1 to 5000)."
+
+[[params]]
+name = "glob"
+flag = "--glob"
+type = "string"
+metavar = "KIND=GLOB"
+description = "For this call only, the file names of one kind, like ps=proc_*.log, when the EDR renamed them."
 
 [[params]]
 name = "timeout"

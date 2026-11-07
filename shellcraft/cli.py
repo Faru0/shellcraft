@@ -97,6 +97,13 @@ def _parser() -> _ArgumentParser:
                         "EDR output files per device); needs --root")
     p.add_argument("--root", metavar="PATH", help="with --aggregator: the folder on the aggregator that holds the "
                                                  "device folders")
+    p.add_argument("--file", action="append", metavar="KIND=GLOB",
+                   help="with --aggregator: what a kind's files are called, like ps='ps_*.log' (repeat it; "
+                        "beats what setup guesses from the folder)")
+    p.add_argument("--device", action="append", metavar="NAME=FOLDER",
+                   help="with --aggregator: a friendly name for a device folder (repeat it)")
+    p.add_argument("--stale-minutes", type=int, default=30, metavar="N",
+                   help="with --aggregator: a kind with no newer file than this is reported stale (default 30)")
     p.add_argument("--user", action="store_true", help="with --install-ai: install into ~/.claude (every project)")
     p.add_argument("--project", action="store_true", help="with --install-ai: install into ./.claude (this folder)")
     p.add_argument("--team", action="store_true",
@@ -227,7 +234,8 @@ def _analyst(args: argparse.Namespace) -> int:
         else:
             lines = analyst_setup.setup(args.setup_analyst, sudo=args.sudo, aggregator=args.aggregator,
                                         root=args.root, target=target, project=analyst_setup.project_dir(),
-                                        force=args.force, dry_run=args.dry_run)
+                                        force=args.force, dry_run=args.dry_run, file_args=args.file,
+                                        device_args=args.device, stale_minutes=args.stale_minutes)
     except (analyst_setup.SetupError, OSError) as exc:
         print(f"shellcraft: {exc}", file=sys.stderr)
         return 1
