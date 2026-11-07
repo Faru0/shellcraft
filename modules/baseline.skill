@@ -20,7 +20,7 @@ examples = [
 
 notes = """
 Items are normalised lines, not raw text: blank lines, "# " comments and timestamps are dropped,
-spaces are collapsed, and the CHECK name picks extra rules (ps drops pids, ss collapses ephemeral
+spaces are collapsed, and the CHECK name picks extra rules (ps drops pids and also reads `ps -ef` and `ps aux`; ss, netstat and lsof collapse ephemeral
 ports, authorized-keys stores a fingerprint and never the key). The first run of a check learns and
 flags nothing. An item that disappears is remembered for 30 days, so if it comes back it shows as
 "returned" instead of new. A diff stores the new snapshot unless you pass no_store. Never accept
@@ -43,7 +43,7 @@ description = "Host name (letters, digits, '.', '_', '-'). Needed by every subco
 [[params]]
 name = "check"
 metavar = "CHECK"
-description = "Check name such as ps, ss, cron, timers, authorized-keys, modules, kprobes, uprobes, bpf-progs, bpf-links, bpf-maps, listening, logins, exes, proc-*. The name picks the normaliser; unknown names use the generic one."
+description = "Check name such as ps, ss, netstat, lsof, cron, timers, authorized-keys, modules, kprobes, uprobes, bpf-progs, bpf-links, bpf-maps, listening, logins, exes, proc-*. The name picks the normaliser; unknown names use the generic one."
 
 [[params]]
 name = "items"

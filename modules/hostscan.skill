@@ -1,17 +1,18 @@
 # ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
 
-summary = "Offline triage of Linux host data collected over ssh (ps, ss, exe links, /proc maps, eBPF, kprobes/uprobes): a table plus FLAG lines for suspicious processes, sockets and hooks."
+summary = "Offline triage of Linux host data collected over ssh (ps, ss, netstat, lsof, exe links, /proc maps, eBPF, kprobes/uprobes): a table plus FLAG lines for suspicious processes, sockets and hooks."
 
 when_to_use = """
-Use to analyse the text that sshrun's ps, ss, exes, maps, bpf and probes checks return, or the same
-commands run by hand. Pass that text as stdin. The tool makes no network calls and runs nothing on the
-host: it only reads text. Pick the subcommand that matches the data: ps, ss, exes, maps (needs the
-`pid` of the process the maps came from), bpf (bpftool -j prog/link/map show), probes (kprobe_events and
+Use to analyse the text that sshrun's ps, ss, exes, maps, bpf and probes checks return, the same
+commands run by hand, or files an EDR saved (see the aggregator tool). Pass that text as stdin. The tool makes no network calls and runs nothing on the
+host: it only reads text. Pick the subcommand that matches the data: ps (sshrun's form, `ps -ef` or
+`ps aux`), ss, netstat (`netstat -tunap`, -antp, -tulnp), lsof (`lsof -nP -i`, or general lsof), exes, maps (needs the
+`pid` of the process the maps came from), bpf (bpftool -j prog/link/map show, or the text of bpftool prog show), probes (kprobe_events and
 uprobe_events), or join (one stdin with `## ps`, `## ss`, `## exes` and optional `## maps PID` sections:
 one block per process of interest with its connections and parent chain). For a fast first look at a
 host, collect everything and use join."""
 
-usage = "hostscan {ps|ss|exes|maps|bpf|probes|join} [--pid PID] [-o table|json] [--limit N]   (input on stdin)"
+usage = "hostscan {ps|ss|netstat|lsof|exes|maps|bpf|probes|join} [--pid PID] [-o table|json] [--limit N]   (input on stdin)"
 
 examples = [
   '{"subcommand": "ps", "stdin": "  812     1 root  5000 sshd: /usr/sbin/sshd -D\n 2000     1 root   300 nginx: master process\n 2001  2000 www-data  60 sh -c id"}  -> table, then "FLAG high web_child_shell 2001/sh: sh started by nginx (2000)" and "1 flag(s)"',
@@ -36,8 +37,8 @@ name = "subcommand"
 type = "string"
 metavar = "SUBCOMMAND"
 required = true
-values = ["ps", "ss", "exes", "maps", "bpf", "probes", "join"]
-description = "What kind of data is on stdin: ps, ss, exes, maps, bpf, probes, or join (sections ## ps, ## ss, ## exes, ## maps PID)."
+values = ["ps", "ss", "netstat", "lsof", "exes", "maps", "bpf", "probes", "join"]
+description = "What kind of data is on stdin: ps, ss, netstat, lsof, exes, maps, bpf, probes, or join (sections ## ps, ## ss, ## exes, ## maps PID)."
 
 [[params]]
 name = "pid"
@@ -60,6 +61,13 @@ flag = "--limit"
 type = "integer"
 metavar = "N"
 description = "Maximum rows to show (default 200)."
+
+[[params]]
+name = "quiet"
+flag = "--quiet"
+short = "-q"
+type = "boolean"
+description = "Print only the flags, the notes and a count, not the table of rows. Use it for routine rounds: a clean device costs one line."
 
 # Tests: run by `python tools/ingest check`, never shown to the AI.
 [[tests]]
@@ -88,7 +96,7 @@ error = "look like"
 [[tests]]
 args = ["bpf"]
 stdin = "Error: permission denied"
-error = "not valid JSON"
+error = "neither bpftool JSON"
 
 [[tests]]
 args = ["exes"]
@@ -99,3 +107,18 @@ contains = "no flags"
 args = ["exes", "-o", "json"]
 stdin = "1203 /tmp/x (deleted)\n"
 contains = "\"rule\": \"deleted_exe\""
+
+[[tests]]
+args = ["netstat"]
+stdin = "Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name\ntcp        0      0 0.0.0.0:4444            0.0.0.0:*               LISTEN      1203/nc\n"
+contains = "listen_unknown"
+
+[[tests]]
+args = ["lsof"]
+stdin = "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nnc 1203 bob 3u IPv4 999 0t0 TCP *:4444 (LISTEN)\n"
+contains = "listen_unknown"
+
+[[tests]]
+args = ["ps"]
+stdin = "UID PID PPID C STIME TTY TIME CMD\nroot 1 0 0 Oct07 ? 00:00:43 /sbin/init\n"
+contains = "no flags"

@@ -60,12 +60,32 @@ def _generic(line: str) -> str | None:
     return line
 
 
-def _ps(line: str) -> str | None:
+_PS_TIME = re.compile(r"(\d+-)?\d+:\d\d(:\d\d)?$")
+_PS_NUM = re.compile(r"\d+(\.\d+)?$")
+
+
+def _ps_user_args(line: str) -> tuple[str, str] | None:
+    """USER and ARGS of a `ps -ef`, `ps aux` or tuned (pid ppid user etimes args) row. None for anything else,
+    which includes the header."""
+    ef = line.split(None, 7)  # UID PID PPID C STIME TTY TIME CMD
+    if len(ef) >= 7 and ef[1].isdigit() and ef[2].isdigit() and ef[3].isdigit() and _PS_TIME.match(ef[6]):
+        return ef[0], ef[7] if len(ef) == 8 else ""
+    aux = line.split(None, 10)  # USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+    if (len(aux) >= 10 and aux[1].isdigit() and _PS_NUM.match(aux[2]) and _PS_NUM.match(aux[3])
+            and aux[4].isdigit() and aux[5].isdigit() and _PS_TIME.match(aux[9])):
+        return aux[0], aux[10] if len(aux) == 11 else ""
     parts = line.split(None, 4)
     if len(parts) < 4 or not parts[0].isdigit() or not parts[1].isdigit():
-        return None  # the header line, or not a ps line
-    user = parts[2]
-    args = _BIG_NUMBER.sub("N", parts[4]) if len(parts) > 4 else ""
+        return None
+    return parts[2], parts[4] if len(parts) > 4 else ""
+
+
+def _ps(line: str) -> str | None:
+    row = _ps_user_args(line)
+    if row is None:
+        return None
+    user, args = row
+    args = _BIG_NUMBER.sub("N", args)
     if _KWORKER.match(args):
         args = "[kworker/*]"
     return f"{user} {args}".strip()
@@ -96,6 +116,73 @@ def _ss(line: str) -> str | None:
         return f"{proto} {state} {lhost}:{lport} {proc}"
     phost, pport = _split_addr(peer)
     return f"{proto} {state} {_bucket(lport)}->{phost}:{_bucket(pport)} {proc}"
+
+
+_NETSTAT_STATE = re.compile(r"[A-Z][A-Z_]+$")
+
+
+def _netstat(line: str) -> str | None:
+    """`netstat -tunap` rows, shaped like the ss items. UDP rows have no state column."""
+    parts = line.split()
+    if len(parts) < 5 or parts[0].lower() not in PROTOS or not (parts[1].isdigit() and parts[2].isdigit()):
+        return None  # a header, a note, or the unix socket table
+    proto, local, peer = parts[0].lower(), parts[3], parts[4]
+    rest = parts[5:]
+    state = rest.pop(0) if rest and _NETSTAT_STATE.match(rest[0]) else None
+    m = re.match(r"\d+/(\S+)", " ".join(rest))  # `-` (not yours, or no -p) leaves no name
+    proc = m.group(1).rstrip(":").rsplit("/", 1)[-1] if m else "-"
+    lhost, lport = _split_addr(local)
+    phost, pport = _split_addr(peer)
+    if state is None:
+        state = "ESTABLISHED" if pport.isdigit() else "UNCONN"
+    state = state.replace("-", "_")
+    if state in ("LISTEN", "UNCONN"):
+        return f"{proto} {state} {lhost}:{lport} {proc}"
+    return f"{proto} {state} {_bucket(lport)}->{phost}:{_bucket(pport)} {proc}"
+
+
+_LSOF_COLS = ["COMMAND", "PID", "USER", "FD", "TYPE", "DEVICE", "SIZE/OFF", "NODE", "NAME"]
+_LSOF_NAME = re.compile(r"(\S+?)(?:->(\S+))?(?:\s+\((\w+)\))?$")
+_HEX = re.compile(r"\b0x[0-9a-f]+\b")
+
+
+def _lsof_lines(text: str) -> list[str]:
+    cols = {name: i for i, name in enumerate(_LSOF_COLS)}
+    items: set[str] = set()
+    for raw in text.splitlines():
+        line = " ".join(raw.split())
+        if not line or line.startswith("#") or line.startswith("lsof:"):
+            continue
+        toks = line.split()
+        if toks[:3] == ["COMMAND", "PID", "USER"] and "NAME" in toks:
+            cols = {name: i for i, name in enumerate(toks)}
+            continue
+        name_i, type_i = cols["NAME"], cols["TYPE"]
+        parts = line.split(None, name_i)
+        if len(parts) <= type_i or not parts[cols["PID"]].isdigit():
+            continue
+        command, typ = parts[0], parts[type_i]
+        if typ in ("IPv4", "IPv6"):
+            m = _LSOF_NAME.match(parts[name_i]) if len(parts) > name_i else None
+            if not m:
+                continue
+            node = parts[cols.get("NODE", name_i - 1)]
+            local, peer, state = m.group(1), m.group(2), m.group(3)
+            lhost, lport = _split_addr(local)
+            if peer:
+                phost, pport = _split_addr(peer)
+                where = f"{lhost}:{_bucket(lport)}->{phost}:{_bucket(pport)}"
+            elif state == "LISTEN":
+                where = f"{lhost}:{lport}"
+            else:
+                where = f"{lhost}:{_bucket(lport)}"  # an unconnected UDP socket: its port is picked at random
+            items.add(f"{command} {typ} {node} {state or '-'} {where}")
+        else:
+            m = re.search(r"\s(/\S.*)$", line)
+            name = m.group(1) if m else (parts[name_i] if len(parts) > name_i else "")
+            name = _BIG_NUMBER.sub("N", _HEX.sub("0x*", name))
+            items.add(f"{command} {typ} {name}".strip())
+    return sorted(items)
 
 
 def _fingerprint(blob: str) -> str:
@@ -138,6 +225,7 @@ def _lines(per_line: Callable[[str], str | None]) -> Callable[[str], list[str]]:
     return run
 
 
+_BPF_TEXT_HEAD = re.compile(r"\d+:\s+(\S+)(?:\s+name\s+(\S+))?")
 _BPF_EXTRA = ("attach_type", "tp_name", "target_name", "func_name", "func", "cgroup")
 
 
@@ -145,6 +233,10 @@ def _bpf(text: str) -> list[str]:
     try:
         data = json.loads(text)
     except ValueError:
+        # plain `bpftool prog show`: `12: kprobe  name hook  tag abc  gpl`, then indented detail lines
+        heads = [_BPF_TEXT_HEAD.match(ln) for ln in text.splitlines() if not ln[:1].isspace()]
+        if any(heads):
+            return sorted({f"{m.group(1)} {m.group(2) or '-'}" for m in heads if m})
         return _lines(_generic)(text)
     if isinstance(data, dict):
         data = [data]
@@ -163,6 +255,8 @@ NORMALIZERS: dict[str, Callable[[str], list[str]]] = {
     "generic": _lines(_generic),
     "ps": _lines(_ps),
     "ss": _lines(_ss),
+    "netstat": _lines(_netstat),
+    "lsof": _lsof_lines,
     "authorized-keys": _lines(_authorized_key),
     "bpf-progs": _bpf,
     "bpf-links": _bpf,
@@ -170,7 +264,8 @@ NORMALIZERS: dict[str, Callable[[str], list[str]]] = {
 }
 # These are plain line-based checks; they use the generic normaliser and are listed for clarity.
 for _name in ("cron", "timers", "modules", "kprobes", "uprobes", "listening", "logins", "exes", "pkg-verify", "suid",
-              "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc"):
+              "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc", "free", "df", "uptime",
+              "oom"):
     NORMALIZERS[_name] = NORMALIZERS["generic"]
 
 

@@ -44,10 +44,12 @@ for the lines below it. The CHECK name adds rules:
 
 | CHECK | Input and item |
 | --- | --- |
-| `ps` | `PID PPID USER ETIMES ARGS...` becomes `USER ARGS`. Pid, ppid and elapsed time are dropped; numbers of 5 or more digits in ARGS become `N`. A restarted process is not new. |
+| `ps` | `PID PPID USER ETIMES ARGS...` becomes `USER ARGS`. `ps -ef` and `ps aux` rows work too (found by their layout; the header is dropped): the pid, ppid, `C`, `STIME`, `TTY`, `TIME`, `%CPU`, `%MEM`, `VSZ`, `RSS`, `STAT` and `START` columns are dropped, so two runs of the same system give the same items. Numbers of 5 or more digits in ARGS become `N`, and `[kworker/...]` kernel threads become `[kworker/*]`. A restarted process is not new. |
 | `ss` | `LISTEN`/`UNCONN`: `proto STATE local_addr:port procs`. Others: `proto STATE local_port->peer_ip:peer_port procs`, where any port from 32768 up becomes `*`. Pid and fd are dropped. |
+| `netstat` | `netstat -tunap`, `-antp` or `-tulnp` rows, written like `ss`: `proto STATE local_addr:port proc` for listeners, `proto STATE local_port->peer_ip:peer_port proc` for the rest, with ports from 32768 up shown as `*`. The pid is dropped, the program name kept (`-` when netstat could not name it). Headers and the unix socket table are ignored. |
+| `lsof` | `lsof -nP -i` rows: `COMMAND TYPE NODE STATE local->peer`, with ephemeral ports as `*` (a listener keeps its port). Pid, fd, device, size and node numbers are dropped. Rows of a general `lsof` become `COMMAND TYPE name`, with big numbers and hex addresses collapsed. |
 | `authorized-keys` | `[options] type SHA256:fingerprint comment`. The key itself is never stored. |
-| `bpf-progs`, `bpf-links`, `bpf-maps` | JSON array or `bpftool -j` output: `type name` per object (plus attach type or target for links). Ids, tags and timestamps are dropped. Non-JSON input is read line by line. |
+| `bpf-progs`, `bpf-links`, `bpf-maps` | JSON array or `bpftool -j` output: `type name` per object (plus attach type or target for links). Ids, tags and timestamps are dropped. The plain text of `bpftool prog show` also works (`type name` per program; the detail lines are dropped). Other non-JSON input is read line by line. |
 | `cron`, `timers`, `modules`, `kprobes`, `uprobes`, `listening`, `logins`, `exes`, `proc-*`, anything else | Line based. ISO timestamps and `Mon Nov  6 10:00:00 2026` style dates are removed from each line. |
 
 ## Where it stores

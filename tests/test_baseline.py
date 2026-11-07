@@ -285,3 +285,150 @@ def test_normalizer_table_has_expected_checks(mod):
     for name in ("generic", "ps", "ss", "cron", "timers", "authorized-keys", "modules", "kprobes", "uprobes",
                  "bpf-progs", "bpf-links", "bpf-maps", "listening", "logins", "exes"):
         assert name in mod.g["NORMALIZERS"]
+
+
+# ── EDR files: ps -ef, ps aux, netstat, lsof, bpftool text ─────────────────────
+
+PS_EF_RUN1 = """UID          PID    PPID  C STIME TTY          TIME CMD
+root           1       0  0 Oct07 ?        00:00:43 /usr/lib/systemd/systemd --switched-root --system
+root           4       2  0 Oct07 ?        00:00:00 [kworker/R-rcu_gp]
+root          11       2  0 Oct07 ?        00:00:09 [kworker/0:1-events]
+root         812       1  0 Oct07 ?        00:00:02 sshd: /usr/sbin/sshd -D [listener]
+bob         4021     812  0 10:15 pts/0    1-02:03:04 /tmp/job --port 41234
+www-data    2001    2000  0 Oct07 ?        00:00:05 nginx: worker process
+"""
+PS_EF_RUN2 = """UID          PID    PPID  C STIME TTY          TIME CMD
+root           1       0  1 Oct07 ?        00:01:43 /usr/lib/systemd/systemd --switched-root --system
+root           4       2  0 Oct07 ?        00:00:00 [kworker/R-rcu_gp]
+root        1700       2  0 11:45 ?        00:00:01 [kworker/3:2-mm_percpu_wq]
+root         812       1  0 Oct07 ?        00:00:04 sshd: /usr/sbin/sshd -D [listener]
+bob        90022     812  3 12:30 pts/1    00:00:09 /tmp/job --port 55999
+www-data   77001   70000  0 Nov05 ?        00:09:05 nginx: worker process
+"""
+PS_AUX_RUN1 = """USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.0  43504 13300 ?        Ss   Oct07   0:43 /usr/lib/systemd/systemd --switched-root --system
+root          11  0.0  0.0      0     0 ?        I    Oct07   0:09 [kworker/0:1-events]
+bob         4021  0.1  0.4 123456 20000 pts/0    S    10:15 123:45 /tmp/job --port 41234
+www-data    2001  0.0  0.1  55000  6000 ?        S    Oct07   0:05 nginx: worker process
+"""
+PS_AUX_RUN2 = """USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.3  0.0  43512 13400 ?        Ss   Oct07   1:43 /usr/lib/systemd/systemd --switched-root --system
+root        1700  0.0  0.0      0     0 ?        I    11:45   0:01 [kworker/3:2-mm_percpu_wq]
+bob        90022  4.9  0.5 124000 21000 pts/1    R    12:30   0:09 /tmp/job --port 55999
+www-data   77001  0.0  0.1  55000  6100 ?        S    Nov05   0:05 nginx: worker process
+"""
+
+
+def test_ps_ef_two_runs_normalise_the_same(mod):
+    one, two = mod.normalize("ps", PS_EF_RUN1), mod.normalize("ps", PS_EF_RUN2)
+    assert one == two == [
+        "bob /tmp/job --port N", "root /usr/lib/systemd/systemd --switched-root --system",
+        "root [kworker/*]", "root sshd: /usr/sbin/sshd -D [listener]", "www-data nginx: worker process"]
+
+
+def test_ps_aux_two_runs_normalise_the_same(mod):
+    one, two = mod.normalize("ps", PS_AUX_RUN1), mod.normalize("ps", PS_AUX_RUN2)
+    assert one == two == ["bob /tmp/job --port N", "root /usr/lib/systemd/systemd --switched-root --system",
+                          "root [kworker/*]", "www-data nginx: worker process"]
+
+
+def test_ps_ef_diff_reports_only_the_new_process(mod):
+    diff(mod, PS_EF_RUN1)
+    assert diff(mod, PS_EF_RUN2) == "web1 ps: 0 new, 0 gone, 5 unchanged, 0 accepted\n"
+    out = diff(mod, PS_EF_RUN2 + "www-data    2002    2000  0 10:20 ?        00:00:00 sh -c id\n")
+    assert out.startswith("NEW (1)\n+ www-data sh -c id\n")
+
+
+def test_ps_formats_keep_tuned_rows_and_numeric_uids(mod):
+    assert mod.normalize("ps", " 812     1 www    9000 nginx: worker\n") == ["www nginx: worker"]
+    assert mod.normalize("ps", "1000  4021   812  0 10:15 pts/0    00:00:00 /tmp/job\n") == ["1000 /tmp/job"]
+
+
+NETSTAT_RUN1 = """Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      812/sshd: /usr/sbin
+tcp        0      0 127.0.0.1:631           0.0.0.0:*               LISTEN      -
+tcp        0      0 10.0.0.5:22             203.0.113.9:51022       ESTABLISHED 900/sshd: bob@pts/0
+tcp        0      0 10.0.0.5:44444          198.51.100.7:443        ESTABLISHED 99/curl
+tcp        0      0 10.0.0.5:51000          93.184.216.34:443       TIME_WAIT   -
+tcp6       0      0 :::22                   :::*                    LISTEN      812/sshd: /usr/sbin
+udp        0      0 127.0.0.53:53           0.0.0.0:*                           414/systemd-resolve
+udp        0      0 10.0.0.5:68             10.0.0.1:67             ESTABLISHED 500/NetworkManager
+"""
+NETSTAT_RUN2 = NETSTAT_RUN1.replace("51022", "40000").replace("44444", "33333").replace("900/", "1234/") \
+    .replace("99/curl", "2/curl").replace("51000", "51999").replace("812/", "7/")
+
+
+def test_netstat_normalises_like_ss(mod):
+    assert mod.normalize("netstat", NETSTAT_RUN1) == mod.normalize("netstat", NETSTAT_RUN2)
+    assert mod.normalize("netstat", NETSTAT_RUN1) == [
+        "tcp ESTABLISHED *->198.51.100.7:443 curl",
+        "tcp ESTABLISHED 22->203.0.113.9:* sshd",
+        "tcp LISTEN 0.0.0.0:22 sshd",
+        "tcp LISTEN 127.0.0.1:631 -",
+        "tcp TIME_WAIT *->93.184.216.34:443 -",
+        "tcp6 LISTEN :::22 sshd",
+        "udp ESTABLISHED 68->10.0.0.1:67 NetworkManager",
+        "udp UNCONN 127.0.0.53:53 systemd-resolve",
+    ]
+
+
+def test_netstat_ignores_headers_notes_and_unix_sockets(mod):
+    text = NETSTAT_RUN1 + ("(Not all processes could be identified, non-owned process info\n"
+                           " will not be shown, you would have to be root to see it all.)\n"
+                           "Active UNIX domain sockets (servers and established)\n"
+                           "Proto RefCnt Flags       Type       State         I-Node   Path\n"
+                           "unix  2      [ ACC ]     STREAM     LISTENING     12345    /run/dbus/system_bus_socket\n")
+    assert mod.normalize("netstat", text) == mod.normalize("netstat", NETSTAT_RUN1)
+
+
+LSOF_RUN1 = """COMMAND     PID     USER   FD   TYPE   DEVICE SIZE/OFF NODE NAME
+sshd        812     root    3u  IPv4    20123      0t0  TCP *:22 (LISTEN)
+sshd        900      bob    4u  IPv4    40001      0t0  TCP 10.0.0.5:22->203.0.113.9:51022 (ESTABLISHED)
+curl       4000      bob    5u  IPv4    50001      0t0  TCP 10.0.0.5:51000->93.184.216.34:443 (ESTABLISHED)
+chrome     4100      bob   30u  IPv6    60001      0t0  TCP [2001:db8::5]:49584->[2001:db8:400::347]:443 (CLOSE_WAIT)
+wsdd      18018     bob    9u  IPv4    80001      0t0  UDP *:49835
+"""
+LSOF_RUN2 = LSOF_RUN1.replace("812 ", "7 ").replace("40001", "99999").replace("51022", "40000") \
+    .replace("4000 ", "8000 ").replace("51000", "53000").replace("49584", "50000").replace("49835", "32797") \
+    .replace("30u", "31u")
+
+
+def test_lsof_two_runs_normalise_the_same(mod):
+    one = mod.normalize("lsof", LSOF_RUN1)
+    assert one == mod.normalize("lsof", LSOF_RUN2)
+    assert one == [
+        "chrome IPv6 TCP CLOSE_WAIT [2001:db8::5]:*->[2001:db8:400::347]:443",
+        "curl IPv4 TCP ESTABLISHED 10.0.0.5:*->93.184.216.34:443",
+        "sshd IPv4 TCP ESTABLISHED 10.0.0.5:22->203.0.113.9:*",
+        "sshd IPv4 TCP LISTEN *:22",
+        "wsdd IPv4 UDP - *:*",
+    ]
+
+
+def test_lsof_general_files_drop_numbers_and_keep_the_path(mod):
+    one = ("COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n"
+           "bash 900 bob txt REG 253,1 1396520 1049001 /usr/bin/bash\n"
+           "bash 900 bob 0u CHR 136,0 0t0 3 /dev/pts/0\n"
+           "bash 900 bob 3r FIFO 0,13 0t0 7180 pipe\n"
+           "bash 900 bob 4u a_inode 0,14 0 1234 [eventpoll:5]\n"
+           "x 901 bob 5u unix 0xffff8a1b2c3d4e00 0t0 93421 type=STREAM\n")
+    two = one.replace("900", "12345").replace("0xffff8a1b2c3d4e00", "0xffff8a1b2c3d4f11").replace("93421", "11111") \
+        .replace("1396520", "1396999")
+    items = mod.normalize("lsof", one)
+    assert items == mod.normalize("lsof", two)
+    assert "bash REG /usr/bin/bash" in items and "bash CHR /dev/pts/0" in items
+
+
+def test_bpf_text_baseline_ignores_ids_and_times(mod):
+    one = ("3: tracing  name dump_bpf_prog  tag aabb  gpl\n\tloaded_at 2026-11-01T10:00:00+0000  uid 0\n"
+           "10: kprobe  name hook  tag cc  gpl\n\tpids evil(1203)\n11: kprobe  tag dd\n")
+    two = ("30: tracing  name dump_bpf_prog  tag ffee  gpl\n\tloaded_at 2026-11-02T10:00:00+0000  uid 0\n"
+           "31: kprobe  name hook  tag 99  gpl\n\tpids evil(77)\n32: kprobe  tag 00\n")
+    assert mod.normalize("bpf-progs", one) == mod.normalize("bpf-progs", two) == [
+        "kprobe -", "kprobe hook", "tracing dump_bpf_prog"]
+
+
+def test_normalizer_table_has_edr_kinds(mod):
+    for name in ("netstat", "lsof"):
+        assert name in mod.g["NORMALIZERS"]

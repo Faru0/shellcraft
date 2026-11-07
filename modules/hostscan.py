@@ -1,4 +1,4 @@
-"""hostscan — offline triage of Linux host data (ps, ss, exes, maps, bpf, probes) collected over ssh."""
+"""hostscan — offline triage of Linux host data (ps, ss, netstat, lsof, exes, maps, bpf, probes) as plain text."""
 
 from __future__ import annotations
 
@@ -12,21 +12,21 @@ from posixpath import basename
 from shellcraft.config import config_dir
 from shellcraft.modkit import ArgParser, ModuleError
 
-SUMMARY = "Triage ps/ss/exe/maps/bpf/probe text from a host: suspicious processes, sockets, hooks (offline)"
+SUMMARY = "Triage ps/ss/netstat/lsof/exe/maps/bpf/probe text from a host: processes, sockets, hooks (offline)"
 
-SUBCOMMANDS = ("ps", "ss", "maps", "exes", "bpf", "probes", "join")
+SUBCOMMANDS = ("ps", "ss", "netstat", "lsof", "maps", "exes", "bpf", "probes", "join")
 OUTPUTS = ("table", "json")
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 RANK = {s: i for i, s in enumerate(SEVERITIES)}
 
 # Every rule hostscan can raise. The man page lists them all (a test keeps the two in sync).
 RULES = [
-    {"id": "deleted_exe", "severity": "high", "sub": "exes, join",
+    {"id": "deleted_exe", "severity": "high", "sub": "exes, lsof, join",
      "description": "The process runs a binary that was deleted from disk (medium when the path is under a system "
                     "directory, because a package upgrade does the same)."},
-    {"id": "memfd_exe", "severity": "high", "sub": "exes, join",
+    {"id": "memfd_exe", "severity": "high", "sub": "exes, lsof, join",
      "description": "The process runs from an anonymous memory file (/memfd:...), a fileless-malware habit."},
-    {"id": "writable_exe", "severity": "high", "sub": "ps, exes, join",
+    {"id": "writable_exe", "severity": "high", "sub": "ps, exes, lsof, join",
      "description": "The executable (or the command path, or the script an interpreter runs) is under /tmp, "
                     "/var/tmp, /dev/shm or /run/user."},
     {"id": "web_child_shell", "severity": "high", "sub": "ps, join",
@@ -38,32 +38,32 @@ RULES = [
      "description": "The process name (first word of the command) differs from the executable name. Interpreters, "
                     "busybox, shell aliases and kernel threads are ignored. A name like [kworker/0:1] that has a "
                     "readable executable is high."},
-    {"id": "listen_unknown", "severity": "low", "sub": "ss, join",
+    {"id": "listen_unknown", "severity": "low", "sub": "ss, netstat, lsof, join",
      "description": "Listening on all interfaces (0.0.0.0, ::, *) on a port outside the usual set "
                     "(22, 25, 53, 80, 123, 443, 587, 993, 995, 3000, 3306, 5432, 6379, 8080, 8443, 9090, 9100). "
                     "UDP ports of 32768 and up are skipped."},
     {"id": "listen_writable", "severity": "high", "sub": "join",
      "description": "Like listen_unknown, on a port above 1024, and the listener's executable is in a writable "
                     "directory."},
-    {"id": "conn_flood", "severity": "medium", "sub": "ss, join",
+    {"id": "conn_flood", "severity": "medium", "sub": "ss, netstat, lsof, join",
      "description": "One remote address (not loopback) holds 20 or more established connections."},
-    {"id": "conn_rare_port", "severity": "medium", "sub": "ss, join",
+    {"id": "conn_rare_port", "severity": "medium", "sub": "ss, netstat, lsof, join",
      "description": "Outbound established connection to 4444, 1337, 31337, 6667, 6697, 9001, 9050, 8333 or 3333 "
                     "(high when a shell, nc, ncat or socat owns it)."},
-    {"id": "conn_shell_highport", "severity": "medium", "sub": "ss, join",
+    {"id": "conn_shell_highport", "severity": "medium", "sub": "ss, netstat, lsof, join",
      "description": "A shell holds an outbound connection to a remote port of 30000 or more."},
     {"id": "maps_anon_rwx", "severity": "high", "sub": "maps, join",
      "description": "An anonymous (or heap/stack) mapping is readable, writable and executable. JIT runtimes "
                     "(java, node) do this legitimately."},
     {"id": "maps_file_rwx", "severity": "medium", "sub": "maps, join",
      "description": "A file-backed mapping is readable, writable and executable."},
-    {"id": "maps_writable_file", "severity": "high", "sub": "maps, join",
+    {"id": "maps_writable_file", "severity": "high", "sub": "maps, lsof, join",
      "description": "A file under /tmp, /var/tmp, /dev/shm or /run/user is mapped (high when executable, "
                     "medium for a data mapping)."},
-    {"id": "maps_deleted_file", "severity": "high", "sub": "maps, join",
+    {"id": "maps_deleted_file", "severity": "high", "sub": "maps, lsof, join",
      "description": "A deleted file is mapped (high when executable outside system directories, medium "
                     "otherwise; a library replaced by a package upgrade looks the same)."},
-    {"id": "maps_memfd", "severity": "high", "sub": "maps, join",
+    {"id": "maps_memfd", "severity": "high", "sub": "maps, lsof, join",
      "description": "A /memfd: file is mapped (high when executable, medium for a data mapping)."},
     {"id": "maps_nonsystem_lib", "severity": "medium", "sub": "maps, join",
      "description": "A shared library (.so) is loaded from outside /usr/lib*, /lib*, /usr/local/lib* and /opt."},
@@ -79,6 +79,9 @@ RULES = [
     {"id": "bpf_map_name", "severity": "medium", "sub": "bpf",
      "description": "A prog_array, sockmap, sockhash, hash, lru_hash or array map is named like hidden, ports or pids "
                     "(info when its owner is a known tool)."},
+    {"id": "lsof_deleted_file", "severity": "low", "sub": "lsof",
+     "description": "A process holds a deleted file open (not its executable or a mapping, which have their own "
+                    "rules). Logs removed by logrotate look the same; /memfd: files are ignored here."},
     {"id": "kprobe_hook", "severity": "medium", "sub": "probes",
      "description": "A kprobe on a syscall, kill, tcp_*, udp_*, read, write, open, execve or bpf function."},
     {"id": "kprobe_rootkit", "severity": "high", "sub": "probes",
@@ -128,6 +131,7 @@ def run(args: list[str], stdin: str) -> str:
     parser.add_argument("--pid", type=int, metavar="PID")
     parser.add_argument("-o", "--output", default="table", choices=OUTPUTS)
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, metavar="N")
+    parser.add_argument("-q", "--quiet", action="store_true")
     opts = parser.parse_args(args)
     if opts.limit < 1:
         raise ModuleError("hostscan: --limit must be 1 or more")
@@ -136,8 +140,8 @@ def run(args: list[str], stdin: str) -> str:
 
     rules, note = _load_rules()
     notes = [note] if note else []
-    handler = {"ps": _do_ps, "ss": _do_ss, "exes": _do_exes, "maps": _do_maps, "bpf": _do_bpf,
-               "probes": _do_probes, "join": _do_join}[opts.subcommand]
+    handler = {"ps": _do_ps, "ss": _do_ss, "netstat": _do_netstat, "lsof": _do_lsof, "exes": _do_exes,
+               "maps": _do_maps, "bpf": _do_bpf, "probes": _do_probes, "join": _do_join}[opts.subcommand]
     rows, flags, render, more_notes = handler(stdin, opts)
     notes += more_notes
 
@@ -150,19 +154,22 @@ def run(args: list[str], stdin: str) -> str:
     shown = rows[: opts.limit]
     hidden = len(rows) - len(shown)
     if opts.output == "json":
-        out = {"rows": shown, "flags": [_public(f) for f in kept]}
+        out = {"rows": [] if opts.quiet else shown, "flags": [_public(f) for f in kept]}
+        if opts.quiet:
+            out["row_count"] = len(rows)
         if hidden:
             out["truncated"] = hidden
         if notes:
             out["notes"] = notes
         return json.dumps(out, indent=2, ensure_ascii=False) + "\n"
 
-    lines = [render(shown) if shown else "(no rows)", ""]
-    if hidden:
+    lines = [] if opts.quiet else [render(shown) if shown else "(no rows)", ""]
+    if hidden and not opts.quiet:
         lines.append(f"... {hidden} more row(s), raise --limit")
     lines += [f"note: {n}" for n in notes]
     lines += [f"FLAG {f['severity']} {f['rule']} {f['subject']}: {f['reason']}" for f in kept]
-    lines.append(f"{len(kept)} flag(s)" if kept else "no flags")
+    count = f" in {len(rows)} row(s)" if opts.quiet else ""
+    lines.append(f"{len(kept)} flag(s){count}" if kept else f"no flags{count}")
     return "\n".join(lines) + "\n"
 
 
@@ -313,17 +320,65 @@ def _owner_in(comm: str, names) -> bool:
 
 # ── ps ───────────────────────────────────────────────────────────────────────
 
+_PS_TIME = re.compile(r"(\d+-)?\d+:\d\d(:\d\d)?$")
+_PS_NUM = re.compile(r"\d+(\.\d+)?$")
+
+
+def _ps_tuned(ln: str) -> dict | None:
+    parts = ln.split(None, 4)
+    if len(parts) < 4 or not (parts[0].isdigit() and parts[1].isdigit() and parts[3].isdigit()):
+        return None
+    args = parts[4].strip() if len(parts) == 5 else ""
+    return {"pid": int(parts[0]), "ppid": int(parts[1]), "user": parts[2], "age_s": int(parts[3]), "args": args}
+
+
+def _ps_ef(ln: str) -> dict | None:
+    """`ps -ef`: UID PID PPID C STIME TTY TIME CMD. There is no elapsed time, so age_s is None."""
+    parts = ln.split(None, 7)
+    if len(parts) < 7 or not (parts[1].isdigit() and parts[2].isdigit() and parts[3].isdigit()) \
+            or not _PS_TIME.match(parts[6]):
+        return None
+    return {"pid": int(parts[1]), "ppid": int(parts[2]), "user": parts[0], "age_s": None,
+            "args": parts[7].strip() if len(parts) == 8 else ""}
+
+
+def _ps_aux(ln: str) -> dict | None:
+    """`ps aux`: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND. It has no parent pid (ppid is None)."""
+    parts = ln.split(None, 10)
+    if len(parts) < 10 or not (parts[1].isdigit() and _PS_NUM.match(parts[2]) and _PS_NUM.match(parts[3])
+                               and parts[4].isdigit() and parts[5].isdigit()) or not _PS_TIME.match(parts[9]):
+        return None
+    return {"pid": int(parts[1]), "ppid": None, "user": parts[0], "age_s": None,
+            "args": parts[10].strip() if len(parts) == 11 else ""}
+
+
+_PS_FORMATS = {"ef": _ps_ef, "aux": _ps_aux, "tuned": _ps_tuned}
+
+
+def _ps_header(ln: str) -> str | None:
+    toks = ln.split()
+    if toks[:4] == ["UID", "PID", "PPID", "C"]:
+        return "ef"
+    if toks[:3] == ["USER", "PID", "%CPU"]:
+        return "aux"
+    return None
+
+
 def _parse_ps(lines: list[str]) -> tuple[dict[int, dict], int]:
+    """The tuned form, `ps -ef` or `ps aux`. The header line (if any) names the format, which is tried first;
+    every other line falls back to the other forms."""
+    hint = next((h for h in map(_ps_header, lines) if h), None)
+    order = ([hint] if hint else []) + [f for f in ("ef", "aux", "tuned") if f != hint]
     procs, skipped = {}, 0
     for ln in lines:
-        parts = ln.split(None, 4)
-        if len(parts) < 4 or not (parts[0].isdigit() and parts[1].isdigit() and parts[3].isdigit()):
+        if _ps_header(ln):
+            continue
+        row = next((r for r in (_PS_FORMATS[f](ln) for f in order) if r), None)
+        if not row:
             skipped += 1
             continue
-        args = parts[4].strip() if len(parts) == 5 else ""
-        pid = int(parts[0])
-        procs[pid] = {"pid": pid, "ppid": int(parts[1]), "user": parts[2], "age_s": int(parts[3]),
-                      "name": _proc_name(args), "args": args}
+        row["name"] = _proc_name(row["args"])
+        procs[row["pid"]] = row
     return procs, skipped
 
 
@@ -378,18 +433,30 @@ def _proc_flags(procs: dict[int, dict], exes: dict[int, str | None]) -> list[dic
     return out
 
 
-PS_COLS = [("PID", lambda r: r["pid"]), ("PPID", lambda r: r["ppid"]), ("USER", lambda r: r["user"]),
-           ("AGE", lambda r: _age(r["age_s"])), ("CMD", lambda r: _cut(r["args"]))]
+def _ps_notes(procs: dict[int, dict]) -> list[str]:
+    if procs and all(p["ppid"] is None for p in procs.values()):
+        return ["ps aux has no parent pid column: web_child_shell and sshd_child_nc cannot be checked "
+                "(use ps -ef or sshrun's ps check)"]
+    return []
+
+
+def _dash(value) -> str:
+    return "-" if value is None else str(value)
+
+
+PS_COLS = [("PID", lambda r: r["pid"]), ("PPID", lambda r: _dash(r["ppid"])), ("USER", lambda r: r["user"]),
+           ("AGE", lambda r: _age(r["age_s"]) if r["age_s"] is not None else "-"),
+           ("CMD", lambda r: _cut(r["args"]))]
 
 
 def _do_ps(text: str, opts):
     lines = _flat(text)
-    _need(lines, "ps", "the output of sshrun's ps check")
+    _need(lines, "ps", "the output of sshrun's ps check, `ps -ef` or `ps aux`")
     procs, skipped = _parse_ps(lines)
     if not procs:
-        raise _unrecognised("ps", "`ps -eo pid=,ppid=,user=,etimes=,args=` output", skipped)
+        raise _unrecognised("ps", "`ps -ef`, `ps aux` or `ps -eo pid=,ppid=,user=,etimes=,args=` output", skipped)
     rows = [procs[p] for p in sorted(procs)]
-    return rows, _proc_flags(procs, {}), lambda rs: _grid(PS_COLS, rs), _skipped_note(skipped)
+    return rows, _proc_flags(procs, {}), lambda rs: _grid(PS_COLS, rs), _skipped_note(skipped) + _ps_notes(procs)
 
 
 # ── exes ─────────────────────────────────────────────────────────────────────
@@ -511,17 +578,192 @@ def _ss_flags(conns: list[dict], exes: dict[int, str | None]) -> list[dict]:
     return out
 
 
+def _conn_view(conns: list[dict], notes: list[str]):
+    """The rows, flags and table every connection source (ss, netstat, lsof) shares."""
+    conns.sort(key=lambda c: (c["proto"], c["state"], c["local"], c["peer"]))
+    rows = [{k: c[k] for k in ("proto", "state", "local", "peer")} | {"procs": _proc_label(c)} for c in conns]
+    cols = [("PROTO", lambda r: r["proto"]), ("STATE", lambda r: r["state"]), ("LOCAL", lambda r: r["local"]),
+            ("PEER", lambda r: r["peer"]), ("PROCESS", lambda r: r["procs"])]
+    return rows, _ss_flags(conns, {}), lambda rs: _grid(cols, rs), notes
+
+
 def _do_ss(text: str, opts):
     lines = _flat(text)
     _need(lines, "ss", "the output of sshrun's ss check")
     conns, skipped = _parse_ss(lines)
     if not conns:
         raise _unrecognised("ss", "`ss -H -tunap` output", skipped)
-    conns.sort(key=lambda c: (c["proto"], c["state"], c["local"], c["peer"]))
-    rows = [{k: c[k] for k in ("proto", "state", "local", "peer")} | {"procs": _proc_label(c)} for c in conns]
-    cols = [("PROTO", lambda r: r["proto"]), ("STATE", lambda r: r["state"]), ("LOCAL", lambda r: r["local"]),
-            ("PEER", lambda r: r["peer"]), ("PROCESS", lambda r: r["procs"])]
-    return rows, _ss_flags(conns, {}), lambda rs: _grid(cols, rs), _skipped_note(skipped)
+    return _conn_view(conns, _skipped_note(skipped))
+
+
+# ── netstat ──────────────────────────────────────────────────────────────────
+
+_NETSTAT_STATE = re.compile(r"[A-Z][A-Z_]+$")
+_NETSTAT_NOISE = ("Active Internet", "(Not all processes", "will not be shown", "Proto ")
+
+
+def _ss_state(state: str) -> str:
+    """ss spelling of a TCP state: ESTAB, TIME-WAIT, CLOSE-WAIT."""
+    return "ESTAB" if state == "ESTABLISHED" else state.replace("_", "-")
+
+
+def _conn(proto: str, state: str, local: str, peer: str, procs: list[dict]) -> dict:
+    laddr, lport = _split_addr(local)
+    raddr, rport = _split_addr(peer)
+    return {"proto": proto, "state": state, "local": local, "peer": peer, "laddr": laddr, "lport": lport,
+            "raddr": raddr, "rport": rport, "procs": procs}
+
+
+def _parse_netstat(lines: list[str]) -> tuple[list[dict], int, bool | None]:
+    """Rows of `netstat -tunap` (or -antp, -tulnp). The last value says whether a PID/Program column exists
+    (None when the input does not show it either way)."""
+    conns, skipped, has_pid = [], 0, None
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("Active UNIX"):
+            break  # the unix socket table has a different layout; nothing in it is a connection
+        if s.startswith(_NETSTAT_NOISE):
+            if s.startswith("Proto "):
+                has_pid = "PID/Program" in s
+            continue
+        parts = s.split(None, 5)
+        if len(parts) < 5 or parts[0] not in ("tcp", "udp", "tcp6", "udp6") or not (
+                parts[1].isdigit() and parts[2].isdigit()):
+            skipped += 1
+            continue
+        rest = parts[5].split(None, 1) if len(parts) == 6 else []
+        state = None
+        if rest and _NETSTAT_STATE.match(rest[0]):
+            state, rest = rest[0], rest[1:]  # UDP has no state column: the pid/program follows the peer
+        cell = rest[0] if rest else None
+        if cell is not None and has_pid is None:
+            has_pid = True
+        procs = []
+        m = re.match(r"(\d+)/(.*)$", cell or "")
+        if m:
+            procs = [{"pid": int(m.group(1)), "name": _proc_name(m.group(2))}]
+        if state is None:
+            state = "UNCONN" if _split_addr(parts[4])[1] is None else "ESTAB"
+        conns.append(_conn(parts[0], _ss_state(state), parts[3], parts[4], procs))
+    return conns, skipped, has_pid
+
+
+def _do_netstat(text: str, opts):
+    lines = _flat(text)
+    _need(lines, "netstat", "the output of `netstat -tunap`")
+    conns, skipped, has_pid = _parse_netstat(lines)
+    if not conns:
+        raise _unrecognised("netstat", "`netstat -tunap` output (Proto Recv-Q Send-Q Local Address Foreign Address "
+                            "State PID/Program name)", skipped)
+    notes = _skipped_note(skipped)
+    if not has_pid:
+        notes.append("no PID/Program name column (netstat run without -p): sockets show no owning process")
+    elif not any(c["procs"] for c in conns):
+        notes.append("every PID/Program name is empty (netstat not run as root): sockets show no owning process")
+    return _conn_view(conns, notes)
+
+
+# ── lsof ─────────────────────────────────────────────────────────────────────
+
+LSOF_COLS = ["COMMAND", "PID", "USER", "FD", "TYPE", "DEVICE", "SIZE/OFF", "NODE", "NAME"]
+_LSOF_NAME = re.compile(r"(\S+?)(?:->(\S+))?(?:\s+\((\w+)\))?$")
+
+
+def _lsof_net(node: str, typ: str, name: str, pid: int, command: str) -> dict | None:
+    proto = node.lower()
+    m = _LSOF_NAME.match(name.strip())
+    if proto not in ("tcp", "udp") or not m:
+        return None
+    local, peer, state = m.group(1), m.group(2) or "*:*", m.group(3)
+    if typ == "IPv6":
+        proto += "6"
+    if state:
+        state = _ss_state(state)
+    elif peer != "*:*":
+        state = "ESTAB"
+    else:
+        state = "UNCONN" if proto.startswith("udp") else "LISTEN"
+    return _conn(proto, state, local, peer, [{"pid": pid, "name": command}])
+
+
+def _parse_lsof(lines: list[str]) -> tuple[list[dict], list[dict], int, int]:
+    """Socket rows, other open-file rows, malformed lines and socket rows that name hosts or services."""
+    conns, files, skipped, unnumbered = {}, [], 0, 0
+    cols = {name: i for i, name in enumerate(LSOF_COLS)}
+    for ln in lines:
+        toks = ln.split()
+        if toks[:3] == ["COMMAND", "PID", "USER"] and "NAME" in toks:
+            cols = {name: i for i, name in enumerate(toks)}
+            continue
+        if toks[0] == "lsof:":
+            continue  # lsof's own warnings (can't stat a fuse mount, ...)
+        pid_i, type_i, name_i, fd_i = cols["PID"], cols["TYPE"], cols["NAME"], cols["FD"]
+        node_i = cols.get("NODE", name_i - 1)
+        parts = ln.split(None, name_i)
+        if len(parts) <= type_i or not parts[pid_i].isdigit():
+            skipped += 1
+            continue
+        pid, command, typ = int(parts[pid_i]), parts[0], parts[type_i]
+        if typ in ("IPv4", "IPv6"):
+            c = _lsof_net(parts[node_i], typ, parts[name_i] if len(parts) > name_i else "", pid, command)
+            if c:
+                if c["lport"] is None:
+                    unnumbered += 1
+                conns[(c["proto"], c["state"], c["local"], c["peer"], pid, command)] = c
+        else:
+            m = re.search(r"\s(/\S.*)$", ln)  # the name of a file starts with /; the columns before it never do
+            if m:
+                files.append({"pid": pid, "command": command, "fd": re.match(r"[A-Za-z]*", parts[fd_i]).group(0),
+                              "name": m.group(1).strip()})
+    return list(conns.values()), files, skipped, unnumbered
+
+
+def _lsof_file_flags(files: list[dict]) -> list[dict]:
+    """Open files of general `lsof` output: the txt line is the executable, mem and DEL lines are mappings."""
+    out = []
+    for f in files:
+        pid, name, label = f["pid"], f["name"], f"{f['pid']}/{f['command']}"
+        deleted = name.endswith(" (deleted)")
+        path = name.removesuffix(" (deleted)")
+        if f["fd"] == "txt":
+            out += _exe_flags({pid: name}, {pid: {"name": f["command"]}})
+        elif f["fd"] in ("mem", "DEL"):
+            execm = ".so" in basename(path)
+            subject = f"{label} {name}"
+            if path.startswith("/memfd:"):
+                out.append(flag("maps_memfd", subject, f"memfd mapping {name}", "high" if execm else "medium",
+                                pid=pid, path=path))
+            elif deleted:
+                if path == "/dev/zero" or path.startswith(("/SYSV", "/anon_hugepage")):
+                    continue
+                sev = "high" if execm and not path.startswith(SYSTEM_LIB_DIRS) else "medium"
+                out.append(flag("maps_deleted_file", subject, f"deleted file is mapped: {path}", sev, pid=pid,
+                                path=path))
+            elif _writable(path):
+                out.append(flag("maps_writable_file", subject, f"file in a writable directory is mapped: {path}",
+                                "high" if execm else "medium", pid=pid, path=path))
+        elif deleted and not path.startswith(("/memfd:", "/dev/zero", "/SYSV")):
+            out.append(flag("lsof_deleted_file", f"{label} {name}", f"holds a deleted file open: {path}", pid=pid,
+                            path=path))
+    return out
+
+
+def _do_lsof(text: str, opts):
+    lines = _flat(text)
+    _need(lines, "lsof", "the output of `lsof -nP -i`")
+    conns, files, skipped, unnumbered = _parse_lsof(lines)
+    if not conns and not files:
+        raise _unrecognised("lsof", "`lsof -nP -i` output (COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME)",
+                            skipped)
+    notes = _skipped_note(skipped)
+    if unnumbered:
+        notes.append(f"{unnumbered} socket row(s) name hosts or services instead of numbers; run lsof with -nP "
+                     "so addresses and ports can be checked")
+    if files:
+        notes.append(f"{len(files)} open-file row(s) from a general lsof were checked for deleted and temp-directory "
+                     "files")
+    rows, flags, render, notes = _conn_view(conns, notes)
+    return rows, flags + _lsof_file_flags(files), render, notes
 
 
 # ── maps ─────────────────────────────────────────────────────────────────────
@@ -606,6 +848,11 @@ def _bpf_objects(text: str) -> list[tuple[str, dict]]:
     for name, _, lines in _sections(text):
         body = "\n".join(lines)
         want = name.rstrip("s") if name.rstrip("s") in ("prog", "link", "map") else None
+        if body.strip() and body.lstrip()[0] not in "[{":
+            if want in ("link", "map"):
+                raise ModuleError(f"hostscan bpf: the {want} section is not JSON; expected `bpftool -j {want} show`")
+            objs += [("prog", d) for d in _bpf_text_progs(lines)]
+            continue
         pos = 0
         try:
             while True:
@@ -621,6 +868,46 @@ def _bpf_objects(text: str) -> list[tuple[str, dict]]:
             raise ModuleError(f"hostscan bpf: input is not valid JSON ({exc.msg}, line {exc.lineno}); expected "
                               "`bpftool -j prog show` output") from None
     return objs
+
+
+_BPF_TEXT_HEAD = re.compile(r"(\d+):\s+(\S+)(?:\s+name\s+(\S+))?(?:\s+tag\s+([0-9a-f]+))?(\s+gpl)?\s*$")
+_BPF_TEXT_PIDS = re.compile(r"([^,\s][^,]*?)\((\d+)\)")
+
+
+def _bpf_text_progs(lines: list[str]) -> list[dict]:
+    """Programs from plain `bpftool prog show`, mapped to the fields `bpftool -j prog show` has."""
+    progs: list[dict] = []
+    for ln in lines:
+        m = None if ln[:1].isspace() else _BPF_TEXT_HEAD.match(ln.strip())
+        if m:
+            d = {"id": int(m.group(1)), "type": m.group(2)}
+            if m.group(3):
+                d["name"] = m.group(3)
+            if m.group(4):
+                d["tag"] = m.group(4)
+            if m.group(5):
+                d["gpl_compatible"] = True
+            progs.append(d)
+        elif progs and ln[:1].isspace():
+            d, text = progs[-1], ln.strip()
+            if text.startswith("pids "):
+                d["pids"] = [{"pid": int(pid), "comm": comm.strip()} for comm, pid in _BPF_TEXT_PIDS.findall(text[5:])]
+                continue
+            for key, field in (("loaded_at", "loaded_at"), ("uid", "uid"), ("btf_id", "btf_id")):
+                v = re.search(rf"\b{key}\s+(\S+)", text)
+                if v:
+                    d[field] = int(v.group(1)) if v.group(1).isdigit() else v.group(1)
+            for key, field in (("xlated", "bytes_xlated"), ("jited", "bytes_jited"), ("memlock", "bytes_memlock")):
+                v = re.search(rf"\b{key}\s+(\d+)B", text)
+                if v:
+                    d[field] = int(v.group(1))
+            v = re.search(r"\bmap_ids\s+([\d,]+)", text)
+            if v:
+                d["map_ids"] = [int(x) for x in v.group(1).split(",") if x]
+    if not progs:
+        raise ModuleError("hostscan bpf: input is neither bpftool JSON nor `bpftool prog show` text; expected "
+                          "`bpftool -j prog show` or `bpftool prog show` output")
+    return progs
 
 
 def _bpf_kind(d: dict) -> str:
@@ -790,7 +1077,7 @@ def _do_join(text: str, opts):
     procs, s1 = _parse_ps(ps_lines)
     conns, s2 = _parse_ss(ss_lines)
     exes, s3 = _parse_exes(exe_lines)
-    notes = _skipped_note(s1 + s2 + s3)
+    notes = _skipped_note(s1 + s2 + s3) + _ps_notes(procs)
     if ignored:
         notes.append("ignored section(s): " + ", ".join(sorted(set(ignored))))
 
