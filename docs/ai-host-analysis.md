@@ -281,7 +281,7 @@ because analysts look only at what `baseline` says is new.
 | Secrets in output | Passwords, tokens and private keys are replaced with `REDACTED` before the AI sees them |
 | Prompt injection from a host | Output is framed as untrusted data, and the `untrusted-data` skill tells every agent how to treat it |
 | A runaway loop | `[budget]` in `ai-policy.toml`, per-call timeouts, a 128 KB output cap, one round at a time |
-| Knowing what happened | Every call is in `ai log`, with the agent's name |
+| Knowing what happened | Every call is in `ai log`, with the agent's name and what it asked (`host=web01 check=proc-cmdline arg=812`) |
 
 ## When something fails
 

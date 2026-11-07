@@ -91,6 +91,14 @@ def _ps(line: str) -> str | None:
     return f"{user} {args}".strip()
 
 
+def _exes(line: str) -> str | None:
+    """`PID /path/to/exe` (sshrun's exes form): the path is the item, the PID changes with every login."""
+    parts = line.strip().split(None, 1)
+    if len(parts) == 2 and parts[0].isdigit():
+        return parts[1]
+    return _generic(line)
+
+
 def _split_addr(addr: str) -> tuple[str, str]:
     host, _, port = addr.rpartition(":")
     return host.split("%")[0], port
@@ -255,6 +263,7 @@ NORMALIZERS: dict[str, Callable[[str], list[str]]] = {
     "generic": _lines(_generic),
     "ps": _lines(_ps),
     "ss": _lines(_ss),
+    "exes": _lines(_exes),
     "netstat": _lines(_netstat),
     "lsof": _lsof_lines,
     "authorized-keys": _lines(_authorized_key),
@@ -263,7 +272,7 @@ NORMALIZERS: dict[str, Callable[[str], list[str]]] = {
     "bpf-maps": _bpf,
 }
 # These are plain line-based checks; they use the generic normaliser and are listed for clarity.
-for _name in ("cron", "timers", "modules", "kprobes", "uprobes", "listening", "logins", "exes", "pkg-verify", "suid",
+for _name in ("cron", "timers", "modules", "kprobes", "uprobes", "listening", "logins", "pkg-verify", "suid",
               "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc", "free", "df", "uptime",
               "oom"):
     NORMALIZERS[_name] = NORMALIZERS["generic"]

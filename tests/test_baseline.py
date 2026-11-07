@@ -432,3 +432,10 @@ def test_bpf_text_baseline_ignores_ids_and_times(mod):
 def test_normalizer_table_has_edr_kinds(mod):
     for name in ("netstat", "lsof"):
         assert name in mod.g["NORMALIZERS"]
+
+
+def test_exes_items_are_paths_not_pids(mod):
+    one = "812 /usr/sbin/nginx\n900 /tmp/.x (deleted)\n"
+    two = "99812 /usr/sbin/nginx\n99900 /tmp/.x (deleted)\n100001 /usr/sbin/sshd\n"
+    assert mod.normalize("exes", one) == ["/tmp/.x (deleted)", "/usr/sbin/nginx"]
+    assert mod.normalize("exes", two) == ["/tmp/.x (deleted)", "/usr/sbin/nginx", "/usr/sbin/sshd"]

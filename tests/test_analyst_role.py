@@ -133,3 +133,26 @@ def test_the_aggregator_tool_works_through_the_mcp_server(registry, tmp_path, mo
     assert not learned.is_error and "LEARNING" in learned.content[0].text
     refused = call("aggregator", {"aggregator": "edr", "device": "../etc", "kind": "ps"})
     assert refused.is_error
+
+
+def test_the_audit_log_says_which_host_and_check_a_tool_was_asked(registry, tmp_path, monkeypatch):
+    import json
+    import stat
+
+    fake = tmp_path / "fakessh"
+    fake.write_text(FAKE_SSH)
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    home = tmp_path / ".home"
+    (home / "ssh-hosts.toml").write_text("[hosts.web01]\nai = true\n")
+    (tmp_path / "cfg").write_text("Host web01\n")
+    monkeypatch.setenv("SHELLCRAFT_SSH", str(fake))
+    monkeypatch.setenv("SHELLCRAFT_SSH_CONFIG", str(tmp_path / "cfg"))
+    server = build_server(registry, role="analyst")
+    _call(server, lambda c: c.call_tool("sshrun", {"host": "web01", "check": "proc-status", "arg": ["1"],
+                                                   "agent": "host-analyst"}))
+    _call(server, lambda c: c.call_tool("hostscan", {"subcommand": "ps", "stdin": "1 0 root 5 /sbin/init\n"}))
+    rows = [json.loads(line) for line in (home / "ai-audit.jsonl").read_text().splitlines()]
+    ssh_row = next(r for r in rows if r["tool"] == "sshrun")
+    assert ssh_row["summary"] == "host=web01 check=proc-status arg=1" and ssh_row["agent"] == "host-analyst"
+    scan_row = next(r for r in rows if r["tool"] == "hostscan")
+    assert scan_row["summary"] == "subcommand=ps" and "init" not in scan_row["summary"]   # piped text is left out

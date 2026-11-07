@@ -696,7 +696,7 @@ class ShellcraftMCP:
             refused = False
             result = await self._dispatch_tool(request_ctx, params, arguments, who, agent)
         summary = str(arguments.get("command") or arguments.get("title") or arguments.get("message")
-                      or arguments.get("args") or arguments.get("reason") or "")
+                      or arguments.get("args") or arguments.get("reason") or "") or _arguments_summary(arguments)
         await anyio.to_thread.run_sync(lambda: ai_audit.record(
             params.name, summary, agent=agent, role=self.role or "", client=client,
             tier="denied" if refused else _tier_of(params.name, result), ok=not result.is_error,
@@ -1192,6 +1192,26 @@ def _task_call(name: str, arguments: dict[str, Any], who: str, owner: str) -> An
     if name == RELEASE_TASK_TOOL:
         return tasks.release(text("task_id"), owner, text("note"))
     raise ValueError(f"unknown tool {name}")
+
+
+_QUIET_ARGUMENTS = frozenset({"stdin", "text", "content", "evidence", "summary", "body", "data", "items", "fresh"})
+
+
+def _arguments_summary(arguments: dict[str, Any]) -> str:
+    """What a module tool was asked, for the audit log: `host=web01 check=proc-cmdline arg=812`. Piped text and
+    long free text are left out, and anything that looks like a secret is replaced."""
+    from shellcraft.modkit import redact_secrets
+
+    parts = []
+    for key, value in arguments.items():
+        if key in _QUIET_ARGUMENTS or value in (None, "", False, [], {}):
+            continue
+        if value is True:
+            parts.append(key)
+            continue
+        shown = ",".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value)
+        parts.append(f"{key}={shown}")
+    return redact_secrets(" ".join(parts))
 
 
 def _tier_of(tool: str, result: types.CallToolResult) -> str:
