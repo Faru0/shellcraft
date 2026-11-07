@@ -93,6 +93,23 @@ Start `shellcraft` (the interactive one, so alerts reach your footer), then in C
 
 The first run learns what is normal for the host and says so. Later runs show only what changed.
 
+## When you want plain ssh
+
+`sshrun` is the safe path: named, read-only checks, and nothing else. For a job it doesn't cover, such as
+editing a config file on a host, use ssh itself. There is no special setting for this. It follows the
+`system_commands` setting you already have:
+
+| `system_commands` | At your prompt | Through the ordinary `shellcraft` server |
+| --- | --- | --- |
+| on | `ssh web01 'sudo nginx -t'` runs | an AI can use `run_in_shell` with `ssh`, as with any OS command |
+| off | `ssh` is refused, `sshrun` still works | `ssh` is refused, the `sshrun` tool still works |
+
+Two things keep the analyst separate from this. The `analyst` role has no `run_in_shell`, so an AI in that
+role never gets plain ssh, whatever the settings say. And for the ordinary server, the `deny` rule above
+(`match = "ssh *"`) blocks it. Without that rule, `ai_access` decides: it is on by default, so an AI
+client can run `ssh` at once. Turn it off with `settings ai_access off`, or add rules to
+`~/.shellcraft/ai-policy.toml` (`ai policy` lists them), if you want to be asked or to name the hosts allowed.
+
 ## Logs, including binary ones
 
 `log-reader` picks the reader for the file: `log-tail` and `log-grep` for text, `zlog` for `.gz`, `binlog`
