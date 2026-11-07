@@ -5,7 +5,8 @@
 This page is for you if you use an AI assistant such as Claude Code or Claude Desktop and want it
 to work in your shell with you. After reading it you'll be able to connect one, know exactly what
 it can see and do, and set the limits you're comfortable with. The [ai/](../ai/README.md) folder
-has agents and skills that teach an AI client to work this way.
+has agents and skills that teach an AI client to work this way;
+`shellcraft --install-ai` installs them for Claude Code.
 
 ## What MCP is
 

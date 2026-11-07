@@ -47,14 +47,23 @@ Or the server the shell runs for you: type `mcp start` in ShellCraft, then paste
 
 ## Install the agents and skills
 
-Claude Code reads `.claude/agents/*.md` and `.claude/skills/*/SKILL.md` in a project, or
-`~/.claude/agents` and `~/.claude/skills` for every project:
+Claude Code reads agents from `agents/NAME.md` and skills from `skills/NAME/SKILL.md`, in
+`~/.claude` (every project) or `./.claude` (this folder). One command puts them there:
 
 ```bash
-mkdir -p ~/.claude/agents ~/.claude/skills
-cp ai/agents/*.md ~/.claude/agents/
-cp -r ai/skills/* ~/.claude/skills/
+shellcraft --install-ai                      # asks: every project, or only this folder?
+shellcraft --install-ai --user               # ~/.claude, no question
+shellcraft --install-ai worker monitor       # just those, plus the skills they need
+shellcraft --install-ai --team --project     # orchestrator, worker, monitor and their skills
+shellcraft --check-ai --user                 # installed, out of date, edited or missing
+shellcraft --uninstall-ai --user             # removes only what it wrote and you have not edited
 ```
+
+It never overwrites silently. A file you edited (or an agent of the same name that is not ours) is
+skipped and shown as a diff; `--force` replaces it and keeps the old text as `NAME.bak`. A file the
+installer wrote and you left alone is updated when ShellCraft ships a new version. `--dry-run` shows
+what would happen, `--skills-only` and `--agents-only` narrow it. By hand it is still
+`cp ai/agents/*.md ~/.claude/agents/` and `cp -r ai/skills/* ~/.claude/skills/`.
 
 Other clients: paste a skill's text into the system prompt or the project instructions. The
 skills name the real tools, so they work as written.

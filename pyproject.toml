@@ -31,13 +31,15 @@ version = {attr = "shellcraft.__version__"}
 [tool.setuptools]
 # The bundled modules/ folder is installed as shellcraft/bundled_modules (with its .md and .skill files),
 # so a plain `pip install .` works as well as an editable install.
-packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "tools", "tools.ingest"]
+packages = ["shellcraft", "shellcraft.commands", "shellcraft.bundled_modules", "shellcraft.bundled_ai", "tools", "tools.ingest"]
 
 [tool.setuptools.package-dir]
 "shellcraft.bundled_modules" = "modules"
+"shellcraft.bundled_ai" = "ai"
 
 [tool.setuptools.package-data]
 "shellcraft.bundled_modules" = ["*.md", "*.skill"]
+"shellcraft.bundled_ai" = ["README.md", "agents/*.md", "skills/*/SKILL.md"]
 "shellcraft" = ["starters/*", "starters/*/*"]
 
 [tool.pytest.ini_options]

@@ -73,7 +73,23 @@ def _parser() -> _ArgumentParser:
     p.add_argument("--init", action="store_true",
                    help="write the starter files (a commented rc and aliases, an example func and startup file) "
                         "into ~/.shellcraft where they are missing; never overwrites your files")
-    p.add_argument("--force", action="store_true", help="with --init: also refresh the .sample and README files")
+    p.add_argument("--force", action="store_true",
+                   help="with --init: also refresh the .sample and README files; with --install-ai: replace "
+                        "files you edited (the old text is kept as NAME.bak)")
+    p.add_argument("--install-ai", nargs="*", metavar="NAME",
+                   help="install the AI agents and skills (ai/) for Claude Code: the named ones, with the skills "
+                        "an agent needs, or all of them; never overwrites a file you edited")
+    p.add_argument("--check-ai", nargs="*", metavar="NAME",
+                   help="show which AI agents and skills are installed, out of date, edited or missing")
+    p.add_argument("--uninstall-ai", nargs="*", metavar="NAME",
+                   help="remove the AI agents and skills that --install-ai wrote and you have not edited")
+    p.add_argument("--user", action="store_true", help="with --install-ai: install into ~/.claude (every project)")
+    p.add_argument("--project", action="store_true", help="with --install-ai: install into ./.claude (this folder)")
+    p.add_argument("--team", action="store_true",
+                   help="with --install-ai: the orchestrator, worker and monitor agents and their skills")
+    p.add_argument("--skills-only", action="store_true", help="with --install-ai: only the skills")
+    p.add_argument("--agents-only", action="store_true", help="with --install-ai: only the agents")
+    p.add_argument("--dry-run", action="store_true", help="with the AI flags: show what would happen, change nothing")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p
 
@@ -122,6 +138,64 @@ def _init(force: bool) -> int:
     return 0
 
 
+def _ai_target(args: argparse.Namespace) -> Path | None:
+    """--user / --project, else ask on a terminal; None (after a message) when there is no answer."""
+    if args.user and args.project:
+        print("shellcraft: use either --user or --project, not both", file=sys.stderr)
+        return None
+    if args.user or args.project:
+        return Path.home() / ".claude" if args.user else Path.cwd() / ".claude"
+    if not sys.stdin.isatty():
+        print("shellcraft: say where with --user (~/.claude) or --project (./.claude)", file=sys.stderr)
+        return None
+    try:
+        answer = input(f"Use it in [u]ser mode, every project ({Path.home() / '.claude'}), "
+                       f"or only the [p]roject here ({Path.cwd() / '.claude'})? [u/p] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)
+        return None
+    if answer[:1] not in ("u", "p"):
+        print("shellcraft: nothing installed (answer u or p)", file=sys.stderr)
+        return None
+    return Path.home() / ".claude" if answer[0] == "u" else Path.cwd() / ".claude"
+
+
+def _ai(args: argparse.Namespace) -> int:
+    """`shellcraft --install-ai | --check-ai | --uninstall-ai`: the AI agents and skills, and what happened to each."""
+    from shellcraft import ai_install
+
+    install = args.install_ai is not None
+    check = args.check_ai is not None
+    names = args.install_ai if install else args.check_ai if check else args.uninstall_ai
+    if sum(x is not None for x in (args.install_ai, args.check_ai, args.uninstall_ai)) > 1:
+        print("shellcraft: use one of --install-ai, --check-ai and --uninstall-ai", file=sys.stderr)
+        return 2
+    target = _ai_target(args)
+    if target is None:
+        return 2
+    try:
+        items = ai_install.select(names, args.team, args.skills_only, args.agents_only)
+        if install:
+            results = ai_install.install(items, target, force=args.force, dry_run=args.dry_run)
+        elif check:
+            results = ai_install.check(items, target)
+        else:
+            results = ai_install.uninstall(items, target, dry_run=args.dry_run)
+    except (ai_install.InstallError, OSError) as exc:
+        print(f"shellcraft: {exc}", file=sys.stderr)
+        return 1
+    prefix = "would: " if args.dry_run else ""
+    for r in results:
+        print(f"{prefix}{r.status:<9}  {target / r.rel}")
+    edited = [r for r in results if r.status == "edited"]
+    for r in edited:
+        print(f"\n{r.diff}" if r.diff else "", end="")
+    if edited:
+        print(f"\n{len(edited)} file(s) differ from what the installer wrote and were left alone; "
+              "--force replaces them (the old text is kept as NAME.bak).")
+    return 0
+
+
 def _mcp_installed() -> bool:
     """The MCP server needs the `mcp` package (the shell doesn't); say how to get it, not a traceback."""
     import importlib.util
@@ -167,9 +241,17 @@ def main(argv: list[str] | None = None) -> int:
     except ArgsError as exc:
         print(f"shellcraft: {exc} (shellcraft --help lists the options)", file=sys.stderr)
         return 2
-    if func_words is not None and (args.mcp or args.mcp_http or args.init or args.role or args.expose):
-        print("shellcraft: func goes without --mcp, --mcp-http, --init, --role and --expose", file=sys.stderr)
+    ai_mode = any(x is not None for x in (args.install_ai, args.check_ai, args.uninstall_ai))
+    if func_words is not None and (args.mcp or args.mcp_http or args.init or args.role or args.expose or ai_mode):
+        print("shellcraft: func goes without --mcp, --mcp-http, --init, --role, --expose and the AI flags",
+              file=sys.stderr)
         return 2
+    if ai_mode and (args.mcp or args.mcp_http or args.init or args.role or args.expose):
+        print("shellcraft: the AI install flags go without --mcp, --mcp-http, --init, --role and --expose",
+              file=sys.stderr)
+        return 2
+    if ai_mode:
+        return _ai(args)
     if args.init:
         return _init(args.force)
     if args.timing:

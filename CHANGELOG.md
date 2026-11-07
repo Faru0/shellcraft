@@ -5,6 +5,17 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`shellcraft --install-ai`** puts the AI agents and skills where Claude Code reads them
+  (`~/.claude` with `--user`, `./.claude` with `--project`, or it asks). Name the ones you want
+  (`--install-ai worker monitor`; an agent brings the skills it needs), or use `--team`,
+  `--skills-only`, `--agents-only`. `--check-ai` shows what is installed, out of date, edited or
+  missing; `--uninstall-ai` removes only what it wrote and you have not edited. It never overwrites
+  silently: an edited file is skipped with a diff, and `--force` replaces it and keeps a `.bak`.
+  `--dry-run` shows the plan. The files now ship inside the package, so this also works after
+  `pip install`.
+
 ### Fixed
 
 - **A command substitution is no longer "read-only" for the AI co-pilot.** `echo $(rm x)` ran the `rm`

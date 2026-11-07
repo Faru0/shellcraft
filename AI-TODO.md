@@ -6,6 +6,12 @@ design question under each idea is the one to answer before building it.
 
 ## Built
 
+- [x] **Easy install** (`shellcraft --install-ai`, `--check-ai`, `--uninstall-ai`): the agents and
+  skills into `~/.claude` or `./.claude`, a subset by name, never over a file you edited
+  - Notes: the `ai/` files ship in the package as `shellcraft.bundled_ai`. The installer keeps the
+    hash of what it wrote in `~/.shellcraft/ai-installed.json`; that is how it tells "ours, safe to
+    update" from "edited" or "someone else's". It does not register the MCP server.
+
 - [x] **Scripting skill** (`ai/skills/shellcraft-scripting/SKILL.md`): write, check (`source -n`,
   `func check`) and run ShellCraft scripts, with the mistakes an AI makes most (text vs numbers,
   `elif`, top-level `x = 5`, arrays)
