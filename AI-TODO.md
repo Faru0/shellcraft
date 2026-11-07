@@ -6,6 +6,14 @@ design question under each idea is the one to answer before building it.
 
 ## Built
 
+- [x] **Host analysis framework** (`sshrun`, `hostscan`, `baseline`, `feed`, `watchplan`, the `run_func` tool, the
+  `analyst` role, four analyst agents and five skills): an AI studies remote hosts over ssh with named
+  read-only checks, reads logs with the right reader, audits eBPF, kprobes and uprobes, remembers what it has
+  seen, pulls SIEM and Uptime Kuma data, and loops in rounds from a plan. See `docs/ai-host-analysis.md`
+  - Notes: the loop is the Claude Code session (orchestrator plus sub agents); there is no daemon. Remote
+    research items 1, 2, 3, 4 and 6 below were built this way (item 5 partly: the alert ladder and enrichment
+    are in the skills, the report file under `~/.shellcraft/reports` is not built).
+
 - [x] **Easy install** (`shellcraft --install-ai`, `--check-ai`, `--uninstall-ai`): the agents and
   skills into `~/.claude` or `./.claude`, a subset by name, never over a file you edited
   - Notes: the `ai/` files ship in the package as `shellcraft.bundled_ai`. The installer keeps the
@@ -61,7 +69,7 @@ Facts that shape all of them (from the code):
 - `ai-policy.toml` can deny or ask per command, so a rule like "ssh only to these hosts" is
   possible today, but it can't see what the remote command does.
 
-- [ ] **1. Remote host triage agent and skill** (`host-triage`): given a host name, it runs a fixed
+- [x] **1. Remote host triage agent and skill** (`host-triage`): given a host name, it runs a fixed
   read-only checklist over ssh (processes, listening ports and connections, logged-in users and
   recent logins, cron and systemd timers, `authorized_keys`, recently changed files), filters it
   with ShellCraft's own tools, records one finding per odd thing in the case file, alerts you with
@@ -69,14 +77,14 @@ Facts that shape all of them (from the code):
   - Done when: one request ("check web01") gives findings, an alert and a subshell, and no command
     on the remote host wrote anything
   - Design question: the checklist as a list in the skill, or one `.sc` script the agent runs?
-- [ ] **2. A read-only remote command module** (`sshrun`, with a `.skill`): a typed MCP tool that
+- [x] **2. A read-only remote command module** (`sshrun`, with a `.skill`): a typed MCP tool that
   runs one command from a fixed allowlist (`ps`, `ss`, `netstat`, `lsof -i`, `who`, `last`,
   `crontab -l`, `systemctl list-units`…) on a host named in `~/.ssh/config`, with `BatchMode=yes`,
   a timeout, no terminal and an output cap; every call is in the AI audit log
   - Done when: the AI can't pass anything but an allowed command, and policy rules can allow `sshrun`
     while still asking about a raw `ssh`
   - Design question: allowlist in the module, or in `ai-policy.toml` so you can edit it?
-- [ ] **3. Process and connection analyser modules** (`psnet` or similar): read `ps` and `ss` output
+- [x] **3. Process and connection analyser modules** (`psnet` or similar): read `ps` and `ss` output
   on stdin and join each connection to its process, user, binary path and parent, then flag the
   same odd things every time: a binary that was deleted, running from `/tmp` or `/dev/shm`, a
   shell started by a web server, listening on `0.0.0.0` on an odd port, many connections to one
@@ -85,7 +93,7 @@ Facts that shape all of them (from the code):
   - Done when: a captured `ps`/`ss` sample in the tests gives the expected flags and no false ones
     on a clean sample
   - Design question: flag rules built in, or a rules file you can change?
-- [ ] **4. Baselines and "what changed"**: save a snapshot per host (process names, listening ports,
+- [x] **4. Baselines and "what changed"**: save a snapshot per host (process names, listening ports,
   established peers, cron entries, `authorized_keys` hashes) under `~/.shellcraft`, and compare the
   next run. The AI reports only what is new or gone, and a func can run it every night
   - Done when: a new listening port or a new cron entry between two snapshots raises an alert
@@ -97,7 +105,7 @@ Facts that shape all of them (from the code):
   and its path rides along in the alert's data
   - Done when: the same odd connection seen on two runs alerts once, and Alt-v pastes the report path
   - Design question: how much a `crit` is allowed to interrupt you, and quiet hours.
-- [ ] **6. A fleet sweep**: the orchestrator makes one task per host (from `~/.ssh/config` or an
+- [x] **6. A fleet sweep**: the orchestrator makes one task per host (from `~/.ssh/config` or an
   inventory file), workers run the host triage in parallel on the task board, and the case file joins
   what they find across hosts (the same remote IP on three servers is one finding), ending in one
   summary alert

@@ -93,6 +93,7 @@ Every header line is optional. Leave one out and you get the default.
 | `# system: yes` | It runs OS programs, so it needs `settings system_commands on` |
 | `# output: show` | Every step's output is printed. `quiet` prints only `echo`, `printf` and steps starting with `@`. Errors always print |
 | `# usage: TEXT` | How to call it, shown by `func list` and `func show` |
+| `# ai: read` | An AI client may run it with the `run_func` tool, in the read-only sandbox |
 
 If a func has `system: yes` and OS commands are off, it won't start. You'll see
 `recon runs OS commands (system: yes): settings system_commands on (or start with --allow-system) first`.
@@ -411,7 +412,10 @@ not when you add the step.
   its funcs wins over a main one with the same name, and `func list` says `(hides default)`.
 - A func made at the prompt without `--save` lives only in the session.
 
-AI clients can't run funcs.
+AI clients can't run funcs, with one exception you choose per func: add `# ai: read` to its header and an AI
+can run it with the `run_func` tool. It runs in the same read-only sandbox as `shellcraft_pipeline` (no
+files written, no OS programs), so it suits a func that fetches data from an API. See
+[Host analysis](ai-host-analysis.md).
 
 ## The editor
 

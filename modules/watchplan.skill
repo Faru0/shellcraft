@@ -1,0 +1,41 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Read the user's watch plan: which hosts, checks, feeds and funcs to keep checking, how often, and when the next round is due. It runs nothing."
+
+when_to_use = """
+Use it when the user says to keep watching or sweep their hosts and feeds. Call tasks to get the units of
+work (one per host, feed or func) and make a task of each; call due to know whether to start a round or
+wait; call done when a round is finished so the next one is timed from it. Call show for a readable
+summary and check to validate a plan. list shows the plans that exist."""
+
+usage = "watchplan list | show|check|tasks|due|done NAME"
+
+examples = [
+  '{"action": "tasks", "name": "prod"}  -> [{"id": "host:web01", "kind": "host", "host": "web01", "checks": ["ps", "ss"], "logs": [], "deep": true}, {"id": "feed:kuma", "kind": "feed", "feed": "kuma", "query": []}]',
+  '{"action": "due", "name": "prod"}  -> "next round in 540 s"',
+]
+
+notes = """
+The plan is the user's file; you do not edit it. `deep: true` means: when a check shows something new,
+look closer (proc-maps for new PIDs and so on). During quiet hours the plan says only crit alerts are
+sent."""
+
+[[params]]
+name = "action"
+type = "string"
+values = ["list", "show", "check", "tasks", "due", "done"]
+description = "list the plans, show one, check it is valid, tasks (the units of work as JSON), due (is a round due), done (a round just finished)."
+
+[[params]]
+name = "name"
+type = "string"
+metavar = "NAME"
+description = "The plan's name (the file ~/.shellcraft/watchplans/NAME.toml). Not needed for list."
+
+[[tests]]
+args = ["frobnicate"]
+error = "invalid choice"
+
+[[tests]]
+args = ["show"]
+error = "needs a plan name"

@@ -67,6 +67,7 @@ also names the command that does the same thing from the prompt.
 - [Settings and themes](settings-and-themes.md): every setting, API keys, colors and the prompt
 - [Subshells, alerts and the clip](subshells.md): running programs side by side, the footer, alerts
 - [MCP and the AI co-pilot](mcp-and-ai.md): letting AI clients use your shell, and what they're allowed to do
+- [Host analysis with an AI](ai-host-analysis.md): an AI that studies your servers over ssh and reports what looks wrong
 
 ## Write scripts
 

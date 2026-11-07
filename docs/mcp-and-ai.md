@@ -246,8 +246,11 @@ can't talk its way past it:
 claude mcp add shellcraft-monitor -- /path/to/python /path/to/main.py --mcp --role monitor
 ```
 
-Three roles are built in. `monitor` reads and alerts but never runs a command. `orchestrator` and
-`worker` follow your rules. Your own roles set `run` to `none`, `read-only` or `policy` (follow
+Four roles are built in. `monitor` reads and alerts but never runs a command. `orchestrator` and
+`worker` follow your rules. `analyst` never runs a command either, but it can use the host-analysis
+tools (`sshrun`, `hostscan`, `baseline`, `feed`, `run_func`), the case file and the task board, so an
+agent that studies your hosts has no way to type anything on them (see
+[Host analysis](ai-host-analysis.md)). Your own roles set `run` to `none`, `read-only` or `policy` (follow
 the rules), and `tools` to the list of tools they may use, or leave `tools` out for all of them.
 
 Every tool also takes an optional `agent` name, such as `worker-2`. It shows in the footer

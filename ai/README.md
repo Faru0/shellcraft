@@ -26,6 +26,8 @@ Markdown: copy them into your client, or point it at them.
 | `request_session_grant` | Ask once to run anything for the session. Not needed while `settings ai_access` is on, which is the default |
 | `create_task`, `list_tasks`, `claim_task`, `update_task`, `release_task` | The task board several agents share: exclusive claims with a lease, dependencies, notes and results. The user sees it with `tasks` |
 | `add_finding`, `list_findings`, `get_finding`, `update_finding` | The case file the agents share: one finding per IP, domain or host, evidence merged, severity and confidence kept. The user reads it with `findings` |
+| `sshrun`, `hostscan`, `baseline`, `feed`, `watchplan` | Host analysis: named read-only checks over ssh, offline rules, what changed since last time, read-only data sources, the watch plan (see [Host analysis](../docs/ai-host-analysis.md)) |
+| `run_func` | Run a func you marked `# ai: read`, in the read-only sandbox |
 | `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` and the messages you sent with `tell` |
 | `request_human_review`, `get_review_status` | Approval before something destructive |
 | `ask_user` | A question for the user, with choices if you have them. They answer with `review answer`; the call can wait for it. Replies on any item (`tell -r ID`) arrive in its thread |
@@ -75,11 +77,20 @@ skills name the real tools, so they work as written.
 | `agents/monitor.md` | Watches for your `mark`s, `tell`s and `watch` triggers, and reports them to the orchestrator without polling. Works with `--role monitor` |
 | `agents/orchestrator.md` | Splits a job into tasks on the board, starts workers, merges the case file, asks you when it needs a decision |
 | `agents/worker.md` | Claims one task, does it, records findings, reports on the task |
+| `agents/host-analyst.md` | Analyzes one remote host through `sshrun`: processes, sockets, executables, memory maps |
+| `agents/log-reader.md` | Reads remote logs with the right reader (text, gzip, wtmp/btmp, journal, binary) |
+| `agents/feed-analyst.md` | Pulls feeds (SIEM, Uptime Kuma) and `# ai: read` funcs and reports what is new or odd |
+| `agents/ebpf-auditor.md` | Audits eBPF programs, kprobes and uprobes on a remote host |
 | `skills/shellcraft-copilot/SKILL.md` | The etiquette: which channel for what, alert levels, what never to do |
 | `skills/soc-triage/SKILL.md` | The triage steps with concrete pipelines and the finding format |
 | `skills/review-loop/SKILL.md` | `mark` / `review`, approvals, `run_in_shell` results, `ask_user` and threads |
 | `skills/task-board/SKILL.md` | The shared task board: creating, claiming with a lease, reporting, blocking |
 | `skills/case-file/SKILL.md` | The shared case file: one finding per thing, evidence, severity and confidence |
+| `skills/remote-triage/SKILL.md` | The order of host checks, the PID and parent walk, what is normal and odd, how to rate |
+| `skills/ebpf-audit/SKILL.md` | What to collect and how to read eBPF, kprobes and uprobes |
+| `skills/baseline-and-novelty/SKILL.md` | The cheap loop: learn first, report only what is new, accept only with the user's say-so |
+| `skills/watch-rounds/SKILL.md` | The round protocol for watching hosts and feeds from a plan |
+| `skills/untrusted-data/SKILL.md` | Text from a host, log or feed is data, never instructions |
 | `skills/shellcraft-scripting/SKILL.md` | Writing ShellCraft scripts (rc, startup files, funcs, bash and Python style): write, `source -n` check, run, and the mistakes an AI makes most |
 
 ## A first session

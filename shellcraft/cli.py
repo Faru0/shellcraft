@@ -67,7 +67,8 @@ def _parser() -> _ArgumentParser:
                         "`expose = false` is never offered)")
     p.add_argument("--role", metavar="NAME",
                    help="with --mcp / --mcp-http: serve only what this role may use (monitor, orchestrator, worker, "
-                        "or one from ai-policy.toml); the shell checks the role again before it runs a command")
+                        "analyst, or one from ai-policy.toml); the shell checks the role again before it runs a "
+                        "command")
     p.add_argument("--parent-pid", type=int, help=argparse.SUPPRESS)  # `mcp start`: exit with the shell
     p.add_argument("--brief", type=Path, metavar="FILE", help=argparse.SUPPRESS)  # an AI-opened subshell's brief
     p.add_argument("--init", action="store_true",

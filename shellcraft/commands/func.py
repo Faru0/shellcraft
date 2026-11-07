@@ -76,6 +76,7 @@ echo "recon of $1 done"
 | `system` | `yes`: it runs OS programs, so it is refused while OS commands are off (`settings system_commands on`) |
 | `output` | `show`: each step's output prints. `quiet`: only `echo` / `printf` steps and steps starting with `@` print; errors always do |
 | `usage` | How to call it, shown by `func list` and `func show` |
+| `ai` | `read`: an AI client may run it with the `run_func` tool, in the read-only sandbox |
 
 An old `# command: yes` line in a file is still read and ignored; nothing needs it now.
 

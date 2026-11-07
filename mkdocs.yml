@@ -84,3 +84,4 @@ nav:
       - Add modules you already have: modules/adding-modules.md
       - Module reference: modules/reference.md
   - MCP and the AI co-pilot: mcp-and-ai.md
+  - Host analysis with an AI: ai-host-analysis.md

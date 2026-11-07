@@ -34,6 +34,15 @@ and the project uses [semantic versioning](https://semver.org/).
   `--dry-run` shows the plan. The files now ship inside the package, so this also works after
   `pip install`.
 
+- **`watchplan`, the `analyst` role and the analysis agents.** A watch plan
+  (`~/.shellcraft/watchplans/NAME.toml`) lists the hosts, checks, feeds and funcs to keep checking and how
+  often; `watchplan tasks|due|done` lets an orchestrating AI run rounds. The built-in `analyst` role
+  (`--role analyst`) offers the host-analysis tools, the case file and the task board, and no way to run a
+  command. New agents `host-analyst`, `log-reader`, `feed-analyst` and `ebpf-auditor`, new skills
+  `remote-triage`, `ebpf-audit`, `baseline-and-novelty`, `watch-rounds` and `untrusted-data`; the
+  orchestrator knows the watching loop; `--install-ai --team` installs them. A new page,
+  [Host analysis with an AI](docs/ai-host-analysis.md), sets it all up.
+
 ### Fixed
 
 - **A command substitution is no longer "read-only" for the AI co-pilot.** `echo $(rm x)` ran the `rm`
