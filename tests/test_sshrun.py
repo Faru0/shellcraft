@@ -241,6 +241,17 @@ def test_exes_output_is_cleaned_to_pid_and_path(ss):
         "1 /usr/lib/systemd/systemd\n812 /tmp/.x (deleted)\n"
 
 
+def test_a_partial_check_says_so_in_its_header(ss):
+    out = ss.Outcome(b"", b"", 2, False, 0.1)
+    assert "partial: some entries could not be read" in ss._frame("web01", ss.CHECKS["exes"], "1 /sbin/init\n", out, 0)
+    assert "partial" not in ss._frame("web01", ss.CHECKS["ps"], "x\n", out, 0)
+    assert "partial" not in ss._frame("web01", ss.CHECKS["exes"], "x\n", ss.Outcome(b"", b"", 0, False, 0.1), 0)
+
+
+def test_authorized_keys_names_the_real_ssh_user(ss):
+    assert '$(id -un)' in ss.CHECKS["authorized-keys"].cmd and "## user" not in ss.CHECKS["authorized-keys"].cmd
+
+
 def test_hosts_and_checks_listings(ss):
     ss.enable("ai = true\nrole = \"web\"\ntags = [\"prod\"]")
     hosts = ss.run("--hosts")

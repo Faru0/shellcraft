@@ -72,9 +72,13 @@ An **analyst** server offers the host tools, the case file and the board, and ha
 in your shell (`run_in_shell` is not offered, and the shell would refuse it anyway).
 
 ```bash
-claude mcp add shellcraft-analyst -- /path/to/shellcraft/.venv/bin/python /path/to/shellcraft/main.py --mcp --role analyst
+claude mcp add shellcraft -- /path/to/shellcraft/.venv/bin/python /path/to/shellcraft/main.py --mcp --role analyst
 shellcraft --install-ai --team --user      # the agents and skills
 ```
+
+The server must be named `shellcraft`: the agents list their tools as `mcp__shellcraft__sshrun` and so on. Add it to a
+project (`claude mcp add --scope project`) so it is the only `shellcraft` server there, and keep your ordinary,
+full-access server in your other projects.
 
 Keep your ordinary `shellcraft` server for yourself. If you also want a rule that nobody can ssh around the
 analyst, add this to `~/.shellcraft/ai-policy.toml`:
