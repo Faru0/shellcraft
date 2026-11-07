@@ -6,6 +6,13 @@ design question under each idea is the one to answer before building it.
 
 ## Built
 
+- [x] **Host analysis, second source and setup** (`aggregator`, `health`, eight integrity and persistence checks,
+  `shellcraft --setup-analyst` / `--check-analyst`, `[[devices]]` in watch plans, the `edr-analyst` agent and
+  the `aggregator-triage` skill): the AI reads, from your aggregator box, the files an EDR keeps per device, or
+  goes to the device live, or both; a stale file is a finding; system health is checked too
+  - Follow-ups: `hostscan` rules for the integrity checks (a changed system program, a new setuid file, a
+    preload library), the report file, a cap on concurrent ssh sessions and `ControlMaster`, and `hostscan join`
+    for the netstat and lsof forms
 - [x] **Host analysis framework** (`sshrun`, `hostscan`, `baseline`, `feed`, `watchplan`, the `run_func` tool, the
   `analyst` role, four analyst agents and five skills): an AI studies remote hosts over ssh with named
   read-only checks, reads logs with the right reader, audits eBPF, kprobes and uprobes, remembers what it has

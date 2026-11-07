@@ -7,6 +7,24 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Host analysis reads your aggregator's files too, and has a one-command setup.**
+  - `aggregator` reads, over ssh, the files an EDR keeps for each device on an aggregator box (one folder per
+    device, a timestamped file per run: process list, `netstat`, `ss`, `lsof`, eBPF, memory). It lists
+    devices, shows the newest file of each kind with its age, reports a stale or missing kind as a finding,
+    and prints a file or a digest of all kinds, or the run before (`--previous N`). Fixed read-only commands;
+    a folder that leaves the root is refused; output is redacted and framed as untrusted.
+  - `hostscan` and `baseline` now read `ps -ef`, `ps aux`, `netstat -tunap`, `lsof -nP -i` and the text
+    form of `bpftool prog show`; new `hostscan netstat` and `hostscan lsof`; `-q` prints only the flags.
+  - `health` reads memory, load, disk, `top` and kernel messages and flags a system that is not healthy
+    (low memory or swap, high load, a full disk or inodes, OOM kills, kernel errors, a process hogging
+    memory). `sshrun` gets matching live checks: `free`, `df`, `uptime`, `oom`.
+  - Eight more `sshrun` checks for what `ps` and `ss` cannot show: `pkg-verify` (files that no longer match
+    their package), `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config`, `shell-rc`.
+  - Watch plans take `[[devices]]`; the `edr-analyst` agent and the `aggregator-triage` skill read a device's
+    files; "check out XYZ" uses the aggregator, the live host, or both.
+  - `shellcraft --setup-analyst [HOST ...] [--sudo] [--aggregator ALIAS --root PATH]` enables the hosts,
+    tests ssh, writes `./.mcp.json` with the analyst server (named `shellcraft`, which the agents need),
+    installs the agents and writes starter plans; `shellcraft --check-analyst` says what to fix.
 - **Host analysis for AI co-pilots: four modules and one tool.** An AI (or you) can now look at a remote
   host without being able to run arbitrary commands on it.
   - `sshrun HOST CHECK` runs one named, read-only check over ssh: `ps`, `ss`, `exes`, `proc-maps PID`,

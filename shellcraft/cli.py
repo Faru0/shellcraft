@@ -84,6 +84,19 @@ def _parser() -> _ArgumentParser:
                    help="show which AI agents and skills are installed, out of date, edited or missing")
     p.add_argument("--uninstall-ai", nargs="*", metavar="NAME",
                    help="remove the AI agents and skills that --install-ai wrote and you have not edited")
+    p.add_argument("--setup-analyst", nargs="*", metavar="HOST",
+                   help="set up host analysis for an AI: enable these ssh hosts (or pick from your ssh config), "
+                        "test ssh, write ./.mcp.json with the analyst server, install the analyst agents, write "
+                        "starter watch plans; it only adds, never rewrites what you wrote")
+    p.add_argument("--check-analyst", action="store_true",
+                   help="check the host-analysis setup (read-only) and say what to fix")
+    p.add_argument("--sudo", action="store_true",
+                   help="with --setup-analyst: set sudo = true on the hosts where `sudo -n` works")
+    p.add_argument("--aggregator", metavar="ALIAS",
+                   help="with --setup-analyst: also set up an aggregator box (an ssh host holding one folder of "
+                        "EDR output files per device); needs --root")
+    p.add_argument("--root", metavar="PATH", help="with --aggregator: the folder on the aggregator that holds the "
+                                                 "device folders")
     p.add_argument("--user", action="store_true", help="with --install-ai: install into ~/.claude (every project)")
     p.add_argument("--project", action="store_true", help="with --install-ai: install into ./.claude (this folder)")
     p.add_argument("--team", action="store_true",
@@ -197,6 +210,41 @@ def _ai(args: argparse.Namespace) -> int:
     return 0
 
 
+def _analyst(args: argparse.Namespace) -> int:
+    """`shellcraft --setup-analyst [HOST ...]` and `--check-analyst`: host analysis, set up and checked."""
+    from shellcraft import analyst_setup
+
+    if args.setup_analyst is not None and args.check_analyst:
+        print("shellcraft: use either --setup-analyst or --check-analyst", file=sys.stderr)
+        return 2
+    check = args.check_analyst
+    target = _analyst_target(args, check)
+    if target is None:
+        return 2
+    try:
+        if check:
+            lines = analyst_setup.doctor(analyst_setup.project_dir(), target)
+        else:
+            lines = analyst_setup.setup(args.setup_analyst, sudo=args.sudo, aggregator=args.aggregator,
+                                        root=args.root, target=target, project=analyst_setup.project_dir(),
+                                        force=args.force, dry_run=args.dry_run)
+    except (analyst_setup.SetupError, OSError) as exc:
+        print(f"shellcraft: {exc}", file=sys.stderr)
+        return 1
+    prefix = "would: " if args.dry_run and not check else ""
+    for line in lines:
+        print(prefix + line.render())
+    return analyst_setup.exit_code(lines) if check else (1 if any(x.status == "fix" for x in lines) else 0)
+
+
+def _analyst_target(args: argparse.Namespace, check: bool) -> Path | None:
+    """Where the agents go: --user, --project, or (for the check) the folder that has them."""
+    if args.user or args.project or not check:
+        return _ai_target(args)
+    project, user = Path.cwd() / ".claude", Path.home() / ".claude"
+    return project if (project / "agents").is_dir() or not (user / "agents").is_dir() else user
+
+
 def _mcp_installed() -> bool:
     """The MCP server needs the `mcp` package (the shell doesn't); say how to get it, not a traceback."""
     import importlib.util
@@ -243,6 +291,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shellcraft: {exc} (shellcraft --help lists the options)", file=sys.stderr)
         return 2
     ai_mode = any(x is not None for x in (args.install_ai, args.check_ai, args.uninstall_ai))
+    analyst_mode = args.setup_analyst is not None or args.check_analyst
+    if analyst_mode and (ai_mode or args.mcp or args.mcp_http or args.init or args.role or args.expose
+                         or func_words is not None):
+        print("shellcraft: --setup-analyst and --check-analyst go without --mcp, --mcp-http, --init, --role, "
+              "--expose, func and the other AI flags", file=sys.stderr)
+        return 2
+    if analyst_mode:
+        return _analyst(args)
     if func_words is not None and (args.mcp or args.mcp_http or args.init or args.role or args.expose or ai_mode):
         print("shellcraft: func goes without --mcp, --mcp-http, --init, --role, --expose and the AI flags",
               file=sys.stderr)
