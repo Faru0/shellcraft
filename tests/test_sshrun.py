@@ -276,6 +276,33 @@ def test_sudoers_files_needs_root_on_the_host(ss):
         ss.run("web01", "sudoers-files")
 
 
+HEALTH = ("free", "df", "uptime", "oom")
+
+
+def test_the_health_checks_exist_and_are_read_only(ss):
+    assert all(name in ss.CHECKS for name in HEALTH)
+    assert ss.CHECKS["oom"].sudo == "optional" and ss.CHECKS["oom"].partial_ok  # grep exits 1 on no match
+    assert all(ss.CHECKS[n].sudo == "no" for n in ("free", "df", "uptime"))
+    assert "{sudo}journalctl -k" in ss.CHECKS["oom"].cmd and "sudo" not in ss.CHECKS["df"].cmd
+    assert "NOPASSWD: journalctl -k --no-pager -n 2000 2>/dev/null" in ss.sudoers_for("web01")
+
+
+@pytest.mark.parametrize("check, expect", [("free", "Mem:"), ("df", "## inodes"), ("uptime", "## loadavg")])
+def test_the_health_checks_run_under_the_fake_ssh(ss, check, expect):
+    ss.enable()
+    out = ss.run("web01", check)
+    assert out.startswith(f"# sshrun web01 {check} (untrusted remote output") and expect in out
+
+
+def test_the_health_checks_feed_health(ss):
+    from modules import health
+
+    ss.enable()
+    assert "memory:" in health.run(["mem"], ss.run("web01", "free"))
+    assert "disk:" in health.run(["disk"], ss.run("web01", "df"))
+    assert "load:" in health.run(["load"], ss.run("web01", "uptime"))
+
+
 def test_a_quiet_check_runs_and_is_framed(ss):
     ss.enable()
     out = ss.run("web01", "ld-preload")

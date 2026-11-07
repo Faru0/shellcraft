@@ -76,6 +76,8 @@ Use `root = true` instead of `sudo = true` when the ssh user already is root.
 | `sudoers-files` | | sudoers and sudoers.d (needs root) |
 | `sshd-config` | | the ssh server's settings without comments |
 | `shell-rc` | | `/etc/profile`, `profile.d`, and the ssh user's shell startup files |
+| `free`, `df`, `uptime` | | memory and swap, disk and inode use, uptime with load average and CPU count (read them with `health`) |
+| `oom` | | kernel log lines about out-of-memory kills, I/O errors, segfaults and lockups (`journalctl -k`; root helps on hosts that restrict it) |
 | `recent-files` | | files changed in two days in `/etc`, `/root`, `/tmp` and friends |
 | `journal` | [UNIT] | the last 500 journal lines |
 | `log-tail`, `zlog`, `strings` | PATH | last 500 lines of a text log, a `.gz` log, or the text in a binary file |

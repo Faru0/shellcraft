@@ -6,7 +6,7 @@ when_to_use = """
 Use it to look at a remote host during analysis: processes (ps), sockets (ss, listening, lsof-net),
 one process in depth (proc-status, proc-cmdline, proc-exe, proc-fd, proc-maps with a PID), every
 process's executable (exes), eBPF programs and links (bpf-progs, bpf-links, bpf-maps), kprobes and
-uprobes (probes), kernel modules, cron and timers, authorized keys, logins, recently changed files,
+uprobes (probes), health (free, df, uptime, oom: pipe them into `health`), kernel modules, cron and timers, authorized keys, logins, recently changed files,
 and logs (log-tail, log-grep, zlog for .gz, binlog for wtmp/btmp, strings for a binary file, journal).
 Call with --hosts to see which hosts you may use and --checks for the full list. Pipe the output into
 hostscan (flags) and baseline (what is new since last time). Do not use it to run arbitrary commands:
@@ -40,7 +40,7 @@ description = "A host name from the user's ssh config that is enabled for AI use
 name = "check"
 type = "string"
 metavar = "CHECK"
-description = "The check name: sysinfo, ps, ss, listening, lsof-net, exes, proc-maps, proc-status, proc-cmdline, proc-exe, proc-fd, bpf-progs, bpf-links, bpf-maps, probes, modules, cron, timers, authorized-keys, users, logins, failed-logins, recent-files, pkg-verify, suid, capabilities, ld-preload, units, sudoers-files, sshd-config, shell-rc, journal, log-tail, log-grep, zlog, binlog, strings, or one the user added (checks lists all)."
+description = "The check name: sysinfo, ps, ss, listening, lsof-net, exes, proc-maps, proc-status, proc-cmdline, proc-exe, proc-fd, bpf-progs, bpf-links, bpf-maps, probes, modules, cron, timers, authorized-keys, users, logins, failed-logins, recent-files, pkg-verify, suid, capabilities, ld-preload, units, sudoers-files, sshd-config, shell-rc, free, df, uptime, oom, journal, log-tail, log-grep, zlog, binlog, strings, or one the user added (checks lists all)."
 
 [[params]]
 name = "arg"

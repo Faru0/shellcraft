@@ -140,6 +140,15 @@ BUILTIN = [
        "~/.bash_login; do if [ -f \"$f\" ]; then echo \"## $f\"; "
        "grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' \"$f\"; fi; done",
        "login and shell startup files (a persistence spot), comments removed", partial_ok=True),
+    _c("free", "free -m", "memory and swap in MiB (available is the column that matters)"),
+    _c("df", "df -P -h; echo '## inodes'; df -P -i", "disk and inode use per filesystem"),
+    _c("uptime", "uptime; echo '## loadavg'; cat /proc/loadavg; echo '## cpus'; nproc",
+       "uptime, load average and the CPU count (what the load rules compare against)"),
+    _c("oom",
+       "{sudo}journalctl -k --no-pager -n 2000 2>/dev/null | grep -i -E "
+       "'out of memory|oom-kill|killed process|i/o error|segfault|blocked for more than|soft lockup' | tail -n 100",
+       "kernel out-of-memory kills, I/O errors, segfaults and lockups from the kernel log", sudo="optional",
+       partial_ok=True),
     _c("journal", "journalctl --no-pager -n 500 -o short-iso{unit?}", "the systemd journal (one unit if given)",
        args=("unit?",)),
     _c("log-tail", TAIL + ' -- {path}', "the last 500 lines of a text log (the host's log_paths decide which)",
