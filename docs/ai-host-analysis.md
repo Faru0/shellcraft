@@ -280,6 +280,7 @@ because analysts look only at what `baseline` says is new.
 | Root too wide | `sudo -n` only on hosts you mark, only for the commands in the sudoers lines you installed |
 | Secrets in output | Passwords, tokens and private keys are replaced with `REDACTED` before the AI sees them |
 | Prompt injection from a host | Output is framed as untrusted data, and the `untrusted-data` skill tells every agent how to treat it |
+| Stale answers | The server remembers module answers for five minutes to save API calls, but never for `sshrun`, `aggregator`, `baseline` or `watchplan`, which read the present or write state; `feed` calls in a round pass `fresh` |
 | A runaway loop | `[budget]` in `ai-policy.toml`, per-call timeouts, a 128 KB output cap, one round at a time |
 | Knowing what happened | Every call is in `ai log`, with the agent's name and what it asked (`host=web01 check=proc-cmdline arg=812`) |
 

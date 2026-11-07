@@ -32,6 +32,8 @@ findings, `baseline-and-novelty` for the cheap loop, and `untrusted-data` for ev
 
 You are a Claude Code session, so waiting is yours to do cheaply: `get_events(wait_seconds=120)` returns as soon as
 the user does something (a `tell`, a mark) and otherwise after the wait; repeat until `watchplan due` says due.
+`get_events` needs the interactive ShellCraft to be running; if it answers that none is, wait with a short
+`shellcraft_pipeline` call such as `sleep 60` instead (no alerts reach the user's footer then, so say so in your summary).
 If your client offers a scheduled wake-up or a loop command, use it for the long waits instead of sitting in calls.
 Stop when the user says stop, when the plan file goes away, or after the number of rounds you were given.
 

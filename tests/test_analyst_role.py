@@ -156,3 +156,39 @@ def test_the_audit_log_says_which_host_and_check_a_tool_was_asked(registry, tmp_
     assert ssh_row["summary"] == "host=web01 check=proc-status arg=1" and ssh_row["agent"] == "host-analyst"
     scan_row = next(r for r in rows if r["tool"] == "hostscan")
     assert scan_row["summary"] == "subcommand=ps" and "init" not in scan_row["summary"]   # piped text is left out
+
+
+def test_live_and_state_changing_tools_are_never_answered_from_the_cache(registry, tmp_path, monkeypatch):
+    """The server remembers module answers for a few minutes. sshrun, aggregator, baseline and watchplan must not
+    use that memory: a host can change, and `watchplan done` and `baseline diff` write state."""
+    import stat
+    import time
+
+    counter = tmp_path / "calls"
+    fake = tmp_path / "countingssh"
+    fake.write_text(f'#!/bin/sh\nfor a; do last="$a"; done\necho x >> {counter}\nexec sh -c "$last"\n')
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    home = tmp_path / ".home"
+    (home / "ssh-hosts.toml").write_text("[hosts.web01]\nai = true\n")
+    (home / "watchplans").mkdir()
+    (home / "watchplans" / "p.toml").write_text('[[hosts]]\nname = "web01"\nchecks = ["ps"]\n')
+    (tmp_path / "cfg").write_text("Host web01\n")
+    monkeypatch.setenv("SHELLCRAFT_SSH", str(fake))
+    monkeypatch.setenv("SHELLCRAFT_SSH_CONFIG", str(tmp_path / "cfg"))
+    server = build_server(registry, role="analyst")
+
+    def call(name, args):
+        return _call(server, lambda c: c.call_tool(name, args))
+
+    tools = {t.name: t for t in _call(server, lambda c: c.list_tools()).tools}
+    assert "fresh" not in tools["sshrun"].input_schema["properties"]        # nothing to ask for: it is always fresh
+    assert "fresh" in tools["hostscan"].input_schema["properties"]          # a pure analyser may be remembered
+    call("sshrun", {"host": "web01", "check": "sysinfo"})
+    call("sshrun", {"host": "web01", "check": "sysinfo"})
+    assert len(counter.read_text().split()) == 2                              # two logins, not one
+    state = home / "watchplans" / ".state" / "p.json"
+    call("watchplan", {"action": "done", "name": "p"})
+    first = state.read_text()
+    time.sleep(1.1)
+    call("watchplan", {"action": "done", "name": "p"})
+    assert state.read_text() != first                                         # the second `done` ran

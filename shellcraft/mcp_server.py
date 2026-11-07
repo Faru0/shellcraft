@@ -47,6 +47,9 @@ log = logging.getLogger("shellcraft.mcp")
 FRESH_PROPERTY: dict[str, Any] = {
     "type": "boolean", "default": False,
     "description": "Ask the service again instead of reusing an answer from the last few minutes."}
+# Tools whose answer is the present moment or that change state: an answer from the memory of the last few minutes
+# would hide a change on a host, or skip a `watchplan done` or a `baseline diff` that stores its snapshot.
+NEVER_CACHED = frozenset({"sshrun", "aggregator", "baseline", "watchplan"})
 AGENT_PROPERTY: dict[str, Any] = {
     "type": "string", "maxLength": 40,
     "description": "Optional: your name or role in this session (\"worker-2\"). It shows in the user's footer, "
@@ -666,7 +669,7 @@ class ShellcraftMCP:
             schema = dict(tool.input_schema)
             props = dict(schema.get("properties") or {})
             props.setdefault("agent", AGENT_PROPERTY)
-            if tool.name in modules:  # a module: its answer may come from the memory
+            if tool.name in modules and tool.name not in NEVER_CACHED:  # a module: its answer may come from the memory
                 props.setdefault("fresh", FRESH_PROPERTY)
             schema["properties"] = props
             tool.input_schema = schema
@@ -761,7 +764,7 @@ class ShellcraftMCP:
         from shellcraft import ai_policy, modcache
 
         policy = ai_policy.load()
-        ttl = 0.0 if fresh or spec.name in policy.cache_exclude else policy.cache_seconds
+        ttl = 0.0 if fresh or spec.name in policy.cache_exclude or spec.name in NEVER_CACHED else policy.cache_seconds
         key = modcache.key(spec.name, args, stdin, modcache.version_of(spec.path)) if ttl else ""
         if ttl:
             hit = await anyio.to_thread.run_sync(lambda: modcache.get(key, ttl))

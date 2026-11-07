@@ -5,6 +5,12 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The MCP server no longer answers `sshrun`, `aggregator`, `baseline` and `watchplan` from its five-minute memory.**
+  A second `watchplan done` or `baseline diff` inside five minutes did nothing, and a repeated `sshrun` check
+  returned the old answer. Found by watching a plan with a one-minute interval.
+
 ### Added
 
 - **Host analysis reads your aggregator's files too, and has a one-command setup.**
