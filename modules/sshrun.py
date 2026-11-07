@@ -7,33 +7,37 @@ the remote command comes from a fixed template, never from the caller. A host is
 
 from __future__ import annotations
 
-import glob
-import os
 import re
 import shlex
-import subprocess
-import threading
-import time
-import tomllib
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
-from shellcraft.modkit import ArgParser, ModuleError, check_cancel
-from shellcraft.modkit import redact_secrets as redact
+from shellcraft.modkit import ArgParser, ModuleError
+from shellcraft.sshcore import (  # noqa: F401 — re-exported: tests and other modules read them from here
+    CONNECT_TIMEOUT,
+    HOST_RE,
+    HOSTS_FILE,
+    MAX_TIMEOUT,
+    PATTERN_RE,
+    Host,
+    Outcome,
+    _home,  # noqa: F401
+    config_hosts,
+    execute,
+    load_hosts,
+    redact,
+    ssh_argv,
+    ssh_config_path,
+)
+from shellcraft.sshcore import read_toml as _toml
 
 SUMMARY = "Run a named read-only check (ps, ss, proc maps, eBPF, logs) on a host from your ssh config"
 SPINNER_TEXT = "asking the host…"
 
-HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 PID_RE = re.compile(r"^[1-9][0-9]{0,7}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/@+:~-]{0,199}$")
 TEXT_RE = re.compile(r"^[ -~]{1,100}$")
 UNIT_RE = re.compile(r"^[A-Za-z0-9@._:-]{1,100}$")
-PATTERN_RE = re.compile(r"^/[A-Za-z0-9._/*@+-]{1,150}$")  # a log_paths entry
 DEFAULT_LOG_PATHS = ("/var/log/*",)
-MAX_TIMEOUT = 120
-CONNECT_TIMEOUT = 10
-HOSTS_FILE = "ssh-hosts.toml"
 CHECKS_FILE = "ssh-checks.toml"
 TAIL = "tail -n 500"
 
@@ -151,80 +155,6 @@ CHECKS: dict[str, Check] = {c.name: c for c in BUILTIN}
 
 # ── files ────────────────────────────────────────────────────────────────────
 
-def _home() -> Path:
-    from shellcraft.config import config_dir
-
-    return config_dir()
-
-
-def ssh_config_path() -> Path:
-    return Path(os.environ.get("SHELLCRAFT_SSH_CONFIG") or Path.home() / ".ssh" / "config")
-
-
-def config_hosts(path: Path | None = None, _seen: set[Path] | None = None) -> list[str]:
-    """Explicit host names in an ssh config (wildcards and negations skipped), Include honoured."""
-    path = path or ssh_config_path()
-    seen = _seen if _seen is not None else set()
-    try:
-        real = path.resolve()
-        if real in seen:
-            return []
-        seen.add(real)
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    names: list[str] = []
-    for raw in lines:
-        line = raw.split("#", 1)[0].strip()
-        match = re.match(r"(?i)^(host|include)(?:\s*=\s*|\s+)(.+)$", line)
-        if not match:
-            continue
-        if match.group(1).lower() == "host":
-            names += [n for n in shlex.split(match.group(2)) if not re.search(r"[*?!]", n)]
-        else:
-            for pattern in shlex.split(match.group(2)):
-                base = pattern if os.path.isabs(pattern) else str(path.parent / pattern)
-                for found in sorted(glob.glob(os.path.expanduser(base))):
-                    names += config_hosts(Path(found), seen)
-    return list(dict.fromkeys(names))
-
-
-@dataclass
-class Host:
-    name: str
-    ai: bool = False
-    priv: str = "none"            # none | sudo | root
-    role: str = ""
-    tags: list[str] = field(default_factory=list)
-    log_paths: list[str] = field(default_factory=list)
-
-
-def _toml(path: Path) -> dict:
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ModuleError(f"sshrun: {path}: {exc}") from None
-
-
-def load_hosts() -> dict[str, Host]:
-    data = _toml(_home() / HOSTS_FILE).get("hosts", {})
-    hosts: dict[str, Host] = {}
-    for name, entry in (data.items() if isinstance(data, dict) else []):
-        if not isinstance(entry, dict):
-            continue
-        priv = "root" if entry.get("root") is True else "sudo" if entry.get("sudo") is True else "none"
-        paths = [str(p) for p in entry.get("log_paths", []) if isinstance(p, str)]
-        for p in paths:
-            if not PATTERN_RE.match(p) or ".." in p.split("/"):
-                raise ModuleError(f"sshrun: {HOSTS_FILE}: host {name}: log path '{p}' is not allowed "
-                                  "(an absolute path, letters digits . _ / * @ + -, no ..)")
-        hosts[str(name)] = Host(str(name), entry.get("ai") is True, priv, str(entry.get("role", "")),
-                                [str(t) for t in entry.get("tags", [])], paths)
-    return hosts
-
-
 def load_checks() -> dict[str, Check]:
     checks = dict(CHECKS)
     data = _toml(_home() / CHECKS_FILE).get("checks", {})
@@ -291,62 +221,6 @@ def remote_script(check: Check, values: list[str], host: Host) -> str:
             assert value is not None
             script = script.replace("{" + kind + "}", shlex.quote(_validate(kind, value, check)))
     return prelude + script
-
-
-def ssh_argv(host: str, script: str) -> list[str]:
-    ssh = os.environ.get("SHELLCRAFT_SSH") or "ssh"
-    return [ssh, "-T", "-n", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
-            "-o", "StrictHostKeyChecking=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-            "-F", str(ssh_config_path()), "--", host, "sh -c " + shlex.quote(script)]
-
-
-# ── running it ──────────────────────────────────────────────────────────────
-
-@dataclass
-class Outcome:
-    stdout: bytes
-    stderr: bytes
-    status: int
-    truncated: bool
-    seconds: float
-
-
-def _pump(stream, sink: bytearray, cap: int, flag: list, proc: subprocess.Popen, kill: bool = True) -> None:
-    while chunk := stream.read(8192):
-        room = cap - len(sink)
-        sink += chunk[:max(room, 0)]
-        if len(chunk) > room:
-            flag.append(True)
-            if kill:  # too much output: stop the command (stderr just stops being kept)
-                proc.kill()
-                return
-
-
-def execute(argv: list[str], timeout: float, cap: int) -> Outcome:
-    started = time.monotonic()
-    try:
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except OSError as exc:
-        raise ModuleError(f"sshrun: cannot run ssh: {exc}") from None
-    out, err, over = bytearray(), bytearray(), []
-    threads = [threading.Thread(target=_pump, args=(proc.stdout, out, cap, over, proc), daemon=True),
-               threading.Thread(target=_pump, args=(proc.stderr, err, 8192, [], proc, False), daemon=True)]
-    for t in threads:
-        t.start()
-    try:
-        while proc.poll() is None:
-            check_cancel()
-            if time.monotonic() - started > timeout:
-                proc.kill()
-                raise ModuleError(f"sshrun: no answer within {int(timeout)} s (the host or the check is too slow)")
-            time.sleep(0.05)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-        for t in threads:
-            t.join(2)
-        proc.wait()
-    return Outcome(bytes(out), bytes(err), proc.returncode, bool(over), time.monotonic() - started)
 
 
 def _exes(text: str) -> str:
