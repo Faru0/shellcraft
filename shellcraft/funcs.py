@@ -41,7 +41,7 @@ from shellcraft import getopts, traps
 
 SUFFIX = ".func"
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,47}$")
-HEADER = re.compile(r"^#\s*(func|description|system|output|command|usage)\s*:\s*(.*?)\s*$", re.I)
+HEADER = re.compile(r"^#\s*(func|description|system|output|command|usage|ai)\s*:\s*(.*?)\s*$", re.I)
 OUTPUTS = ("show", "quiet")
 MAX_DEPTH = 16  # funcs running inside funcs (a func that runs itself by name stops here)
 _local = threading.local()  # .running: the funcs running in this thread, innermost last
@@ -66,6 +66,7 @@ class Func:
     output: str = "show"
     command: bool = False  # read from old files and ignored: every func runs by name
     usage: str = ""
+    ai: str = ""  # "read": an AI client may run it with the run_func tool (read-only steps only)
     body: str = ""  # the lines after the header, comments included
     notes: str = ""  # `#` comment lines above the header (how to use it, who wrote it), kept as they are
     where: str = "session"  # "session", "default", or the profile's name
@@ -126,6 +127,8 @@ def parse(text: str, name: str | None = None) -> Func:
             func.output = value.lower() if value.lower() in OUTPUTS else "show"
         elif key == "usage":
             func.usage = value
+        elif key == "ai":
+            func.ai = "read" if value.strip().lower() == "read" else ""
         i += 1
     func.body = "\n".join(lines[i:]).strip("\n") + ("\n" if lines[i:] else "")
     return func
@@ -137,6 +140,8 @@ def render(func: Func) -> str:
               f"# system: {'yes' if func.system else 'no'}", f"# output: {func.output}"]
     if func.usage:
         header.append(f"# usage: {func.usage}")
+    if func.ai:
+        header.append(f"# ai: {func.ai}")
     notes = func.notes + "\n\n" if func.notes else ""
     return notes + "\n".join(header) + "\n" + func.body
 

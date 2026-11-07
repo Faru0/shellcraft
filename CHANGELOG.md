@@ -7,6 +7,24 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Host analysis for AI co-pilots: four modules and one tool.** An AI (or you) can now look at a remote
+  host without being able to run arbitrary commands on it.
+  - `sshrun HOST CHECK` runs one named, read-only check over ssh: `ps`, `ss`, `exes`, `proc-maps PID`,
+    eBPF programs, links and maps, kprobes and uprobes, cron, logins, authorized keys, and log readers
+    (including gzip and binary logs). The remote command comes from a fixed template; arguments are
+    validated and quoted; a host works only when `~/.shellcraft/ssh-hosts.toml` says `ai = true`; root-only
+    checks use `sudo -n` on hosts you mark (`sshrun --sudoers HOST` prints the sudoers lines); output is
+    capped, secrets are replaced with `REDACTED`, and it is framed as untrusted remote output. Add your own
+    checks in `~/.shellcraft/ssh-checks.toml`.
+  - `hostscan` reads that output offline and flags what looks wrong: deleted or `/tmp` binaries, `memfd`,
+    RWX or injected mappings, shells under web servers, odd listeners, risky eBPF programs, kprobes and
+    uprobes on sensitive hooks. 29 rules, your own allow-lists in `~/.shellcraft/hostscan-rules.toml`.
+  - `baseline` remembers what it has seen per host and check, and prints only what is new or gone since
+    the last time (`baseline diff web01 ps`); the first run just learns.
+  - `feed NAME` fetches a read-only HTTP source you described in `~/.shellcraft/feeds.toml` (a SIEM search,
+    Uptime Kuma), with only the query parameters you allow and tokens taken from the environment.
+  - The `run_func` MCP tool runs a func for an AI, but only one whose header says `# ai: read`, in the
+    read-only sandbox. `func list` and `func show` mark those funcs.
 - **`shellcraft --install-ai`** puts the AI agents and skills where Claude Code reads them
   (`~/.claude` with `--user`, `./.claude` with `--project`, or it asks). Name the ones you want
   (`--install-ai worker monitor`; an agent brings the skills it needs), or use `--team`,

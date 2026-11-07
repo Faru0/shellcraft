@@ -212,3 +212,26 @@ def script(prog: str) -> Callable[[Callable[[list[str], str], Any]], Callable[[l
         return run
 
     return decorate
+
+
+# ── text from outside ───────────────────────────────────────────────────────
+
+REDACTIONS = [
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
+     "[private key removed]"),
+    (re.compile(r"(?i)\b(pass(?:word|wd)?|secret|token|api[_-]?key)(\s*[=:]\s*)(?!REDACTED)\S+"),
+     r"\1\2REDACTED"),
+    (re.compile(r"(?i)\b(authorization\s*[=:]\s*)(?:(?:bearer|basic|token)\s+)?\S+"), r"\1REDACTED"),
+    (re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1REDACTED"),
+    (re.compile(r"(?i)(--(?:password|passwd|token|secret|api-key)[= ])\S+"), r"\1REDACTED"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AKIA[REDACTED]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"), "gh_[REDACTED]"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"), "xox-[REDACTED]"),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """Text from outside (a host, an API) with passwords, tokens, API keys and private keys replaced by REDACTED."""
+    for pattern, repl in REDACTIONS:
+        text = pattern.sub(repl, text)
+    return text

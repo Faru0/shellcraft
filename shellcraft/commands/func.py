@@ -190,7 +190,8 @@ def _list(ctx: ShellContext, args: list[str]) -> Any:
     plain = []
     for name in sorted(found):
         f = found[name]
-        flags = " ".join(x for x in ("sys" if f.system else "", "quiet" if f.output == "quiet" else "") if x)
+        flags = " ".join(x for x in ("sys" if f.system else "", "quiet" if f.output == "quiet" else "",
+                                     "ai" if f.ai else "") if x)
         hidden = funcs.shadowed(ctx, name)
         where = _where(f) + (f" (hides {hidden})" if hidden else "")
         desc = f.description + (f"  · {f.usage}" if f.usage else "")
@@ -222,6 +223,7 @@ def _show(ctx: ShellContext, args: list[str]) -> Any:
     rows = [("description", f.description or "—"), ("usage", f.usage or f"{f.name} [ARG...]"),
             ("system", "yes (needs OS commands)" if f.system else "no"), ("output", f.output),
             ("command", _typed(ctx, f.name)),
+            ("ai", "may be run by an AI client (read-only steps, run_func)" if f.ai else "no"),
             ("where", f"{_where(f)}" + (f"  {f.path}" if f.path else "  (this session only: func save "
                                                                          f"{f.name} keeps it)"))]
     for key, value in rows:
