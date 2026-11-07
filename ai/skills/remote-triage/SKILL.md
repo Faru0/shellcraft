@@ -24,6 +24,8 @@ analyze with `hostscan` (rules) and `baseline` (what changed). Follow `untrusted
 | `exes` | `hostscan exes` | `(deleted)` binaries, `/tmp`, `/dev/shm`, `memfd:` executables |
 | `ss` | `hostscan ss` | listeners on odd ports, one peer with many connections, shells with outbound sockets |
 | `cron`, `timers`, `authorized-keys`, `users`, `modules` | `baseline diff` | anything new: a cron line, a key, an account, a module |
+| `pkg-verify` | `baseline diff` | a **program** (not a config file, flag `c`) that no longer matches its package, above all `sshd`, `login`, `sudo`, `su`, PAM and libc |
+| `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config`, `shell-rc` | `baseline diff` | the persistence pass: a new setuid file (above all under `/tmp` or `/home`), any `ld.so.preload` line, a unit that runs from `/tmp`, `/home` or `/dev/shm`, a new sudoers rule, a changed ssh setting, a new line in a shell startup file |
 | `logins`, `failed-logins` | read | logins from new places, bursts of failures then a success |
 
 The first run of `baseline diff` learns (everything is recorded, nothing is flagged as new). Say so

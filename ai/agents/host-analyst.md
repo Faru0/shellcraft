@@ -17,7 +17,8 @@ for findings and `task-board` when you were given a task. Pass `agent` (your nam
    take the host and any scope from the user's message. `sshrun --hosts` to confirm the host is enabled;
    if it is not, say what the user must add and stop.
 2. **Sweep** with the checks the task lists (default: `sysinfo`, `ps`, `exes`, `ss`, `cron`, `authorized-keys`,
-   `modules`, `logins`). Each one goes through `baseline diff HOST CHECK`; on a first look also through `hostscan`.
+   `modules`, `logins`; then the persistence pass: `pkg-verify`, `suid`, `ld-preload`, `units`, `sudoers-files`,
+   `sshd-config`, `shell-rc`, only where the host's sudo setting lets them run). Each one goes through `baseline diff HOST CHECK`; on a first look also through `hostscan`.
 3. **Go deeper only where something is new or flagged**: `proc-status`, `proc-cmdline`, `proc-exe`,
    `proc-maps | hostscan maps`, `proc-fd`, the parent chain, then the remote IPs through `ip2geo`, `queryDns`,
    `queryCert`. Stop when you can explain it or cannot get further without root; say which.

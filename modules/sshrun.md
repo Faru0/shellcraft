@@ -68,6 +68,14 @@ Use `root = true` instead of `sudo = true` when the ssh user already is root.
 | `probes` | | registered kprobes and uprobes (needs root) |
 | `modules`, `cron`, `timers`, `authorized-keys`, `users`, `logins` | | the usual places to hide |
 | `failed-logins` | | `lastb` (needs root) |
+| `pkg-verify` | | installed files that no longer match their package (`dpkg --verify`, `rpm -Va` or `apk verify`); a changed config file shows as `c`, a changed program is the one to worry about |
+| `suid` | | setuid and setgid files in system paths, `/home` and the temp folders |
+| `capabilities` | | files with Linux capabilities (`getcap`) |
+| `ld-preload` | | `/etc/ld.so.preload` and the library search path; a preload entry is rare and worth a look |
+| `units` | | enabled systemd units and what the local unit files run |
+| `sudoers-files` | | sudoers and sudoers.d (needs root) |
+| `sshd-config` | | the ssh server's settings without comments |
+| `shell-rc` | | `/etc/profile`, `profile.d`, and the ssh user's shell startup files |
 | `recent-files` | | files changed in two days in `/etc`, `/root`, `/tmp` and friends |
 | `journal` | [UNIT] | the last 500 journal lines |
 | `log-tail`, `zlog`, `strings` | PATH | last 500 lines of a text log, a `.gz` log, or the text in a binary file |

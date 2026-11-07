@@ -97,6 +97,45 @@ BUILTIN = [
     _c("recent-files",
        "find /etc /usr/local/bin /usr/local/sbin /root /tmp /dev/shm -xdev -type f -mtime -2 2>/dev/null | head -n 200",
        "files changed in the last two days in the usual hiding places", partial_ok=True),
+    _c("pkg-verify",
+       "if command -v dpkg >/dev/null 2>&1; then {sudo}dpkg --verify; "
+       "elif command -v rpm >/dev/null 2>&1; then {sudo}rpm -Va --nomtime; "
+       "elif command -v apk >/dev/null 2>&1; then {sudo}apk verify; "
+       "else echo 'no package manager found (dpkg, rpm, apk)'; fi",
+       "installed files that no longer match their package (a replaced sshd, login or sudo)",
+       sudo="optional", timeout=120, partial_ok=True),
+    _c("suid",
+       "find /usr /bin /sbin /opt /home /tmp /var/tmp -xdev \\( -perm -4000 -o -perm -2000 \\) -type f "
+       "-printf '%m %u %p\\n' 2>/dev/null | sort -k3 | head -n 500",
+       "setuid and setgid files in system paths, home and temp folders", timeout=90, partial_ok=True),
+    _c("capabilities",
+       "if command -v getcap >/dev/null 2>&1; then getcap -r /usr /bin /sbin /opt 2>/dev/null; "
+       "else echo 'getcap is not installed'; fi",
+       "files that carry Linux capabilities", timeout=60, partial_ok=True),
+    _c("ld-preload",
+       "echo '## /etc/ld.so.preload'; cat /etc/ld.so.preload 2>/dev/null; "
+       "echo '## /etc/ld.so.conf.d'; cat /etc/ld.so.conf.d/*.conf 2>/dev/null",
+       "libraries forced into every program (a classic rootkit spot) and the library search path",
+       partial_ok=True),
+    _c("units",
+       "systemctl list-unit-files --state=enabled --no-pager --no-legend; echo '## ExecStart'; "
+       "grep -H -E '^Exec(Start|StartPre|StartPost)=' /etc/systemd/system/*.service "
+       "/etc/systemd/system/*/*.service ~/.config/systemd/user/*.service 2>/dev/null",
+       "enabled systemd units and what the local ones run", partial_ok=True),
+    _c("sudoers-files",
+       "echo '## /etc/sudoers'; {sudo}cat /etc/sudoers; echo '## /etc/sudoers.d'; "
+       "{sudo}grep -rh . /etc/sudoers.d",
+       "who may run what as root (sudoers and sudoers.d)", sudo="required", partial_ok=True),
+    _c("sshd-config",
+       "echo '## sshd_config'; grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' /etc/ssh/sshd_config; "
+       "echo '## sshd_config.d'; grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' /etc/ssh/sshd_config.d/*.conf "
+       "2>/dev/null",
+       "the ssh server's settings without comments", partial_ok=True),
+    _c("shell-rc",
+       "for f in /etc/profile /etc/bash.bashrc /etc/profile.d/* ~/.bashrc ~/.profile ~/.bash_profile "
+       "~/.bash_login; do if [ -f \"$f\" ]; then echo \"## $f\"; "
+       "grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' \"$f\"; fi; done",
+       "login and shell startup files (a persistence spot), comments removed", partial_ok=True),
     _c("journal", "journalctl --no-pager -n 500 -o short-iso{unit?}", "the systemd journal (one unit if given)",
        args=("unit?",)),
     _c("log-tail", TAIL + ' -- {path}', "the last 500 lines of a text log (the host's log_paths decide which)",

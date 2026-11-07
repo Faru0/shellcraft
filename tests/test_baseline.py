@@ -223,6 +223,15 @@ def test_ps_kernel_workers_are_one_item(mod):
     assert mod.normalize("ps", one) == mod.normalize("ps", two) == ["root [ksoftirqd/0]", "root [kworker/*]"]
 
 
+def test_integrity_checks_are_line_sets(mod):
+    old = "??5?????? c /etc/nginx/nginx.conf\n"
+    new = old + "??5?????? /usr/sbin/sshd\n"
+    assert mod.normalize("pkg-verify", new) == ["/usr/sbin/sshd".join(["??5?????? ", ""]), "??5?????? c /etc/nginx/nginx.conf"]
+    assert mod.normalize("suid", "4755 root /usr/bin/sudo\n4755 root /usr/bin/sudo\n") == ["4755 root /usr/bin/sudo"]
+    for name in ("capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc"):
+        assert mod.normalize(name, "a\nb\n") == ["a", "b"]
+
+
 def test_ss_listen_and_ephemeral(mod):
     text = (
         "Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"

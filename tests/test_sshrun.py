@@ -252,6 +252,37 @@ def test_authorized_keys_names_the_real_ssh_user(ss):
     assert '$(id -un)' in ss.CHECKS["authorized-keys"].cmd and "## user" not in ss.CHECKS["authorized-keys"].cmd
 
 
+INTEGRITY = ("pkg-verify", "suid", "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc")
+
+
+def test_the_integrity_and_persistence_checks_exist_with_the_right_privilege(ss):
+    assert all(name in ss.CHECKS for name in INTEGRITY)
+    assert ss.CHECKS["pkg-verify"].sudo == "optional" and ss.CHECKS["sudoers-files"].sudo == "required"
+    assert all(ss.CHECKS[n].sudo == "no" for n in INTEGRITY if n not in ("pkg-verify", "sudoers-files"))
+    assert all(ss.CHECKS[n].partial_ok for n in INTEGRITY)  # find, grep and the package tools exit non-zero on a miss
+    assert ss.CHECKS["pkg-verify"].timeout <= ss.MAX_TIMEOUT
+
+
+def test_the_sudoers_lines_cover_the_new_root_checks(ss):
+    text = ss.sudoers_for("web01")
+    for line in ("dpkg --verify", "rpm -Va --nomtime", "apk verify", "cat /etc/sudoers",
+                 "grep -rh . /etc/sudoers.d"):
+        assert f"NOPASSWD: {line}" in text
+
+
+def test_sudoers_files_needs_root_on_the_host(ss):
+    ss.enable()
+    with pytest.raises(ss.ModuleError, match="needs root"):
+        ss.run("web01", "sudoers-files")
+
+
+def test_a_quiet_check_runs_and_is_framed(ss):
+    ss.enable()
+    out = ss.run("web01", "ld-preload")
+    assert out.startswith("# sshrun web01 ld-preload (untrusted remote output")
+    assert "## /etc/ld.so.preload" in out and out.rstrip().endswith("# end sshrun web01 ld-preload")
+
+
 def test_hosts_and_checks_listings(ss):
     ss.enable("ai = true\nrole = \"web\"\ntags = [\"prod\"]")
     hosts = ss.run("--hosts")

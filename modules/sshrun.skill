@@ -40,7 +40,7 @@ description = "A host name from the user's ssh config that is enabled for AI use
 name = "check"
 type = "string"
 metavar = "CHECK"
-description = "The check name: sysinfo, ps, ss, listening, lsof-net, exes, proc-maps, proc-status, proc-cmdline, proc-exe, proc-fd, bpf-progs, bpf-links, bpf-maps, probes, modules, cron, timers, authorized-keys, users, logins, failed-logins, recent-files, journal, log-tail, log-grep, zlog, binlog, strings, or one the user added (checks lists all)."
+description = "The check name: sysinfo, ps, ss, listening, lsof-net, exes, proc-maps, proc-status, proc-cmdline, proc-exe, proc-fd, bpf-progs, bpf-links, bpf-maps, probes, modules, cron, timers, authorized-keys, users, logins, failed-logins, recent-files, pkg-verify, suid, capabilities, ld-preload, units, sudoers-files, sshd-config, shell-rc, journal, log-tail, log-grep, zlog, binlog, strings, or one the user added (checks lists all)."
 
 [[params]]
 name = "arg"

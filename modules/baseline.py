@@ -169,7 +169,8 @@ NORMALIZERS: dict[str, Callable[[str], list[str]]] = {
     "bpf-maps": _bpf,
 }
 # These are plain line-based checks; they use the generic normaliser and are listed for clarity.
-for _name in ("cron", "timers", "modules", "kprobes", "uprobes", "listening", "logins", "exes"):
+for _name in ("cron", "timers", "modules", "kprobes", "uprobes", "listening", "logins", "exes", "pkg-verify", "suid",
+              "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc"):
     NORMALIZERS[_name] = NORMALIZERS["generic"]
 
 
