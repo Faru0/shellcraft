@@ -217,6 +217,12 @@ def test_ps_pids_vary_but_items_equal(mod):
     assert mod.normalize("ps", one) == ["root /tmp/job --port N", "www nginx: worker process"]
 
 
+def test_ps_kernel_workers_are_one_item(mod):
+    one = "  PID  PPID USER ETIMES ARGS\n 11 2 root 9 [kworker/0:0-events]\n 12 2 root 9 [kworker/u8:1-flush-8:0]\n 13 2 root 9 [ksoftirqd/0]\n"
+    two = " 21 2 root 9 [kworker/2:1]\n 22 2 root 9 [kworker/1:2-mm_percpu_wq]\n 13 2 root 9 [ksoftirqd/0]\n"
+    assert mod.normalize("ps", one) == mod.normalize("ps", two) == ["root [ksoftirqd/0]", "root [kworker/*]"]
+
+
 def test_ss_listen_and_ephemeral(mod):
     text = (
         "Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"

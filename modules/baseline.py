@@ -50,6 +50,7 @@ _TIMESTAMPS = [
     re.compile(rf"\b(?:{_DAYS})\s+\d{{1,2}}\s+(?:{_MONTHS})\s+\d{{4}}\s+\d\d:\d\d:\d\d\b"),
 ]
 _BIG_NUMBER = re.compile(r"\b\d{5,}\b")
+_KWORKER = re.compile(r"^\[kworker/[^\]]*\]$")  # [kworker/0:1-events]: the cpu, id and queue change by the second
 _KEY_TYPE = re.compile(r"^(?:ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)\S*$")
 
 
@@ -65,6 +66,8 @@ def _ps(line: str) -> str | None:
         return None  # the header line, or not a ps line
     user = parts[2]
     args = _BIG_NUMBER.sub("N", parts[4]) if len(parts) > 4 else ""
+    if _KWORKER.match(args):
+        args = "[kworker/*]"
     return f"{user} {args}".strip()
 
 
