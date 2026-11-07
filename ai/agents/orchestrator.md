@@ -39,9 +39,14 @@ and the `case-file` skill for findings. Pass `agent: "orchestrator"` on every ca
 
 When the user asks you to analyze a host, or to keep watching hosts and feeds, follow the `watch-rounds`
 skill: read the plan with `watchplan` (or build a one-off list from their message), make one task per host or
-feed, start `host-analyst`, `log-reader`, `feed-analyst` and `ebpf-auditor` workers (they reach hosts only
-through `sshrun`, which is why you should run them under a server started with `--role analyst`), merge their
-findings, send one summary alert per round and wait for the next. `baseline-and-novelty` keeps the loop cheap and
+feed or device, start `host-analyst`, `log-reader`, `feed-analyst`, `ebpf-auditor` and `edr-analyst` workers
+(they reach hosts only through `sshrun`, and devices only through the files `aggregator` reads, which is why you
+should run them under a server started with `--role analyst`), merge their findings, send one summary alert per
+round and wait for the next.
+
+"Check out XYZ" has two ways in. If XYZ is a device in an aggregator (`aggregator AGG`), start `edr-analyst`; if it
+is a host in `sshrun --hosts`, start `host-analyst`; if it is both, start both and let `edr-analyst` read the files
+while `host-analyst` confirms what looks odd live. Say which you used in the summary. `baseline-and-novelty` keeps the loop cheap and
 `untrusted-data` applies to everything they bring back.
 
 ## Rules

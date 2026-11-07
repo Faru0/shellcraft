@@ -24,6 +24,9 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,40}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 CHECK_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/@+:~-]{0,199}$")
+AGG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,40}$")
+DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+KIND_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,40}$")
 QUIET_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$")
 MAX_UNITS = 60
 
@@ -87,6 +90,18 @@ def validate(name: str, data: dict[str, Any]) -> None:
             if "grep" in log and not (isinstance(log["grep"], str) and re.match(r"^[ -~]{1,100}$", log["grep"])):
                 raise ModuleError(f"watchplan: host {entry['name']}: grep is plain text, up to 100 characters")
         units += 1
+    seen_devices: set[str] = set()
+    for entry in data.get("devices", []):
+        if not isinstance(entry, dict) or not AGG_RE.match(str(entry.get("aggregator", ""))) \
+                or not DEVICE_RE.match(str(entry.get("name", ""))):
+            raise ModuleError("watchplan: every [[devices]] entry needs an aggregator (its name in aggregators.toml) "
+                              "and a device name")
+        key = f"{entry['aggregator']}/{entry['name']}"
+        if key in seen_devices:
+            raise ModuleError(f"watchplan: device {key} is listed twice")
+        seen_devices.add(key)
+        _strings(f"device {key}: kinds", entry.get("kinds", []), KIND_RE)
+        units += 1
     kinds = (("feeds", re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,40}$")),
              ("funcs", re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,47}$")))
     for key, pattern in kinds:
@@ -97,10 +112,10 @@ def validate(name: str, data: dict[str, Any]) -> None:
                 _strings(f"{key[:-1]} {entry['name']}: {field}", entry.get(field, []), re.compile(r"^[ -~]{1,200}$"))
             units += 1
     if units == 0:
-        raise ModuleError(f"watchplan: plan '{name}' has nothing to check: add a [[hosts]], [[feeds]] "
-                          "or [[funcs]] entry")
+        raise ModuleError(f"watchplan: plan '{name}' has nothing to check: add a [[hosts]], [[devices]], "
+                          "[[feeds]] or [[funcs]] entry")
     if units > MAX_UNITS:
-        raise ModuleError(f"watchplan: at most {MAX_UNITS} hosts, feeds and funcs in one plan")
+        raise ModuleError(f"watchplan: at most {MAX_UNITS} hosts, devices, feeds and funcs in one plan")
 
 
 def units(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -108,6 +123,9 @@ def units(data: dict[str, Any]) -> list[dict[str, Any]]:
     for h in data.get("hosts", []):
         out.append({"id": f"host:{h['name']}", "kind": "host", "host": h["name"], "checks": h.get("checks", []),
                     "logs": h.get("logs", []), "deep": h.get("deep", True) is not False})
+    for d in data.get("devices", []):
+        out.append({"id": f"device:{d['aggregator']}/{d['name']}", "kind": "device", "aggregator": d["aggregator"],
+                    "device": d["name"], "kinds": d.get("kinds", []), "deep": d.get("deep", True) is not False})
     for f in data.get("feeds", []):
         out.append({"id": f"feed:{f['name']}", "kind": "feed", "feed": f["name"], "query": f.get("query", [])})
     for f in data.get("funcs", []):
@@ -180,6 +198,9 @@ def run(args: list[str], stdin: str) -> str:
         if u["kind"] == "host":
             lines.append(f"host {u['host']}: {', '.join(u['checks']) or '(no fixed checks)'}"
                          + (f"; {len(u['logs'])} log(s)" if u["logs"] else "") + ("; deep" if u["deep"] else ""))
+        elif u["kind"] == "device":
+            lines.append(f"device {u['aggregator']}/{u['device']}: {', '.join(u['kinds']) or '(all kinds)'}"
+                         + ("; deep" if u["deep"] else ""))
         elif u["kind"] == "feed":
             lines.append(f"feed {u['feed']} {' '.join(u['query'])}".rstrip())
         else:

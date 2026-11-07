@@ -1,6 +1,6 @@
 # ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
 
-summary = "Read the user's watch plan: which hosts, checks, feeds and funcs to keep checking, how often, and when the next round is due. It runs nothing."
+summary = "Read the user's watch plan: hosts (live over ssh), devices (EDR files on an aggregator), feeds and funcs to keep checking, how often, and when the next round is due. It runs nothing."
 
 when_to_use = """
 Use it when the user says to keep watching or sweep their hosts and feeds. Call tasks to get the units of

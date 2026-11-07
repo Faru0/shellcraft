@@ -32,8 +32,8 @@ def test_the_role_exists_and_runs_nothing():
 
 def test_an_analyst_server_offers_the_host_tools_and_not_a_shell(registry):
     names = {t.name for t in _call(build_server(registry, role="analyst"), lambda c: c.list_tools()).tools}
-    assert {"sshrun", "hostscan", "baseline", "feed", "run_func", "add_finding", "claim_task", "send_tui_alert",
-            "shellcraft_pipeline", "ip2geo"} <= names
+    assert {"sshrun", "aggregator", "hostscan", "health", "baseline", "feed", "run_func", "add_finding", "claim_task",
+            "send_tui_alert", "shellcraft_pipeline", "ip2geo"} <= names
     assert not names & {"run_in_shell", "request_session_grant", "get_history", "get_clip"}
 
 
@@ -89,3 +89,47 @@ def test_the_host_tools_work_through_the_mcp_server(registry, tmp_path, monkeypa
     (plan_dir / "p.toml").write_text('[[hosts]]\nname = "web01"\nchecks = ["ps"]\n')
     tasks = call("watchplan", {"action": "tasks", "name": "p"})
     assert not tasks.is_error and "host:web01" in tasks.content[0].text
+
+
+def test_the_aggregator_tool_works_through_the_mcp_server(registry, tmp_path, monkeypatch):
+    """Option B end to end: read a device's EDR file from the aggregator, scan it, remember it."""
+    import os
+    import stat
+
+    fake = tmp_path / "fakessh"
+    fake.write_text(FAKE_SSH)
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    root = tmp_path / "edr"
+    device = root / "192.168.1.2"
+    device.mkdir(parents=True)
+    ps_file = device / "ps-2026-11-07T1930.txt"
+    ps_file.write_text("  PID  PPID USER ETIMES ARGS\n    1     0 root  900 /sbin/init\n"
+                       "  812     1 www    90 nginx: worker process\n"
+                       "  900   812 www    10 /bin/sh -c id\n")
+    now = __import__("time").time()
+    os.utime(ps_file, (now - 60, now - 60))
+    home = tmp_path / ".home"
+    (home / "ssh-hosts.toml").write_text("[hosts.edr-box]\nai = true\n")
+    (home / "aggregators.toml").write_text(
+        f'[aggregators.edr]\nhost = "edr-box"\nroot = "{root}"\n[aggregators.edr.files]\nps = "ps-*.txt"\n'
+        '[aggregators.edr.devices]\nweb01 = "192.168.1.2"\n')
+    (tmp_path / "cfg").write_text("Host edr-box\n")
+    monkeypatch.setenv("SHELLCRAFT_SSH", str(fake))
+    monkeypatch.setenv("SHELLCRAFT_SSH_CONFIG", str(tmp_path / "cfg"))
+    server = build_server(registry, role="analyst")
+
+    def call(name, args):
+        return _call(server, lambda c: c.call_tool(name, args))
+
+    listed = call("aggregator", {"list": True})
+    assert not listed.is_error and "edr-box" in listed.content[0].text
+    summary = call("aggregator", {"aggregator": "edr", "device": "web01"})
+    assert not summary.is_error and "ps-2026-11-07T1930.txt" in summary.content[0].text
+    read = call("aggregator", {"aggregator": "edr", "device": "web01", "kind": "ps"})
+    assert not read.is_error and read.content[0].text.startswith("# aggregator edr web01 ps (untrusted EDR data")
+    flags = call("hostscan", {"subcommand": "ps", "stdin": read.content[0].text})
+    assert not flags.is_error and "web_child_shell" in flags.content[0].text
+    learned = call("baseline", {"subcommand": "diff", "host": "web01", "check": "ps", "stdin": read.content[0].text})
+    assert not learned.is_error and "LEARNING" in learned.content[0].text
+    refused = call("aggregator", {"aggregator": "edr", "device": "../etc", "kind": "ps"})
+    assert refused.is_error

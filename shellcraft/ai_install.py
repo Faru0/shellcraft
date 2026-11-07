@@ -26,7 +26,8 @@ from pathlib import Path
 _INSTALLED = Path(__file__).resolve().parent / "bundled_ai"
 SOURCE = _INSTALLED if _INSTALLED.is_dir() else Path(__file__).resolve().parent.parent / "ai"
 MANIFEST_NAME = "ai-installed.json"
-TEAM = ("orchestrator", "worker", "monitor", "host-analyst", "log-reader", "feed-analyst", "ebpf-auditor")
+TEAM = ("orchestrator", "worker", "monitor", "host-analyst", "log-reader", "feed-analyst", "ebpf-auditor",
+        "edr-analyst")
 
 
 class InstallError(Exception):

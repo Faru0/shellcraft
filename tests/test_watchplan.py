@@ -130,3 +130,52 @@ def test_quiet_hours_wrap_midnight(wp):
     assert not f(data, at(6, 0)) and not f(data, at(12, 0)) and not f(data, at(22, 59))
     assert f({"quiet_hours": "01:00-02:00"}, at(1, 30)) and not f({"quiet_hours": "01:00-02:00"}, at(3, 0))
     assert not f({}, at(3, 0))
+
+
+DEVICE_PLAN = """
+interval_minutes = 5
+
+[[hosts]]
+name = "web01"
+checks = ["ps"]
+
+[[devices]]
+aggregator = "edr"
+name = "web01"
+kinds = ["ps", "netstat"]
+
+[[devices]]
+aggregator = "edr"
+name = "192.168.1.9"
+"""
+
+
+def test_devices_become_units_after_the_hosts(wp):
+    wp.write("both", DEVICE_PLAN)
+    units = json.loads(wp.run("tasks", "both"))
+    assert [u["id"] for u in units] == ["host:web01", "device:edr/web01", "device:edr/192.168.1.9"]
+    assert units[1] == {"id": "device:edr/web01", "kind": "device", "aggregator": "edr", "device": "web01",
+                        "kinds": ["ps", "netstat"], "deep": True}
+    assert units[2]["kinds"] == []
+    assert "ok: plan 'both': 3 unit(s)" in wp.run("check", "both")
+    shown = wp.run("show", "both")
+    assert "device edr/web01: ps, netstat; deep" in shown and "device edr/192.168.1.9: (all kinds)" in shown
+
+
+@pytest.mark.parametrize("entry, message", [
+    ('[[devices]]\nname = "web01"', "needs an aggregator"),
+    ('[[devices]]\naggregator = "edr"', "needs an aggregator"),
+    ('[[devices]]\naggregator = "../x"\nname = "a"', "needs an aggregator"),
+    ('[[devices]]\naggregator = "edr"\nname = "a b"', "needs an aggregator"),
+    ('[[devices]]\naggregator = "edr"\nname = "a"\nkinds = ["ps; rm"]', "not allowed"),
+    ('[[devices]]\naggregator = "edr"\nname = "a"\n[[devices]]\naggregator = "edr"\nname = "a"', "listed twice"),
+])
+def test_a_bad_device_entry_is_explained(wp, entry, message):
+    wp.write("bad", "interval_minutes = 5\n" + entry + "\n")
+    with pytest.raises(ModuleError, match=message):
+        wp.run("check", "bad")
+
+
+def test_a_plan_of_only_devices_is_enough(wp):
+    wp.write("onlydev", '[[devices]]\naggregator = "edr"\nname = "web01"\n')
+    assert "1 unit(s)" in wp.run("check", "onlydev")
