@@ -180,7 +180,17 @@ claude -p "Run a watch round" --agent orchestrator --mcp-config .mcp.json --stri
 
 Put what you want checked every so often in a watch plan (`~/.shellcraft/watchplans/NAME.toml`): hosts and
 their checks, feeds, and `[[devices]]` for aggregator devices. The orchestrator asks which units are due and
-records each as done, so you can run rounds on a schedule or ask for them when you like.
+records each as done, so you can ask for a round when you like, or let a timer run them:
+
+```
+shellcraft --watch-rounds NAME      # one round now, if one is due, with no Claude Code session open
+shellcraft --install-timer NAME     # a round every interval_minutes of the plan, on its own
+shellcraft --remove-timer NAME
+```
+
+A round on a timer sends its alerts to your ShellCraft. With no shell open they wait, and the next shell shows
+them as missed. Each round has a budget (`--budget`, default 2 USD) and all rounds of a day have one
+(`--day-budget`, default 10 USD). [Rounds on a timer](ai-host-analysis.md#rounds-on-a-timer) has the details.
 
 ## Safety in one minute
 
@@ -206,4 +216,5 @@ records each as done, so you can run rounds on a schedule or ask for them when y
 | "no file for ps" on a device | The EDR renamed its files: rerun setup with `--file`, or pass `--glob` for the call |
 | Everything says STALE | Raise `--stale-minutes`, or check the EDR is still writing |
 | A round reports nothing | That is correct when nothing changed |
+| The timer runs no rounds | `tail ~/.shellcraft/rounds.log` and `shellcraft --check-analyst`: the day's budget may be used up, or the client is not logged in |
 | Anything else | `shellcraft --check-analyst`, then the troubleshooting tables in the two reference pages |

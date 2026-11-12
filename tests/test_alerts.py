@@ -64,7 +64,7 @@ def test_bus_orders_by_severity_caps_the_list_and_expires():
     b.close()
 
 
-def test_spool_delivers_labels_and_drops_stale_files(bus, home, monkeypatch):
+def test_spool_delivers_labels_and_drops_junk(bus, home, monkeypatch):
     spool = home / alertmod.SPOOL
     assert bus.spool == spool and spool.is_dir()
     if sys.platform != "win32":
@@ -81,17 +81,154 @@ def test_spool_delivers_labels_and_drops_stale_files(bus, home, monkeypatch):
     assert alertmod.source_label() == "sub 2 (bash --norc)"
     alertmod.send("from inside")
     assert _wait(lambda: any(a.source == "sub 2 (bash --norc)" for a in bus.current()))
-    # junk, a bad timeout and a stale file are handled without posting junk
+    # junk, a bad timeout and a file from last month are handled without posting junk
     (spool / "0-junk.json").write_text("not json")
     (spool / "1-list.json").write_text("[1, 2]")
-    (spool / "2-stale.json").write_text(json.dumps({"time": time.time() - 3600, "message": "old", "level": "info"}))
+    (spool / "2-stale.json").write_text(json.dumps({"time": time.time() - 30 * 86400, "message": "old"}))
+    (spool / "2-when.json").write_text(json.dumps({"time": "yesterday", "message": "old"}))
     (spool / "3-bad.json").write_text(json.dumps({"time": time.time(), "message": "odd", "timeout": "soon"}))
     assert _wait(lambda: any(a.message == "odd" for a in bus.current()))
-    assert bus.current()[-1].timeout == 15.0 and not any(a.message == "old" for a in bus.current())
+    assert bus.current()[-1].timeout == 15.0 and not any("old" in a.message for a in bus.current())
+    assert bus.waiting() == []
     assert _wait(lambda: not list(spool.glob("*.json")))
     bus.close()
     alertmod.send("after close", home=home)  # nobody watching: the file waits in the spool
     assert list(spool.glob("*.json"))
+
+
+# ── alerts nobody was there to see ───────────────────────────────────────────
+
+def _spooled(home, message, age, level="info", **more):
+    """One spool file written `age` seconds ago, the way a sender leaves it."""
+    spool = alertmod.spool_dir(home)
+    sent = time.time() - age
+    path = spool / f"{sent:.6f}-1-{len(list(spool.iterdir())):06x}.json"
+    path.write_text(json.dumps({"time": sent, "level": level, "message": message, "source": "mcp · rounds", **more}))
+    return path
+
+
+def test_an_alert_sent_while_no_shell_was_open_is_shown_as_missed(home):
+    sent = time.time() - 2 * 3600
+    _spooled(home, "new listening port 4444 on web01", 2 * 3600, "warn", timeout=30, content="fleet host:web01")
+    bus = AlertBus()
+    bus.spool = alertmod.spool_dir(home)
+    assert bus.drain() == 1
+    (alert,) = bus.current()
+    assert alert.message == f"new listening port 4444 on web01 (missed, {alertmod.clock(sent)})"
+    assert alert.level == "warn" and alert.source == "mcp · rounds" and alert.content == "fleet host:web01"
+    assert alert.timeout is None and alert.remaining is None  # it stays, whatever timeout it was sent with
+    assert alert.raised == pytest.approx(sent, abs=1)
+    assert not list(bus.spool.glob("*.json"))
+
+
+def test_a_fresh_alert_is_not_called_missed(home):
+    _spooled(home, "just now", 20)
+    bus = AlertBus()
+    bus.spool = alertmod.spool_dir(home)
+    bus.drain()
+    (alert,) = bus.current()
+    assert alert.message == "just now" and alert.raised is None and alert.timeout == 15.0
+
+
+def test_the_clock_of_a_missed_alert_names_the_day_when_it_was_not_today():
+    now = time.time()
+    assert alertmod.clock(now) == time.strftime("%H:%M", time.localtime(now))
+    other = now - 3 * 86400
+    assert alertmod.clock(other) == time.strftime("%a %H:%M", time.localtime(other))
+
+
+def test_a_long_missed_alert_keeps_its_note():
+    bus = AlertBus()
+    when = time.time() - 600
+    alert = bus.post("x" * 500, "info", raised=when)
+    assert len(alert.message) == alertmod.MAX_MESSAGE and alert.message.endswith(f" (missed, {alertmod.clock(when)})")
+
+
+def test_old_requests_still_expire(home):
+    asked = []
+    bus = AlertBus()
+    bus.spool = alertmod.spool_dir(home)
+    bus.on_request = asked.append
+    bus.on_recording = asked.append
+    for age in (20, 3600):
+        _spooled(home, "", age, kind="sub", args=["bash"], cwd="/")
+        _spooled(home, "", age, kind="recording", on=True)
+    assert bus.drain() == 0 and bus.current() == []
+    assert sorted(a["kind"] for a in asked) == ["recording", "sub"]  # the fresh pair only
+    assert not list(bus.spool.glob("*.json"))
+
+
+def test_a_missed_alert_older_than_a_week_is_dropped(home):
+    _spooled(home, "six days", 6 * 86400)
+    _spooled(home, "eight days", 8 * 86400)
+    bus = AlertBus()
+    bus.spool = alertmod.spool_dir(home)
+    assert bus.drain() == 1 and bus.current()[0].message.startswith("six days (missed, ")
+
+
+def test_missed_alerts_wait_for_room_and_move_up(home):
+    for n, level in enumerate(("info", "warn", "crit", "info", "warn")):
+        _spooled(home, f"night {n}", 3600 - n * 60, level)
+    bus = AlertBus()
+    bus.spool = alertmod.spool_dir(home)
+    assert bus.drain() == 5
+
+    def shown():
+        return [a.message.split(" (")[0] for a in bus.current()]
+
+    def waiting():
+        return [a.message.split(" (")[0] for a in bus.waiting()]
+
+    assert shown() == ["night 2", "night 4", "night 1"]  # the most severe first, then the newest
+    assert waiting() == ["night 3", "night 0"]
+    assert bus.dismiss(1) == 1  # room is made: the next one moves up
+    assert shown() == ["night 4", "night 1", "night 3"] and waiting() == ["night 0"]
+    bus.remove(bus.current()[0])  # a click on its ×
+    assert shown() == ["night 1", "night 3", "night 0"] and waiting() == []
+    # a new alert takes its place by level; the missed one it pushes out waits, it is not lost
+    bus.post("happening now", "crit", timeout=1)
+    assert shown() == ["happening now", "night 1", "night 3"] and waiting() == ["night 0"]
+    bus.post("chatter", "info")  # an alert of today that finds no room is dropped, as always
+    assert "chatter" in shown() and waiting() == ["night 3", "night 0"]
+    assert _wait(lambda: "happening now" not in shown(), 3)  # it expires: a missed one moves back up
+    assert shown() == ["night 1", "chatter", "night 3"] and waiting() == ["night 0"]
+    assert bus.dismiss(4) == 1 and waiting() == []  # numbered on from the shown ones
+    assert bus.dismiss(9) == 0
+    assert bus.dismiss() == 3 and bus.current() == [] and bus.waiting() == []
+    bus.close()
+
+
+def test_alert_list_shows_the_waiting_ones_and_clear_takes_them_all(ictx, home):
+    for n in range(5):
+        _spooled(home, f"night {n}", 3600 - n * 60, "warn")
+    ictx.alerts.spool = alertmod.spool_dir(home)
+    ictx.alerts.drain()
+    listed = [row for row in to_text(run_line("alert --list", ictx).output).splitlines() if row]
+    assert len(listed) == 5
+    assert listed[0].startswith("1. [warn] night 4 (missed, ") and listed[0].endswith("(sticky, from mcp · rounds)")
+    assert listed[3].startswith("4. [warn] night 1 (missed, ")
+    assert listed[3].endswith("(waiting for room in the panel, from mcp · rounds)")
+    assert "1 alert dismissed" in to_text(run_line("alert -c 5", ictx).output)
+    assert "4 alerts dismissed" in to_text(run_line("alert -c", ictx).output)
+    assert "no alerts" in to_text(run_line("alert --list", ictx).output)
+
+
+def test_the_spool_keeps_200_alerts_and_a_week(home):
+    spool = alertmod.spool_dir(home)
+    for n in range(alertmod.MAX_SPOOLED + 5):
+        _spooled(home, f"old {n}", 5000 - n)
+    _spooled(home, "last month", 30 * 86400)
+    (spool / "notes.txt").write_text("not an alert")
+    newest = alertmod.send("the newest", home=home)
+    left = sorted(p.name for p in spool.glob("*.json"))
+    assert len(left) == alertmod.MAX_SPOOLED and newest.name in left
+    kept = [json.loads((spool / name).read_text())["message"] for name in left]
+    assert "last month" not in kept and "old 0" not in kept and "old 5" not in kept  # the oldest went
+    assert kept[0] == "old 6" and kept[-1] == "the newest" and (spool / "notes.txt").exists()
+    bus = AlertBus()
+    bus.spool = spool
+    assert bus.drain() == alertmod.MAX_SPOOLED
+    assert len(bus.current()) == alertmod.MAX_ALERTS and len(bus.waiting()) == alertmod.MAX_SPOOLED - alertmod.MAX_ALERTS
 
 
 def test_command_line_client_and_shim(bus, home, capsys):

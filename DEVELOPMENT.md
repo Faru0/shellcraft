@@ -52,6 +52,7 @@ shellcraft/
 │   ├── ask.py              # asking for a value: `name = input("…")` lines and the `read` builtin's prompt
 │   ├── startup.py          # startup: ~/.shellcraft/rc, then startup/*.sc (like ~/.bashrc.d), all via source()
 │   ├── alerts.py           # status alerts: the bus, the spool folder it watches, the `alert` clients, the subshell shim
+│   ├── rounds.py           # `--watch-rounds PLAN`: one round of a watch plan with nobody there, its log, budgets and lock; the systemd user timer
 │   ├── aliases.py          # aliases: the ~/.shellcraft/aliases file (parsed, cached by mtime, edited line by line), validation, expansion
 │   ├── pipeline.py         # executor: resolves commands, chains |, handles > / >>
 │   ├── streams.py          # segments run at the same time: Channel, Lines, cancellation
@@ -285,7 +286,8 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_user_modules.py` | the user modules folder: shadowing, origin, helpers across folders, hot reload of both, `ingest` writing there, the CLI wiring |
 | `test_ask.py` | `name = input("…")` parsing and variables, `read` (prompt, hidden), refusal without a terminal and over MCP, asking from an rc file |
 | `test_startup.py` | rc and startup files: `.sc` files in name order sharing what they set, `_helpers`, a failing line naming its file, leftover `.py` not run, the `startup` builtin, `--no-startup` and the setting, a profile's own folder at start and on `profile use`, export / import / copy, `source` |
-| `test_alerts.py` | alerts: severity ordering, the cap, expiry and dismissal, the spool folder (delivery, sender labels, junk and stale files), the command-line client and the subshell shim, the `alert` builtin (local, forwarded from a nested shell), alert lines in the panel with their source, the `send_tui_alert` MCP tool |
+| `test_alerts.py` | alerts: severity ordering, the cap, expiry and dismissal, the spool folder (delivery, sender labels, junk and stale files, alerts missed while no shell was open, the 200 files and 7 days it keeps), the command-line client and the subshell shim, the `alert` builtin (local, forwarded from a nested shell), alert lines in the panel with their source, the `send_tui_alert` MCP tool |
+| `test_rounds.py` | `shellcraft --watch-rounds`: a due round starts the orchestrator with its agents inline and only the analyst server (a stand-in `claude`), nothing starts before a round is due, the lock, the round and day budgets, the 30 minute stop, `rounds.log`, the failure alert sent once, `--dry-run`; `--install-timer` and `--remove-timer` (unit file text, a stand-in `systemctl`, the crontab line without systemd), the timers in `--check-analyst` |
 | `test_console.py` | `shellcraft.console`: `SHELLCRAFT_CONSOLE`, the Win32Output size, rows below the cursor, the flush mode, `Win32Input` bound to `CONIN$` (fake win32 module), the Rich console's size and options, the truecolor prompt on Linux |
 | `test_stdio.py` | console detection, UTF-8 stdout/stderr on non-UTF-8 pipes, `cmd.exe` builtins read as UTF-16 |
 | `test_mcp_child.py` | `mcp start/stop/restart/status/log` against a real child server: the HTTP endpoint, process group, port in use, bad addresses, a server that dies, stopping on shell exit |

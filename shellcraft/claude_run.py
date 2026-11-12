@@ -3,7 +3,8 @@
 `ask` (shellcraft.commands.ask_ai) and `shellcraft --watch-rounds` both start it through here:
 
     claude -p --mcp-config FILE --strict-mcp-config --allowedTools mcp__shellcraft [--tools ""]
-           --output-format stream-json --verbose --include-partial-messages [--max-budget-usd N] ...
+           --output-format stream-json --verbose --include-partial-messages [--max-budget-usd N]
+           [--agents FILE --agent NAME] ...
 
 The prompt goes in on stdin (never on the command line, where `ps` shows it). FILE is a temporary
 owner-only file naming one MCP server, ShellCraft's own; for `ask` its `env` block carries the
@@ -48,7 +49,8 @@ class Request:
     system: str = ""  # added to the client's system prompt
     budget: float | None = None  # USD; the client stops when it is spent
     model: str = ""
-    agent: str = ""
+    agent: str = ""  # run as this agent
+    agents: dict[str, Any] | None = None  # agents handed over for this run: name -> {"description", "prompt", "tools"}
     resume: str = ""  # a session id: carry on from that conversation
     cwd: str | None = None
 
@@ -93,10 +95,13 @@ def shell_server(modules: Path | None = None, allow_system: bool = False) -> dic
     return {"command": sys.executable, "args": args, "env": env}
 
 
-def command(request: Request, client: str, config: str) -> list[str]:
-    """The client's command line (the prompt is not in it: it is written to stdin)."""
+def command(request: Request, client: str, config: str, agents: str = "") -> list[str]:
+    """The client's command line (the prompt is not in it: it is written to stdin). `agents` is the
+    file that holds request.agents."""
     argv = [client, "-p", "--mcp-config", config, "--strict-mcp-config",
             "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
+    if agents:
+        argv += ["--agents", agents]
     if request.own_tools is not None:
         argv += ["--tools", ",".join(request.own_tools)]
     if request.tools:
@@ -118,10 +123,23 @@ def command(request: Request, client: str, config: str) -> list[str]:
 
 def write_config(servers: dict[str, Any]) -> str:
     """The servers as a temporary --mcp-config file only the owner can read (it holds the key to the shell)."""
-    fd, path = tempfile.mkstemp(prefix="shellcraft-mcp-", suffix=".json")
+    return _temp_json("shellcraft-mcp-", {"mcpServers": servers})
+
+
+def _temp_json(prefix: str, data: dict[str, Any]) -> str:
+    fd, path = tempfile.mkstemp(prefix=prefix, suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump({"mcpServers": servers}, fh)
+        json.dump(data, fh)
     return path
+
+
+def _remove(*paths: str) -> None:
+    for path in paths:
+        try:
+            if path:
+                os.unlink(path)
+        except OSError:
+            pass
 
 
 def _stop(proc: subprocess.Popen[bytes]) -> None:
@@ -169,17 +187,18 @@ def run(request: Request, stop: threading.Event | None = None) -> Generator[tupl
     ends the client (the result then says "stopped"). Raises ClaudeError when it cannot be started."""
     client = find_client()
     config = write_config(request.servers)
+    agents = _temp_json("shellcraft-agents-", request.agents) if request.agents else ""
     errors = tempfile.TemporaryFile()  # noqa: SIM115 — closed in the finally below; a file, so stderr never blocks
     group: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}  # type: ignore[attr-defined]
                              if sys.platform == "win32" else {"start_new_session": True})
     env = {k: v for k, v in os.environ.items() if k not in _NOT_INHERITED}
     began = time.monotonic()
     try:
-        proc = subprocess.Popen(command(request, client, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=errors, cwd=request.cwd, env=env, **group)
+        proc = subprocess.Popen(command(request, client, config, agents), stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=errors, cwd=request.cwd, env=env, **group)
     except OSError as exc:
         errors.close()
-        os.unlink(config)
+        _remove(config, agents)
         raise ClaudeError(f"cannot start {client}: {exc.strerror or exc}") from None
 
     done = threading.Event()
@@ -256,7 +275,4 @@ def run(request: Request, stop: threading.Event | None = None) -> Generator[tupl
         _stop(proc)
         proc.stdout.close()
         errors.close()
-        try:
-            os.unlink(config)
-        except OSError:
-            pass
+        _remove(config, agents)

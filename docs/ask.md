@@ -144,7 +144,7 @@ short question costs a few cents. Two settings keep it in hand:
 | --- | --- |
 | `the Claude Code client (claude) is not on PATH` | Install it, or set `SHELLCRAFT_CLAUDE` to its path. |
 | `stopped: the budget of $0.5 for one run was reached` | The question needed more steps. Ask again with `--budget 1`, or raise `ask_budget`. |
-| `needs a running interactive shell` | `ask` was run with `shellcraft -c` or from a script with no shell open. It needs the shell, because the AI looks at your screen through it. |
+| `needs a running interactive shell` | No interactive ShellCraft is open. `ask` needs one, because the AI looks at your screen through it. |
 | `the shellcraft tools did not start` | The AI answers from the question alone. Run `shellcraft --mcp` in a terminal to see why the server fails. |
 | An answer about the wrong thing | It only sees the last 60 lines of the last command. Pipe the output in: `COMMAND | ask ...`. |
 

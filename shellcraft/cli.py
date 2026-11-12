@@ -104,13 +104,28 @@ def _parser() -> _ArgumentParser:
                    help="with --aggregator: a friendly name for a device folder (repeat it)")
     p.add_argument("--stale-minutes", type=int, default=30, metavar="N",
                    help="with --aggregator: a kind with no newer file than this is reported stale (default 30)")
+    p.add_argument("--watch-rounds", metavar="PLAN",
+                   help="run one round of a watch plan now if one is due, with no prompt and nobody at the "
+                        "keyboard: the AI checks the plan's hosts and feeds, and its alerts wait for your next "
+                        "shell; one line per run goes to ~/.shellcraft/rounds.log (--dry-run shows the command)")
+    p.add_argument("--budget", type=float, metavar="USD",
+                   help="with --watch-rounds and --install-timer: what one round may cost (default: 2)")
+    p.add_argument("--day-budget", type=float, metavar="USD",
+                   help="with --watch-rounds and --install-timer: what all rounds of a day may cost; "
+                        "when it is used up no round starts until tomorrow (default: 10, 0: no limit)")
+    p.add_argument("--install-timer", metavar="PLAN",
+                   help="install a systemd user timer that runs --watch-rounds PLAN every --every minutes")
+    p.add_argument("--every", type=int, metavar="MIN",
+                   help="with --install-timer: minutes between rounds (default: the plan's interval_minutes)")
+    p.add_argument("--remove-timer", metavar="PLAN", help="remove the timer --install-timer made")
     p.add_argument("--user", action="store_true", help="with --install-ai: install into ~/.claude (every project)")
     p.add_argument("--project", action="store_true", help="with --install-ai: install into ./.claude (this folder)")
     p.add_argument("--team", action="store_true",
                    help="with --install-ai: the orchestrator, worker and monitor agents and their skills")
     p.add_argument("--skills-only", action="store_true", help="with --install-ai: only the skills")
     p.add_argument("--agents-only", action="store_true", help="with --install-ai: only the agents")
-    p.add_argument("--dry-run", action="store_true", help="with the AI flags: show what would happen, change nothing")
+    p.add_argument("--dry-run", action="store_true",
+                   help="with the AI flags, --watch-rounds and the timer flags: show what would happen, change nothing")
     p.add_argument("--version", action="version", version=f"ShellCraft {__version__}")
     return p
 
@@ -245,6 +260,21 @@ def _analyst(args: argparse.Namespace) -> int:
     return analyst_setup.exit_code(lines) if check else (1 if any(x.status == "fix" for x in lines) else 0)
 
 
+def _rounds(args: argparse.Namespace, registry: Any) -> int:
+    """`shellcraft --watch-rounds PLAN`, `--install-timer PLAN` and `--remove-timer PLAN`."""
+    from shellcraft import rounds
+
+    budget = rounds.DEFAULT_BUDGET if args.budget is None else args.budget
+    day_budget = rounds.DEFAULT_DAY_BUDGET if args.day_budget is None else args.day_budget
+    if args.remove_timer:
+        return rounds.remove_timer(args.remove_timer, dry_run=args.dry_run)
+    if args.install_timer:
+        return rounds.install_timer(registry, args.install_timer, every=args.every, budget=budget,
+                                    day_budget=day_budget, dry_run=args.dry_run)
+    _interrupts_as_usual()  # Ctrl-C ends the round
+    return rounds.run_round(registry, args.watch_rounds, budget=budget, day_budget=day_budget, dry_run=args.dry_run)
+
+
 def _analyst_target(args: argparse.Namespace, check: bool) -> Path | None:
     """Where the agents go: --user, --project, or (for the check) the folder that has them."""
     if args.user or args.project or not check:
@@ -307,6 +337,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if analyst_mode:
         return _analyst(args)
+    rounds_mode = [name for name in ("watch_rounds", "install_timer", "remove_timer") if getattr(args, name)]
+    if rounds_mode and (len(rounds_mode) > 1 or ai_mode or args.mcp or args.mcp_http or args.init or args.role
+                        or args.expose or func_words is not None):
+        print("shellcraft: --watch-rounds, --install-timer and --remove-timer go one at a time, and without "
+              "--mcp, --mcp-http, --init, --role, --expose, func and the AI flags", file=sys.stderr)
+        return 2
     if func_words is not None and (args.mcp or args.mcp_http or args.init or args.role or args.expose or ai_mode):
         print("shellcraft: func goes without --mcp, --mcp-http, --init, --role, --expose and the AI flags",
               file=sys.stderr)
@@ -376,6 +412,8 @@ def main(argv: list[str] | None = None) -> int:
 
         watch_parent(args.parent_pid)
 
+    if rounds_mode:
+        return _rounds(args, registry)
     if func_words is not None:
         from shellcraft import func_cli
 

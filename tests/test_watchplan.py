@@ -118,6 +118,11 @@ def test_rounds_are_timed_from_done(wp):
     assert "next round in 480 s" in wp.run("due", "prod")
     clock[0] += 500
     assert "due now: the last round was 620 s ago" in wp.run("due", "prod")
+    # a round that ran with nobody there records when it began, so a timer keeps its rhythm
+    assert "recorded" in wp.run("done", "prod", str(clock[0] - 60))
+    assert "next round in 540 s" in wp.run("due", "prod")
+    with pytest.raises(ModuleError, match="invalid float value"):
+        wp.run("done", "prod", "soon")
 
 
 def test_quiet_hours_wrap_midnight(wp):

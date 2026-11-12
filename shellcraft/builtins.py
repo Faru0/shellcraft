@@ -962,7 +962,7 @@ alert -c                             # dismiss every alert (alert -c N: just num
 | `-s`, `--sticky` | Stay until dismissed. |
 | `-d DATA`, `--data DATA` | Data kept with the alert, up to 64 KB (`-d -`: stdin); a right-click copies it. |
 | `-c [N]`, `--clear [N]` | Dismiss every alert, or alert N of `alert --list`. |
-| `--list` | List the current alerts. |
+| `--list` | List the current alerts, and the missed ones still waiting for room. |
 
 The shell keeps at most three alerts; when more arrive, the oldest of the lowest level makes
 room. In the panel under the prompt (and in the footer inside a subshell):
@@ -996,8 +996,20 @@ and the shell's watcher picks it up within a quarter of a second. No port, no to
 names its sender: `main shell`, `sub 2 (bash)` (the subshell's number and command, from
 `SHELLCRAFT_SUB` in its environment), a nested ShellCraft, `pid N` for an outside script, or
 `mcp · <client name>` for an AI client. Subshells get an `alert` command on their PATH; outside
-ShellCraft, `shellcraft-alert MESSAGE` (or `python -m shellcraft.alerts`) does the same. A file left
-in the spool while no shell was running is dropped after five minutes.
+ShellCraft, `shellcraft-alert MESSAGE` (or `python -m shellcraft.alerts`) does the same.
+
+## Alerts you missed
+
+An alert sent while no ShellCraft was open is not lost. It waits in the folder, and the next
+shell you open shows it with the time it was raised: `disk 97% on /var (missed, 03:12)`, or
+`(missed, Tue 03:12)` when it was on another day. This is how a watch round that ran at night
+tells you what it found.
+
+- A missed alert stays until you dismiss it, whatever its level.
+- The panel still shows three alerts. More missed ones wait their turn and move up as you
+  dismiss. `alert --list` shows all of them, and `alert -c` dismisses all of them.
+- The folder keeps at most 200 alerts and none older than 7 days. The oldest go first.
+- Only the main shell takes them, not a `sub shellcraft`.
 """
 
 
@@ -1032,12 +1044,15 @@ def _alert(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         raise CommandError("alert: only in the interactive shell")
     if listing:
         current = bus.current()
+        waiting = bus.waiting()
         if not current:
             return Text("no alerts", style="sc.muted")
         rows = Text()
-        for i, alert in enumerate(current, 1):
+        for i, alert in enumerate(current + waiting, 1):
             left = f"{i}. [{alert.level}] {alert.message}"
             when = "sticky" if alert.remaining is None else f"{int(alert.remaining) + 1}s left"
+            if i > len(current):
+                when = "waiting for room in the panel"
             extra = f", {len(alert.content)} characters of content" if alert.content else ""
             rows.append(f"{left}  ({when}{', from ' + alert.source if alert.source else ''}{extra})\n")
         return rows

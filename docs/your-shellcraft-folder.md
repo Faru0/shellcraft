@@ -187,10 +187,12 @@ no need to edit them.
 | `crash.log` | Unexpected errors, with details for a bug report |
 | `jobs/` | The output of background commands (`cmd &`) |
 | `records/` | Transcripts from `record` and `script` |
-| `alerts/`, `bin/` | Alerts waiting to be shown, and the `alert` helper that scripts can call |
+| `alerts/`, `bin/` | Alerts waiting to be shown (one sent while no shell was open waits here for the next shell, up to 7 days), and the `alert` helper that scripts can call |
 | `review/`, `briefs/`, `mainlink.json` | Messages between the shell and connected AI clients |
 | `tasks/`, `findings/` | The task board and the case files your AI agents share (`tasks`, `findings`) |
 | `ai-audit.jsonl` | What AI clients did (`ai log`) |
+| `watchplans/` | Your watch plans, one `NAME.toml` each (`man watchplan`). `.state/` inside holds when each plan's last round ran, and the lock that keeps two rounds of one plan apart |
+| `rounds.log` | One line for every round that `shellcraft --watch-rounds` ran or skipped: time, plan, result, cost, seconds, summary. It is cut to its newer half when it passes 512 KB |
 | `cache/` | Module answers remembered for a few minutes, so two agents asking the same thing don't spend two API calls |
 | `mcp-http.log` | The log of the MCP server started with `mcp start` |
 

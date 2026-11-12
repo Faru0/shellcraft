@@ -7,6 +7,26 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Rounds on their own: `shellcraft --watch-rounds PLAN` and a timer.** One command runs one round of a watch
+  plan with no Claude Code session and no shell open: it starts the client as the orchestrator, the analysts
+  check each host, device and feed, findings go to the case file and alerts to your ShellCraft.
+  `shellcraft --install-timer PLAN [--every MIN]` writes a systemd user timer that does this every
+  `interval_minutes` of the plan, and `--remove-timer PLAN` takes it away. Without systemd it prints a crontab
+  line. See [Rounds on a timer](docs/ai-host-analysis.md#rounds-on-a-timer).
+  - A call with no round due starts nothing and costs nothing. Two rounds of one plan never run at once.
+  - `--budget USD` caps one round (default 2) and `--day-budget USD` caps all rounds of a day (default 10,
+    `0` for no limit). A round is stopped after 30 minutes.
+  - The round brings its agents and skills with it, so `--install-ai` is not needed. It may use the analyst
+    tools of ShellCraft and its own sub agents, and nothing else on your machine.
+  - Every run is one line in `~/.shellcraft/rounds.log`. A failed round sends a `warn` alert, once for the
+    same failure. `--check-analyst` lists the timers and the last round. `--dry-run` shows the command, the
+    agents and the prompt, or the unit files, and starts nothing.
+  - `watchplan done NAME SECONDS` records a round at another moment than now, so a round on a timer counts
+    from its start.
+- **Alerts you missed are kept.** An alert sent while no shell was open used to be dropped after five minutes.
+  It now waits, and the next shell shows it with the time it was raised, `disk 97% (missed, 03:12)`, until you
+  dismiss it. When more were missed than the panel shows, the others move up as you dismiss, and
+  `alert --list` shows them all. The folder keeps at most 200 alerts and 7 days.
 - **The enrichment pack: `ioc` and `enrich`.** `enrich 45.155.205.233` asks every service that knows the
   indicator (an IP address, a domain, a URL, a file hash, an email address) and answers in one line:
   `VERDICT malicious|suspicious|clean|unknown`, the indicator and the reasons, then one `SOURCE:` line per

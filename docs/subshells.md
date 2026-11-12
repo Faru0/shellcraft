@@ -203,6 +203,11 @@ You might wonder how a script outside ShellCraft reaches it. Senders drop a smal
 `~/.shellcraft/alerts/`, a folder only your user can read, and the shell picks it up. There's no
 network port and no password, so nothing else on the network can send you alerts.
 
+An alert sent while no ShellCraft was open waits in that folder. The next shell you open shows it
+with the time it was raised, `disk 97% on /var (missed, 03:12)`, and it stays until you dismiss
+it. When more were missed than the panel shows, the others move up as you dismiss; `alert --list`
+shows all of them. The folder keeps at most 200 alerts, and none older than 7 days.
+
 ## The clip register
 
 An alert can carry data along with its message, such as a file's content or a command's output.

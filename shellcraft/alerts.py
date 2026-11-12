@@ -11,7 +11,13 @@ Senders: the `alert` builtin (local in the main shell, forwarded by a nested one
 command on the PATH of subshells (a shim that runs `python -m shellcraft.alerts`), the `shellcraft-alert`
 console script, and the `send_tui_alert` MCP tool. Each says where it came from (`source`): the
 shell, `sub 2 (bash)`, a nested ShellCraft, an outside script with its pid, or the MCP client's
-name. A file older than STALE seconds (left by a shell that was not running) is dropped unread.
+name.
+
+An alert nobody was there to see is kept: a file older than STALE seconds was written while no shell
+was running, and the next shell shows it as missed, with the time it was raised, until it is
+dismissed. Missed alerts that do not fit in the panel wait in a backlog and move up as room is made.
+The spool holds at most MAX_SPOOLED files and nothing older than MAX_AGE. Requests (`sub`, `recording`)
+are about a moment that has passed, so an old one is still dropped unread.
 """
 
 from __future__ import annotations
@@ -47,7 +53,9 @@ SPOOL = "alerts"  # the folder under ~/.shellcraft
 CLIP_SLOTS = 10  # copies kept: $CLIP (the newest), $CLIP1 … $CLIP9
 SUB_ENV = "SHELLCRAFT_SUB"  # "N:command" in a subshell's environment: the sender's label
 POLL = 0.25  # seconds between looks at the spool
-STALE = 300.0  # a spooled file older than this (no shell was running) is dropped
+STALE = 300.0  # a spooled file older than this was written while no shell was running: a missed alert
+MAX_AGE = 7 * 86400.0  # a missed alert older than this is dropped
+MAX_SPOOLED = 200  # files the spool holds while no shell reads it; the oldest go first
 
 
 @dataclass
@@ -58,6 +66,7 @@ class Alert:
     timeout: float | None = None  # seconds; None never expires
     source: str = ""  # who sent it, for `alert -l`
     content: str = ""  # an optional payload (a path, a command, JSON…): a right-click copies it
+    raised: float | None = None  # a missed alert: the clock time it was sent (no shell was open then)
 
     @property
     def expires(self) -> float | None:
@@ -88,6 +97,7 @@ class AlertBus:
 
     def __init__(self) -> None:
         self.alerts: list[Alert] = []
+        self.backlog: list[Alert] = []  # missed alerts the panel has no room for yet
         self.expanded = False  # the panel shows every alert as a row (else the badge folds them)
         self._clips: list[str] = []  # the clip history, newest first ($CLIP, $CLIP1 … $CLIP9), in memory
         self.remote_clip = False  # a lite subshell: the register is the main shell's (shellcraft.mainlink)
@@ -104,31 +114,51 @@ class AlertBus:
     # ── the list ─────────────────────────────────────────────────────────────
 
     def post(self, message: str, level: str = "info", timeout: float | None | str = "default",
-             source: str = "", content: str = "") -> Alert:
-        """Add an alert. `timeout` in seconds, None for sticky, "default" for the level's own."""
+             source: str = "", content: str = "", raised: float | None = None) -> Alert:
+        """Add an alert. `timeout` in seconds, None for sticky, "default" for the level's own.
+        `raised` (a clock time) marks a missed alert: it says when, never expires, and is never
+        dropped for want of room."""
         level = normalize_level(level) or "info"
-        message = " ".join(str(message).split())[:MAX_MESSAGE] or "(empty alert)"
-        seconds = DEFAULT_TIMEOUT[level] if timeout == "default" else timeout
+        message = " ".join(str(message).split()) or "(empty alert)"
+        if raised is None:
+            message = message[:MAX_MESSAGE]
+            seconds = DEFAULT_TIMEOUT[level] if timeout == "default" else timeout
+        else:
+            note = f" (missed, {clock(raised)})"
+            message = message[:MAX_MESSAGE - len(note)] + note
+            seconds = None
         alert = Alert(level, message, timeout=None if seconds is None else max(1.0, float(seconds)), source=source,
-                      content=str(content or "")[:MAX_CONTENT])
+                      content=str(content or "")[:MAX_CONTENT], raised=raised)
         with self._lock:
             self.alerts.append(alert)
-            # Priority stacking: the most severe first, then the newest; the overflow is dropped.
-            self.alerts.sort(key=lambda a: (-a.priority, -a.created))
-            del self.alerts[MAX_ALERTS:]
+            self._stack()
             self._arm_timer()
         self._changed()
         return alert
 
+    def _stack(self) -> None:
+        """Priority stacking (with the lock): the most severe first, then the newest. What does not
+        fit is dropped, except a missed alert: that waits in the backlog and moves up when there is room."""
+        waiting = self.alerts + self.backlog
+        waiting.sort(key=lambda a: (-a.priority, -(a.raised or time.time()), -a.created))
+        self.alerts, rest = waiting[:MAX_ALERTS], waiting[MAX_ALERTS:]
+        self.backlog = [a for a in rest if a.raised is not None][:MAX_SPOOLED]
+
     def dismiss(self, index: int | None = None) -> int:
-        """Drop one alert (1-based, as shown) or all of them; returns how many went."""
+        """Drop one alert (1-based, as `alert --list` numbers them: the shown ones, then the
+        backlog) or all of them; returns how many went."""
         with self._lock:
-            before = len(self.alerts)
+            before = len(self.alerts) + len(self.backlog)
             if index is None:
                 self.alerts.clear()
+                self.backlog.clear()
             elif 1 <= index <= len(self.alerts):
                 del self.alerts[index - 1]
-            gone = before - len(self.alerts)
+            elif len(self.alerts) < index <= before:
+                del self.backlog[index - len(self.alerts) - 1]
+            self._stack()
+            self._arm_timer()
+            gone = before - len(self.alerts) - len(self.backlog)
         if gone:
             self._changed()
         return gone
@@ -138,6 +168,8 @@ class AlertBus:
         with self._lock:
             found = any(a is alert for a in self.alerts)
             self.alerts = [a for a in self.alerts if a is not alert]
+            self._stack()
+            self._arm_timer()
         if found:
             self._changed()
         return found
@@ -205,6 +237,11 @@ class AlertBus:
         with self._lock:
             return list(self.alerts)
 
+    def waiting(self) -> list[Alert]:
+        """The missed alerts the panel has no room for yet, in the order they will move up."""
+        with self._lock:
+            return list(self.backlog)
+
     def _expire(self) -> None:
         now = time.monotonic()
         with self._lock:
@@ -212,6 +249,7 @@ class AlertBus:
             changed = len(keep) != len(self.alerts)
             self.alerts = keep
             if changed:
+                self._stack()
                 self._arm_timer()
         if changed:
             self._changed()
@@ -273,8 +311,15 @@ class AlertBus:
                 continue
             if not isinstance(data, dict):
                 continue
-            if time.time() - float(data.get("time", 0) or 0) > STALE:
-                continue  # left behind while no shell was running
+            try:
+                sent = float(data.get("time", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            age = time.time() - sent
+            # Older than STALE: no shell was running when it was sent. An alert is still worth
+            # showing (for a week); a request is about a moment that has passed.
+            if age > (STALE if data.get("kind") in ("recording", "sub") else MAX_AGE):
+                continue
             if data.get("kind") == "recording":  # a subshell started or stopped `record`
                 if self.on_recording is not None:
                     try:
@@ -297,7 +342,8 @@ class AlertBus:
                     timeout = "default"
             content = data.get("content", "")
             self.post(str(data.get("message", "")), str(data.get("level", "info")), timeout,
-                      source=str(data.get("source", "")), content=content if isinstance(content, str) else "")
+                      source=str(data.get("source", "")), content=content if isinstance(content, str) else "",
+                      raised=sent if age > STALE else None)
             posted += 1
         return posted
 
@@ -311,6 +357,13 @@ class AlertBus:
 
 
 # ── sending (subshells, nested shells, the MCP tool, the console script) ──────
+
+def clock(when: float) -> str:
+    """When a missed alert was raised, short: `03:12` today, `Tue 03:12` on another day."""
+    then = time.localtime(when)
+    same_day = time.strftime("%Y%j", then) == time.strftime("%Y%j")
+    return time.strftime("%H:%M" if same_day else "%a %H:%M", then)
+
 
 def depth_forward() -> int:
     """Nonzero inside `sub shellcraft`: the alert is forwarded to the main shell."""
@@ -379,7 +432,38 @@ def _spool(payload: dict[str, Any], home: Path | None) -> Path:
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     final = folder / f"{name}.json"
     os.replace(tmp, final)  # whole or not there: the watcher never sees a half-written file
+    _prune(folder, keep=final)
     return final
+
+
+def _prune(folder: Path, keep: Path) -> None:
+    """Keep the spool small while no shell reads it: nothing older than MAX_AGE, and at most
+    MAX_SPOOLED files (the oldest go first). With a shell running there is nothing to do."""
+    try:
+        files = sorted(p for p in folder.iterdir() if p.suffix == ".json")  # the name starts with the time
+    except OSError:
+        return
+    if len(files) <= 1:
+        return
+    too_old = time.time() - MAX_AGE
+    old = [p for p in files if p != keep and _sent(p) < too_old]
+    rest = [p for p in files if p not in old]
+    for path in old + [p for p in rest[:max(0, len(rest) - MAX_SPOOLED)] if p != keep]:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _sent(path: Path) -> float:
+    """When a spooled file was written: the time its name starts with, else the file's own."""
+    try:
+        return float(path.name.split("-", 1)[0])
+    except ValueError:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return time.time()
 
 
 def parse_args(argv: list[str]) -> tuple[str, str, float | None | str, bool, bool, str]:

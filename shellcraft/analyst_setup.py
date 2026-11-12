@@ -237,12 +237,18 @@ def aggregator_plan(alias: str, devices: list[str], dry_run: bool) -> Line:
 
 # ── the MCP server entry ───────────────────────────────────────────────────────────────────────
 
-def server_entry() -> dict[str, Any]:
-    """How Claude Code starts the analyst server: this checkout's main.py, or the `shellcraft` command."""
+def launcher() -> list[str]:
+    """How another program starts this ShellCraft: this checkout's main.py, or the `shellcraft` command."""
     main = Path(__file__).resolve().parent.parent / "main.py"
     if main.is_file():
-        return {"command": sys.executable, "args": [str(main), "--mcp", "--role", "analyst"]}
-    return {"command": shutil.which("shellcraft") or "shellcraft", "args": ["--mcp", "--role", "analyst"]}
+        return [sys.executable, str(main)]
+    return [shutil.which("shellcraft") or "shellcraft"]
+
+
+def server_entry() -> dict[str, Any]:
+    """How Claude Code starts the analyst server."""
+    command, *args = launcher()
+    return {"command": command, "args": [*args, "--mcp", "--role", "analyst"]}
 
 
 def mcp_json(project: Path, force: bool, dry_run: bool) -> Line:
@@ -393,6 +399,9 @@ def doctor(project: Path, target: Path) -> list[Line]:
                       "`shellcraft --install-ai --team`"))
     lines.append(Line("ok" if shutil.which("claude") else "info", "claude is on PATH" if shutil.which("claude") else
                       "claude is not on PATH (only matters if you start Claude Code from here)"))
+    from shellcraft import rounds
+
+    lines += [Line(status, text) for status, text in rounds.status()]  # the timers, and the last round they ran
     return lines
 
 

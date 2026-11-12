@@ -63,7 +63,7 @@ args = []
 | `check NAME` | Validates the file. Names, paths and counts are checked (at most 60 units). |
 | `tasks NAME` | The units of work as JSON, one per host, device, feed and func. |
 | `due NAME` | `due now` or `next round in N s`, and whether quiet hours apply. |
-| `done NAME` | Records that a round just finished, so the next one is timed from now. |
+| `done NAME` | Records that a round just finished, so the next one is timed from now. `done NAME SECONDS` records another moment, as a Unix time. A round started by a timer uses it to count from its start. |
 
 The time of the last round is kept in `~/.shellcraft/watchplans/.state/NAME.json`.
 

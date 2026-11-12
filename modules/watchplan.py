@@ -169,6 +169,7 @@ def run(args: list[str], stdin: str) -> str:
     parser = ArgParser("watchplan")
     parser.add_argument("action", nargs="?", choices=("list", "show", "check", "tasks", "due", "done"))
     parser.add_argument("name", nargs="?")
+    parser.add_argument("at", nargs="?", type=float)  # done NAME SECONDS: the round began then (--watch-rounds)
     opts = parser.parse_args(args)
     if opts.action is None:
         raise ModuleError("watchplan: usage: watchplan list | show|check|tasks|due|done NAME")
@@ -188,7 +189,7 @@ def run(args: list[str], stdin: str) -> str:
         path = _state_path(opts.name)
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(path.name + ".tmp")
-        temp.write_text(json.dumps({"last": now()}), encoding="utf-8")
+        temp.write_text(json.dumps({"last": now() if opts.at is None else opts.at}), encoding="utf-8")
         os.replace(temp, path)
         return f"round recorded for '{opts.name}'\n"
     lines = [f"plan {opts.name}: {data.get('description', '')}".rstrip(": "),

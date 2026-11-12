@@ -266,7 +266,53 @@ feed, starts the analysts, merges what they find, sends one summary alert and wa
 stops when you tell it to. During quiet hours only critical alerts come through.
 
 The loop lives in your Claude Code session, so it runs while that session is open. Each round is cheap
-because analysts look only at what `baseline` says is new.
+because analysts look only at what `baseline` says is new. To have rounds run without a session, use a timer.
+
+### Rounds on a timer
+
+One command runs one round and ends:
+
+```
+shellcraft --watch-rounds prod
+```
+
+It first asks the plan whether a round is due. When none is due it prints `next round in N s; nothing started`
+and ends, and that costs nothing. When one is due it starts Claude Code without a window, as the orchestrator,
+for this one round. The analysts check each unit, findings go to your case file, and alerts go to your
+ShellCraft. With no shell open an alert waits, and the next shell you open shows it as missed.
+
+To have it run on its own:
+
+```
+shellcraft --install-timer prod               # a systemd user timer, every interval_minutes of the plan
+shellcraft --install-timer prod --every 120   # or your own number of minutes
+shellcraft --remove-timer prod
+```
+
+Add `--dry-run` to any of the three to see what would happen. For a round that is the command, the agents and
+the prompt. For a timer it is the two unit files. Nothing is started or written.
+
+| | |
+| --- | --- |
+| Nothing to install | A round brings its agents and skills with it. It needs no `--install-ai`, no server entry in Claude Code and no running ShellCraft. It does need the Claude Code client, logged in, and hosts that are enabled for the AI as above. |
+| What a round may use | The analyst tools of ShellCraft and its own sub agents. It has no shell, no file editing and no web access on your machine. |
+| Cost of one round | `--budget USD` is the most one round may cost (default 2). A round that reaches it is stopped and counts as failed. |
+| Cost of a day | `--day-budget USD` is the most all rounds of one day may cost together (default 10, `0` for no limit). When it is used up, rounds stop until tomorrow and you get one alert. |
+| The log | Each run is one line in `~/.shellcraft/rounds.log`: time, plan, `ok`, `failed` or `skipped`, cost, seconds and the summary. |
+| A round that fails | You get a `warn` alert with the reason: the client is missing, the budget was reached, it ran longer than 30 minutes. The same failure again is logged, not alerted again. |
+| Never two at once | A call for a plan whose round is still running starts nothing. |
+| Timing | The next round is counted from the start of the last one, so a 15 minute timer on a 15 minute plan runs every time. |
+| Quiet hours | A round still runs. Only a `crit` alert is sent. |
+| Logged out | A user timer runs while you are logged in. Run `loginctl enable-linger` once and it runs at any time. |
+| ssh | The timer's service gets your `PATH` and `SSH_AUTH_SOCK` as they were when you installed it, so a key in your agent works while you are logged in. For rounds while logged out, the host needs a key that works without an agent. |
+| No systemd | `--install-timer` prints a crontab line for you to add. |
+
+What does a round cost? A quiet round on one host with seven checks took 76 seconds and cost $0.92 here. At
+that price a round every 15 minutes uses up the default day budget in under three hours, and the rounds then
+stop until the next day. Pick the interval to fit what you want to spend: `--every 120` is 12 rounds a day.
+
+`shellcraft --check-analyst` lists your timers and the last round. `systemctl --user list-timers` shows when
+the next one runs, and `journalctl --user -u shellcraft-rounds-prod` shows everything a round said.
 
 ## What it will not do
 
@@ -288,7 +334,7 @@ because analysts look only at what `baseline` says is new.
 | Secrets in output | Passwords, tokens and private keys are replaced with `REDACTED` before the AI sees them |
 | Prompt injection from a host | Output is framed as untrusted data, and the `untrusted-data` skill tells every agent how to treat it |
 | Stale answers | The server remembers module answers for five minutes to save API calls, but never for `sshrun`, `aggregator`, `baseline` or `watchplan`, which read the present or write state; `feed` calls in a round pass `fresh` |
-| A runaway loop | `[budget]` in `ai-policy.toml`, per-call timeouts, a 128 KB output cap, one round at a time |
+| A runaway loop | `[budget]` in `ai-policy.toml`, per-call timeouts, a 128 KB output cap, one round at a time; a round on a timer has a budget, a day budget and 30 minutes |
 | Knowing what happened | Every call is in `ai log`, with the agent's name and what it asked (`host=web01 check=proc-cmdline arg=812`) |
 
 ## When something fails
