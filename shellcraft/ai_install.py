@@ -49,44 +49,44 @@ class Result:
     diff: str = ""
 
 
-def catalog(source: Path | None = None) -> dict[str, Item]:
-    """Every agent and skill, by name. An agent and a skill never share a name."""
+def catalog(source: Path | None = None) -> list[Item]:
+    """Every agent and skill. An agent and a skill may share a name (`soc-triage` is both)."""
     root = source or SOURCE
-    items: dict[str, Item] = {}
-    for path in sorted((root / "agents").glob("*.md")):
-        items[path.stem] = Item(path.stem, "agent", path, f"agents/{path.name}")
+    items = [Item(path.stem, "agent", path, f"agents/{path.name}") for path in sorted((root / "agents").glob("*.md"))]
     for path in sorted((root / "skills").glob("*/SKILL.md")):
         name = path.parent.name
-        items[name] = Item(name, "skill", path, f"skills/{name}/SKILL.md")
+        items.append(Item(name, "skill", path, f"skills/{name}/SKILL.md"))
     return items
 
 
-def needs(item: Item, items: dict[str, Item]) -> list[str]:
+def needs(item: Item, items: list[Item]) -> list[Item]:
     """The skills an agent names in backticks (`task-board`), so installing it brings them."""
     if item.kind != "agent":
         return []
-    text = item.source.read_text(encoding="utf-8")
-    return sorted({m for m in re.findall(r"`([\w-]+)`", text) if m in items and items[m].kind == "skill"})
+    named = set(re.findall(r"`([\w-]+)`", item.source.read_text(encoding="utf-8")))
+    return [i for i in items if i.kind == "skill" and i.name in named]
 
 
 def select(names: list[str], team: bool = False, skills_only: bool = False, agents_only: bool = False,
            source: Path | None = None) -> list[Item]:
-    """The items to act on: the named ones (with the skills agents need), --team's, or everything."""
+    """The items to act on: the named ones (with the skills agents need), --team's, or everything.
+    A name that is both an agent and a skill selects both."""
     items = catalog(source)
+    known = sorted({i.name for i in items})
     wanted = list(names) + (list(TEAM) if team else [])
-    unknown = [n for n in wanted if n not in items]
+    unknown = [n for n in wanted if n not in known]
     if unknown:
-        raise InstallError(f"no agent or skill named {', '.join(unknown)} (known: {', '.join(items)})")
+        raise InstallError(f"no agent or skill named {', '.join(unknown)} (known: {', '.join(known)})")
     if skills_only and agents_only:
         raise InstallError("--skills-only and --agents-only exclude each other")
     chosen: dict[str, Item] = {}
     if wanted:
-        for name in wanted:
-            chosen[name] = items[name]
-            for skill in needs(items[name], items):
-                chosen[skill] = items[skill]
+        for item in (i for name in wanted for i in items if i.name == name):
+            chosen[item.rel] = item
+            for skill in needs(item, items):
+                chosen[skill.rel] = skill
     else:
-        chosen = dict(items)
+        chosen = {i.rel: i for i in items}
     return [i for i in chosen.values()
             if not (skills_only and i.kind == "agent") and not (agents_only and i.kind == "skill")]
 

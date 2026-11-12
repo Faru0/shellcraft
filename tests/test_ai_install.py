@@ -20,9 +20,19 @@ def run(items, target, home, **kw):
 
 def test_the_catalog_matches_the_ai_folder():
     items = ai_install.catalog()
-    on_disk = {p.stem for p in (ROOT / "ai" / "agents").glob("*.md")} | {
-        p.parent.name for p in (ROOT / "ai" / "skills").glob("*/SKILL.md")}
-    assert set(items) == on_disk
+    on_disk = {f"agents/{p.name}" for p in (ROOT / "ai" / "agents").glob("*.md")} | {
+        f"skills/{p.parent.name}/SKILL.md" for p in (ROOT / "ai" / "skills").glob("*/SKILL.md")}
+    assert {i.rel for i in items} == on_disk and len(items) == len(on_disk)
+
+
+def test_an_agent_and_a_skill_of_the_same_name_are_both_installed(where):
+    target, home = where
+    both = {i.rel for i in ai_install.select(["soc-triage"])}
+    assert {"agents/soc-triage.md", "skills/soc-triage/SKILL.md"} <= both
+    written = run(ai_install.select([]), target, home)
+    for name in ("shellcraft-copilot", "soc-triage"):
+        assert written[f"agents/{name}.md"].status == "new" and written[f"skills/{name}/SKILL.md"].status == "new"
+    assert {i.rel for i in ai_install.select(["soc-triage"], agents_only=True)} == {"agents/soc-triage.md"}
 
 
 def test_the_wheel_packs_the_ai_folder():
