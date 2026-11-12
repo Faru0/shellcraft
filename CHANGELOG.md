@@ -7,6 +7,27 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **The enrichment pack: `ioc` and `enrich`.** `enrich 45.155.205.233` asks every service that knows the
+  indicator (an IP address, a domain, a URL, a file hash, an email address) and answers in one line:
+  `VERDICT malicious|suspicious|clean|unknown`, the indicator and the reasons, then one `SOURCE:` line per
+  service. `ioc` pulls the indicators out of any text, so `grep "Failed password" auth.log | ioc --public |
+  enrich` judges every address in a log. See [Enrichment](docs/enrichment.md).
+  - Six sources: `ip2geo` and the new `queryRdap` (no key), `queryShodan` and `queryGreyNoise` (key
+    optional), `queryVirusTotal` and `queryAbuseIPDB` (free key). Each is also a command of its own with a
+    man page. A source without its key is listed as `SKIPPED:` with the setting that adds it; with no key at
+    all an IP address still gets four sources.
+  - `ioc` reads defanged text (`hxxp://evil[.]com`, `1[.]2[.]3[.]4`), prints each indicator once, and has
+    `--type`, `--public`, `--defang`, `--count` and `-o json`.
+  - A private address, and a URL on one, is never sent to any service. A URL goes to VirusTotal only; the
+    other services get its host. An email address is looked up by its domain.
+  - Answers are kept for 24 hours in `~/.shellcraft/cache/intel/` (`--fresh` asks again), because free keys
+    have small limits. In a list, a short rate limit (VirusTotal: 4 a minute) is waited out, for five minutes
+    in all; a single lookup never waits.
+  - For the AI: the seven modules are tools of the `analyst` role and of the analyst agents. The
+    `soc-triage`, `remote-triage` and `aggregator-triage` skills now start with `enrich` and share one
+    escalation ladder from verdict and evidence to `info`, `warn` or `crit`, with one alert per finding.
+  - For module authors: the module checker now counts the options a helper file adds (`import _intel`) as
+    the module's own, so a shared argument parser no longer reads as undocumented parameters.
 - **`ask`: the AI at your prompt.** `ask why did that fail` sends your question to the Claude Code client with
   the folder you are in, your last commands and what the last one printed (secrets redacted), and writes the
   answer under your prompt as it arrives. No setup: it starts the client itself and connects it to the shell

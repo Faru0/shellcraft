@@ -1,0 +1,94 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "How often an IP address was reported for abuse (AbuseIPDB): an abuse score from 0 to 100, the number of reports and reporters, the last report, the ISP, the usage type and Tor. Needs a free key."
+
+when_to_use = """
+Use when you need to know if an IP address is known for abuse (brute force, scanning, spam):
+- an address from a log, a firewall or an alert: was it reported, how often, how recently;
+- a list of addresses: which ones are worth blocking;
+- context for an address: its ISP, its usage type (hosting, mobile, ...), if it is a Tor exit.
+It takes IP addresses only (v4 or v6). For who owns an address use queryRdap, for location and ASN
+use ip2geo, for every source at once use enrich. Not for private/LAN addresses: they get `unknown`."""
+
+usage = "queryAbuseIPDB [IP...] [--days N] [-o table|json|raw] [--fresh] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["118.25.6.39"]}  -> "indicator      118.25.6.39\nverdict        malicious: abuse score 100, 1,234 reports from 300 users, last 2026-11-12, Data Center/Web Hosting/Transit\nscore          100\nreports        1234\nusers          300\nlast_reported  2026-11-12\ncountry        CN\nisp            Tencent Cloud Computing\n..."',
+  '''{"targets": ["8.8.8.8"], "output": "json"}  -> {"source": "abuseipdb", "indicator": "8.8.8.8", "kind": "ipv4", "verdict": "clean", "summary": "on AbuseIPDB's whitelist, abuse score 0, 57 reports from 20 users, last 2026-11-10", "known_good": true, "cached": false, "data": {"score": 0, "reports": 57, "users": 20, "last_reported": "2026-11-10", "country": "US", "usage": "Content Delivery Network", "isp": "Google LLC", "domain": "google.com", "hostnames": ["dns.google"], "tor": false, "whitelisted": true, "public": true, "days": 90}}''',
+  '{"days": 30, "stdin": "203.0.113[.]9\n198.51.100.7"}  -> one record per line of input, a blank line between them, counting the reports of the last 30 days',
+]
+
+notes = """
+Needs the ABUSEIPDB_API_KEY environment variable; the user sets it once in the shell with
+`settings ABUSEIPDB_API_KEY` (a free account at https://www.abuseipdb.com gives one under "API").
+Without it every call returns a tool error saying so; ask the user to set it rather than retrying.
+The free key allows 1,000 checks a day; after that the answer is a rate limit error until the next
+day. Answers are kept for 24 hours and a stored answer costs no check; `fresh` asks again.
+The verdict comes from the abuse score (0 to 100) of the last `days` days (default 90):
+`malicious` from 75, `suspicious` from 25, else `clean`. An address on AbuseIPDB's whitelist is
+`clean` with known_good true, whatever its score. A private address is `unknown` and is not sent.
+`clean` means nobody reported it, not that it is safe. Defanged input (1[.]2[.]3[.]4) is read.
+Use output json when you will parse fields."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "IP"
+description = "IP addresses (v4 or v6). If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "days"
+flag = "--days"
+type = "integer"
+metavar = "N"
+description = "How far back reports count, in days: 1 to 365 (default 90)."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["table", "json", "raw"]
+description = "table (default, 'field  value' lines), json (the record with verdict, summary and data), raw (AbuseIPDB's whole answer)."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask AbuseIPDB again even when an answer from the last 24 hours is stored. It costs one check."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI. None of them reaches the network.
+[[tests]]
+args = []
+error = "give an IP address"
+
+[[tests]]
+args = ["example.com"]
+error = "is not an IP address"
+
+[[tests]]
+args = ["d41d8cd98f00b204e9800998ecf8427e"]
+error = "is not an IP address"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["8.8.8.8", "--days", "0"]
+error = "--days takes 1 to 365"
+
+[[tests]]
+args = ["8.8.8.8", "--days", "366"]
+error = "--days takes 1 to 365"
+
+[[tests]]
+args = ["8.8.8.8"]
+error = "no AbuseIPDB API key"

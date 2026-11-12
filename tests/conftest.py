@@ -86,7 +86,8 @@ def ctx(registry, tmp_path, monkeypatch) -> ShellContext:
 
 # ── offline stubs for modules that call web APIs ────────────────────────────
 
-API_KEY_VARS = ("DNSDUMPSTER_API_KEY", "CENSYS_API_TOKEN", "CENSYS_ORG_ID")
+API_KEY_VARS = ("DNSDUMPSTER_API_KEY", "CENSYS_API_TOKEN", "CENSYS_ORG_ID", "SHODAN_API_KEY", "VIRUSTOTAL_API_KEY",
+                "ABUSEIPDB_API_KEY", "GREYNOISE_API_KEY")
 
 
 @pytest.fixture

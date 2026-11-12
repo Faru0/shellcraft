@@ -7,6 +7,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import _intel
+
 from shellcraft.modkit import ArgParser, ModuleError, check_cancel
 from shellcraft.modkit import sleep as modkit_sleep
 
@@ -22,6 +24,11 @@ FIELDS = [
 DEFAULT_FIELDS = [f for f in FIELDS if f != "reverse"]  # reverse DNS slows every answer down
 LANGS = ("en", "de", "es", "pt-BR", "fr", "ja", "zh-CN", "ru")
 OUTPUTS = ("table", "json", "tsv")
+
+# What `enrich` reads (the lookup module contract, see _intel.py).
+SOURCE = "ip2geo"
+KINDS = ("ipv4", "ipv6", "domain")
+KEY_VAR = ""
 
 # Seam for tests: stubbed so waiting out the rate-limit window doesn't slow them down.
 sleep = modkit_sleep  # wakes up (Cancelled) on Ctrl-C
@@ -60,6 +67,25 @@ def run(args: list[str], stdin: str) -> str:
         head = "\t".join(fields) + "\n"
         return head + "".join(_tsv_row(r, fields) for r in records)
     return "\n".join(_table(r, fields) for r in records)
+
+
+def lookup(indicator: str, *, timeout: float = 10.0, fresh: bool = False) -> dict:
+    """Where one IP address or domain is, as an `enrich` record. A location is a fact, not a
+    judgement, so the verdict is always `unknown`."""
+    indicator, kind = _intel.clean(indicator)
+    if kind not in KINDS:
+        raise ModuleError(f"ip2geo: '{indicator}' is not an IP address or domain name")
+    raw, cached = _intel.answer(SOURCE, indicator, lambda: _get(indicator, DEFAULT_FIELDS, "en", timeout)[0], fresh)
+    if raw.get("status") == "fail":  # "private range", "reserved range", "invalid query"
+        return _intel.record(SOURCE, indicator, kind, summary=str(raw.get("message") or "no location"),
+                             cached=cached, raw=raw)
+    flags = [name for name in ("hosting", "proxy", "mobile") if raw.get(name)]
+    data = {"ip": raw.get("query"), "country": raw.get("country"), "country_code": raw.get("countryCode"),
+            "region": raw.get("regionName"), "city": raw.get("city"), "isp": raw.get("isp"), "org": raw.get("org"),
+            "as": raw.get("as"), "hosting": bool(raw.get("hosting")), "proxy": bool(raw.get("proxy")),
+            "mobile": bool(raw.get("mobile"))}
+    summary = ", ".join(str(part) for part in (raw.get("city"), raw.get("country"), raw.get("as"), *flags) if part)
+    return _intel.record(SOURCE, indicator, kind, summary=summary, cached=cached, data=data, raw=raw)
 
 
 def _fields(chosen: list[str] | None) -> list[str]:

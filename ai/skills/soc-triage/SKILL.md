@@ -27,9 +27,19 @@ grep -E "\.(php|exe|sh)\b" access.log | grep -v " 200 " | tail            # odd 
 jq -w 'level=error' app.json | jq -t                                     # errors in a JSON log
 ```
 
-Then the indicators: `ip2geo IP`, `queryDns DOMAIN -t A -t MX -t TXT`, `queryCert DOMAIN -s`,
-`queryCensys host IP` (when a key is set). A private address (10/8, 172.16/12, 192.168/16) needs
-no lookup.
+Then the indicators. `enrich` asks every source that knows the kind (an IP, a domain, a URL, a file hash) and
+ends in one line you can quote:
+
+```
+enrich 203.0.113.9                                    # one indicator, all sources
+grep -i "failed password" auth.log | ioc --public | enrich    # every public address in the lines
+```
+
+`VERDICT malicious|suspicious|clean|unknown`, then one `SOURCE:` line per service and a `SKIPPED:` line for a
+service whose key is not set. Reach for a single lookup only when you need more than its line:
+`queryDns DOMAIN -t A -t MX -t TXT`, `queryCert DOMAIN -s`, `queryVirusTotal HASH`, `queryShodan IP`,
+`queryRdap DOMAIN`. A private address (10/8, 172.16/12, 192.168/16) is never sent anywhere; `enrich` says so
+itself.
 
 ## 3. Write each finding like this
 
@@ -38,7 +48,8 @@ WHAT:      brute force against sshd (root, admin), 1,842 attempts in 14 min
 WHERE:     /var/log/auth.log, 02:11–02:25, host web-1
 EVIDENCE:  Oct 19 02:11:03 sshd[4122]: Failed password for root from 203.0.113.9 port 51022
            (and 1,841 like it; 3 "Accepted password for deploy" from the same IP at 02:24)
-SOURCE:    203.0.113.9 — AS64496, hosting provider, Amsterdam (ip2geo); no PTR
+SOURCE:    VERDICT malicious  203.0.113.9  abuseipdb: abuse score 100, 1,234 reports from 300 users (enrich)
+           AS64496, hosting provider, Amsterdam; no PTR
 CONFIDENCE: high (the accepted logins after the burst are the concern)
 NEXT:      grep "203.0.113.9" /var/log/auth.log | grep -i accepted
            last -a | grep deploy
@@ -46,6 +57,21 @@ NEXT:      grep "203.0.113.9" /var/log/auth.log | grep -i accepted
 ```
 
 ## 4. Escalate by severity
+
+First the level an indicator's verdict gives, together with what you saw:
+
+| What `enrich` said | What the host or the log shows | Level |
+| --- | --- | --- |
+| `clean` or `unknown` | nothing odd | `info`, in the round summary only |
+| `unknown` | something odd (a new process, a new key, a login at an odd hour) | `warn`: unknown does not mean safe |
+| `suspicious` | anything | `warn` |
+| `malicious` | it was kept out: blocked, failed logins, a scan | `warn` |
+| `malicious` | it got in or out: an accepted login, an established outbound connection, a process talking to it | `crit` |
+
+One alert per finding. Check `list_findings` first: `add_finding` on a finding that is already there only raises
+its `seen` count, and you alert again only when the level went up. Put the `VERDICT` line in the evidence.
+
+Then what goes with each level:
 
 | Severity | Alert level | Also |
 | --- | --- | --- |

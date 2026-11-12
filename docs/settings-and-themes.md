@@ -86,6 +86,10 @@ This table has the same information for the bundled modules:
 | `DNSDUMPSTER_API_KEY` | `queryDns` | Free account at [dnsdumpster.com](https://dnsdumpster.com): the key is on your dashboard. |
 | `CENSYS_API_TOKEN` | `queryCensys` | Censys Platform → your user icon → **API Access** → *Create New Token*. |
 | `CENSYS_ORG_ID` | `queryCensys` | Paid plans only (needed for `search`): the *Current Organization* box on the same page. |
+| `VIRUSTOTAL_API_KEY` | `queryVirusTotal`, `enrich` | Free account at [virustotal.com](https://www.virustotal.com): your profile, then **API key**. |
+| `ABUSEIPDB_API_KEY` | `queryAbuseIPDB`, `enrich` | Free account at [abuseipdb.com](https://www.abuseipdb.com): sign in, then **API**. |
+| `SHODAN_API_KEY` | `queryShodan`, `enrich` | Optional. Your account page at [account.shodan.io](https://account.shodan.io). Without it you get ports and vulnerabilities, with it also the services. |
+| `GREYNOISE_API_KEY` | `queryGreyNoise`, `enrich` | Optional. [viz.greynoise.io](https://viz.greynoise.io): **Account**. It raises the daily limit. |
 
 Where the keys go:
 

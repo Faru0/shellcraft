@@ -380,6 +380,21 @@ def source_flags(py_text: str) -> list[list[str]]:
     return groups
 
 
+_HELPER_IMPORT = re.compile(r"^[ \t]*(?:import|from)[ \t]+(_\w+)", re.M)
+
+
+def module_flags(py: Path) -> list[list[str]]:
+    """Every option the module can have: its own, and those of a helper file it imports
+    (`import _intel` next to the module: the options _intel.parser gives every lookup command)."""
+    text = py.read_text(encoding="utf-8")
+    groups = source_flags(text)
+    for name in dict.fromkeys(_HELPER_IMPORT.findall(text)):
+        helper = py.with_name(f"{name}.py")
+        if helper.is_file():
+            groups += [g for g in source_flags(helper.read_text(encoding="utf-8")) if g not in groups]
+    return groups
+
+
 def check_documented(report: Report, flags: list[list[str]]) -> None:
     for suffix in (".md", ".skill"):
         path = report.path.with_suffix(suffix)
@@ -422,7 +437,7 @@ def check_module(py: Path, allow_network: bool = False, timeout: float = 10.0, s
     flags = source_flags(py.read_text(encoding="utf-8"))
     check_markdown(report, flags)
     check_documented(report, flags)
-    check_param_flags(report, flags)
+    check_param_flags(report, module_flags(py))  # a helper's options exist too; whether they are documented is its user's call
     if not check_name(report) or not check_import(report) or not check_contract(report):
         return report
     if not smoke:

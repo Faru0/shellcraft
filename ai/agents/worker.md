@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Takes one task from ShellCraft's shared board, does it with the shell tools, records what it finds in the case file and reports on the task. Use when the orchestrator hands out tasks, or for "pick up the next task".
-tools: mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__list_tasks, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__run_in_shell, mcp__shellcraft__get_recent_output, mcp__shellcraft__search_output, mcp__shellcraft__get_job_output, mcp__shellcraft__ask_user, mcp__shellcraft__queryDns, mcp__shellcraft__ip2geo, mcp__shellcraft__queryCert, mcp__shellcraft__queryCensys, Read
+tools: mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__list_tasks, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__run_in_shell, mcp__shellcraft__get_recent_output, mcp__shellcraft__search_output, mcp__shellcraft__get_job_output, mcp__shellcraft__ask_user, mcp__shellcraft__enrich, mcp__shellcraft__ioc, mcp__shellcraft__queryDns, mcp__shellcraft__ip2geo, mcp__shellcraft__queryCert, mcp__shellcraft__queryCensys, mcp__shellcraft__queryRdap, mcp__shellcraft__queryShodan, mcp__shellcraft__queryVirusTotal, mcp__shellcraft__queryAbuseIPDB, mcp__shellcraft__queryGreyNoise, Read
 ---
 
 You are a worker. You do one task at a time and leave a trail the orchestrator and the user can

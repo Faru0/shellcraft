@@ -1,0 +1,116 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Pull the indicators out of any text: IP addresses, domains, URLs, file hashes and email addresses. Reads defanged text (hxxp, [.]), removes duplicates, keeps the order first seen. Local, no network."
+
+when_to_use = """
+Use when you have text (a log, a mail, an alert, a report, command output) and need the
+indicators in it as a clean list:
+- to see which addresses, names and hashes a piece of text mentions, and how often (`count`);
+- as the step before `enrich`: pass this tool's output as the stdin of `enrich`;
+- to defang indicators before you put them in a note, a finding or an alert (`defang`).
+It only reads the text you give it. It does not look anything up: that is `enrich`."""
+
+usage = "ioc [TEXT...] [-t TYPES] [--public] [--defang|--refang] [-c] [-o list|json]   (text as arguments or on stdin)"
+
+examples = [
+  '{"stdin": "Failed password for root from 203.0.113.9 port 22\nGET hxxp://evil[.]example/x from 10.0.0.5"}  -> "203.0.113.9\nhttp://evil.example/x\nevil.example\n10.0.0.5\n"',
+  '{"type": ["ip"], "public": true, "count": true, "stdin": "<auth.log>"}  -> "412  45.155.205.233\n 96  193.32.162.10\n" (most seen first, private addresses left out)',
+  '{"output": "json", "stdin": "see d41d8cd98f00b204e9800998ecf8427e"}  -> [{"type": "md5", "value": "d41d8cd98f00b204e9800998ecf8427e", "count": 1}]',
+  '{"defang": true, "text": ["http://evil.example/x 1.2.3.4"]}  -> "hxxp://evil[.]example/x\nevil[.]example\n1[.]2[.]3[.]4\n"',
+]
+
+notes = """
+One indicator per line, real (refanged) unless `defang` is set. A URL also gives its host, an
+email address also gives its domain. Types: ip (ipv4, ipv6), domain, url, hash (md5, sha1,
+sha256), email. `public` drops private, loopback, link-local and reserved addresses and URLs
+that point at one. Limits: a version number such as 1.2.3.4 reads as an IP address; 40 hex
+characters may be a git commit, not a SHA-1; a name counts as a domain only when it ends in a
+known ending, and file names such as main.py are left out. With `count` each line starts with
+the number of times it was seen, so do not pass that form on to `enrich`. Empty output means
+no indicator was found."""
+
+[[params]]
+name = "text"
+type = "array"
+metavar = "TEXT"
+description = "The text to search. If omitted, the text is read from `stdin` (the usual way)."
+
+[[params]]
+name = "type"
+flag = "--type"
+short = "-t"
+type = "array"
+metavar = "TYPES"
+description = "Only these types, comma-separated: ip, domain, url, hash, email (or ipv4, ipv6, md5, sha1, sha256)."
+
+[[params]]
+name = "public"
+flag = "--public"
+type = "boolean"
+description = "Leave out addresses that are not on the internet (private, loopback, link-local, reserved) and URLs that point at one."
+
+[[params]]
+name = "defang"
+flag = "--defang"
+type = "boolean"
+description = "Print the indicators defanged (hxxp://evil[.]example, 1[.]2[.]3[.]4), safe to paste into a note."
+
+[[params]]
+name = "refang"
+flag = "--refang"
+type = "boolean"
+description = "Print the indicators real (the default; not together with defang)."
+
+[[params]]
+name = "count"
+flag = "--count"
+short = "-c"
+type = "boolean"
+description = "Start each line with how often the indicator was seen, most seen first."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["list", "json"]
+description = "list (default, one indicator per line) or json (a list of {type, value, count})."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+[[tests]]
+args = []
+error = "give some text"
+
+[[tests]]
+args = ["-t", "banana"]
+stdin = "1.1.1.1"
+error = "unknown type 'banana'"
+
+[[tests]]
+args = ["--defang", "--refang"]
+stdin = "1.1.1.1"
+error = "not allowed with"
+
+[[tests]]
+args = []
+stdin = "Failed password for root from 8.8.8.8 port 22\nGET hxxps://evil[.]example[.]com/a from 10.0.0.5, again 8.8.8.8\n"
+expect = "8.8.8.8\nhttps://evil.example.com/a\nevil.example.com\n10.0.0.5\n"
+
+[[tests]]
+args = ["--public", "-t", "ip", "--count"]
+stdin = "10.0.0.5 1.1.1.1 8.8.8.8 8.8.8.8 127.0.0.1"
+expect = "2  8.8.8.8\n1  1.1.1.1\n"
+
+[[tests]]
+args = ["--defang", "bob@phish.top wrote from 2606:4700:4700::1111"]
+expect = "bob[@]phish[.]top\nphish[.]top\n2606[:]4700[:]4700[:][:]1111\n"
+
+[[tests]]
+args = ["-o", "json", "-t", "hash"]
+stdin = "sha1 da39a3ee5e6b4b0d3255bfef95601890afd80709"
+contains = '"type": "sha1"'
+
+[[tests]]
+args = []
+stdin = "nothing to see in main.py, version 2.0"
+expect = ""

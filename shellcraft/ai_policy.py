@@ -67,8 +67,9 @@ READ_TOOLS = frozenset({
 # No run_in_shell and no set_clip-less shell access: an analyst reaches a host only through sshrun's named checks.
 ANALYST_TOOLS = (READ_TOOLS - {"get_history", "get_clip"}) | frozenset({
     "sshrun", "aggregator", "hostscan", "health", "baseline", "feed", "watchplan", "run_func", "ip2geo", "queryDns",
-    "queryCert", "queryCensys", "myip", "shellcraft_pipeline", "add_finding", "update_finding", "create_task",
-    "claim_task", "update_task", "release_task", "ask_user", "request_human_review", "open_subshell", "set_clip",
+    "queryCert", "queryCensys", "queryRdap", "queryShodan", "queryVirusTotal", "queryAbuseIPDB", "queryGreyNoise",
+    "ioc", "enrich", "myip", "shellcraft_pipeline", "add_finding", "update_finding", "create_task", "claim_task",
+    "update_task", "release_task", "ask_user", "request_human_review", "open_subshell", "set_clip",
     "resolve_review_item",
 })
 

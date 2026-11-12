@@ -97,7 +97,9 @@ shellcraft/
 │   ├── review_spool.py     # the review queue shared by the shell and the MCP servers (`mark`, `tell`, `review`)
 │   ├── usage.py            # a command's usage line as a grammar, for Tab completion
 │   └── diagnostics.py      # the `diag` report (hidden until `--diag` or the diagnostics setting)
-├── modules/                # bundled modules: myip, ip2geo, queryDns, queryCert, queryCensys
+├── modules/                # bundled modules: myip, ip2geo, queryDns, queryCert, queryCensys, the enrichment pack
+│                           # (ioc, enrich, queryRdap, queryShodan, queryVirusTotal, queryAbuseIPDB, queryGreyNoise)
+│                           # and _intel.py, the helper they share (a _name.py file is never a command)
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
 │   ├── demo.py             # records docs/demo.cast (the README demo) from a scripted session; agg makes the GIF
@@ -290,6 +292,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_mcp.py` | the MCP server, run in-process: tools, typed params, man-page resources, list_changed notifications (legacy and `subscriptions/listen`), the module watcher, HTTP address checks |
 | `test_curl.py` | `curl` against a real server on 127.0.0.1 (the `web` fixture): methods, headers, every body option, forms, auth, cookies, redirects, `-I` / `-i` / `-v` / `-w` / `-o`, exit statuses, retries, proxies, pasted Chrome commands (bash and cmd), `$'…'` and `\` continuations, `command`, no file writes for AI clients |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
+| `test_intel.py`, `test_ioc.py`, `test_enrich.py`, `test_queryrdap.py`, `test_queryshodan.py`, `test_queryvirustotal.py`, `test_queryabuseipdb.py`, `test_querygreynoise.py` | the enrichment pack, offline: indicator kinds, defang and refang, the 24 hour answer store, rate-limit waits (`_intel.Patience`), each service's verdict rules, `enrich`'s plan (who is asked what), the summed-up verdict, skipped and failing sources |
 | `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script`, `shellcraft ingest` and the `ingest` builtin |
 | `test_background.py` | `cmd &` background jobs and `jobs -f N` |
 | `test_functions.py` | shell functions: definitions, `$1`/`$#`/`$@`, `local`, `return`, recursion, precedence, `declare` / `type` / `unset -f` |

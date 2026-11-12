@@ -1,0 +1,85 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Ask GreyNoise whether an IPv4 address scans the whole internet (background noise, not aimed at you) or belongs to a known business service. Works without a key; a free key raises the daily limit."
+
+when_to_use = """
+Use when an IP address shows up in your logs or alerts and you need to know whether it matters:
+- `noise`: GreyNoise's sensors saw it scanning or probing the internet at large in the last 90
+  days, so traffic from it is probably not aimed at you in particular;
+- `riot`: it belongs to a common, known business service (public DNS, a CDN, software update
+  servers), so it is very unlikely to be an attacker.
+IPv4 only. Not for private/LAN addresses. For who owns the address use queryRdap, for location
+and ASN use ip2geo, for several sources at once use enrich."""
+
+usage = "queryGreyNoise [IP...] [-o table|json|raw] [--fresh] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["8.8.8.8"]}  -> "indicator       8.8.8.8\nverdict         clean: a known service: Google Public DNS\nnoise           no\nriot            yes\nclassification  benign\nname            Google Public DNS\n..."',
+  '{"targets": ["45.83.64.1"], "output": "json"}  -> {"source": "greynoise", "indicator": "45.83.64.1", "kind": "ipv4", "verdict": "malicious", "summary": "seen scanning the internet, classified malicious, last seen 2026-11-10", "known_good": false, "data": {"noise": true, "riot": false, "classification": "malicious", "last_seen": "2026-11-10", "link": "https://viz.greynoise.io/ip/45.83.64.1"}}',
+  '{"stdin": "8.8.8[.]8\n45.83.64.1"}  -> one record per line of input, a blank line between them',
+]
+
+notes = """
+The verdict, first rule that fits: `malicious` when GreyNoise classifies the address as
+malicious; `clean` when it is a known business service (riot, `known_good` is true) or a known
+benign scanner; `suspicious` when it was seen scanning but is not classified, or is classified
+suspicious; `unknown` when GreyNoise has not seen it scan and does not know it as a service.
+`unknown` is not `clean`: it only says GreyNoise has nothing on it. A private address gives
+`unknown` without a request.
+Limits: without a key GreyNoise answers a small number of lookups a day. The key of a free
+account raises the limit (settings GREYNOISE_API_KEY). Answers are kept for 24 hours, so asking
+twice costs nothing; `fresh` asks again. On "rate limit reached" relay the error, do not retry.
+Defanged input (8.8.8[.]8) is read. Use output json when you will parse fields."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "IP"
+description = "IPv4 addresses. If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["table", "json", "raw"]
+description = "table (default, 'field  value' lines), json (the record with verdict, summary and data), raw (GreyNoise's whole answer)."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask GreyNoise again even when an answer from the last 24 hours is stored."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI. None of them uses the network:
+# the daily limit without a key is small.
+[[tests]]
+args = []
+error = "give an IPv4 address"
+
+[[tests]]
+args = ["not_an_indicator"]
+error = "is not an IPv4 address"
+
+[[tests]]
+args = ["example.com"]
+error = "is not an IPv4 address"
+
+[[tests]]
+args = ["2001:4860:4860::8888"]
+error = "is not an IPv4 address"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["192.168.1.10"]
+contains = "unknown: a private address: GreyNoise only watches the public internet"

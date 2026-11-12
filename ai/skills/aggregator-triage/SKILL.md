@@ -46,8 +46,9 @@ it with `--previous 1`.
 
 ## 4. Go deeper only where something is new or flagged
 
-- Walk the PID and parent chain in the `ps` file. Research remote addresses with `ip2geo`, `queryDns`,
-  `queryCert`. Check `list_findings` for the same address on other devices.
+- Walk the PID and parent chain in the `ps` file. Research remote addresses with `enrich` (all of a file's at
+  once: `aggregator AGG DEVICE ss | ioc --public | enrich`), then `queryDns`, `queryCert` when you need
+  more detail. Check `list_findings` for the same address on other devices.
 - Cannot tell from files? Hand the suspect to `host-analyst` for a live check, or ask the user. Do not guess.
 - Health problems are findings too: record "disk 97% on /var" or "OOM killed cloudflared" with the exact lines,
   honest severity, and what would fix it. A healthy device is reported in one line.
@@ -57,3 +58,16 @@ it with `--previous 1`.
 One finding per thing, with the file name and age in the evidence. Say what you read, how old it was, what was
 new, what you could not check, and your confidence. Alert by the worst finding (`send_tui_alert`); stale files and
 unhealthy systems are at least `warn`, likely compromise is `crit`. Containment stays the user's decision.
+
+For a remote address, the verdict and what the files show give the level:
+
+| What `enrich` said | What the host or the log shows | Level |
+| --- | --- | --- |
+| `clean` or `unknown` | nothing odd | `info`, in the round summary only |
+| `unknown` | something odd (a new process, a new key, a login at an odd hour) | `warn`: unknown does not mean safe |
+| `suspicious` | anything | `warn` |
+| `malicious` | it was kept out: blocked, failed logins, a scan | `warn` |
+| `malicious` | it got in or out: an accepted login, an established outbound connection, a process talking to it | `crit` |
+
+One alert per finding. Check `list_findings` first: `add_finding` on a finding that is already there only raises
+its `seen` count, and you alert again only when the level went up. Put the `VERDICT` line in the evidence.

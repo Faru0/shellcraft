@@ -83,6 +83,7 @@ nav:
       - Ingest a script: modules/ingest.md
       - Add modules you already have: modules/adding-modules.md
       - Module reference: modules/reference.md
+  - Enrichment: enrichment.md
   - MCP and the AI co-pilot: mcp-and-ai.md
   - Ask the AI at your prompt: ask.md
   - AI co-pilot walkthrough: ai-walkthrough.md

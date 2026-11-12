@@ -33,7 +33,8 @@ def test_the_role_exists_and_runs_nothing():
 def test_an_analyst_server_offers_the_host_tools_and_not_a_shell(registry):
     names = {t.name for t in _call(build_server(registry, role="analyst"), lambda c: c.list_tools()).tools}
     assert {"sshrun", "aggregator", "hostscan", "health", "baseline", "feed", "run_func", "add_finding", "claim_task",
-            "send_tui_alert", "shellcraft_pipeline", "ip2geo"} <= names
+            "send_tui_alert", "shellcraft_pipeline", "ip2geo", "enrich", "ioc", "queryRdap", "queryShodan",
+            "queryVirusTotal", "queryAbuseIPDB", "queryGreyNoise"} <= names
     assert not names & {"run_in_shell", "request_session_grant", "get_history", "get_clip"}
 
 
@@ -192,3 +193,13 @@ def test_live_and_state_changing_tools_are_never_answered_from_the_cache(registr
     time.sleep(1.1)
     call("watchplan", {"action": "done", "name": "p"})
     assert state.read_text() != first                                         # the second `done` ran
+
+
+def test_an_analyst_can_enrich_an_indicator(registry, http, clean_env):
+    server = build_server(registry, role="analyst")
+    out = _call(server, lambda c: c.call_tool("enrich", {"targets": ["10.0.0.5"]}))
+    assert not out.is_error and out.content[0].text.startswith("VERDICT unknown  10.0.0.5  a private address")
+    assert http.urls == []  # a private address is sent to nobody
+    out = _call(server, lambda c: c.call_tool("ioc", {"text": ["seen hxxp://evil[.]com/x from 10.0.0.5"],
+                                                      "public": True}))
+    assert out.content[0].text.split() == ["http://evil.com/x", "evil.com"]

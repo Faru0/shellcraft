@@ -1,0 +1,94 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Look an indicator up in every service that fits (location, registration, Shodan, VirusTotal, AbuseIPDB, GreyNoise) and get one verdict: malicious, suspicious, clean or unknown, with the reasons."
+
+when_to_use = """
+Use first whenever you need to judge an IP address, a domain, a URL, a file hash or an email
+address: one call asks every lookup service that takes that kind of indicator and has its key,
+and sums the answers up. Use it before you raise an alert about an address or a name, and put
+its VERDICT line in the alert or the finding.
+Call a single lookup tool (queryVirusTotal, queryShodan, queryRdap, ...) only when you need its
+full detail after this. To get indicators out of a log or a mail, run `ioc` first and pass its
+output as `stdin`."""
+
+usage = "enrich [INDICATOR...] [--only SOURCES] [--fresh] [-o text|json] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["45.155.205.233"]}  -> "VERDICT malicious  45.155.205.233  abuseipdb: abuse score 100, 1,234 reports from 300 users\nSOURCE: ip2geo     unknown     Amsterdam, Netherlands, AS12345 Example, hosting\nSOURCE: rdap       unknown     Example LLC, 45.155.205.0/24\nSOURCE: shodan     unknown     2 open ports (22, 80)\nSOURCE: abuseipdb  malicious   abuse score 100, ...\n"',
+  '{"targets": ["8.8.8.8"], "output": "json"}  -> {"indicator": "8.8.8.8", "kind": "ipv4", "verdict": "clean", "reasons": ["greynoise: a known service: Google Public DNS"], "sources": [{"source": "rdap", "verdict": "unknown", "summary": "...", "data": {...}}, ...], "skipped": [{"source": "virustotal", "why": "no key: settings VIRUSTOTAL_API_KEY"}]}',
+  '{"stdin": "203.0.113.9\nevil.example.com\nd41d8cd98f00b204e9800998ecf8427e"}  -> one VERDICT block per indicator, a blank line between them',
+  '{"targets": ["hxxp://evil[.]example/x"], "only": ["virustotal,rdap"]}  -> the URL goes to VirusTotal, its host to RDAP',
+]
+
+notes = """
+Verdict rules: `malicious` when a source calls it malicious; `suspicious` when a source calls it
+suspicious, or one says malicious while another knows it as a good service; `clean` when a source
+knows it as a good service or sources looked and none flags it; `unknown` when no source has a
+judgement (owner and location are facts, not a judgement). `unknown` does not mean safe.
+A SOURCE line with `error` is that service failing; the others still count. `SKIPPED:` lines
+name services that have no API key: tell the user which `settings VAR` would add them, do not
+treat it as a failure. Without any key you still get location, registration, Shodan's InternetDB
+and GreyNoise. Private addresses are never sent out. Answers are kept for 24 hours (`fresh` asks
+again), so asking twice is free. A list of more than 4 new indicators waits about a minute per
+4 for VirusTotal's free limit (five minutes at most, then its lines show `error`). Sources for `only`: ip2geo, rdap, shodan, virustotal, abuseipdb,
+greynoise."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "INDICATOR"
+description = "IP addresses, domains, URLs, file hashes (MD5, SHA-1, SHA-256) or email addresses; defanged ones are read. If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "only"
+flag = "--only"
+type = "array"
+metavar = "SOURCES"
+description = "Ask only these sources, comma-separated: ip2geo, rdap, shodan, virustotal, abuseipdb, greynoise."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask every service again, even when an answer from the last 24 hours is stored."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["text", "json"]
+description = "text (default: a VERDICT line, then one SOURCE: line per service) or json (verdict, reasons, each source's record with its data, and the skipped sources)."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout for each service, in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+[[tests]]
+args = []
+error = "give an indicator"
+
+[[tests]]
+args = ["not_an_indicator"]
+error = "is not an indicator"
+
+[[tests]]
+args = ["8.8.8.8", "--only", "whois"]
+error = "unknown source 'whois'"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["10.0.0.5"]
+expect = "VERDICT unknown  10.0.0.5  a private address: the lookup services only know the public internet\n"
+
+[[tests]]
+args = ["8.8.8.8", "--only", "rdap,shodan"]
+contains = "SOURCE: rdap    unknown     Google LLC, 8.8.8.0/24"
+network = true

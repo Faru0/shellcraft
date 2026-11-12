@@ -95,3 +95,19 @@ def test_429(ip2geo, http):
 def test_argument_errors(ip2geo, args, fragment):
     with pytest.raises(ModuleError, match=fragment):
         ip2geo(args, "")
+
+
+def test_lookup_is_what_enrich_calls(ip2geo, http):
+    module = inspect.unwrap(ip2geo).__globals__
+    assert (module["SOURCE"], module["KINDS"], module["KEY_VAR"]) == ("ip2geo", ("ipv4", "ipv6", "domain"), "")
+    record = module["lookup"]("24.48.0[.]1")
+    assert (record["source"], record["indicator"], record["kind"], record["verdict"]) == ("ip2geo", "24.48.0.1",
+                                                                                         "ipv4", "unknown")
+    assert record["summary"] == "Montreal, Canada, AS5769 Videotron Ltee, hosting"
+    assert record["data"]["country_code"] == "CA" and record["data"]["hosting"] is True
+    assert record["cached"] is False and module["lookup"]("24.48.0.1")["cached"] is True
+    assert len(http.urls) == 1  # the second answer came from the store
+    private = module["lookup"]("10.0.0.1")
+    assert (private["verdict"], private["summary"], private["data"]) == ("unknown", "private range", {})
+    with pytest.raises(ModuleError, match="is not an IP address or domain name"):
+        module["lookup"]("http://example.com/x")

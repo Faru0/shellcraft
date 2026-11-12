@@ -18,7 +18,7 @@ from tools.ingest import docs
 from tools.ingest import ingest_AI as ai
 from tools.ingest.__main__ import main as ingest_main
 from tools.ingest.analyze import GUARD, KEEP, MOVE, analyze
-from tools.ingest.check import FAIL, WARN, check_module, source_flags
+from tools.ingest.check import FAIL, WARN, check_module, module_flags, source_flags
 from tools.ingest.convert import ConvertError, convert, extra_changes
 
 
@@ -316,6 +316,22 @@ def test_check_cli_exit_codes(tmp_path):
 
 def test_source_flags():
     assert source_flags('p.add_argument("-n", "--top", default="-x")\np.add_argument("files")') == [["-n", "--top"]]
+
+
+def test_options_a_helper_file_adds_count_as_the_modules_own(tmp_path):
+    """A lookup module gets `-o` and `--fresh` from the helper it imports; its .skill may name them."""
+    write(tmp_path, "_shared", "def parser(p):\n    p.add_argument('-o', '--output')\n    p.add_argument('--fresh')\n")
+    py = write(tmp_path, "lookit", "import _shared\n\nfrom shellcraft.modkit import ArgParser\n\n"
+                                   "def run(args, stdin):\n    p = ArgParser('lookit')\n"
+                                   "    p.add_argument('--days', type=int)\n    _shared.parser(p)\n"
+                                   "    p.parse_args(args)\n    return ''\n")
+    assert module_flags(py) == [["--days"], ["-o", "--output"], ["--fresh"]]
+    py.with_suffix(".skill").write_text(
+        'summary = "Look."\n\n[[params]]\nname = "fresh"\nflag = "--fresh"\ntype = "boolean"\ndescription = "Again."\n\n'
+        '[[params]]\nname = "gone"\nflag = "--gone"\ntype = "boolean"\ndescription = "Not in the code."\n')
+    flags = [c for c in check_module(py, smoke=False).checks if c.name == ".skill [[params]] flags"]
+    assert [c.status for c in flags] == [FAIL] and "'gone' uses --gone" in flags[0].detail and "--fresh" not in flags[0].detail
+    assert module_flags(write(tmp_path, "alone", "import _nowhere\ndef run(args, stdin):\n    return ''\n")) == []
 
 
 # ── AI (no network: requests is mocked) ─────────────────────────────────────

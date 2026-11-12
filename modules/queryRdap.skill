@@ -1,0 +1,75 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Who an IP address or a domain is registered to, straight from the registries (RDAP): network owner and range, or registrar, registration date, name servers and the abuse contact. Free, no key."
+
+when_to_use = """
+Use when you need to know who is behind an IP address or a domain and since when:
+- an IP: the network it belongs to, the owner, the country, the abuse contact;
+- a domain: the registrar, when it was registered (a domain a few days old is a warning sign),
+  when it expires, its name servers.
+It says who and since when, not good or bad: for reputation use enrich, queryVirusTotal or
+queryAbuseIPDB. For location and ASN use ip2geo. Not for private/LAN addresses."""
+
+usage = "queryRdap [TARGET...] [-o table|json|raw] [--fresh] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["8.8.8.8"]}  -> "indicator    8.8.8.8\nverdict      unknown: Google LLC, 8.8.8.0/24\nnetwork      8.8.8.0/24\nname         GOGL\nowner        Google LLC\nabuse_email  network-abuse@google.com\n..."',
+  '{"targets": ["example.com"], "output": "json"}  -> {"source": "rdap", "indicator": "example.com", "kind": "domain", "verdict": "unknown", "summary": "registered 1995-08-14, ...", "data": {"domain": "example.com", "registrar": "...", "created": "1995-08-14", "age_days": 11413, "expires": "...", "nameservers": [...]}}',
+  '{"stdin": "evil[.]example\n203.0.113.9"}  -> one record per line of input, a blank line between them',
+]
+
+notes = """
+The verdict is `suspicious` only for a domain registered less than 30 days ago, otherwise
+`unknown` (RDAP has no opinion). A host name is looked up by its registered domain
+(www.example.com -> example.com). "the registries have no record of it" is an answer, not an
+error: some country endings have no RDAP service. Answers are kept for 24 hours; `fresh` asks
+again. Defanged input (evil[.]com) is read. Use output json when you will parse fields."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "TARGET"
+description = "IP addresses (v4 or v6) or domain names. If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["table", "json", "raw"]
+description = "table (default, 'field  value' lines), json (the record with verdict, summary and data), raw (the registry's whole RDAP answer)."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask the registry again even when an answer from the last 24 hours is stored."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+[[tests]]
+args = []
+error = "give an IP address or a domain name"
+
+[[tests]]
+args = ["not_an_indicator"]
+error = "is not an IP address or a domain name"
+
+[[tests]]
+args = ["d41d8cd98f00b204e9800998ecf8427e"]
+error = "is not an IP address or a domain name"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["8.8.8.8", "--fresh"]
+contains = "owner        Google LLC"
+network = true

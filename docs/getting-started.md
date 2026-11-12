@@ -310,6 +310,15 @@ And the modules that come with ShellCraft:
 | `queryDns` | A domain's DNS records with each IP's owner (DnsDumpster, needs a free key) |
 | `queryCert` | Certificates and subdomains from Certificate Transparency logs |
 | `queryCensys` | Open ports and software on a host (Censys, needs a token) |
+| `ioc` | Pulls the IP addresses, domains, URLs, hashes and email addresses out of any text |
+| `enrich` | Looks an indicator up in every service below and gives one verdict: malicious, suspicious, clean or unknown |
+| `queryRdap` | Who an IP address or a domain is registered to, and since when (no key) |
+| `queryShodan` | What an IP shows to the internet: open ports, services, known vulnerabilities (key optional) |
+| `queryVirusTotal` | What the antivirus engines say about an IP, a domain, a URL or a file hash (needs a free key) |
+| `queryAbuseIPDB` | How often an IP address was reported for abuse (needs a free key) |
+| `queryGreyNoise` | Whether an IPv4 address is a known internet scanner or a known service (key optional) |
+
+[Enrichment](enrichment.md) shows how `ioc` and `enrich` work together.
 
 ## If a step didn't work
 

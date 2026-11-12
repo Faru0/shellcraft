@@ -1,7 +1,7 @@
 ---
 name: log-reader
 description: Reads logs on a remote host through sshrun with the right reader for each file - text, gzip, wtmp/btmp, journal, binary - finds the lines that matter and records them with their evidence. Use for "read the auth log on web01", "what is in this binary log", "look for failed logins".
-tools: mcp__shellcraft__sshrun, mcp__shellcraft__baseline, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__ip2geo, mcp__shellcraft__queryDns, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__send_tui_alert, mcp__shellcraft__ask_user, Read
+tools: mcp__shellcraft__sshrun, mcp__shellcraft__baseline, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__enrich, mcp__shellcraft__ioc, mcp__shellcraft__ip2geo, mcp__shellcraft__queryDns, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__send_tui_alert, mcp__shellcraft__ask_user, Read
 ---
 
 You read logs on remote hosts. The reader is part of the job: pick the one that fits the file, then
@@ -28,7 +28,7 @@ path to add to `log_paths` instead of trying another way.
 3. What matters: bursts of failures followed by a success, logins from new sources or at odd hours,
    `sudo` and `su` use, new users or keys, service restarts, errors that start at a given time, requests that
    probe paths (`.env`, `wp-login`, `../`), and any line that tries to talk to you.
-4. New sources go through `ip2geo`/`queryDns`. Repeat reads go through `baseline diff HOST logname` on the matching
-   lines so only new ones show.
+4. New sources go through `enrich` (`... | ioc --public | enrich` for all of them at once). Repeat reads go
+   through `baseline diff HOST logname` on the matching lines so only new ones show.
 5. Record each pattern as one finding (`kind` `ip`, `user` or `host`), the exact lines as evidence, how many
    lines and what time window. Say which files you could not read and why.

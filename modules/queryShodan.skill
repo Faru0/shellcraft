@@ -1,0 +1,96 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "What a public IP address shows to the internet, as Shodan saw it: open ports, host names, tags, known vulnerabilities. Works with no key. A key adds services with versions, organisation and location."
+
+when_to_use = """
+Use when you need to know what a public IP address exposes, without scanning it yourself:
+- which ports are open and, with a key, which software and version answers on each;
+- which known vulnerabilities (CVE ids) Shodan matched to that software;
+- how Shodan tags the host: cloud, vpn, tor, scanner, c2, malware and so on.
+Shodan describes a host, it does not rate it: for reputation use enrich, queryVirusTotal or
+queryAbuseIPDB. For the owner use queryRdap, for location with no key use ip2geo. To scan a host
+on your own network use hostscan: Shodan only sees the public internet."""
+
+usage = "queryShodan [IP...] [-o table|json|raw] [--internetdb] [--fresh] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["8.8.8.8"]}  -> "indicator  8.8.8.8\nverdict    unknown: 2 open ports (53, 443)\nports      53, 443\nhostnames  dns.google\nvia        InternetDB (free, no key)\n"',
+  '{"targets": ["45.33.32.156"], "output": "json"}  -> {"source": "shodan", "indicator": "45.33.32.156", "kind": "ipv4", "verdict": "unknown", "summary": "2 open ports (22, 80), 3 known vulnerabilities", "data": {"ip": "45.33.32.156", "ports": [22, 80], "hostnames": [...], "org": "...", "tags": [], "vulns": ["CVE-..."], "cpes": [...], "services": ["22/tcp OpenSSH 6.6.1p1", "80/tcp Apache httpd 2.4.7"], "via": "api"}}',
+  '{"stdin": "8.8.8[.]8\n1.1.1.1", "internetdb": true}  -> one record per line of input, a blank line between them',
+]
+
+notes = """
+Two back ends, and the `via` line (data.via: "internetdb" or "api") says which one answered:
+- no SHODAN_API_KEY set, or `internetdb`: the free InternetDB. It gives ports, hostnames, tags,
+  vulns and cpes. It needs no key and is refreshed about once a week.
+- SHODAN_API_KEY set: the Shodan API. It adds services (such as "22/tcp OpenSSH 8.9"), org, isp,
+  asn, os, country, city and last_update. The key is at https://account.shodan.io, the free
+  account's key works for host lookups, and the user stores it with `settings SHODAN_API_KEY`.
+  The API takes about one request a second.
+Verdict: `malicious` when Shodan tags the host c2, malware or compromised; `suspicious` when it
+tags it tor, scanner or proxy; otherwise `unknown`, with the facts after it. It never says
+`clean`: open ports and known vulnerabilities describe a host, they do not judge it. vulns are
+matched from version numbers, so treat them as leads, not as proof.
+"Shodan has not seen it" and "a private address" are answers, not errors. Answers are kept for
+24 hours; `fresh` asks again. Defanged input (8.8.8[.]8) is read. Use output json when you will
+parse fields."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "IP"
+description = "Public IP addresses (v4 or v6). If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["table", "json", "raw"]
+description = "table (default, 'field  value' lines), json (the record with verdict, summary and data), raw (Shodan's whole answer)."
+
+[[params]]
+name = "internetdb"
+flag = "--internetdb"
+type = "boolean"
+description = "Ask the keyless InternetDB even when SHODAN_API_KEY is set: fewer fields, no use of the key."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask Shodan again even when an answer from the last 24 hours is stored."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+# There is no "no key" error to test: without a key the InternetDB answers.
+[[tests]]
+args = []
+error = "give an IP address"
+
+[[tests]]
+args = ["example.com"]
+error = "is not an IP address"
+
+[[tests]]
+args = ["d41d8cd98f00b204e9800998ecf8427e"]
+error = "is not an IP address"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["192.168.1.10"]
+expect = "indicator  192.168.1.10\nverdict    unknown: a private address: Shodan only sees the public internet\n"
+
+[[tests]]
+args = ["8.8.8.8", "--internetdb"]
+contains = "53"
+network = true

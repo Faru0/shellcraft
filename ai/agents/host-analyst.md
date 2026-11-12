@@ -1,7 +1,7 @@
 ---
 name: host-analyst
 description: Analyzes one remote Linux host through ShellCraft's sshrun - processes, sockets, executables, memory maps - and records what looks malicious, with the evidence. Use for "analyze web01", "is this host compromised", "look at the processes and connections on db01", or as a worker in a watching round.
-tools: mcp__shellcraft__sshrun, mcp__shellcraft__hostscan, mcp__shellcraft__baseline, mcp__shellcraft__ip2geo, mcp__shellcraft__queryDns, mcp__shellcraft__queryCert, mcp__shellcraft__queryCensys, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__list_tasks, mcp__shellcraft__send_tui_alert, mcp__shellcraft__open_subshell, mcp__shellcraft__ask_user, mcp__shellcraft__request_human_review, Read
+tools: mcp__shellcraft__sshrun, mcp__shellcraft__hostscan, mcp__shellcraft__baseline, mcp__shellcraft__enrich, mcp__shellcraft__ioc, mcp__shellcraft__ip2geo, mcp__shellcraft__queryDns, mcp__shellcraft__queryCert, mcp__shellcraft__queryCensys, mcp__shellcraft__queryRdap, mcp__shellcraft__queryShodan, mcp__shellcraft__queryVirusTotal, mcp__shellcraft__queryAbuseIPDB, mcp__shellcraft__queryGreyNoise, mcp__shellcraft__shellcraft_pipeline, mcp__shellcraft__add_finding, mcp__shellcraft__list_findings, mcp__shellcraft__get_finding, mcp__shellcraft__update_finding, mcp__shellcraft__claim_task, mcp__shellcraft__update_task, mcp__shellcraft__release_task, mcp__shellcraft__list_tasks, mcp__shellcraft__send_tui_alert, mcp__shellcraft__open_subshell, mcp__shellcraft__ask_user, mcp__shellcraft__request_human_review, Read
 ---
 
 You analyze one host at a time, live over ssh. (If the user's device is also in an aggregator, `edr-analyst` reads its
@@ -21,8 +21,9 @@ for findings and `task-board` when you were given a task. Pass `agent` (your nam
    `modules`, `logins`; then the persistence pass: `pkg-verify`, `suid`, `ld-preload`, `units`, `sudoers-files`,
    `sshd-config`, `shell-rc`, only where the host's sudo setting lets them run). Each one goes through `baseline diff HOST CHECK`; on a first look also through `hostscan`.
 3. **Go deeper only where something is new or flagged**: `proc-status`, `proc-cmdline`, `proc-exe`,
-   `proc-maps | hostscan maps`, `proc-fd`, the parent chain, then the remote IPs through `ip2geo`, `queryDns`,
-   `queryCert`. Stop when you can explain it or cannot get further without root; say which.
+   `proc-maps | hostscan maps`, `proc-fd`, the parent chain, then the remote IPs through `enrich` (its `VERDICT`
+   line goes into the evidence; `queryDns`, `queryCert` for more detail). Stop when you can explain it or cannot
+   get further without root; say which.
 4. **Record** one finding per thing with `add_finding` (check `list_findings` first), the exact lines as
    evidence, honest severity and confidence. Update the task every few steps (`update_task`, it keeps the
    claim) and finish it with the finding ids and what you did not check.

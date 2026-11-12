@@ -1,0 +1,84 @@
+# ShellCraft skill file (TOML). Parsed at startup and injected into the MCP tool description.
+
+summary = "Ask VirusTotal what the antivirus engines say about an IP address, a domain, a URL or a file hash: how many call it malicious, its reputation and tags. Needs a free key (VIRUSTOTAL_API_KEY)."
+
+when_to_use = """
+Use when you need to know whether an indicator is known to be bad:
+- a file hash (MD5, SHA-1, SHA-256): how many engines detect the file, its threat label, its
+  names, type and size;
+- an IP address or a domain: how many engines flag it, its owner or registrar, its categories;
+- a URL: how many engines flag it, where it ends up, the title of the page.
+It only reads reports VirusTotal already has. It never uploads a file and never sends a URL in
+for a scan, so nothing you look up is given away as new. For who owns an IP or a domain use
+queryRdap, for location and ASN use ip2geo, for several sources at once use enrich."""
+
+usage = "queryVirusTotal [INDICATOR...] [-o table|json|raw] [--fresh] [--timeout SECONDS]"
+
+examples = [
+  '{"targets": ["44d88612fea8a8f36de82e1278abb02f"]}  -> "indicator      44d88612fea8a8f36de82e1278abb02f\nverdict        malicious: 62 of 70 engines call it malicious, virus.eicar/test, last checked 2026-11-01\nmalicious      62\nsuspicious     0\n...\nlink           https://www.virustotal.com/gui/file/44d88612fea8a8f36de82e1278abb02f"',
+  '{"targets": ["8.8.8.8"], "output": "json"}  -> {"source": "virustotal", "indicator": "8.8.8.8", "kind": "ipv4", "verdict": "clean", "summary": "none of 94 engines flag it, last checked 2026-11-01", "data": {"malicious": 0, "suspicious": 0, "harmless": 70, "undetected": 24, "engines": 94, "reputation": 530, "as_owner": "GOOGLE", "asn": 15169, "country": "US", "link": "https://www.virustotal.com/gui/ip-address/8.8.8.8"}}',
+  '{"stdin": "hxxps://evil[.]example/a\nevil[.]example"}  -> one record per line of input, a blank line between them',
+]
+
+notes = """
+The verdict, first rule that fits: `malicious` when 5 or more engines call it malicious;
+`suspicious` when 1 to 4 engines call it malicious, or 2 or more call it suspicious; `clean`
+when engines checked it and fewer than that flag it; `unknown` when no engine has checked it
+yet, or VirusTotal has never seen it ("VirusTotal has never seen it" is an answer, not an
+error, and it does not mean the thing is safe). The summary has the numbers:
+"12 of 94 engines call it malicious, 2 suspicious, last checked 2026-11-01".
+Limits: a free key allows 4 lookups a minute and 500 a day. In a list, the command waits about
+a minute each time the limit is reached and then goes on, for five minutes in all (about 20
+new indicators). The ones after that come back with the rate limit error: run the same command
+again a minute later. Answers are kept for 24 hours, so asking again costs nothing; `fresh` asks again.
+No key: the error says where to get one and how to set it (settings VIRUSTOTAL_API_KEY).
+Defanged input (hxxps://evil[.]com/a, 1[.]2[.]3[.]4) is read. Use output json when you will
+parse fields."""
+
+[[params]]
+name = "targets"
+type = "array"
+metavar = "INDICATOR"
+description = "IP addresses (v4 or v6), domain names, URLs or file hashes (MD5, SHA-1, SHA-256). If omitted, read from `stdin`, one per line."
+
+[[params]]
+name = "output"
+flag = "--output"
+short = "-o"
+metavar = "FORMAT"
+values = ["table", "json", "raw"]
+description = "table (default, 'field  value' lines), json (the record with verdict, summary and data), raw (VirusTotal's whole report)."
+
+[[params]]
+name = "fresh"
+flag = "--fresh"
+type = "boolean"
+description = "Ask VirusTotal again even when an answer from the last 24 hours is stored. It costs one of your lookups."
+
+[[params]]
+name = "timeout"
+flag = "--timeout"
+type = "number"
+metavar = "SECONDS"
+description = "Network timeout in seconds (default 10)."
+
+# Tests: run by `python tools/ingest check`, never shown to the AI.
+[[tests]]
+args = []
+error = "give an IP address, a domain name, a URL or a file hash (MD5, SHA-1, SHA-256)"
+
+[[tests]]
+args = ["not_an_indicator"]
+error = "is not an IP address, a domain name, a URL or a file hash"
+
+[[tests]]
+args = ["someone@example.com"]
+error = "is not an IP address, a domain name, a URL or a file hash"
+
+[[tests]]
+args = ["8.8.8.8", "-o", "xml"]
+error = "invalid choice"
+
+[[tests]]
+args = ["8.8.8.8"]
+error = "no VirusTotal API key"

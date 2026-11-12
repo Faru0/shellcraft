@@ -4,8 +4,9 @@
 
 You tell your AI "analyze web01", or "keep an eye on these servers and my monitoring", and it does the
 looking: processes, sockets, memory maps, eBPF programs, kprobes and uprobes, cron, logins and logs, over
-ssh. It researches the addresses it finds, remembers what it has already seen, and tells you through your
-ShellCraft footer. It can read a lot and change nothing. This page sets it up and explains why that is safe.
+ssh. It researches the addresses it finds (`enrich`, see [Enrichment](enrichment.md)), remembers what it has
+already seen, and tells you through your ShellCraft footer. It can read a lot and change nothing. This page
+sets it up and explains why that is safe.
 
 ## Two ways in
 

@@ -47,8 +47,23 @@ ancestors and sockets.
 
 ## 3. Research the network side
 
-For each new remote IP in `ss`: private ranges need no lookup. Public ones: `ip2geo IP`, `queryDns` (PTR),
-`queryCert` for TLS ports, `queryCensys host IP` when a key is set. Say what you checked and what came back.
+For each new remote IP in `ss`: `enrich IP` (several at once: `sshrun HOST ss | ioc --public | enrich`). It asks
+every source it has a key for and ends in one `VERDICT` line; private ranges are never sent anywhere. Go to a
+single lookup only for more detail: `queryDns` (PTR), `queryCert` for TLS ports, `queryShodan IP` for what the
+address serves. Say what you checked and what came back, and which sources were skipped for want of a key.
+
+The verdict and what the host shows give the alert level:
+
+| What `enrich` said | What the host or the log shows | Level |
+| --- | --- | --- |
+| `clean` or `unknown` | nothing odd | `info`, in the round summary only |
+| `unknown` | something odd (a new process, a new key, a login at an odd hour) | `warn`: unknown does not mean safe |
+| `suspicious` | anything | `warn` |
+| `malicious` | it was kept out: blocked, failed logins, a scan | `warn` |
+| `malicious` | it got in or out: an accepted login, an established outbound connection, a process talking to it | `crit` |
+
+One alert per finding. Check `list_findings` first: `add_finding` on a finding that is already there only raises
+its `seen` count, and you alert again only when the level went up. Put the `VERDICT` line in the evidence.
 
 ## 4. Normal and odd
 

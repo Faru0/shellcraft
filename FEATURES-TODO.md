@@ -24,21 +24,21 @@ when the full test suite, `ruff check` and `mypy shellcraft` (199 or fewer) pass
 
 ## 2. The enrichment pack
 
-- [ ] **2.1 `modules/_intel.py`**: one HTTP helper and error style, indicator kinds, defang and refang, the 24 hour answer store
+- [x] **2.1 `modules/_intel.py`**: one HTTP helper and error style, indicator kinds, defang and refang, the 24 hour answer store
   - Done when: tests cover each kind, both fang directions, the store and every error message
-  - Notes:
-- [ ] **2.2 Lookup modules**: `queryRdap`, `queryShodan`, `queryVirusTotal`, `queryAbuseIPDB`, `queryGreyNoise`
+  - Notes: `modules/_intel.py`: `get_json`, `kind_of`/`clean`, `refang`/`defang`, `is_public`, `find` (used by `ioc`), the answer store (`answer`), the record every lookup returns (`record`: source, indicator, kind, verdict, summary, known_good, cached, data, raw) and the shared command line (`parser`, `targets`, `each`, `show`). Added to the plan: (a) `Patience`, the one rate-limit rule for a list: a limit of 65 s or less is waited out, five minutes in all, and a wait that did not help ends the waiting; a limit with no Retry-After and a single lookup never wait; (b) "not known" is stored too, so asking again costs nothing; (c) the store keeps the case of a URL. The module checker (`tools/ingest/check.py`, `module_flags`) now counts options a helper adds as the module's own. Tests: tests/test_intel.py (110).
+- [x] **2.2 Lookup modules**: `queryRdap`, `queryShodan`, `queryVirusTotal`, `queryAbuseIPDB`, `queryGreyNoise`
   - Done when: each has `.py`, `.skill`, `.md`, tests with the fake HTTP, a clear line when its key is missing, and `tools/ingest check --all --strict` is clean
-  - Notes:
-- [ ] **2.3 `ioc`**: pull IPs, domains, URLs, hashes and emails out of any text
+  - Notes: Each module has `lookup(indicator, timeout=, fresh=)` for `enrich` next to `run`, and `SOURCE`, `KINDS`, `KEY_VAR`. `ip2geo` gained the same `lookup`. Verdict rules are constants at the top of each file and a table in each man page. `queryShodan` uses InternetDB without a key and the host API with one (a 429 there waits one second). `queryVirusTotal` turns its 429 into a 60 s wait (it sends no Retry-After) and only reads reports, it never uploads. A private address is answered `unknown` with no request in VirusTotal, AbuseIPDB and GreyNoise. Output `-o table|json|raw`. Tests: 12 + 46 + 39 + 53 + 51; `tools/ingest check --all --strict` 19/19 (with `--network` all the new modules pass; `queryCert`'s own network test timed out on crt.sh that day).
+- [x] **2.3 `ioc`**: pull IPs, domains, URLs, hashes and emails out of any text
   - Done when: `--type`, `--public`, `--defang`, `--refang`, `--count` and `-o json` work, defanged input is read, duplicates go
-  - Notes:
-- [ ] **2.4 `enrich`**: every lookup that fits, one verdict
+  - Notes: `modules/ioc.py`, no network. Output is `-o list|json` (the plan said `-o json`; `list` is the default's name). A URL also gives its host and an email address its domain. A name counts as a domain only with a known ending, so `main.py` and `notes.md` are left out. Hex groups that look like code (a MAC, a time) are not read as IPv6. Tests: tests/test_ioc.py (20).
+- [x] **2.4 `enrich`**: every lookup that fits, one verdict
   - Done when: `enrich IP`, a domain, a hash and piped input give a `VERDICT` line with a `SOURCE:` line per service; services without a key are listed as skipped; `--only`, `--fresh`, `-o json` work
-  - Notes:
-- [ ] **2.5 AI side and docs**: analyst tools, agent tool lists, triage skills with the escalation ladder, `docs/enrichment.md`, module tables, API key table, changelog
+  - Notes: `modules/enrich.py`: sources asked a few at a time in threads (cancel reaches them), one `Patience` per source per run. Output is `-o text|json`. Different from the plan: `SKIPPED:` lines come once per run, not per indicator; a private address and a URL on one are never sent; a URL goes to VirusTotal and the other sources get its host; an email is looked up by its domain; `malicious` from one source and known-good from another gives `suspicious`. One indicator prints a JSON object, several a list. Tests: tests/test_enrich.py (42).
+- [x] **2.5 AI side and docs**: analyst tools, agent tool lists, triage skills with the escalation ladder, `docs/enrichment.md`, module tables, API key table, changelog
   - Done when: `tests/test_ai_files.py`, `tests/test_analyst_role.py` and the docs tests pass; `enrich 8.8.8.8` answers live without keys
-  - Notes:
+  - Notes: Seven tools in `ai_policy.ANALYST_TOOLS`; `enrich` and `ioc` in the tool lists of edr-analyst, host-analyst, feed-analyst, log-reader, soc-triage and worker, the five lookups in all of those but log-reader. `soc-triage`, `remote-triage` and `aggregator-triage` start with `enrich` and share one ladder table (verdict plus what the host shows gives `info`, `warn` or `crit`; one alert per finding, again only when the level went up). Docs: docs/enrichment.md (mkdocs.yml, docs/README.md), module table, API key table, DEVELOPMENT.md, ai/README.md, mcp-and-ai, ai-host-analysis, AI-TODO item 5 (the report file is left for feature 4), changelog. Live without keys: `enrich 8.8.8.8` answered from ip2geo, RDAP, Shodan InternetDB and GreyNoise, listed VirusTotal and AbuseIPDB as skipped, and showed `(stored)` the second time. Not checked: VirusTotal, AbuseIPDB and the Shodan host API against the real services, because no keys are set on this machine; they are tested against recorded answer shapes only.
 
 ## 3. Missed alerts are kept, rounds run on their own
 
