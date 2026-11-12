@@ -55,6 +55,7 @@ def available(b: Builtin, config: dict[str, Any]) -> bool:
 
 
 BUILTINS: dict[str, Builtin] = {}
+SPINNER_TEXT: dict[str, str] = {}  # a builtin's own spinner text (default: `running NAME…`)
 
 
 def builtin(name: str, summary: str, usage: str, stateful: bool = False, writes: bool = False,
@@ -265,7 +266,7 @@ KEYWORDS_HELP = ("for", "if", "while", "until", "case", "match", "select", "func
 # every one). A builtin missing here goes to the group of its category.
 HELP_GROUPS: tuple[tuple[str, str], ...] = (
     ("ShellCraft", "sub jobs alert clip record script mcp modules reload ingest startup profile func theme "
-                   "prompt settings banner diag hotkeys mark tell review"),
+                   "prompt settings banner diag hotkeys mark tell review ask"),
     ("Shell", "cd pwd clear exit history alias unalias help man type which source"),
     ("Files", "ls tree find du cp mv rm mkdir touch stat basename dirname realpath"),
     ("Text", "cat grep head tail less more wc sort uniq cut tr tee diff jq echo printf seq yes"),
@@ -291,6 +292,7 @@ HELP_SHORT = {  # one line each, for the ShellCraft group
     "banner": "Show the welcome banner", "diag": "Console, color and footer diagnostics",
     "hotkeys": "Keyboard shortcuts and mouse actions",
     "mark": "Flag output, files or a diff for an AI", "tell": "Send a message to the AI",
+    "ask": "Ask the AI about what is on your screen",
     "review": "Flags, the AI's requests and the commands it runs",
 }
 HELP_WIDTH = 100  # the help screen never grows wider than this, however wide the terminal
@@ -3480,6 +3482,8 @@ settings reset NAME           # forget a stored API key
 settings prefix_key [KEY]     # the subshell prefix key (Ctrl-] by default); alone: the choices
 settings editor [COMMAND]     # the editor for func edit / profile edit (code, vim, nano…); alone: the one in use
 settings loader [bar|spinner] # what the screen shows while the shell starts (bar by default)
+settings ask_budget [USD]     # the most one `ask` question may cost (0.50 by default)
+settings ask_model [NAME]     # the model `ask` uses (the client's default when empty)
 ```
 
 ## Settings
@@ -3533,6 +3537,8 @@ def _settings(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         return _editor_setting(ctx, args)
     if args[0] == loading.CONFIG_KEY or args[:2] == ["reset", loading.CONFIG_KEY]:
         return _loader_setting(ctx, args)
+    if args[0] in settings.TEXT_SETTINGS or (args[0] == "reset" and args[1:2] and args[1] in settings.TEXT_SETTINGS):
+        return _text_setting(ctx, args)
 
     if args[0] == "reset":
         if len(args) != 2:
@@ -3611,6 +3617,29 @@ def _prefix_key(ctx: ShellContext, args: list[str]) -> Any:
         raise CommandError(f"usage: settings {prefix.CONFIG_KEY} [{'|'.join(prefix.KEYS)}]")
     msg = Text.assemble(("✓ ", "sc.success"), f"{PREFIX_LABEL} set to ", (prefix.label(), "sc.accent"),
                         (f"  ({prefix.KEYS[chosen].note}; pressed twice it reaches the program)", "sc.muted"))
+    try:
+        save_config(ctx.config)
+    except OSError as exc:
+        msg.append(f"  (not saved: {exc})", style="sc.warning")
+    return msg
+
+
+def _text_setting(ctx: ShellContext, args: list[str]) -> Any:
+    """`settings KEY` (show it), `settings KEY VALUE`, `settings reset KEY` for a settings.TEXT_SETTINGS key."""
+    key = args[1] if args[0] == "reset" else args[0]
+    spec = settings.TEXT_SETTINGS[key]
+    shown = lambda value: value or "(not set)"  # noqa: E731
+    if args == [key]:
+        return Text.assemble((f"{key}  ", "sc.path"), (shown(settings.text(ctx.config, key)), "sc.accent"),
+                             (f"  {spec.label}. {spec.description}", "sc.muted"))
+    if len(args) != 2:
+        raise CommandError(f"usage: settings {key} [VALUE]  (settings reset {key} for the default)")
+    try:
+        now = settings.set_text(ctx.config, key, None if args[0] == "reset" else args[1])
+    except ValueError as exc:
+        raise CommandError(f"settings: {key}: {exc}") from None
+    msg = Text.assemble(("✓ ", "sc.success"), f"{spec.label} {'reset to' if args[0] == 'reset' else 'set to'} ",
+                        (shown(now), "sc.accent"))
     try:
         save_config(ctx.config)
     except OSError as exc:
@@ -3719,7 +3748,11 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
                                                            overflow="fold"), EDITOR_DESCRIPTION)
     session_vars = envvars.session(ctx)
     table.add_row(loading.CONFIG_KEY, LOADER_LABEL, Text(loading.style(ctx.config), style="sc.accent"),
-                  LOADER_DESCRIPTION, end_section=bool(keys or session_vars))
+                  LOADER_DESCRIPTION)
+    texts = list(settings.TEXT_SETTINGS.values())
+    for i, t in enumerate(texts):
+        table.add_row(t.key, t.label, Text(settings.text(ctx.config, t.key) or "(not set)", style="sc.accent"),
+                      t.description, end_section=i == len(texts) - 1 and bool(keys or session_vars))
     styles = {"set": "sc.success", "environment": "sc.accent", "unset": "sc.muted"}
     last_key = sorted(keys, key=lambda n: (keys[n].module.lower(), n))[-1] if keys else None
     for name in sorted(keys, key=lambda n: (keys[n].module.lower(), n)):
@@ -3738,7 +3771,7 @@ def _settings_table(ctx: ShellContext, keys: dict[str, settings.EnvEntry]) -> Ta
 
 def _setting_key(key: str, keys: dict[str, settings.EnvEntry] | None = None) -> str:
     if key not in settings.SETTINGS:
-        names = list(settings.SETTINGS) + sorted(keys or ())
+        names = list(settings.SETTINGS) + list(settings.TEXT_SETTINGS) + sorted(keys or ())
         raise CommandError(f"settings: unknown setting '{key}' (try: {', '.join(names)})")
     return key
 

@@ -7,6 +7,18 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`ask`: the AI at your prompt.** `ask why did that fail` sends your question to the Claude Code client with
+  the folder you are in, your last commands and what the last one printed (secrets redacted), and writes the
+  answer under your prompt as it arrives. No setup: it starts the client itself and connects it to the shell
+  you typed in.
+  - The question is taken as typed: `'`, `?`, `#` and `|` need no quotes. Start it with a quote to pipe or
+    redirect the answer. `COMMAND | ask ...` adds the command's output to the question.
+  - `ask fix it` puts the corrected command in the clip register (Alt-v pastes it). `ask -c` carries on from
+    the last question. `ask -b` runs it as a `✦` background job. `ask -n` shows what would be sent.
+  - It follows `ai on` and `ai off`: with access on it may run commands in your shell as `✦ AI` jobs, with it
+    off it only reads and stages. An AI client cannot call `ask` itself.
+  - New settings `ask_budget` (0.50 USD for one question) and `ask_model`; `--budget` and `--model` for one
+    question. The line under each answer shows the time and the cost.
 - **Aggregator file names and devices can be passed as arguments.** `--setup-analyst --aggregator ALIAS --root PATH`
   takes `--file KIND=GLOB`, `--device NAME=FOLDER` and `--stale-minutes N`, and the `aggregator` tool takes
   `--glob KIND=GLOB` for one call when the EDR renames its files.

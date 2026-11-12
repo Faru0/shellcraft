@@ -163,6 +163,61 @@ def parse_bool(word: str) -> bool | None:
     return None
 
 
+# ── settings with a text value ───────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class TextSetting:
+    """A setting whose value is a word or a number (`settings ask_budget 1`), kept as a top-level key."""
+
+    key: str
+    label: str
+    default: str
+    description: str
+    check: Callable[[str], str] | None = None  # the value as it is stored; ValueError says what is wrong
+
+
+def usd(value: str) -> str:
+    try:
+        amount = float(value.lstrip("$"))
+    except ValueError:
+        raise ValueError(f"expected an amount in US dollars such as 0.50, got '{value}'") from None
+    if not 0 < amount <= 100:
+        raise ValueError("expected an amount between 0.01 and 100 (US dollars)")
+    return f"{amount:g}"
+
+
+TEXT_SETTINGS: dict[str, TextSetting] = {
+    s.key: s
+    for s in (
+        TextSetting("ask_budget", "Budget of one `ask`", "0.50",
+                    "The most one `ask` question may cost, in US dollars; the AI stops when it is spent "
+                    "(`ask --budget N` for one question).", usd),
+        TextSetting("ask_model", "Model for `ask`", "",
+                    "The model `ask` uses, as the Claude Code client names it (sonnet, opus, haiku, or a full "
+                    "model id). Empty: the client's own default (`ask --model NAME` for one question)."),
+    )
+}
+
+
+def text(config: Mapping[str, Any], key: str) -> str:
+    value = config.get(key)
+    return value if isinstance(value, str) and value else TEXT_SETTINGS[key].default
+
+
+def set_text(config: dict[str, Any], key: str, value: str | None) -> str:
+    """Store a text setting (None, or its default: remove it) and return what is now in use."""
+    spec = TEXT_SETTINGS[key]
+    if value is not None:
+        value = value.strip()
+        if spec.check is not None:
+            value = spec.check(value)
+    if value is None or value == spec.default:
+        config.pop(key, None)
+    else:
+        config[key] = value
+    return text(config, key)
+
+
 # ── API keys (ENV_SETTINGS) ──────────────────────────────────────────────────
 
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")

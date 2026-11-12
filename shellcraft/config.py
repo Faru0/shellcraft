@@ -21,6 +21,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 SECTION_TYPES: dict[str, type] = {
     "theme": str, "sub_theme": str, "themes": dict, "settings": dict, "env": dict, "aliases": dict,
     "disabled_modules": list, "prompt": dict, "loader": str, "seeded": list,
+    "ask_budget": str, "ask_model": str,
 }
 # Sections whose entries are merged one key at a time when saving (see save_config).
 MERGED_SECTIONS = ("themes", "settings", "env", "aliases", "prompt")

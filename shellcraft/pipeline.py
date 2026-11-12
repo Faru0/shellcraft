@@ -18,7 +18,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
 from shellcraft import aliases, arith, streams, traps
-from shellcraft.builtins import BUILTINS
+from shellcraft.builtins import BUILTINS, SPINNER_TEXT
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.inputs import Input
 from shellcraft.modkit import ModuleError
@@ -134,7 +134,15 @@ def run_line(line: str, ctx: ShellContext) -> PipelineResult | None:
     """Parse and execute one command line: a pipeline, or a script (`for`, `if`, `a ; b`).
     Raises ParseError / PipelineError / ShellExit, and records the exit status in ctx.last_status."""
     from shellcraft import ask, curlpaste, heredocs, script
+    from shellcraft.commands import ask_ai
     from shellcraft.parser import join_continued_lines, rewrite_backticks, split_background, strip_comments
+
+    # `ask why didn't that work?`: a question for the AI is taken as typed, before anything reads
+    # its `'`, `#` or `|` as shell syntax (a question that starts with a quote is a normal line).
+    if ask_ai.is_free_text(line, ctx):
+        traps.new_command(ctx)
+        question = Pipeline([Command("ask", ask_ai.free_text(line) or [])])
+        return _run_parsed(line, ctx, Variables(ctx), live=True, parsed=question)
 
     # Here-document bodies first (they must not be read as commands or have their `#` taken for a
     # comment), then comments (`cmd  # note`, a `# …` line), then a pasted curl command: Windows'
@@ -475,8 +483,10 @@ def _func_command(cmd: Command, ctx: ShellContext) -> Any:
 
 
 def _label(segments: list[tuple[int, Command]], ctx: ShellContext) -> str:
-    """The spinner's text: the first module's SPINNER_TEXT, else `running <last command>…`."""
+    """The spinner's text: the first module's SPINNER_TEXT (or a builtin's), else `running <last command>…`."""
     for _, cmd in segments:
+        if cmd.name in SPINNER_TEXT and cmd.name in BUILTINS:
+            return SPINNER_TEXT[cmd.name]
         spec = ctx.registry.get(cmd.name) if cmd.name not in BUILTINS else None
         if spec is not None and spec.spinner_text:
             return spec.spinner_text

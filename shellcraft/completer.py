@@ -421,9 +421,11 @@ class ShellCompleter(Completer):
         from shellcraft import loading
         from shellcraft.builtins import LOADER_LABEL, PREFIX_LABEL
         from shellcraft.prefix import CONFIG_KEY
+        from shellcraft.settings import TEXT_SETTINGS
 
         return ({k: s.label for k, s in SETTINGS.items()}
-                | {CONFIG_KEY: PREFIX_LABEL, loading.CONFIG_KEY: LOADER_LABEL} | keys)
+                | {CONFIG_KEY: PREFIX_LABEL, loading.CONFIG_KEY: LOADER_LABEL}
+                | {k: t.label for k, t in TEXT_SETTINGS.items()} | keys)
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):

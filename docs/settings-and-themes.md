@@ -49,6 +49,8 @@ you want to change; the key on the left is what you type after `settings`.
 | `editor` | `$EDITOR`, else nano | The editor `func edit` and `profile edit` open: `settings editor code` (VS Code, waited for), `vim`, `nano`… See [the editor](funcs.md#the-editor). |
 | `loader` | `bar` | What the screen shows while the shell starts, under the banner (and in a `sub shellcraft` subshell until its prompt): `bar`, a progress bar with the step it's on, or `spinner` (`settings loader spinner`). It vanishes the moment the prompt is ready. |
 | `prefix_key` | `ctrl-]` | The subshell prefix key: `ctrl-]`, `ctrl-b`, `ctrl-a`, `ctrl-t`, `ctrl-g` or `ctrl-s` (`settings prefix_key ctrl-b`). `settings prefix_key` alone lists them with what each one shadows. |
+| `ask_budget` | `0.50` | The most one `ask` question may cost, in USD (`settings ask_budget 1`). The client stops when it is spent. `ask --budget N` sets it for one question. See [ask](ask.md). |
+| `ask_model` | not set | The model `ask` uses (`settings ask_model NAME`). Not set: the Claude Code client's own default. |
 | `ai_access` | on | An AI client may run any command here at once (`run_in_shell`); `✦ run` shows in the prompt and `ai log` lists what it did. Off: read-only commands run at once, the rest asks in the review queue. Rules and roles go in `ai-policy.toml` (see [MCP and the AI co-pilot](mcp-and-ai.md#rules-and-roles)). `ai_run` is the old name and still works. |
 | `footer` | on | The shell stack on the last rows of the terminal, at the prompt and inside every subshell (click a line, or Ctrl-] N, to switch; Ctrl-] c folds it). Off: a panel under the prompt only while something is running, and nothing inside subshells. |
 | `jobs_autoclear` | on | A finished subshell or background command leaves the stack at the next prompt, after its `[N] done` note and a command's output. Off: it stays until `jobs -c`. |
@@ -61,6 +63,7 @@ A few settings take a word instead of on or off. Type the setting alone, such as
 settings editor code          # the editor for func edit and profile edit
 settings loader spinner       # what you see while the shell starts: bar or spinner
 settings prefix_key ctrl-b    # the subshell key, instead of Ctrl-]
+settings ask_budget 1         # the most one ask question may cost, in USD
 ```
 
 ## API keys

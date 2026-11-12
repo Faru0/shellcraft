@@ -17,6 +17,21 @@ Code how to use those tools well.
 > A connected AI acts as you. By default it can run any command in your shell at once. Read
 > [Safety](#safety-in-one-minute) before you connect it.
 
+## The short way in: `ask`
+
+If all you want is to ask a question now and then, you need no setup beyond having Claude Code installed.
+Type it at the ShellCraft prompt:
+
+```
+ls /nope
+ask why did that fail
+ask fix it                # the command lands in the clip register: Alt-v pastes it
+```
+
+`ask` starts the client for one question, connects it to the shell you are in and writes the answer under
+your prompt. It follows `ai on` and `ai off` like every AI client. [Ask the AI at your prompt](ask.md) has
+the details. The rest of this page is for a co-pilot that stays next to you and works while you do.
+
 ## Part 1: the co-pilot in your shell
 
 ### 1. Check what you need
@@ -67,6 +82,7 @@ Things you can say to Claude Code:
 
 Things you can do from your side:
 
+- `ask QUESTION` gets you a one-off answer at the prompt, without switching to the other terminal.
 - `mark` flags something for the AI to look at. `tell` sends it a message. Replies arrive in the same thread.
 - `watch` makes your own triggers flag events for it.
 - `review` shows what it is asking you (approvals, questions). `review approve` and `review answer` reply.

@@ -42,6 +42,9 @@ free to type it either. [Commands the AI runs](#commands-the-ai-runs) shows how 
 
 There are two ways to run the server. Pick the first unless you have a reason not to.
 
+For a quick question you can skip this whole section: [`ask`](ask.md) at the ShellCraft prompt starts the
+client for one question and connects it to your shell by itself.
+
 ### Let the client start it
 
 The simplest setup is to tell the AI client how to start ShellCraft's server. It then starts one

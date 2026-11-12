@@ -12,15 +12,15 @@ when the full test suite, `ruff check` and `mypy shellcraft` (199 or fewer) pass
 
 ## 1. `ask`: the co-pilot inside ShellCraft
 
-- [ ] **1.1 `shellcraft/claude_run.py`**: find the client, write the MCP config for this shell, run it headless, stream the text, report cost and session, stop it on cancel
+- [x] **1.1 `shellcraft/claude_run.py`**: find the client, write the MCP config for this shell, run it headless, stream the text, report cost and session, stop it on cancel
   - Done when: a stand-in client in the tests gets the right arguments and config, its text streams, a cancel kills it, a missing client is one clear line
-  - Notes:
-- [ ] **1.2 The `ask` builtin**: `ask QUESTION`, `-b`, `-c`, `--budget`, `--model`, `-n`
+  - Notes: `Request`, `Result`, `run()` (a generator of text, tool, note and result events), `shell_server()`, `write_config()` (0600, removed after the run). The prompt goes in on stdin, not on the command line (`ps` would show it). The client runs in its own process group; a cancel or closing the generator stops the group. `own_tools` limits the client's built-in tools (`--tools`). Tests: the first part of tests/test_ask_ai.py with a stand-in `claude`.
+- [x] **1.2 The `ask` builtin**: `ask QUESTION`, `-b`, `-c`, `--budget`, `--model`, `-n`
   - Done when: the prompt holds the question, the folder and the last command with its redacted output; the answer streams inline; `-b` is a `✦` job that `jobs -k` stops; `-c` continues the last question; free text with `'`, `?` and `#` needs no quotes; it is refused over MCP; `ask_budget` and `ask_model` settings work
-  - Notes:
-- [ ] **1.3 Docs for `ask`**: `docs/ask.md`, `man ask`, help group, walkthrough, getting started, changelog
+  - Notes: `shellcraft/commands/ask_ai.py`; free text is read in `pipeline.run_line` (`ask_ai.free_text`), and the shell skips history expansion and line continuation for it. Different from the plan: (a) `ask` has its own short system text instead of the co-pilot agent's, which tells the AI to open subshells and send alerts; (b) it runs with `--tools ToolSearch`, so the client's own shell and file tools are off and everything goes through the shell (also 3 to 5 times cheaper: about $0.03 a question instead of $0.10); (c) the prompt carries the last five commands, the output of the newest; (d) it works wherever a main shell is reachable, and `-n` without one. String settings `ask_budget` and `ask_model` (`settings.TEXT_SETTINGS`). Tests: tests/test_ask_ai.py (49).
+- [x] **1.3 Docs for `ask`**: `docs/ask.md`, `man ask`, help group, walkthrough, getting started, changelog
   - Done when: the docs tests pass and the live check (`ls /nope`, `ask why did that fail`, `ask fix it`, Alt-v) works in a real shell
-  - Notes:
+  - Notes: docs/ask.md (in mkdocs.yml and docs/README.md), `man ask`, the walkthrough's "short way in", getting started, settings page, mcp-and-ai pointer, changelog. `ask` is in the "ShellCraft" group of `help` (there is no "AI and MCP" group there). Live check against the real client in a scratch home: `ls /nope` + `ask why did that fail` streamed an answer (4s, $0.04); `mkdir one/two/three` + `ask fix it` staged `mkdir -p one/two/three` and Alt-v pasted it; a command it ran showed as a `✦ AI` job; `ask -c`, `ask -b` with `jobs N`, piped input and Ctrl-C (status 130, no client left behind) worked.
 
 ## 2. The enrichment pack
 

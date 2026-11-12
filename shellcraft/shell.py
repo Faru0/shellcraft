@@ -1650,7 +1650,11 @@ class Shell:
             return None
 
         try:
-            line, expanded = histexpand.expand(line, self._previous_command(), self._history_lines())
+            from shellcraft.commands import ask_ai
+
+            expanded = False
+            if not ask_ai.is_free_text(line, self.ctx):  # a `!` in a question for the AI is not history
+                line, expanded = histexpand.expand(line, self._previous_command(), self._history_lines())
         except ParseError as exc:
             show_error(self.ui, exc, line)
             self.ctx.last_status = STATUS_SYNTAX
@@ -1858,7 +1862,10 @@ class Shell:
         into one line. Ctrl-C drops the whole command; Ctrl-D reports what is missing. A colon
         header (`for -py x in a b:`) reads a Python-style block instead (_read_block)."""
         from shellcraft import heredocs, indent
+        from shellcraft.commands import ask_ai
 
+        if ask_ai.is_free_text(line, self.ctx):
+            return line  # a question for the AI, as typed: a `'` or a `:` in it opens nothing
         if indent.opens_block(line):
             return self._read_block(line)
         while (wanted := _wants_more(line, self.ctx.functions)) is not None:

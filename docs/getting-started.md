@@ -299,7 +299,7 @@ Each one has a manual: `man ls`, `man grep`.
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `:` `export` `read` `sleep` `time` `xargs` `test` |
 | Scripting | `for` `while` `until` `if` `case` `select` `function` `set` `trap` `getopts` |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
-| AI and MCP | `mcp` `ai` `watch` `tasks` `findings` `mark` `tell` `review` `ingest` |
+| AI and MCP | `ask` `mcp` `ai` `watch` `tasks` `findings` `mark` `tell` `review` `ingest` |
 
 And the modules that come with ShellCraft:
 
