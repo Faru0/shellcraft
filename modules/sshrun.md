@@ -32,6 +32,7 @@ sshrun web01 ps | hostscan ps
 sshrun web01 proc-maps -a 1203
 sshrun web01 log-grep -a "Failed password" -a /var/log/auth.log
 sshrun web01 bpf-progs | hostscan bpf
+sshrun web01 suid | hostscan suid
 ```
 
 ## Set up a host

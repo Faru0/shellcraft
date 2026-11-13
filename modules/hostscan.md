@@ -7,10 +7,15 @@ no network, no commands run, no files read (except your optional rules file). It
 `sshrun` brings back, and the plain output that an EDR or a cron job saves (`ps -ef`, `ps aux`, `netstat -tunap`,
 `lsof -nP -i`, `bpftool prog show`), but any text in those formats works.
 
+It also reads the eight persistence checks that `sshrun` runs: package verification, setuid files, file
+capabilities, library preloads, systemd units, sudoers, the sshd settings and shell startup files. These are the
+places an intruder uses to come back after a reboot or to become root again.
+
 ## Synopsis
 
 ```
 hostscan {ps|ss|netstat|lsof|exes|maps|bpf|probes|join} [--pid PID] [-o table|json] [--limit N] [-q]
+hostscan {pkg-verify|suid|capabilities|ld-preload|units|sudoers-files|sshd-config|shell-rc} [-o table|json] [--limit N] [-q]
 ```
 
 The data comes in on stdin: `sshrun web01 ps | hostscan ps`.
@@ -28,7 +33,7 @@ The data comes in on stdin: `sshrun web01 ps | hostscan ps`.
 
 | Option | Meaning |
 | --- | --- |
-| `SUBCOMMAND` | `ps`, `ss`, `netstat`, `lsof`, `exes`, `maps`, `bpf`, `probes` or `join`. |
+| `SUBCOMMAND` | `ps`, `ss`, `netstat`, `lsof`, `exes`, `maps`, `bpf`, `probes` or `join`, or a persistence check: `pkg-verify`, `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config` or `shell-rc`. |
 | `--pid PID` | For `maps`: the process the text came from, used to name the findings. |
 | `-o`, `--output table\|json` | `table` (default) or `json`: `{"rows": [...], "flags": [{"severity", "rule", "subject", "reason"}]}`. JSON also carries `notes` and `truncated` when they apply. |
 | `--limit N` | Show at most N rows (default 200). |
@@ -89,6 +94,91 @@ PID 1203  PPID 900  USER bob  AGE 3m  EXE /tmp/x (deleted)
 
 `join` is the only place where the executable and the socket are tied to the process, so it finds the most.
 
+### Persistence checks
+
+The next eight subcommands have the same names as the `sshrun` checks they read, so the pipe is always
+`sshrun HOST CHECK | hostscan CHECK`. Each one prints what it read, with a NOTE column that says why a row matters
+or why it was left alone. They are tuned to stay quiet: a normal Debian or RHEL host should end in `no flags` on
+all eight. When a line could be either harmless or bad, you get a row with a note instead of a flag.
+
+**pkg-verify** reads `dpkg --verify` or `rpm -Va`: lines like `??5??????   /usr/sbin/sshd`,
+`S.5....T.  c /etc/ssh/sshd_config` and `missing     /usr/bin/tool`. A `5` in the third place means the content
+no longer matches the package. That is a flag only for a program or a library (under `/bin`, `/sbin`, `/usr/bin`,
+`/usr/sbin`, `/lib*`, `/usr/lib*` or `/usr/libexec`). Config files, docs, compiled Python caches, and files where
+only the owner, mode or size differ are rows with a note. So are files the check could not read without sudo,
+and a note counts them.
+`apk verify` lines (`tool.apk: 1 - UNTRUSTED`) are read too. If the host has no package manager you get a note.
+
+```
+sshrun web01 pkg-verify | hostscan pkg-verify
+```
+
+**suid** reads `MODE OWNER PATH` lines, one setuid or setgid file each (`4755 root /usr/bin/passwd`). It flags a
+file in a directory users can write to, and a setuid shell, interpreter or tool that can start one. The usual
+setuid programs (`passwd`, `sudo`, `su`, `mount`, `pkexec`) are only rows. So are the files that rootless podman
+or docker keep in their storage under your home (image layers and volumes), as long as root does not own them.
+
+```
+sshrun web01 suid | hostscan suid
+```
+
+**capabilities** reads `getcap -r` lines such as `/usr/bin/ping cap_net_raw=ep`. Only capabilities that are
+effective or permitted count, and only the ones that lead to root. What distributions ship (`newuidmap`,
+`newgidmap`, `snap-confine`, the sssd helpers and a few more, under `/usr`, `/bin` or `/sbin`) is a row with a note. If the host
+answers `getcap is not installed`, you get a note and no rows.
+
+```
+sshrun web01 capabilities | hostscan capabilities
+```
+
+**ld-preload** reads the sections `## /etc/ld.so.preload` and `## /etc/ld.so.conf.d`. Any library named in
+`/etc/ld.so.preload` is a flag, because the file is empty or missing on almost every host and a library in it is
+loaded into every program. In the search path it flags a relative directory and one that users can write to.
+
+```
+sshrun web01 ld-preload | hostscan ld-preload
+```
+
+**units** reads `systemctl list-unit-files` rows, then a `## ExecStart` section with lines like
+`/etc/systemd/system/app.service:ExecStart=/usr/bin/app --serve`. It checks every program a command runs,
+also the script handed to an interpreter and what is inside `sh -c '...'`. A unit under
+`~/.config/systemd/user` that runs a file from its own home is normal and is not flagged. A plain download
+(`curl -o file URL`) is not flagged either; a download that is run is.
+
+```
+sshrun web01 units | hostscan units
+```
+
+**sudoers-files** reads the sections `## /etc/sudoers` and `## /etc/sudoers.d` (text with no section is taken as
+`/etc/sudoers`). It follows `Cmnd_Alias` names, line continuations and tags like `NOPASSWD:`. It flags a rule
+that gives every command without a password, a command in a directory users can write to, and a passwordless
+shell, interpreter, editor or pager. A passwordless rule for a fixed command (`systemctl restart nginx`,
+`cat /var/log/syslog`, `python3 /opt/webapp/manage.py migrate`) is a row. Rules for `root` and rules that run as
+another user than root are rows too.
+
+```
+sshrun web01 sudoers-files | hostscan sudoers-files
+```
+
+**sshd-config** reads the sections `## sshd_config` and `## sshd_config.d`, or plain settings such as the output
+of `sshd -T`. The MATCH column shows the `Match` block a setting is in. `PermitRootLogin yes` is a flag only
+outside a `Match` block; `prohibit-password` and `no` are fine. `AuthorizedKeysCommand` is a flag unless it is a
+known directory-service helper under `/usr` (`sss_ssh_authorizedkeys`, `eic_run_authorized_keys`,
+`google_authorized_keys`).
+
+```
+sshrun web01 sshd-config | hostscan sshd-config
+```
+
+**shell-rc** reads one `## FILE` section for each startup file (`## /etc/profile`, `## /home/alice/.bashrc`), or a
+single file with no section. The table has one row per file with its line, alias and function counts. A file gets
+at most one `rc_download_exec` flag; the reason quotes the first line and says how many more there are. Plain
+downloads, version checks, tool installers that only set `PATH`, and `alias sudo='sudo '` are not flagged.
+
+```
+sshrun web01 shell-rc | hostscan shell-rc
+```
+
 ## Examples
 
 ```
@@ -97,6 +187,9 @@ sshrun web01 ss | hostscan ss
 sshrun web01 proc-maps -a 1203 | hostscan maps --pid 1203
 sshrun web01 bpf-progs | hostscan bpf
 sshrun web01 probes | hostscan probes
+sshrun web01 suid | hostscan suid
+sshrun web01 sshd-config | hostscan sshd-config -q
+sshrun web01 sudoers-files | hostscan sudoers-files -o json
 ```
 
 ## Rules
@@ -132,8 +225,25 @@ sshrun web01 probes | hostscan probes
 | `uprobe_auth` | high | probes | A uprobe in libpam, a pam module, sshd or ssh (credential theft). |
 | `uprobe_writable` | high | probes | A uprobe on a file under /tmp, /var/tmp, /dev/shm or /run/user. |
 | `probe_other` | info | probes | Any other kprobe or uprobe is registered. |
+| `pkg_binary_changed` | high | pkg-verify | A packaged program or library (under /bin, /sbin, /usr/bin, /usr/sbin, /lib*, /usr/lib* or /usr/libexec) no longer matches its package digest (critical for sshd, ssh, login, sudo, su, passwd, a shell, a PAM module, libc or the loader). Changed config files are only rows. |
+| `pkg_missing` | medium | pkg-verify | A packaged program or library is missing from disk (high for the same critical files). |
+| `suid_writable_dir` | high | suid | A setuid or setgid file is under /tmp, /var/tmp, /dev/shm, /run/user or /home (critical when it is setuid and owned by root). |
+| `suid_interpreter` | high | suid | A shell, an interpreter or a tool that can start one (find, vim, less, awk, env, cp, tar, docker, systemctl, ...) is setuid (critical when owned by root). |
+| `cap_dangerous` | high | capabilities | A file carries a capability that leads to root: cap_setuid, cap_setgid, cap_sys_admin, cap_sys_ptrace, cap_sys_module, cap_dac_override, cap_dac_read_search, cap_chown, cap_fowner, cap_setfcap, cap_sys_rawio, cap_bpf, cap_perfmon, or all of them (critical when the file is an interpreter or a tool that can start a shell, or is in a directory users can write to). |
+| `ld_preload_set` | high | ld-preload | /etc/ld.so.preload names a library, so it is loaded into every program (critical when the library is in a writable or hidden directory). |
+| `ld_path_writable` | high | ld-preload | The library search path in /etc/ld.so.conf.d has a relative directory or one under /tmp, /var/tmp, /dev/shm, /run/user or /home. |
+| `unit_writable_exec` | high | units | A systemd unit starts a program from /tmp, /var/tmp, /dev/shm, /run/user or a hidden directory (medium when a system unit starts one from /home). A user unit that runs a file from its own home is normal. |
+| `unit_download_exec` | high | units | A unit's command downloads and runs code or opens a reverse shell (curl or wget into a shell, base64 -d into a shell, /dev/tcp, nc -e, inline Python with sockets, mkfifo with nc). |
+| `sudoers_nopasswd_all` | high | sudoers-files | A user or group may run every command as root without a password (critical when the rule is for ALL; medium for `Defaults !authenticate`, which turns the password prompt off). |
+| `sudoers_writable_cmd` | high | sudoers-files | A sudo rule allows a command under /tmp, /var/tmp, /dev/shm, /run/user or /home, or allows a shell, an interpreter or a tool that can start one (vim, less, find, awk, env, tee, cp, tar, ...) without a password. |
+| `sshd_root_login` | medium | sshd-config | PermitRootLogin is yes outside a Match block, so root can log in with a password. |
+| `sshd_empty_passwords` | high | sshd-config | PermitEmptyPasswords is yes (medium inside a Match block). |
+| `sshd_keys_command` | medium | sshd-config | AuthorizedKeysCommand runs a program to supply login keys (low when it is under /usr or /opt; high under a temp, home or hidden directory), or AuthorizedKeysFile reads keys from a temp or hidden directory (high). |
+| `rc_download_exec` | high | shell-rc | A shell startup file downloads and runs code, opens a reverse shell, runs a file from /tmp, /var/tmp, /dev/shm or /run/user, or starts one from a hidden directory in the background (also inside an alias, PROMPT_COMMAND or a trap). |
+| `rc_ld_preload` | high | shell-rc | A startup file sets LD_PRELOAD (medium when the library is in a system library directory) or LD_AUDIT, or adds a temp directory to LD_LIBRARY_PATH. |
+| `rc_alias_hijack` | medium | shell-rc | A startup file aliases or redefines sudo, su, ssh, scp, passwd, gpg, doas or login (high when the alias points into a temp or hidden directory). An alias to the command itself with plain switches, like `alias sudo='sudo '`, is normal. |
 
-Rows that say "high when" or "medium when" change severity in the case described. Writable directories are `/tmp`, `/var/tmp`, `/dev/shm` and `/run/user`.
+Rows that say "high when" or "medium when" change severity in the case described. Writable directories are `/tmp`, `/var/tmp`, `/dev/shm` and `/run/user`. The persistence checks also count `/home` where the table says so. A hidden directory is one whose name starts with a dot, apart from `.ssh` and the ones tools create for themselves (`.local`, `.config`, `.venv`, `.cargo`, `.nvm` and the like).
 
 ## Rules file
 
@@ -145,6 +255,12 @@ known_owners = ["myagent"]           # bpf programs and maps whose owner name st
 known_paths  = ["/opt/myapp/*"]      # globs on the executable, library or probe path
 ```
 
+For the persistence checks `known_paths` matches the file a flag is about: the changed or setuid file, the file
+with the capability, the preloaded library or search directory, the program a unit or a sudo rule runs, the
+`AuthorizedKeysCommand` program, the sshd config file (`/etc/ssh/sshd_config`), and the startup file
+(`/home/alice/.bashrc`). `unit_download_exec` matches the unit file. `sudoers_nopasswd_all` matches
+`/etc/sudoers` or `/etc/sudoers.d`.
+
 A missing file is fine. A file that can't be read, isn't valid TOML or has the wrong value types is ignored with a one-line note, and the scan still runs. When flags are suppressed, a note says how many.
 
 ## Limits
@@ -152,10 +268,17 @@ A missing file is fine. A file that can't be read, isn't valid TOML or has the w
 - It cannot see anything that isn't in the text. Unreadable `/proc` links and missing pids (not root) hide findings.
 - Port, name and path checks are heuristics. Expect false positives on JIT runtimes, containers and monitoring tools, and misses on anything that looks normal.
 - UDP listeners on ports of 32768 and up are not flagged.
+- The persistence checks read settings, not behaviour. A unit or a startup file that runs a harmless-looking script is not followed into that script.
+- `sudoers-files`: the check prints `/etc/sudoers.d` as one block with no file names, so a finding there names the directory, not the file. `#include` lines are listed but not followed.
+- `sshd-config`: when `/etc/ssh/sshd_config.d` holds one file, its lines come without a file name and count as the directory. A `Match` block lasts until the next `Match` or the end of its file.
+- `pkg-verify`: without sudo, `dpkg --verify` and `rpm -Va` cannot read some files. Those are rows, so a clean result without sudo is weaker than one with it.
+- `shell-rc` and `units` match known shapes of download-and-run and reverse-shell commands. Obfuscated commands can get past them.
 
 ## Errors
 
 Unknown subcommand, empty stdin, `bpf` input that is neither JSON nor `bpftool prog show` text, and input where no line matches the expected format each stop with a one-line error.
+
+A persistence check that ran and printed nothing inside sshrun's header and footer lines is not an error: `suid`, `capabilities`, `pkg-verify` and `units` then end in `no flags`. `shell-rc` accepts any text, so it only stops on empty input.
 
 ## See also
 

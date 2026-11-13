@@ -1,5 +1,6 @@
 """sshrun, hostscan and baseline together, the way an analyst agent chains them: a stand-in ssh runs the
-check on this machine, so the real `ps`, `ss` and /proc formats go through the parsers."""
+check on this machine, so the real `ps`, `ss` and /proc formats go through the parsers, and so does the real
+output of the persistence checks (setuid files, sshd settings, units, startup files)."""
 
 import os
 import shutil
@@ -53,6 +54,42 @@ def test_real_ss_output_parses_in_hostscan(lab):
 def test_proc_exes_feeds_hostscan(lab):
     text = out(lab, "sshrun web01 exes | hostscan exes")
     assert "flag" in text.lower()
+
+
+# The persistence checks that need no sudo and finish fast. Whatever this machine holds, the real output of the
+# check must parse: a table and a last line with "no flags" or "N flag(s)", never an error.
+@pytest.mark.parametrize("check", ["sshd-config", "capabilities", "ld-preload", "units", "shell-rc"])
+def test_persistence_checks_feed_hostscan(lab, check):
+    text = out(lab, f"sshrun web01 {check} | hostscan {check}")
+    assert "no flags" in text or "flag(s)" in text
+
+
+FAKE_FIND = """#!/bin/sh
+# The real find with the check's own test and -printf, on /usr/bin only: a whole /home can take a minute to walk.
+touch {used}
+while [ $# -gt 0 ]; do case "$1" in /*) shift ;; *) break ;; esac; done
+exec {find} /usr/bin "$@"
+"""
+
+
+@pytest.mark.skipif(shutil.which("find") is None, reason="needs findutils")
+def test_real_find_output_parses_in_hostscan_suid(lab, tmp_path, monkeypatch):
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "find").write_text(FAKE_FIND.format(used=tmp_path / "used", find=shutil.which("find")))
+    (tools / "find").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
+    text = out(lab, "sshrun web01 suid | hostscan suid")
+    assert (tmp_path / "used").exists()
+    assert "no flags" in text or "flag(s)" in text
+
+
+def test_persistence_check_quiet_json_chain(lab):
+    import json
+
+    data = json.loads(out(lab, "sshrun web01 sshd-config | hostscan sshd-config -o json"))
+    assert set(data) >= {"rows", "flags"}
+    assert all(f["rule"].startswith("sshd_") for f in data["flags"])
 
 
 def test_baseline_learns_then_reports_only_what_changed(lab):

@@ -26,7 +26,7 @@ Markdown: copy them into your client, or point it at them.
 | `request_session_grant` | Ask once to run anything for the session. Not needed while `settings ai_access` is on, which is the default |
 | `create_task`, `list_tasks`, `claim_task`, `update_task`, `release_task` | The task board several agents share: exclusive claims with a lease, dependencies, notes and results. The user sees it with `tasks` |
 | `add_finding`, `list_findings`, `get_finding`, `update_finding` | The case file the agents share: one finding per IP, domain or host, evidence merged, severity and confidence kept. The user reads it with `findings` |
-| `sshrun`, `hostscan`, `baseline`, `feed`, `watchplan` | Host analysis: named read-only checks over ssh, offline rules, what changed since last time, read-only data sources, the watch plan (see [Host analysis](../docs/ai-host-analysis.md)) |
+| `sshrun`, `hostscan`, `baseline`, `feed`, `watchplan`, `report` | Host analysis: named read-only checks over ssh, offline rules, what changed since last time, read-only data sources, the watch plan, and the status and report an analyst leaves for your `fleet` view (see [Host analysis](../docs/ai-host-analysis.md)) |
 | `run_func` | Run a func you marked `# ai: read`, in the read-only sandbox |
 | `get_flagged_items`, `resolve_review_item` | What you flagged with `mark` and the messages you sent with `tell` |
 | `request_human_review`, `get_review_status` | Approval before something destructive |

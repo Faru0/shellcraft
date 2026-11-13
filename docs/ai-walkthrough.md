@@ -188,6 +188,10 @@ shellcraft --install-timer NAME     # a round every interval_minutes of the plan
 shellcraft --remove-timer NAME
 ```
 
+After a round, `fleet` shows every machine on one screen: its status, how long ago it was checked (`LATE`
+when rounds were missed), what changed and its open findings. A round that found something writes a report,
+and its alert carries the path: right-click the alert, then Alt-v pastes it. See [The fleet view](fleet.md).
+
 A round on a timer sends its alerts to your ShellCraft. With no shell open they wait, and the next shell shows
 them as missed. Each round has a budget (`--budget`, default 2 USD) and all rounds of a day have one
 (`--day-budget`, default 10 USD). [Rounds on a timer](ai-host-analysis.md#rounds-on-a-timer) has the details.

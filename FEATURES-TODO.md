@@ -57,18 +57,18 @@ when the full test suite, `ruff check` and `mypy shellcraft` (199 or fewer) pass
 
 ## 4. The fleet view, reports, hostscan rules
 
-- [ ] **4.1 `report` module**: `report save UNIT --status ... --summary ...`, `report list`, `report show`
+- [x] **4.1 `report` module**: `report save UNIT --status ... --summary ...`, `report list`, `report show`
   - Done when: a status record is always written, a Markdown report only when something was found or a body is given, old reports are removed, the body is redacted
-  - Notes:
-- [ ] **4.2 `fleet` builtin**: every host and device in one table, `fleet UNIT` for the detail, `--json`
+  - Notes: `modules/report.py` over `shellcraft/fleet.py`. Layout: `fleet/host/web01.json` and `reports/host/web01/20261112-165320-warn.md` (UTC time and status in the name, so `report list` reads no file). 0700 folders, 0600 files, 30 days, 200 reports per unit, 256 KB per body. `report list` is also the status listing. 25 tests in `tests/test_report.py`
+- [x] **4.2 `fleet` builtin**: every host and device in one table, `fleet UNIT` for the detail, `--json`
   - Done when: hosts, aggregator devices, last round, `LATE` and `never`, changed counts and open findings show from a scratch home in the tests; it pipes as plain text
-  - Notes:
-- [ ] **4.3 hostscan rules for the eight integrity checks**: `pkg-verify`, `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config`, `shell-rc`
+  - Notes: `shellcraft/commands/fleet.py`. Order: crit, warn, late, never, ok. `LATE` is a record older than twice the plan's interval (the shorter one when a unit is in two plans). A finding counts by the tag `host:NAME`, the bare name, or `kind = host` with that value. A bare name means the host when a device has the same name. It only reads and creates no folder. 12 tests in `tests/test_fleet.py`
+- [x] **4.3 hostscan rules for the eight integrity checks**: `pkg-verify`, `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config`, `shell-rc`
   - Done when: every rule has a case and a clean sample in `tests/test_hostscan.py` and its id in `man hostscan`; `sshrun H suid | hostscan suid` works through the fake ssh
-  - Notes:
-- [ ] **4.4 AI side and docs**: `report` in the analyst tools, the round skills end with `report save`, the alert carries the report path, the `host:NAME` tag, `docs/fleet.md`, changelog, `AI-TODO.md` item 5
+  - Notes: eight subcommands and 17 rules (46 in all), each with a bad case, a clean sample and its id in `man hostscan`; every flag carries `path=` for `known_paths`. Live on a real host: six checks end in `no flags`, `capabilities` gives a note where `getcap` is not installed, and the one flag raised was a true one. Known limits: `apk verify` prints nothing without arguments, so `pkg-verify` has no data on Alpine (a fix for `sshrun`); `pkg-verify` without sudo cannot read most files (a note counts them); a unit that runs a relative path after `cd /tmp` is not seen; cloud images flag the cloud-init sudoers line and Raspberry Pi OS its shipped preload (quiet both with `known_paths`)
+- [x] **4.4 AI side and docs**: `report` in the analyst tools, the round skills end with `report save`, the alert carries the report path, the `host:NAME` tag, `docs/fleet.md`, changelog, `AI-TODO.md` item 5
   - Done when: one live round on `hugo` leaves a status in `fleet`, and Alt-v on its alert pastes the report path
-  - Notes:
+  - Notes: `report` is an analyst tool and never cached; the three analysts and the `watch-rounds` skill end each unit with `report save`, tag findings `host:NAME` or `device:AGG/NAME`, and put the report path into the alert's `content`. Live: one round on `hugo` (ok, 63 s, $0.85) left `host:hugo ok` in `fleet` with its seven checks and three findings. Not seen live: the round was quiet, so it wrote no report and sent no alert. The path in the alert is covered by the tests of `report save` and the alert's `content`, not by a real alert yet
 
 ## 5. Arrays, lists and dicts
 

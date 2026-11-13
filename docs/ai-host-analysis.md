@@ -42,7 +42,8 @@ You  ->  Claude Code (the orchestrator agent)
 - **`aggregator`** lists your devices and reads the newest file of each kind from the aggregator box, with its
   age. A file that stopped updating is reported as a finding (`man aggregator`).
 - **`hostscan`** reads that output and flags what looks wrong: a deleted binary, a shell under a web server,
-  an unknown listener, an injected library, a risky eBPF program (`man hostscan`).
+  an unknown listener, an injected library, a risky eBPF program, a setuid shell, a changed system program,
+  a sudoers line that gives everything away (`man hostscan`).
 - **`health`** reads memory, load, disk, top and kernel messages and flags a system that is not healthy
   (`man health`).
 - **`baseline`** keeps what each host or device looked like and shows only what is new or gone (`man baseline`).
@@ -267,6 +268,21 @@ stops when you tell it to. During quiet hours only critical alerts come through.
 
 The loop lives in your Claude Code session, so it runs while that session is open. Each round is cheap
 because analysts look only at what `baseline` says is new. To have rounds run without a session, use a timer.
+
+### What a round leaves behind
+
+Every analyst ends its host, device or feed with a status: `ok`, `warn` or `crit`, one line of summary and
+how much changed. `fleet` shows the newest one of every machine on one screen, the ones that need you first:
+
+```
+fleet                 # every machine: status, last round, changes, open findings
+fleet web01           # one in full: its checks, its findings, its reports
+```
+
+A machine whose last round is more than two intervals old is marked `LATE`, so a watch that stopped does
+not look like a quiet night. When a round found something, the analyst also writes a Markdown report to
+`~/.shellcraft/reports/`, and the alert carries its path: right-click the alert, and Alt-v pastes the path at
+your prompt. `report show host:web01` prints the newest one. [The fleet view](fleet.md) has the details.
 
 ### Rounds on a timer
 

@@ -29,6 +29,9 @@ looked at it, build on that (`get_finding` shows the evidence) instead of repeat
   risk), `critical` (active, act now). A new `high` or `critical` raises an alert for the user.
 - **confidence**: `low` (a hunch), `medium` (fits, not proven), `high` (the evidence shows it).
   Severity and confidence are separate: a critical thing you are not sure of is critical, low confidence.
+- **tags** say where it was seen. Always tag the machine: `host:web01` for a host you read over ssh,
+  `device:edr/web01` for a device on an aggregator. The user's `fleet` view counts the findings of each
+  machine by that tag. An address seen on three hosts is one finding with three such tags (`add_tags`).
 
 Rate honestly. A high rating you cannot back with evidence costs the user's attention.
 

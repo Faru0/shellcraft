@@ -7,6 +7,28 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`fleet`: every machine you watch on one screen.** One row per host and device: what the last round said
+  (`ok`, `warn`, `crit`), how long ago that was, how much changed, the open findings about it and one line of
+  summary. The ones that need you come first. A machine whose last round is more than two intervals old is
+  marked `LATE`, and one that was never checked says `never`, so a watch that stopped does not look like a
+  quiet night. `fleet UNIT` shows one machine in full: each check with what its last look changed, its
+  findings and its reports. `fleet --json` is for scripts. See [The fleet view](docs/fleet.md).
+- **Reports of a round: the `report` module.** An analyst ends every host, device and feed of a round with
+  `report save UNIT --status ... --summary ...`. That is the status `fleet` shows. When the round found
+  something, it also writes a Markdown report to `~/.shellcraft/reports/` (secrets redacted, readable by you
+  only, kept 30 days), and the alert carries the path: right-click the alert, then Alt-v pastes it.
+  `report list` and `report show UNIT` read them.
+  - Findings are tagged with their machine (`host:web01`, `device:edr/web01`), which is how `fleet` counts
+    them. `findings set ID --tag host:web01` does the same for a finding of your own.
+- **`hostscan` reads the integrity checks.** Eight new subcommands, named like the `sshrun` checks they
+  read: `pkg-verify`, `suid`, `capabilities`, `ld-preload`, `units`, `sudoers-files`, `sshd-config` and
+  `shell-rc`. So the pipe is always `sshrun web01 suid | hostscan suid`. 17 new rules (46 in all) flag a
+  system program that no longer matches its package, a setuid shell or a setuid file in a folder users can
+  write to, a dangerous capability, a line in `/etc/ld.so.preload`, a unit or a shell startup file that
+  downloads and runs something, a sudoers rule that gives everything away without a password, root login
+  with a password over ssh, and more. They are tuned to stay quiet on a normal host: a line that could be
+  either harmless or bad is a row with a note, not a flag. `known_paths` in `hostscan-rules.toml` quiets a
+  flag you know about. See `man hostscan`.
 - **Rounds on their own: `shellcraft --watch-rounds PLAN` and a timer.** One command runs one round of a watch
   plan with no Claude Code session and no shell open: it starts the client as the orchestrator, the analysts
   check each host, device and feed, findings go to the case file and alerts to your ShellCraft.

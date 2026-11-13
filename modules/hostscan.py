@@ -1,9 +1,11 @@
-"""hostscan — offline triage of Linux host data (ps, ss, netstat, lsof, exes, maps, bpf, probes) as plain text."""
+"""hostscan — offline triage of Linux host data (ps, ss, netstat, lsof, exes, maps, bpf, probes and the
+persistence checks: packages, setuid files, capabilities, preloads, units, sudoers, sshd, startup files)."""
 
 from __future__ import annotations
 
 import json
 import re
+import shlex
 import tomllib
 from collections import Counter, defaultdict
 from fnmatch import fnmatchcase
@@ -12,9 +14,10 @@ from posixpath import basename
 from shellcraft.config import config_dir
 from shellcraft.modkit import ArgParser, ModuleError
 
-SUMMARY = "Triage ps/ss/netstat/lsof/exe/maps/bpf/probe text from a host: processes, sockets, hooks (offline)"
+SUMMARY = "Triage ps/ss/lsof/maps/bpf text and persistence checks from a host: processes, sockets, hooks (offline)"
 
-SUBCOMMANDS = ("ps", "ss", "netstat", "lsof", "maps", "exes", "bpf", "probes", "join")
+SUBCOMMANDS = ("ps", "ss", "netstat", "lsof", "maps", "exes", "bpf", "probes", "join", "pkg-verify", "suid",
+               "capabilities", "ld-preload", "units", "sudoers-files", "sshd-config", "shell-rc")
 OUTPUTS = ("table", "json")
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 RANK = {s: i for i, s in enumerate(SEVERITIES)}
@@ -95,6 +98,62 @@ RULES = [
      "description": "A uprobe on a file under /tmp, /var/tmp, /dev/shm or /run/user."},
     {"id": "probe_other", "severity": "info", "sub": "probes",
      "description": "Any other kprobe or uprobe is registered."},
+    {"id": "pkg_binary_changed", "severity": "high", "sub": "pkg-verify",
+     "description": "A packaged program or library (under /bin, /sbin, /usr/bin, /usr/sbin, /lib*, /usr/lib* or "
+                    "/usr/libexec) no longer matches its package digest (critical for sshd, ssh, login, sudo, su, "
+                    "passwd, a shell, a PAM module, libc or the loader). Changed config files are only rows."},
+    {"id": "pkg_missing", "severity": "medium", "sub": "pkg-verify",
+     "description": "A packaged program or library is missing from disk (high for the same critical files)."},
+    {"id": "suid_writable_dir", "severity": "high", "sub": "suid",
+     "description": "A setuid or setgid file is under /tmp, /var/tmp, /dev/shm, /run/user or /home (critical when "
+                    "it is setuid and owned by root)."},
+    {"id": "suid_interpreter", "severity": "high", "sub": "suid",
+     "description": "A shell, an interpreter or a tool that can start one (find, vim, less, awk, env, cp, tar, "
+                    "docker, systemctl, ...) is setuid (critical when owned by root)."},
+    {"id": "cap_dangerous", "severity": "high", "sub": "capabilities",
+     "description": "A file carries a capability that leads to root: cap_setuid, cap_setgid, cap_sys_admin, "
+                    "cap_sys_ptrace, cap_sys_module, cap_dac_override, cap_dac_read_search, cap_chown, cap_fowner, "
+                    "cap_setfcap, cap_sys_rawio, cap_bpf, cap_perfmon, or all of them (critical when the file is "
+                    "an interpreter or in a writable directory)."},
+    {"id": "ld_preload_set", "severity": "high", "sub": "ld-preload",
+     "description": "/etc/ld.so.preload names a library, so it is loaded into every program (critical when the "
+                    "library is in a writable or hidden directory)."},
+    {"id": "ld_path_writable", "severity": "high", "sub": "ld-preload",
+     "description": "The library search path in /etc/ld.so.conf.d has a relative directory or one under /tmp, "
+                    "/var/tmp, /dev/shm, /run/user or /home."},
+    {"id": "unit_writable_exec", "severity": "high", "sub": "units",
+     "description": "A systemd unit starts a program from /tmp, /var/tmp, /dev/shm, /run/user or a hidden "
+                    "directory (medium when a system unit starts one from /home). A user unit that runs a file "
+                    "from its own home is normal."},
+    {"id": "unit_download_exec", "severity": "high", "sub": "units",
+     "description": "A unit's command downloads and runs code or opens a reverse shell (curl or wget into a shell, "
+                    "base64 -d into a shell, /dev/tcp, nc -e, inline Python with sockets, mkfifo with nc)."},
+    {"id": "sudoers_nopasswd_all", "severity": "high", "sub": "sudoers-files",
+     "description": "A user or group may run every command as root without a password (critical when the rule is "
+                    "for ALL; medium for `Defaults !authenticate`, which turns the password prompt off)."},
+    {"id": "sudoers_writable_cmd", "severity": "high", "sub": "sudoers-files",
+     "description": "A sudo rule allows a command under /tmp, /var/tmp, /dev/shm, /run/user or /home, or allows a "
+                    "shell, an interpreter or a tool that can start one (vim, less, find, awk, env, tee, cp, tar, "
+                    "...) without a password."},
+    {"id": "sshd_root_login", "severity": "medium", "sub": "sshd-config",
+     "description": "PermitRootLogin is yes outside a Match block, so root can log in with a password."},
+    {"id": "sshd_empty_passwords", "severity": "high", "sub": "sshd-config",
+     "description": "PermitEmptyPasswords is yes (medium inside a Match block)."},
+    {"id": "sshd_keys_command", "severity": "medium", "sub": "sshd-config",
+     "description": "AuthorizedKeysCommand runs a program to supply login keys (low when it is under /usr or /opt, "
+                    "like sss_ssh_authorizedkeys; high under a temp, home or hidden directory), or "
+                    "AuthorizedKeysFile reads keys from a temp or hidden directory (high)."},
+    {"id": "rc_download_exec", "severity": "high", "sub": "shell-rc",
+     "description": "A shell startup file downloads and runs code, opens a reverse shell, runs a file from /tmp, "
+                    "/var/tmp, /dev/shm or /run/user, or starts one from a hidden directory in the background "
+                    "(also inside an alias, PROMPT_COMMAND or a trap)."},
+    {"id": "rc_ld_preload", "severity": "high", "sub": "shell-rc",
+     "description": "A startup file sets LD_PRELOAD (medium when the library is in a system library directory) or "
+                    "LD_AUDIT, or adds a temp directory to LD_LIBRARY_PATH."},
+    {"id": "rc_alias_hijack", "severity": "medium", "sub": "shell-rc",
+     "description": "A startup file aliases or redefines sudo, su, ssh, scp, passwd, gpg, doas or login (high when "
+                    "the alias points into a temp or hidden directory). An alias to the command itself with plain "
+                    "switches, like `alias sudo='sudo '`, is normal."},
 ]
 RULE_SEVERITY = {r["id"]: r["severity"] for r in RULES}
 
@@ -102,6 +161,7 @@ KNOWN_PORTS = {22, 53, 80, 443, 123, 25, 587, 993, 995, 3306, 5432, 6379, 8080, 
 RARE_PORTS = {4444, 1337, 31337, 6667, 6697, 9001, 9050, 8333, 3333}
 KNOWN_OWNERS = ("systemd", "cilium", "bpftrace", "falco", "tetragon", "datadog", "pixie", "otelcol")
 WRITABLE_DIRS = ("/tmp/", "/var/tmp/", "/dev/shm/", "/run/user/")
+USER_DIRS = WRITABLE_DIRS + ("/home/",)  # where a user can put a file: the persistence checks count /home too
 SYSTEM_LIB_DIRS = ("/usr/lib", "/lib", "/usr/local/lib", "/opt/")
 SYSTEM_DIRS = ("/usr/", "/bin/", "/sbin/", "/lib", "/opt/")
 SHELLS = {"sh", "bash", "dash", "zsh", "ash"}
@@ -110,6 +170,29 @@ WEB_DB = {"nginx", "apache2", "httpd", "tomcat", "java", "node", "mysqld", "mari
 INTERPRETER = re.compile(r"(python|perl|ruby|java|node|nodejs|php|lua|bash|sh|dash|zsh|ash|busybox|dotnet|mono"
                          r"|env|pwsh)([\d.\-].*)?$")
 ALIASES = {"init": "systemd"}
+# Tools that hand out a shell or any file once they run with more rights (setuid, a capability, sudo).
+ESCAPES = {"find", "vim", "vi", "view", "nano", "ed", "emacs", "less", "more", "man", "awk", "gawk", "mawk", "nawk",
+           "sed", "tee", "cp", "tar", "dd", "nmap", "gdb", "strace", "xargs", "nc", "ncat", "netcat", "socat"}
+SUID_ESCAPES = ESCAPES | {"docker", "systemctl", "mv", "chmod", "chown", "cat", "curl", "wget", "rsync", "make", "git",
+                          "base64", "xxd", "timeout", "nice", "watch", "ip", "tcpdump"}
+# Hidden directories that tools create and run from: not a hiding place on their own.
+HIDDEN_OK = frozenset({".venv", ".virtualenvs", ".local", ".config", ".cargo", ".rustup", ".nvm", ".pyenv", ".rbenv",
+                       ".bun", ".deno", ".dotnet", ".asdf", ".volta", ".yarn", ".npm-global", ".nix-profile",
+                       ".sdkman", ".conda", ".linuxbrew", ".acme.sh", ".bundle", ".gem", ".go"})
+DANGEROUS_CAPS = {"cap_setuid", "cap_setgid", "cap_sys_admin", "cap_sys_ptrace", "cap_sys_module", "cap_dac_override",
+                  "cap_dac_read_search", "cap_chown", "cap_fowner", "cap_setfcap", "cap_sys_rawio", "cap_bpf",
+                  "cap_perfmon"}
+# Capabilities distributions ship on these programs (under /usr, /bin or /sbin): a row, not a flag.
+CAP_EXPECTED = {
+    "newuidmap": {"cap_setuid"}, "newgidmap": {"cap_setgid"}, "suexec": {"cap_setuid", "cap_setgid"},
+    "systemd-detect-virt": {"cap_dac_override", "cap_sys_ptrace"},
+    "unix_chkpwd": {"cap_dac_override", "cap_dac_read_search"}, "intel_gpu_top": {"cap_perfmon"},
+    "krb5_child": {"cap_dac_read_search", "cap_setgid", "cap_setuid"}, "ldap_child": {"cap_dac_read_search"},
+    "selinux_child": {"cap_setgid", "cap_setuid"}, "sssd_pam": {"cap_dac_read_search"},
+    "snap-confine": {"cap_chown", "cap_dac_override", "cap_dac_read_search", "cap_fowner", "cap_sys_ptrace",
+                     "cap_sys_admin", "cap_setuid", "cap_setgid"},
+}
+SECURITY_CMDS = {"sudo", "su", "ssh", "scp", "passwd", "gpg", "doas", "login"}
 BPF_TYPES = {"kprobe", "kretprobe", "tracepoint", "raw_tracepoint", "perf_event", "sk_msg", "sk_skb", "sk_filter",
              "socket_filter", "xdp", "sched_cls"}
 BPF_HIGH_TYPES = {"kprobe", "kretprobe", "raw_tracepoint"}
@@ -141,7 +224,9 @@ def run(args: list[str], stdin: str) -> str:
     rules, note = _load_rules()
     notes = [note] if note else []
     handler = {"ps": _do_ps, "ss": _do_ss, "netstat": _do_netstat, "lsof": _do_lsof, "exes": _do_exes,
-               "maps": _do_maps, "bpf": _do_bpf, "probes": _do_probes, "join": _do_join}[opts.subcommand]
+               "maps": _do_maps, "bpf": _do_bpf, "probes": _do_probes, "join": _do_join, "pkg-verify": _do_pkg,
+               "suid": _do_suid, "capabilities": _do_caps, "ld-preload": _do_ldso, "units": _do_units,
+               "sudoers-files": _do_sudoers, "sshd-config": _do_sshd, "shell-rc": _do_rc}[opts.subcommand]
     rows, flags, render, more_notes = handler(stdin, opts)
     notes += more_notes
 
@@ -1039,6 +1124,793 @@ def _do_probes(text: str, opts):
     cols = [("KIND", lambda r: r["kind"]), ("TYPE", lambda r: r["type"]), ("NAME", lambda r: f"{r['group']}/{r['name']}"
             if r["group"] else r["name"]), ("TARGET", lambda r: r["target"])]
     return probes, _probe_flags(probes), lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── persistence checks: shared helpers ───────────────────────────────────────
+
+_WRAPPERS = {"env", "nohup", "exec", "setsid", "sudo", "command", "builtin", "nice", "ionice", "timeout", "stdbuf",
+             "time", "then", "do", "else", "elif", "if", "while", "until", "!"}
+_ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+_DASH_C = re.compile(r"-[a-zA-Z]*c$")
+_SEGMENTS = re.compile(r"\|\||&&|;|\||(?<![<>&])&(?![>&])|[(){}]")
+_DOWNLOAD = r"(?:curl|wget|fetch)\b"
+_TO_SHELL = r"\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:ba|da|z|k|a)?sh\b"
+_FETCH_EXEC = [
+    (re.compile(r"\b" + _DOWNLOAD + r"[^|;&]*" + _TO_SHELL), "pipes a download into a shell"),
+    (re.compile(r"\b" + _DOWNLOAD + r"[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:python[\d.]*|perl|ruby|php|node)"
+                r"\s*(?:-\s*)?(?:$|[;&|)'\"])"), "pipes a download into an interpreter"),
+    (re.compile(r"(?:\beval|\bsource|(?:^|[\s;&|])\.|\b(?:(?:ba|da|z|k|a)?sh|python[\d.]*|perl)(?:\s+-\w+)*)"
+                r"\s+[\"']?(?:\$\(|`|<\()\s*(?:sudo\s+)?" + _DOWNLOAD), "runs what a download returns"),
+    (re.compile(r"\b" + _DOWNLOAD + r".*(?:;|&&)\s*(?:sudo\s+)?chmod\s+(?:[ugoa]*\+[rw]*x|[0-7]?[1357][0-7]{2})\b"),
+     "downloads a file and makes it executable"),
+    (re.compile(r"\bbase64\s+(?:-d|-D|--decode)\b[^|;&]*" + _TO_SHELL), "decodes base64 text into a shell"),
+    (re.compile(r"(?:sh\s+-i\b.*|\d<>\s*|[<>]&\s*)/dev/(?:tcp|udp)/|/dev/(?:tcp|udp)/\S+.*(?:\s0?[<>]&\s*\d|<&\d)"),
+     "ties a shell to a /dev/tcp connection"),
+    (re.compile(r"(?:^|[\s;&|(])(?:\S*/)?(?:nc|ncat|netcat)(?:\.\w+)?\s(?:[^|;&]*\s)?-(?:[a-zA-Z]*e|-exec|-sh-exec)"
+                r"[\s=]"), "starts nc with a program attached to the connection"),
+    (re.compile(r"\bpython[\d.]*\s+-\w*c\b.*(?:socket.*(?:connect|subprocess|pty|dup2)|pty\.spawn"
+                r"|(?:urllib|urlopen|requests).*\bexec\s*\()"), "runs inline Python that opens a socket or runs "
+     "a download"),
+    (re.compile(r"\bperl\s+-\w*e\b.*[Ss]ocket.*(?:exec|STDIN|/bin/)|\bphp\s+-r\b.*fsockopen|\bruby\s+-rsocket\b"),
+     "runs an inline script that opens a socket"),
+    (re.compile(r"\bmkfifo\b.*(?:\b(?:nc|ncat|netcat|telnet)\b|sh\s+-i\b)"), "builds a shell over a named pipe"),
+]
+_SOCAT = re.compile(r"\bsocat\b(?=.*\b(?:exec|system):)(?=.*\b(?:tcp|udp|openssl|ssl)[\w-]*:)", re.I)
+
+
+def _under(path: str, dirs: tuple[str, ...]) -> bool:
+    return (path.rstrip("/") + "/").startswith(dirs)
+
+
+def _hidden(path: str) -> str | None:
+    """The first hidden directory on a path, the ones tools create (HIDDEN_OK) and .ssh aside."""
+    return next((p for p in path.split("/")[:-1] if p.startswith(".") and p not in (".", "..", ".ssh")
+                 and p not in HIDDEN_OK), None)
+
+
+def _risky(base: str) -> bool:
+    return bool(INTERPRETER.match(base)) or base in ESCAPES
+
+
+def _words(cmd: str) -> list[str]:
+    try:
+        return shlex.split(cmd)
+    except ValueError:
+        return [w.strip("\"'") for w in cmd.split()]
+
+
+def _segments(cmd: str) -> list[tuple[str, bool]]:
+    """Split a shell line into simple commands, quotes respected: (command, runs in the background)."""
+    masked, quote = [], ""
+    for ch in cmd:
+        if quote:
+            masked.append("_")
+            quote = "" if ch == quote else quote
+        else:
+            quote = ch if ch in "\"'" else ""
+            masked.append("_" if quote else ch)
+    out, start = [], 0
+    for m in list(_SEGMENTS.finditer("".join(masked))) + [None]:
+        seg = cmd[start: m.start() if m else len(cmd)].strip()
+        if seg:
+            out.append((seg, bool(m) and m.group(0) == "&"))
+        start = m.end() if m else start
+    return out
+
+
+def _run_paths(cmd: str, depth: int = 0) -> list[str]:
+    """What one simple command runs: the program, the script handed to an interpreter or sourced, and the programs
+    inside a `sh -c '...'` string."""
+    toks = _words(cmd)
+    while toks and (basename(toks[0]) in _WRAPPERS or toks[0].startswith("-") or _ASSIGN.match(toks[0])
+                    or re.fullmatch(r"\d+[smhd]?", toks[0])):
+        toks = toks[1:]
+    if not toks:
+        return []
+    out, base, rest = [toks[0]], basename(toks[0]), toks[1:]
+    if base in (".", "source"):
+        return rest[:1]
+    inner = next((rest[i + 1] for i, t in enumerate(rest[:-1]) if _DASH_C.match(t)), None)
+    if base in SHELLS and inner is not None:
+        if depth < 2:
+            out += [p for seg, _ in _segments(inner) for p in _run_paths(seg, depth + 1)]
+    elif INTERPRETER.match(base) and inner is None:
+        out += [t for t in rest if not t.startswith("-")][:1]
+    return out
+
+
+def _fetch_exec(cmd: str) -> str | None:
+    """Say how a command line downloads and runs code or opens a reverse shell, or None. Shared by units and
+    shell-rc. A plain download (`curl -o file URL`, `x=$(curl URL)`) is not a hit."""
+    for pattern, what in _FETCH_EXEC:
+        if pattern.search(cmd):
+            return what
+    return "attaches a program to a socat connection" if _SOCAT.search(cmd) else None
+
+
+def _input(text: str, sub: str, what: str, marker=None) -> list[tuple[str, list[str]]]:
+    """The input of a persistence check as (section, lines): `## NAME` starts a section when marker(NAME) says so,
+    and '' holds the lines before the first one. Blank lines and sshrun's frame are dropped; comments stay for the
+    caller. A flat check (no marker) may be empty inside sshrun's frame: the command ran and printed nothing."""
+    parts: list[tuple[str, list[str]]] = [("", [])]
+    framed = False
+    for raw in text.splitlines():
+        s = raw.strip()
+        if s.startswith(("# sshrun ", "# end sshrun ")):
+            framed = True
+        elif marker and s.startswith("## ") and marker(s[3:].strip()):
+            parts.append((s[3:].strip(), []))
+        elif s:
+            parts[-1][1].append(s)
+    if len(parts) == 1 and not (framed and marker is None):
+        _need([ln for ln in parts[0][1] if ln != "#" and not ln.startswith("# ")], sub, what)
+    return parts
+
+
+def _code(lines: list[str]) -> list[str]:
+    return [ln for ln in lines if not ln.startswith("#")]
+
+
+def _worst_first(flags: list[dict]) -> list[dict]:
+    return sorted(flags, key=lambda f: -RANK[f["severity"]])
+
+
+# ── pkg-verify ───────────────────────────────────────────────────────────────
+
+_PKG_LINE = re.compile(r"^(missing|[.?SM5DLUGTP]{8,9})\s+(?:([a-z])\s+)?(/.*)$")
+_APK_LINE = re.compile(r"^(\S.*?): -?\d+ - (OK|UNTRUSTED|FAILED)\b")
+_PKG_PROGRAM = re.compile(r"^/(usr/)?(s?bin|lib[^/]*)/")
+_PKG_CORE = re.compile(r"^(sshd|ssh|login|sudo|su|passwd|bash|sh|dash|pam_.+\.so.*|libpam.*\.so.*|libc\.so.*"
+                       r"|libc-[\d.]+\.so|ld-linux.*|ld-[\d.]+\.so)$")
+_PKG_TYPES = {"c": "config", "d": "doc", "g": "ghost", "l": "license", "r": "readme"}
+
+
+def _parse_pkg(lines: list[str]) -> tuple[list[dict], int, list[str]]:
+    rows, skipped, notes = [], 0, []
+    for ln in lines:
+        if ln.startswith("no package manager found"):
+            notes.append("the host has no dpkg, rpm or apk, so no file was verified")
+            continue
+        m = _APK_LINE.match(ln)
+        if m:
+            state = "ok" if m.group(2) == "OK" else "changed"
+            rows.append({"state": state, "marks": m.group(2), "type": "package", "path": m.group(1), "note": ""})
+            continue
+        m = _PKG_LINE.match(ln)
+        if not m:
+            skipped += 1
+            continue
+        marks, attr, path = m.groups()
+        state = "missing" if marks == "missing" else "changed" if marks[2] == "5" else "attrs"
+        unreadable = re.search(r" \([^()]+\)$", path) if state == "missing" else None
+        if unreadable:
+            path, state = path[: unreadable.start()], "unreadable"
+        kind = _PKG_TYPES.get(attr or "", "config" if path.startswith("/etc/") else "file")
+        rows.append({"state": state, "marks": "" if marks == "missing" else marks, "type": kind, "path": path,
+                     "note": ""})
+    return rows, skipped, notes
+
+
+def _pkg_flags(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        path, state = r["path"], r["state"]
+        if r["type"] == "package":
+            if state == "changed":
+                r["note"] = "the package failed verification"
+                out.append(flag("pkg_binary_changed", path, f"apk reports {path} as {r['marks']}", path=path))
+            continue
+        if state == "unreadable":
+            r["note"] = "could not be read: run the check with sudo"
+        elif state == "attrs":
+            r["note"] = ("content could not be read: run the check with sudo" if r["marks"][2] == "?"
+                         else "only attributes differ (owner, mode, size or link)")
+        elif r["type"] != "file":
+            r["note"] = f"{r['type']} file, {'edited' if state == 'changed' else 'removed'}: not a flag"
+        elif not _PKG_PROGRAM.match(path):
+            r["note"] = "not a program or library folder"
+        elif path.endswith(".pyc") or "/__pycache__/" in path:
+            r["note"] = "compiled Python cache, rebuilt on the host"
+        elif state == "changed":
+            core = bool(_PKG_CORE.match(basename(path)))
+            r["note"] = "content differs from the package"
+            out.append(flag("pkg_binary_changed", path, f"{path} no longer matches the digest in its package "
+                            f"(verify marks {r['marks']})", "critical" if core else None, path=path))
+        elif state == "missing":
+            core = bool(_PKG_CORE.match(basename(path)))
+            r["note"] = "in a package, not on disk"
+            out.append(flag("pkg_missing", path, f"{path} belongs to a package but is missing from disk",
+                            "high" if core else None, path=path))
+    return out
+
+
+def _do_pkg(text: str, opts):
+    lines = _code(_input(text, "pkg-verify", "the output of sshrun's pkg-verify check (dpkg --verify or rpm -Va)")
+                  [0][1])
+    rows, skipped, notes = _parse_pkg(lines)
+    if not rows and not notes and skipped:
+        raise _unrecognised("pkg-verify", "dpkg --verify or rpm -Va lines", skipped)
+    flags = _pkg_flags(rows)
+    unread = sum(1 for r in rows if "could not be read" in r["note"])
+    if unread:
+        notes.append(f"{unread} file(s) could not be read without root, so they were not compared: run the check "
+                     "with sudo for a full answer")
+    rows.sort(key=lambda r: (r["path"], r["state"]))
+    cols = [("STATE", lambda r: r["state"]), ("MARKS", lambda r: r["marks"] or "-"), ("TYPE", lambda r: r["type"]),
+            ("PATH", lambda r: _cut(r["path"], 70)), ("NOTE", lambda r: r["note"])]
+    return rows, flags, lambda rs: _grid(cols, rs), notes + _skipped_note(skipped)
+
+
+# ── suid ─────────────────────────────────────────────────────────────────────
+
+_SUID_LINE = re.compile(r"^([0-7]{3,5})\s+(\S+)\s+(/.*)$")
+_SUID_IMAGE = re.compile(r"/(?:\.local/share|var/lib)/(?:containers|docker)/")  # image layers and volumes
+
+
+def _parse_suid(lines: list[str]) -> tuple[list[dict], int]:
+    rows, skipped = [], 0
+    for ln in lines:
+        m = _SUID_LINE.match(ln)
+        if not m:
+            skipped += 1
+            continue
+        mode = int(m.group(1), 8)
+        bits = "+".join(n for n, b in (("setuid", 0o4000), ("setgid", 0o2000)) if mode & b)
+        rows.append({"mode": m.group(1), "owner": m.group(2), "path": m.group(3), "bits": bits or "-", "note": ""})
+    return rows, skipped
+
+
+def _suid_flags(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        path, owner, base = r["path"], r["owner"], basename(r["path"])
+        setuid = "setuid" in r["bits"]
+        notes = []
+        if owner != "root" and _SUID_IMAGE.search(path):
+            r["note"] = "in container storage, not owned by root"  # rootless podman and docker unpack images here
+            continue
+        if r["bits"] != "-" and _under(path, USER_DIRS):
+            notes.append("in a directory users can write to")
+            out.append(flag("suid_writable_dir", path, f"{r['bits']} file owned by {owner} (mode {r['mode']}) in a "
+                            "directory users can write to", "critical" if setuid and owner == "root" else None,
+                            path=path))
+        if setuid and (_risky(base) or base in SUID_ESCAPES):
+            notes.append("can start a shell")
+            out.append(flag("suid_interpreter", path, f"{base} is setuid {owner} (mode {r['mode']}): whoever runs "
+                            f"it can get a shell as {owner}", "critical" if owner == "root" else None, path=path))
+        r["note"] = ", ".join(notes)
+    return out
+
+
+def _do_suid(text: str, opts):
+    lines = _code(_input(text, "suid", "the output of sshrun's suid check (find -printf '%m %u %p')")[0][1])
+    rows, skipped = _parse_suid(lines)
+    if not rows and skipped:
+        raise _unrecognised("suid", "'MODE OWNER PATH' lines", skipped)
+    flags = _suid_flags(rows)
+    rows.sort(key=lambda r: r["path"])
+    cols = [("MODE", lambda r: r["mode"]), ("OWNER", lambda r: r["owner"]), ("BITS", lambda r: r["bits"]),
+            ("PATH", lambda r: _cut(r["path"], 80)), ("NOTE", lambda r: r["note"])]
+    return rows, flags, lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── capabilities ─────────────────────────────────────────────────────────────
+
+_CAP_LINE = re.compile(r"^(/.*?)\s+(?:=\s+)?((?:[a-z0-9_,]*[=+][eip]*(?:\s+|$))+)$")
+
+
+def _parse_caps(lines: list[str]) -> tuple[list[dict], int, list[str]]:
+    rows, skipped, notes = [], 0, []
+    for ln in lines:
+        if "getcap is not installed" in ln:
+            notes.append("getcap is not installed on the host, so file capabilities were not listed")
+            continue
+        m = _CAP_LINE.match(ln)
+        if not m:
+            skipped += 1
+            continue
+        held: set[str] = set()
+        for clause in m.group(2).split():
+            names, flags_ = re.split(r"[=+]", clause, maxsplit=1)
+            if "e" in flags_ or "p" in flags_:
+                held |= {n for n in names.split(",") if n} if names not in ("", "all") else {"all"}
+        rows.append({"path": m.group(1), "caps": " ".join(m.group(2).split()), "held": sorted(held), "note": ""})
+    return rows, skipped, notes
+
+
+def _cap_flags(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        path, base = r["path"], basename(r["path"])
+        held = set(r.pop("held"))
+        bad = sorted(held & DANGEROUS_CAPS) or (["all capabilities"] if "all" in held else [])
+        if not bad:
+            continue
+        if path.startswith(("/usr/", "/bin/", "/sbin/")) and set(bad) <= CAP_EXPECTED.get(base, set()):
+            r["note"] = "shipped this way by the distribution"
+            continue
+        worse = _risky(base) or _under(path, USER_DIRS)
+        r["note"] = "leads to root"
+        out.append(flag("cap_dangerous", path, f"{path} holds {', '.join(bad)} ({r['caps']})"
+                        + (": an interpreter with it is a root shell" if _risky(base) else ""),
+                        "critical" if worse else None, path=path))
+    return out
+
+
+def _do_caps(text: str, opts):
+    lines = _code(_input(text, "capabilities", "the output of sshrun's capabilities check (getcap -r)")[0][1])
+    rows, skipped, notes = _parse_caps(lines)
+    if not rows and not notes and skipped:
+        raise _unrecognised("capabilities", "getcap lines such as '/usr/bin/ping cap_net_raw=ep'", skipped)
+    flags = _cap_flags(rows)
+    rows.sort(key=lambda r: r["path"])
+    cols = [("PATH", lambda r: _cut(r["path"], 70)), ("CAPABILITIES", lambda r: _cut(r["caps"], 70)),
+            ("NOTE", lambda r: r["note"])]
+    return rows, flags, lambda rs: _grid(cols, rs), notes + _skipped_note(skipped)
+
+
+# ── ld-preload ───────────────────────────────────────────────────────────────
+
+_LDSO_FILES = ("/etc/ld.so.preload", "/etc/ld.so.conf.d", "/etc/ld.so.conf")
+
+
+def _do_ldso(text: str, opts):
+    parts = _input(text, "ld-preload", "the output of sshrun's ld-preload check", lambda n: n in _LDSO_FILES)
+    stray = _code(parts[0][1])
+    if len(parts) == 1:
+        raise _unrecognised("ld-preload", "the '## /etc/ld.so.preload' and '## /etc/ld.so.conf.d' sections of "
+                            "sshrun's ld-preload check", len(stray))
+    rows, flags, skipped = [], [], len(stray)
+    for source, lines in parts[1:]:
+        for ln in lines:
+            ln = ln.split("#", 1)[0].strip()
+            if ln.startswith("cat: "):
+                skipped += 1
+                continue
+            if source == "/etc/ld.so.preload":
+                for lib in re.split(r"[\s:]+", ln):
+                    if not lib:
+                        continue
+                    worse = _under(lib, USER_DIRS) or _hidden(lib)
+                    rows.append({"source": source, "entry": lib, "note": "loaded into every program"})
+                    flags.append(flag("ld_preload_set", lib, f"/etc/ld.so.preload loads {lib} into every program"
+                                      + (", from a directory that is writable or hidden" if worse else ""),
+                                      "critical" if worse else None, path=lib))
+                continue
+            if not ln or ln.split()[0] in ("include", "hwcap"):
+                continue
+            for entry in re.split(r"[\s:,]+", ln):
+                folder = entry.split("=", 1)[0]
+                if not folder:
+                    continue
+                row = {"source": source, "entry": folder, "note": ""}
+                rows.append(row)
+                if not folder.startswith("/"):
+                    row["note"] = "relative"
+                    flags.append(flag("ld_path_writable", folder, f"the library search path has the relative "
+                                      f"directory {folder}", path=folder))
+                elif _under(folder, USER_DIRS):
+                    row["note"] = "users can write here"
+                    flags.append(flag("ld_path_writable", folder, f"the library search path has {folder}, a "
+                                      "directory users can write to", path=folder))
+    cols = [("SOURCE", lambda r: r["source"]), ("ENTRY", lambda r: _cut(r["entry"], 80)),
+            ("NOTE", lambda r: r["note"])]
+    return rows, _worst_first(flags), lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── units ────────────────────────────────────────────────────────────────────
+
+_UNIT_LINE = re.compile(r"^(\S+\.(?:service|socket|timer|path|target|mount|automount|swap|slice|scope))\s+(\S+)"
+                        r"(?:\s+\S+)?$")
+_UNIT_EXEC = re.compile(r"^(/.+?\.service):(Exec\w+)=(.*)$")
+_USER_UNIT = re.compile(r"^(/home/[^/]+|/root)/\.config/systemd/user/")
+
+
+def _parse_units(parts: list[tuple[str, list[str]]]) -> tuple[list[dict], int]:
+    states, execs, skipped = {}, {}, 0
+    for section, lines in parts:
+        for ln in _code(lines):
+            m = _UNIT_EXEC.match(ln)
+            if m:
+                file, key, command = m.group(1), m.group(2), m.group(3).strip().lstrip("@-:+!").strip()
+                home = _USER_UNIT.match(file)
+                ident = ("user" if home else "system", basename(file), key, command)
+                if ident not in execs or len(file) < len(execs[ident]["file"]):
+                    execs[ident] = {"unit": basename(file), "state": "", "scope": ident[0], "exec": key,
+                                    "command": command, "file": file, "home": home.group(1) if home else ""}
+                continue
+            m = _UNIT_LINE.match(ln) if not section else None
+            if m:
+                states[m.group(1)] = m.group(2)
+            else:
+                skipped += 1
+    rows = list(execs.values())
+    for r in rows:
+        r["state"] = states.get(r["unit"], "-") if r["scope"] == "system" else "user"
+    listed = {r["unit"] for r in rows if r["scope"] == "system"}
+    rows += [{"unit": u, "state": s, "scope": "system", "exec": "", "command": "", "file": "", "home": ""}
+             for u, s in states.items() if u not in listed]
+    rows.sort(key=lambda r: (r["scope"], r["unit"], r["exec"], r["command"]))
+    return rows, skipped
+
+
+def _unit_flags(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        command, subject = r["command"], f"{r['file']} {r['exec']}"
+        home = r.pop("home")
+        if not command:
+            continue
+        what = _fetch_exec(command)
+        if what:
+            out.append(flag("unit_download_exec", subject, f"{r['exec']} {what}: {_cut(command, 100)}",
+                            path=r["file"]))
+        for seg, _ in _segments(command):
+            for p in _run_paths(seg):
+                if not p.startswith("/"):
+                    continue
+                if _under(p, WRITABLE_DIRS):
+                    out.append(flag("unit_writable_exec", subject, f"{r['exec']} runs {p}, a file in a directory "
+                                    "any user can write to", path=p))
+                elif home and p.startswith(home + "/"):
+                    continue
+                elif _hidden(p):
+                    out.append(flag("unit_writable_exec", subject, f"{r['exec']} runs {p}, a file in the hidden "
+                                    f"directory {_hidden(p)}", path=p))
+                elif _under(p, ("/home/",)) and r["scope"] == "system":
+                    out.append(flag("unit_writable_exec", subject, f"a system unit runs {p} from a home directory, "
+                                    "where its owner can replace it", "medium", path=p))
+    return _worst_first(out)
+
+
+def _do_units(text: str, opts):
+    parts = _input(text, "units", "the output of sshrun's units check", lambda n: n.lower() == "execstart")
+    rows, skipped = _parse_units(parts)
+    if not rows and skipped:
+        raise _unrecognised("units", "systemctl list-unit-files rows or 'FILE:ExecStart=COMMAND' lines", skipped)
+    flags = _unit_flags(rows)
+    cols = [("UNIT", lambda r: _cut(r["unit"], 44)), ("STATE", lambda r: r["state"]), ("EXEC", lambda r: r["exec"]
+            or "-"), ("COMMAND", lambda r: _cut(r["command"], 90) or "-")]
+    return rows, flags, lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── sudoers-files ────────────────────────────────────────────────────────────
+
+_SUDOERS_FILES = ("/etc/sudoers", "/etc/sudoers.d")
+_SUDO_TAG = re.compile(r"^(NOPASSWD|PASSWD|NOEXEC|EXEC|SETENV|NOSETENV|LOG_INPUT|NOLOG_INPUT|LOG_OUTPUT|NOLOG_OUTPUT"
+                       r"|MAIL|NOMAIL|FOLLOW|NOFOLLOW|INTERCEPT|NOINTERCEPT)\s*:\s*")
+_SUDO_OPTION = re.compile(r"^(ROLE|TYPE|CWD|CHROOT|TIMEOUT|NOTBEFORE|NOTAFTER|APPARMOR_PROFILE|PRIVS|LIMITPRIVS)"
+                          r"=\S+\s+")
+_SUDO_ALIAS = re.compile(r"([A-Z][A-Z0-9_]*)\s*=\s*(.*?)(?=\s*:\s*[A-Z][A-Z0-9_]*\s*=|$)")
+_SUDO_ALWAYS = {"vim", "vi", "view", "nano", "ed", "emacs", "less", "more", "man"}  # a shell whatever the arguments
+
+
+def _split_commas(text: str) -> list[str]:
+    out, depth, cur = [], 0, ""
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if ch == "," and depth == 0 and text[i - 1: i] != "\\":
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return [c for c in out + [cur.strip()] if c]
+
+
+def _sudoers_lines(lines: list[str]) -> list[str]:
+    out, pending = [], ""
+    for ln in lines:
+        ln = pending + ln
+        if ln.endswith("\\"):
+            pending = ln[:-1].rstrip() + " "
+            continue
+        pending = ""
+        if ln.startswith("#") and not re.match(r"#(include(dir)?\s|\d)", ln):
+            continue
+        ln = re.sub(r"\s#(?!\d).*$", "", ln).strip()
+        if ln:
+            out.append(ln)
+    return out + ([pending.strip()] if pending.strip() else [])
+
+
+def _sudo_grants(spec: str, aliases: dict[str, list[str]]) -> list[tuple[bool, bool, str]]:
+    """The command list of one rule as (runs as root, without a password, command), aliases expanded."""
+    out, runas, nopasswd = [], None, False
+    for item in _split_commas(spec):
+        if item.startswith("("):
+            runas, _, item = item[1:].partition(")")
+            item = item.strip()
+        while True:
+            m = _SUDO_TAG.match(item)
+            if m:
+                nopasswd = {"NOPASSWD": True, "PASSWD": False}.get(m.group(1), nopasswd)
+            else:
+                m = _SUDO_OPTION.match(item)
+            if not m:
+                break
+            item = item[m.end():]
+        users = None if runas is None else {u.strip() for u in runas.split(":", 1)[0].split(",")}
+        as_root = users is None or bool(users & {"ALL", "root", "#0"})
+        for cmd in aliases.get(item, [item]) if item != "ALL" else [item]:
+            cmd = _SUDO_TAG.sub("", cmd)
+            out += [(as_root, nopasswd, c) for c in aliases.get(cmd, [cmd])]
+    return out
+
+
+def _parse_sudoers(parts: list[tuple[str, list[str]]]) -> tuple[list[dict], list[dict], int]:
+    entries, skipped = [], 0
+    aliases: dict[str, list[str]] = {}
+    for section, raw in parts:
+        file = section or "/etc/sudoers"
+        for ln in _sudoers_lines(raw):
+            head = ln.split(None, 1)[0]
+            if head.startswith("Defaults"):
+                entries.append((file, "defaults", head[8:].lstrip(":@>!") or "-", ln))
+            elif head in ("User_Alias", "Runas_Alias", "Host_Alias", "Cmnd_Alias", "Cmd_Alias"):
+                if head.startswith("C"):
+                    aliases.update({n: _split_commas(v) for n, v in _SUDO_ALIAS.findall(ln.split(None, 1)[1])})
+                entries.append((file, "alias", "-", ln))
+            elif head.lstrip("@#") in ("include", "includedir"):
+                entries.append((file, "include", "-", ln))
+            elif "=" in ln and len(ln.split("=", 1)[0].split()) >= 2:
+                entries.append((file, "rule", " ".join(ln.split("=", 1)[0].split()[:-1]), ln))
+            else:
+                skipped += 1
+    rows, flags = [], []
+    for file, kind, who, ln in entries:
+        row = {"file": file, "kind": kind, "who": who, "text": " ".join(ln.split()), "note": ""}
+        rows.append(row)
+        if kind == "defaults" and re.search(r"(^|[\s,])!authenticate\b", ln):
+            row["note"] = "password prompt off"
+            flags.append(flag("sudoers_nopasswd_all", f"{file} Defaults", f"`{row['text']}` turns the sudo password "
+                              "prompt off", "medium", path=file))
+        if kind != "rule" or {w.strip() for w in who.split(",")} <= {"root"}:
+            continue
+        for as_root, nopasswd, cmd in _sudo_grants(ln.split("=", 1)[1].strip(), aliases):
+            words = cmd.split()
+            if words and re.fullmatch(r"sha(224|256|384|512):\S+", words[0]):
+                words = words[1:]
+            if not as_root or not words or words[0].startswith("!"):
+                continue
+            prog, base, args = words[0], basename(words[0]), words[1:]
+            if prog == "ALL":
+                if nopasswd:
+                    row["note"] = "every command, no password"
+                    flags.append(flag("sudoers_nopasswd_all", f"{file} {who}", f"{who} may run every command as "
+                                      f"root without a password: `{row['text']}`",
+                                      "critical" if "ALL" in re.split(r"[\s,]+", who) else None, path=file))
+            elif _under(prog, USER_DIRS):
+                row["note"] = "command in a writable directory"
+                flags.append(flag("sudoers_writable_cmd", f"{who} {prog}", f"{who} may run {prog} as root, a file in "
+                                  "a directory users can write to", path=prog))
+            elif nopasswd and _risky(base) and (base in _SUDO_ALWAYS or not args or any("*" in a for a in args)):
+                row["note"] = "can start a root shell"
+                flags.append(flag("sudoers_writable_cmd", f"{who} {prog}", f"{who} may run {_cut(cmd, 60)} as root "
+                                  f"without a password, and {base} can start a shell or write any file", path=prog))
+    return rows, _worst_first(flags), skipped
+
+
+def _do_sudoers(text: str, opts):
+    parts = _input(text, "sudoers-files", "the output of sshrun's sudoers-files check",
+                   lambda n: n in _SUDOERS_FILES)
+    rows, flags, skipped = _parse_sudoers(parts)
+    if not rows and len(parts) == 1 and not skipped:
+        _need([], "sudoers-files", "the output of sshrun's sudoers-files check")
+    if not rows and skipped:
+        raise _unrecognised("sudoers-files", "sudoers rules, Defaults or aliases", skipped)
+    cols = [("FILE", lambda r: r["file"]), ("KIND", lambda r: r["kind"]), ("WHO", lambda r: _cut(r["who"], 24)),
+            ("LINE", lambda r: _cut(r["text"], 80)), ("NOTE", lambda r: r["note"])]
+    return rows, flags, lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── sshd-config ──────────────────────────────────────────────────────────────
+
+_SSHD_LINE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)(?:\s*=\s*|\s+)(.*)$")
+_SSHD_NAMED = re.compile(r"^(/[^\s:]+):(.*)$")
+_SSHD_FILES = {"sshd_config": "/etc/ssh/sshd_config", "sshd_config.d": "/etc/ssh/sshd_config.d"}
+_SSHD_KEYWORDS = {
+    "acceptenv", "addressfamily", "allowagentforwarding", "allowgroups", "allowtcpforwarding", "allowusers",
+    "authenticationmethods", "authorizedkeyscommand", "authorizedkeyscommanduser", "authorizedkeysfile", "banner",
+    "challengeresponseauthentication", "chrootdirectory", "ciphers", "clientalivecountmax", "clientaliveinterval",
+    "compression", "denygroups", "denyusers", "forcecommand", "gatewayports", "gssapiauthentication",
+    "gssapicleanupcredentials", "hostbasedauthentication", "hostkey", "ignorerhosts", "include",
+    "kbdinteractiveauthentication", "kerberosauthentication", "kexalgorithms", "listenaddress", "logingracetime",
+    "loglevel", "macs", "match", "maxauthtries", "maxsessions", "maxstartups", "passwordauthentication",
+    "permitemptypasswords", "permitrootlogin", "permittunnel", "permittty", "permituserenvironment", "pidfile",
+    "port", "printlastlog", "printmotd", "protocol", "pubkeyauthentication", "strictmodes", "subsystem",
+    "syslogfacility", "tcpkeepalive", "usedns", "usepam", "x11forwarding", "x11uselocalhost",
+}
+_SSHD_KEYS_OK = {"sss_ssh_authorizedkeys", "eic_run_authorized_keys", "google_authorized_keys"}
+
+
+def _parse_sshd(parts: list[tuple[str, list[str]]]) -> tuple[list[dict], int]:
+    rows, skipped = [], 0
+    for section, lines in parts:
+        file, match = _SSHD_FILES.get(section.lower(), "/etc/ssh/sshd_config"), ""
+        for ln in _code(lines):
+            named = _SSHD_NAMED.match(ln)  # grep over several files puts FILE: in front of each line
+            if named:
+                match = match if named.group(1) == file else ""
+                file, ln = named.group(1), named.group(2).strip()
+                if not ln or ln.startswith("#"):
+                    continue
+            m = _SSHD_LINE.match(ln)
+            if not m:
+                skipped += 1
+                continue
+            value = " ".join(m.group(2).split())
+            if len(value) > 1 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            if m.group(1).lower() == "match":
+                match = "" if value.lower() == "all" else value
+            rows.append({"file": file, "keyword": m.group(1), "value": value, "match": match, "note": ""})
+    return rows, skipped
+
+
+def _sshd_flags(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        key, value, file = r["keyword"].lower(), r["value"], r["file"]
+        where = f" (inside Match {r['match']})" if r["match"] else ""
+        if key == "permitrootlogin" and value.lower() == "yes":
+            if r["match"]:
+                r["note"] = "only inside the Match block"
+                continue
+            r["note"] = "root can log in with a password"
+            out.append(flag("sshd_root_login", file, f"`{r['keyword']} {value}` in {file} lets root log in over ssh "
+                            "with a password", path=file))
+        elif key == "permitemptypasswords" and value.lower() == "yes":
+            r["note"] = "accounts without a password can log in"
+            out.append(flag("sshd_empty_passwords", file, f"`{r['keyword']} {value}` in {file}{where} lets accounts "
+                            "with an empty password log in", "medium" if r["match"] else None, path=file))
+        elif key == "authorizedkeyscommand" and value.lower() != "none" and value:
+            prog = value.split()[0]
+            if prog.startswith("/usr/") and basename(prog) in _SSHD_KEYS_OK:
+                r["note"] = "a known directory-service helper"
+                continue
+            bad = not prog.startswith("/") or _under(prog, USER_DIRS) or _hidden(prog)
+            severity = "high" if bad else "low" if prog.startswith(("/usr/", "/opt/")) else None
+            r["note"] = "a program supplies the login keys"
+            out.append(flag("sshd_keys_command", prog, f"`{r['keyword']} {_cut(value, 70)}` in {file}{where}: this "
+                            "program decides which keys may log in", severity, path=prog))
+        elif key == "authorizedkeysfile":
+            for pattern in value.split():
+                if pattern.startswith("/") and (_under(pattern, WRITABLE_DIRS) or _hidden(pattern)):
+                    r["note"] = "keys read from a temp or hidden directory"
+                    out.append(flag("sshd_keys_command", pattern, f"`{r['keyword']} {_cut(value, 70)}` in {file}"
+                                    f"{where}: login keys are read from {pattern}", "high", path=pattern))
+    return _worst_first(out)
+
+
+def _do_sshd(text: str, opts):
+    parts = _input(text, "sshd-config", "the output of sshrun's sshd-config check or of sshd -T",
+                   lambda n: n.lower() in _SSHD_FILES)
+    rows, skipped = _parse_sshd(parts)
+    if rows and not any(r["keyword"].lower() in _SSHD_KEYWORDS for r in rows):
+        raise _unrecognised("sshd-config", "sshd_config settings such as 'PermitRootLogin no'", len(rows) + skipped)
+    if not rows and skipped:
+        raise _unrecognised("sshd-config", "sshd_config settings such as 'PermitRootLogin no'", skipped)
+    flags = _sshd_flags(rows)
+    cols = [("FILE", lambda r: r["file"]), ("KEYWORD", lambda r: r["keyword"]), ("VALUE", lambda r: _cut(r["value"],
+            70)), ("MATCH", lambda r: _cut(r["match"], 30) or "-"), ("NOTE", lambda r: r["note"])]
+    return rows, flags, lambda rs: _grid(cols, rs), _skipped_note(skipped)
+
+
+# ── shell-rc ─────────────────────────────────────────────────────────────────
+
+_RC_ALIAS = re.compile(r"^alias\s+(?:-g\s+)?(?=\S+=)")
+_RC_PAIR = re.compile(r"([\w.:+@-]+)=('[^']*'|\"[^\"]*\"|\S*)")
+_RC_FUNC = re.compile(r"^(?:function\s+([\w.:-]+)\s*(?:\(\s*\))?|([\w.:-]+)\s*\(\s*\))\s*\{?")
+_RC_LD = re.compile(r"\b(LD_PRELOAD|LD_AUDIT|LD_LIBRARY_PATH)=('[^']*'|\"[^\"]*\"|\S*)")
+_RC_INNER = re.compile(r"\bPROMPT_COMMAND\+?=('[^']*'|\"[^\"]*\"|\S+)|\btrap\s+('[^']*'|\"[^\"]*\")\s+\w+"
+                       r"|\beval\s+('[^']*'|\"[^\"]*\")")
+_RC_SWITCH = re.compile(r"-[A-Za-z0-9]*$|--[a-z][a-z-]*$")
+_RC_HELPERS = {"nocorrect", "noglob", "command", "kitty", "kitten", "+kitten", "autossh", "gpg2"}
+_RC_HOME = ("/", "~/", "$HOME/", "${HOME}/")
+
+
+def _rc_exec(line: str, depth: int = 0) -> str | None:
+    """Why a startup line counts as running fetched or hidden code, or None."""
+    what = _fetch_exec(line)
+    if what:
+        return what
+    segments = _segments(line)
+    later = any(re.match(r"disown\b", seg) for seg, _ in segments)
+    for seg, background in segments:
+        background = background or later or bool(re.match(r"(nohup|setsid)\b", seg))
+        for p in _run_paths(seg):
+            if not p.startswith(_RC_HOME) or re.search(r"[*?\[]", p):
+                continue
+            if _under(p, WRITABLE_DIRS):
+                return f"runs {p} from a temp directory"
+            if background and _hidden(p):
+                return f"starts {p} from the hidden directory {_hidden(p)} in the background"
+    if depth < 2:
+        for m in _RC_INNER.finditer(line):
+            inner = _rc_exec(next(g for g in m.groups() if g).strip("\"'"), depth + 1)
+            if inner:
+                return inner
+    return None
+
+
+def _rc_same_command(value: str) -> bool:
+    """True when an alias of a security command still runs that command: itself, sudo or doas in front, plain
+    switches. `alias sudo='sudo '` and `alias su='sudo su -'` pass; a new program or an option value does not."""
+    words = value.split()
+    while words and _ASSIGN.match(words[0]):
+        words = words[1:]
+    seen = False
+    for w in words:
+        name = w.lstrip("\\")
+        if name.startswith(("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/", "/usr/local/bin/")):
+            name = basename(name)
+        if name in SECURITY_CMDS or name in _RC_HELPERS:
+            seen = True
+        elif not _RC_SWITCH.match(w):
+            return False
+    return seen
+
+
+def _rc_file(file: str, lines: list[str]) -> tuple[dict, list[dict]]:
+    flags, hits, aliases, functions = [], [], 0, 0
+    for ln in _code(lines):
+        body = ln
+        if _RC_ALIAS.match(ln):
+            body = ""
+            for name, value in _RC_PAIR.findall(_RC_ALIAS.sub("", ln)):
+                aliases += 1
+                value = value[1:-1] if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'" else value
+                if name not in SECURITY_CMDS:
+                    body += value + " ; "
+                elif not _rc_same_command(value):
+                    odd = any(_under(w, WRITABLE_DIRS) or (w.startswith(_RC_HOME) and _hidden(w))
+                              for w in _words(value))
+                    flags.append(flag("rc_alias_hijack", f"{file} {name}", f"{file} aliases {name} to "
+                                      f"`{_cut(value, 70)}`", "high" if odd else None, path=file))
+        m = _RC_FUNC.match(ln)
+        if m:
+            functions += 1
+            name = m.group(1) or m.group(2)
+            body = ln[m.end():]
+            if name in SECURITY_CMDS:
+                flags.append(flag("rc_alias_hijack", f"{file} {name}", f"{file} defines a shell function named "
+                                  f"{name}, which runs in place of the real command", path=file))
+        for var, value in _RC_LD.findall(ln):
+            items = [v for v in re.split(r"[:\s]+", value.strip("\"'")) if v and not v.startswith("$" + var[:2])
+                     and v != "${" + var + "}"]
+            if var == "LD_LIBRARY_PATH":
+                items = [v for v in items if _under(v, WRITABLE_DIRS)]
+                if items:
+                    flags.append(flag("rc_ld_preload", f"{file} {var}", f"{file} adds the temp directory {items[0]} "
+                                      "to LD_LIBRARY_PATH", path=file))
+            elif items:
+                system = var == "LD_PRELOAD" and all(v.startswith(SYSTEM_LIB_DIRS) for v in items)
+                flags.append(flag("rc_ld_preload", f"{file} {var}", f"{file} sets {var}={_cut(' '.join(items), 70)}"
+                                  ", loaded into every program the shell starts", "medium" if system else None,
+                                  path=file))
+        what = _rc_exec(body) if body else None
+        if what:
+            hits.append(f"{what}: `{_cut(ln, 90)}`")
+    if hits:
+        more = f" (and {len(hits) - 1} more line(s))" if len(hits) > 1 else ""
+        flags.append(flag("rc_download_exec", file, f"{file} {hits[0]}{more}", path=file))
+    row = {"file": file, "lines": len(_code(lines)), "aliases": aliases, "functions": functions,
+           "note": ", ".join(sorted({f["rule"] for f in flags}))}
+    return row, flags
+
+
+def _do_rc(text: str, opts):
+    parts = _input(text, "shell-rc", "the output of sshrun's shell-rc check or a shell startup file",
+                   lambda n: n.startswith(("/", "~")))
+    rows, flags = [], []
+    for section, lines in parts:
+        if section or _code(lines):
+            row, found = _rc_file(section or "stdin", lines)
+            rows.append(row)
+            flags += found
+    cols = [("FILE", lambda r: _cut(r["file"], 60)), ("LINES", lambda r: r["lines"]), ("ALIASES", lambda r:
+            r["aliases"]), ("FUNCTIONS", lambda r: r["functions"]), ("NOTE", lambda r: r["note"] or "-")]
+    return rows, _worst_first(flags), lambda rs: _grid(cols, rs), []
 
 
 # ── join ─────────────────────────────────────────────────────────────────────

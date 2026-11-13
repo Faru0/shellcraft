@@ -105,7 +105,7 @@ Facts that shape all of them (from the code):
   next run. The AI reports only what is new or gone, and a func can run it every night
   - Done when: a new listening port or a new cron entry between two snapshots raises an alert
   - Design question: what counts as normal (a first run with no baseline: all `info`)?
-- [ ] **5. Enrichment and an escalation ladder**: look up the remote IPs and certificates with
+- [x] **5. Enrichment and an escalation ladder**: look up the remote IPs and certificates with
   `ip2geo`, `queryCert` and `queryCensys`, and turn the evidence into one alert level: `info` when
   all is normal, `warn` for something to look at, `crit` only for a likely compromise. Don't alert
   the same finding twice; a report file (`~/.shellcraft/reports/HOST-DATE.md`) holds the details
@@ -113,8 +113,9 @@ Facts that shape all of them (from the code):
   - Done when: the same odd connection seen on two runs alerts once, and Alt-v pastes the report path
   - Progress: the lookups and the ladder are in. `enrich` gives one verdict per address from up to six
     services, and the three triage skills turn the verdict plus what the host shows into `info`, `warn` or
-    `crit`, with one alert per finding (`docs/enrichment.md`). Still open: the report file and its path in the
-    alert, which come with the `report` module (`FEATURES-TODO.md`, feature 4)
+    `crit`, with one alert per finding (`docs/enrichment.md`). The report file is in too: an analyst ends each
+    unit with `report save`, a round that found something writes `~/.shellcraft/reports/host/NAME/TIME-STATUS.md`,
+    and its path is the `content` of the alert (`docs/fleet.md`)
   - Design question: how much a `crit` is allowed to interrupt you, and quiet hours.
 - [x] **6. A fleet sweep**: the orchestrator makes one task per host (from `~/.ssh/config` or an
   inventory file), workers run the host triage in parallel on the task board, and the case file joins

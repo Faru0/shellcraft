@@ -48,8 +48,9 @@ FRESH_PROPERTY: dict[str, Any] = {
     "type": "boolean", "default": False,
     "description": "Ask the service again instead of reusing an answer from the last few minutes."}
 # Tools whose answer is the present moment or that change state: an answer from the memory of the last few minutes
-# would hide a change on a host, or skip a `watchplan done` or a `baseline diff` that stores its snapshot.
-NEVER_CACHED = frozenset({"sshrun", "aggregator", "baseline", "watchplan"})
+# would hide a change on a host, or skip a `watchplan done`, a `baseline diff` that stores its snapshot or a
+# `report save` that records a round.
+NEVER_CACHED = frozenset({"sshrun", "aggregator", "baseline", "watchplan", "report"})
 AGENT_PROPERTY: dict[str, Any] = {
     "type": "string", "maxLength": 40,
     "description": "Optional: your name or role in this session (\"worker-2\"). It shows in the user's footer, "

@@ -1,5 +1,7 @@
 """The built-in analyst role: host-analysis tools, the case file and the board, and no way to run a command."""
 
+from pathlib import Path
+
 import anyio
 import pytest
 from mcp.client import Client
@@ -33,6 +35,7 @@ def test_the_role_exists_and_runs_nothing():
 def test_an_analyst_server_offers_the_host_tools_and_not_a_shell(registry):
     names = {t.name for t in _call(build_server(registry, role="analyst"), lambda c: c.list_tools()).tools}
     assert {"sshrun", "aggregator", "hostscan", "health", "baseline", "feed", "run_func", "add_finding", "claim_task",
+            "watchplan", "report",
             "send_tui_alert", "shellcraft_pipeline", "ip2geo", "enrich", "ioc", "queryRdap", "queryShodan",
             "queryVirusTotal", "queryAbuseIPDB", "queryGreyNoise"} <= names
     assert not names & {"run_in_shell", "request_session_grant", "get_history", "get_clip"}
@@ -160,8 +163,9 @@ def test_the_audit_log_says_which_host_and_check_a_tool_was_asked(registry, tmp_
 
 
 def test_live_and_state_changing_tools_are_never_answered_from_the_cache(registry, tmp_path, monkeypatch):
-    """The server remembers module answers for a few minutes. sshrun, aggregator, baseline and watchplan must not
-    use that memory: a host can change, and `watchplan done` and `baseline diff` write state."""
+    """The server remembers module answers for a few minutes. sshrun, aggregator, baseline, watchplan and report
+    must not use that memory: a host can change, and `watchplan done`, `baseline diff` and `report save` write
+    state."""
     import stat
     import time
 
@@ -193,6 +197,40 @@ def test_live_and_state_changing_tools_are_never_answered_from_the_cache(registr
     time.sleep(1.1)
     call("watchplan", {"action": "done", "name": "p"})
     assert state.read_text() != first                                         # the second `done` ran
+    saved = {"action": "save", "unit": "host:web01", "status": "warn", "summary": "a new listener on 4444"}
+    call("report", saved)
+    call("report", saved)
+    assert len(list((home / "reports" / "host" / "web01").glob("*.md"))) == 2  # both rounds left their report
+
+
+def test_an_analyst_ends_a_unit_with_a_report(registry, tmp_path):
+    """`report save` over MCP: the typed parameters and the body reach the module, the answer names the file, and
+    the user's `fleet` view reads the same record."""
+    from shellcraft import fleet
+
+    server = build_server(registry, role="analyst")
+
+    def call(args):
+        return _call(server, lambda c: c.call_tool("report", args))
+
+    quiet = call({"action": "save", "unit": "host:db01", "status": "ok", "summary": "7 checks, no change",
+                  "changed": 0, "flags": 0, "plan": "prod"})
+    assert not quiet.is_error and quiet.content[0].text == "host:db01: ok recorded\n"
+    found = call({"action": "save", "unit": "host:web01", "status": "warn", "summary": "a new listener on 4444",
+                  "changed": 2, "flags": 1, "plan": "prod", "stdin": "## What changed\n- ss: 0.0.0.0:4444\n"})
+    assert not found.is_error
+    path = found.content[0].text.split("report: ", 1)[1].strip()
+    assert path.startswith(str(tmp_path / ".home" / "reports" / "host" / "web01")) and path.endswith("-warn.md")
+    assert "0.0.0.0:4444" in Path(path).read_text()
+    shown = call({"action": "show", "unit": "host:web01"})
+    assert "# host:web01: warn" in shown.content[0].text and "## What changed" in shown.content[0].text
+    listed = call({"action": "list"}).content[0].text
+    assert "host:web01  warn" in listed and "host:db01  ok" in listed
+    units = {unit.id: unit for unit in fleet.gather()}
+    assert units["host:web01"].status == "warn" and units["host:web01"].changed == 2
+    assert units["host:web01"].report == path and units["host:db01"].report == ""
+    refused = call({"action": "save", "unit": "web01", "status": "ok", "summary": "x"})
+    assert refused.is_error and "is not a unit" in refused.content[0].text
 
 
 def test_an_analyst_can_enrich_an_indicator(registry, http, clean_env):

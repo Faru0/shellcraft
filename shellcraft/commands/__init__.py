@@ -11,6 +11,7 @@ from shellcraft.commands import (  # noqa: F401
     diff,
     files,
     findings,
+    fleet,
     func,
     info,
     jq,

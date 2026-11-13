@@ -193,6 +193,8 @@ no need to edit them.
 | `ai-audit.jsonl` | What AI clients did (`ai log`) |
 | `watchplans/` | Your watch plans, one `NAME.toml` each (`man watchplan`). `.state/` inside holds when each plan's last round ran, and the lock that keeps two rounds of one plan apart |
 | `rounds.log` | One line for every round that `shellcraft --watch-rounds` ran or skipped: time, plan, result, cost, seconds, summary. It is cut to its newer half when it passes 512 KB |
+| `fleet/` | The last status of every machine a round looked at, one small file each. `fleet` shows them ([The fleet view](fleet.md)) |
+| `reports/` | The Markdown reports of rounds that found something, one folder per machine (`report list`, `report show`). They are removed after 30 days |
 | `cache/` | Module answers remembered for a few minutes, so two agents asking the same thing don't spend two API calls |
 | `mcp-http.log` | The log of the MCP server started with `mcp start` |
 
