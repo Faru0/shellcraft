@@ -7,6 +7,17 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **A second demo recording** (`docs/demo3.gif`, `docs/demo3.cast`), next to the first one. It shows what is
+  ShellCraft's own: your `~/.shellcraft` folder with the rc file, a function, a func and a module of your
+  own, a request pasted from a browser's "Copy as cURL", pipes and redirection, a list and a loop,
+  environment variables and a setting, `mcp start`, and `ask`, where the AI reads the screen, runs a command
+  in your shell, raises an alert and leaves the next command for Alt-v.
+  - `python tools/demo3.py` records it again, in a throwaway home. Nothing leaves the machine: the API is a
+    small server on 127.0.0.1, and the AI is `tools/demo3_ai.py`, a stand-in for the Claude Code client. Its
+    sentences are scripted. Its tool calls are real, so the job, the alert, the clip register and `ai log`
+    come from the shell itself.
+  - `python tools/cast2gif.py FILE.cast` turns a recording into a GIF with pyte and Pillow, for a machine
+    without `agg`.
 - **Arrays, lists and dicts in scripts.** One variable can hold many values now, written the bash way or
   the Python way. Both spellings make the same thing, so a list you set in one style reads in the other.
   See [Arrays, lists and dicts](docs/scripting/arrays-and-lists.md) and `man arrays`.
@@ -681,6 +692,10 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Fixed
 
+- **The hint under the prompt and Tab no longer lose their place after a quoted `:`, `;` or `|`.** With
+  `curl URL -H 'authorization: Bearer x'` on the line, the footer said `Bearer: command not found` and Tab
+  stopped offering the options of `curl`. The same happened after `grep 'a; b' ` and after a line continued
+  with a backslash. The command being typed is now found the way the shell reads the line, quotes included.
 - **The MCP server no longer answers `sshrun`, `aggregator`, `baseline` and `watchplan` from its five-minute memory.**
   A second `watchplan done` or `baseline diff` inside five minutes did nothing, and a repeated `sshrun` check
   returned the old answer. Found by watching a plan with a one-minute interval.

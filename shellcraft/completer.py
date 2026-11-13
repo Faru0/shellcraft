@@ -42,8 +42,9 @@ DICT_METHODS = {
 def _current_segment(before: str) -> list[str]:
     """The words of the command being typed: a new one starts after `|`, `;`, `&&` or `||`,
     after a `{` or `}` word (a -py block) or a header's `:`, and after `if`, `elif`, `else`, `then`, `do`, `-py` or
-    `!` (a condition is a command)."""
-    words = re.split(r"&&|\|\||[|;]", before)[-1].split()
+    `!` (a condition is a command). Quotes are followed, so `-H 'accept: text/html'` is two words of
+    `curl` and not a header and a command, and a `\\` at the end of a line carries on with the next."""
+    words = _segment_words(before)
     for i in range(len(words) - 1, -1, -1):
         if words[i] in ("{", "}") or (words[i].endswith(":") and i < len(words) - 1):  # `if -py x: ec…`
             words = words[i + 1:]
@@ -51,6 +52,42 @@ def _current_segment(before: str) -> list[str]:
     while words and words[0] in ("if", "elif", "else", "then", "do", "while", "until", "-py", "!"):
         words = words[1:]
     return words
+
+
+def _segment_words(text: str) -> list[str]:
+    """The words after the last `|`, `;`, `&&` or `||` that is not inside quotes; a quoted stretch
+    stays in its word, with its quotes."""
+    words: list[str] = []
+    word = ""
+    quote = ""
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quote:
+            word += ch
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                i += 1
+                word += text[i]
+            elif ch == quote:
+                quote = ""
+        elif ch == "\\" and i + 1 < n:
+            i += 1
+            if text[i] != "\n":  # `\` + newline: the line carries on
+                word += ch + text[i]
+        elif ch in ("'", '"'):
+            quote = ch
+            word += ch
+        elif ch in "|;" or text.startswith("&&", i):
+            words, word = [], ""
+            i += ch == "&"
+        elif ch.isspace():
+            if word:
+                words.append(word)
+            word = ""
+        else:
+            word += ch
+        i += 1
+    return words + [word] if word else words
 
 
 def split_word(text: str) -> tuple[str, str, str | None]:

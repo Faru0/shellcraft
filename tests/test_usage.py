@@ -69,3 +69,19 @@ def test_completion_follows_the_usage(run):
     assert run("m --") == ["--list", "--to"]
     assert run("m --list ") == ["notes.txt"]
     assert run("ls ") == ["notes.txt"]
+
+
+def test_the_command_being_typed_is_found_past_quotes_and_continued_lines(run):
+    """`-H 'accept: text/html'` is a word of `curl`: the `:`, a `;` or a `|` inside quotes starts no new command."""
+    from shellcraft.completer import _current_segment
+
+    copied = "curl 'https://example.com/api' \\\n  -H 'accept: text/html' \\\n  -H 'authorization: Bearer abc' \\\n  -s"
+    assert _current_segment(copied) == ["curl", "'https://example.com/api'", "-H", "'accept: text/html'", "-H",
+                                        "'authorization: Bearer abc'", "-s"]
+    assert _current_segment("grep -v 'a|b; c' notes.txt") == ["grep", "-v", "'a|b; c'", "notes.txt"]
+    assert _current_segment('echo "a \\" | b" | cut -f') == ["cut", "-f"]
+    assert _current_segment("ls; echo 'still open | here") == ["echo", "'still open | here"]
+    assert _current_segment("a && b || c d") == ["c", "d"]
+    assert _current_segment("if -py x: ec") == ["ec"]
+    assert run("grep 'a: b' ") == ["notes.txt"]  # was: nothing, `b'` taken for a command
+    assert run("grep 'a; cut ' ") == ["notes.txt"]  # was: -c, -f

@@ -105,6 +105,9 @@ shellcraft/
 ├── templates/              # module guide + the reference module (example.py/.md/.skill)
 ├── tools/
 │   ├── demo.py             # records docs/demo.cast (the README demo) from a scripted session; agg makes the GIF
+│   ├── demo3.py            # records docs/demo3.cast (the second demo: your folder, curl, redirection, MCP, ask)
+│   ├── demo3_ai.py         # the AI in that recording: scripted sentences, real MCP tool calls, no account needed
+│   ├── cast2gif.py         # a .cast to a GIF with pyte and Pillow (made docs/demo3.gif), for a machine without agg
 │   └── ingest/             # the module wizard and checker: the `ingest` builtin, `shellcraft ingest`, `python tools/ingest`
 │       ├── __main__.py     # the wizard and the `check` sub-command
 │       ├── analyze.py      # static analysis: what moves into run(), edits, conflicts, options
