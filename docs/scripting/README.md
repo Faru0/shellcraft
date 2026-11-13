@@ -102,6 +102,7 @@ before it:
 | [Printing text](printing.md) | `echo`, several lines at once, `printf` for columns and numbers, colors, errors, writing to files |
 | [Conditions and choices](conditions.md) | `if`, `elif`, `else`, every test, `&&` and `||`, `case` for picking between choices, Python conditions |
 | [Loops and menus](loops.md) | `for`, `while`, `until`, nested loops, `break` and `continue`, reading a file line by line, `select` menus |
+| [Arrays, lists and dicts](arrays-and-lists.md) | One variable with many values: `hosts=(web01 db01)`, `"${hosts[@]}"`, `declare -A` dicts, `mapfile` and `read -a`, and the Python way with `hosts.append()` and `{"web": 80}` |
 | [Functions](functions.md) | Making your own commands: arguments, defaults, `local`, `return`, giving back a value, `def`, options like `-v` |
 | [Errors and cleanup](errors.md) | Stopping on the first failure with `set -e`, `set -u`, `set -x` and `pipefail`, cleaning up with `trap`, catching failures with `try`, `except` and `finally` |
 | [Bash style and Python style](python-style.md) | Every kind of block written both ways, side by side: `if`, `for`, `while`, `case`, `select`, asking the user, menus, functions, `try`, and f-strings with `print()` |
@@ -195,8 +196,8 @@ copying a script from the web and a line fails, look for it here:
 | A quoted string over several lines | `echo -e` with `\n`, or one `echo` per line | [Printing text](printing.md#several-lines-at-once) |
 | `while read line; do … done < file`, `cmd \| while read …` | The same. Also `for -py line in (cat file):` for whole lines | [Input, here-docs and pipes](input-and-pipes.md#read-a-line-from-a-file) |
 | `IFS= read -r line` | The same: a variable in front of a command is set for that command only | [Input, here-docs and pipes](input-and-pipes.md#if-it-doesnt-work) |
-| `read -a` (into an array) | Not yet: arrays are not supported | [Loops and menus](loops.md#loop-over-a-list) |
-| Arrays: `list=(a b c)` | A plain variable with spaces, looped over: `list="a b c"` | [Loops and menus](loops.md#loop-over-a-list) |
+| `read -a` (into an array), `mapfile -t` | The same | [Arrays, lists and dicts](arrays-and-lists.md#fill-an-array-from-a-file-or-a-command) |
+| Arrays: `list=(a b c)`, `${list[@]}`, `declare -A` | The same, without gaps in an array. Also the Python way: `list = ["a", "b"]` | [Arrays, lists and dicts](arrays-and-lists.md) |
 | `(( n > 3 ))`, `let`, `for ((i=0;i<3;i++))` | The same, and `[ $n -gt 3 ]`, `n=$((n + 1))` still work | [Variables and input](variables-and-input.md#arithmetic-as-a-command) |
 | `{ cmd1; cmd2; } \| sort`, `( cd /tmp; ls )` | The same | [Input, here-docs and pipes](input-and-pipes.md#group-commands) |
 | `eval`, `exec` | The same | [Functions](functions.md#run-text-as-a-command-eval-and-exec) |

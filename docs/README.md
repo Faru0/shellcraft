@@ -85,6 +85,7 @@ everything.
 - [Printing text](scripting/printing.md): `echo`, several lines, `printf` columns, `print()` and f-strings, colors, files
 - [Conditions and choices](scripting/conditions.md): `if`, tests, `&&` and `||`, `case`
 - [Loops and menus](scripting/loops.md): `for`, `while`, reading a file, `break`, `select` menus
+- [Arrays, lists and dicts](scripting/arrays-and-lists.md): `a=(x y)`, `${a[@]}`, `declare -A`, `mapfile`, and Python lists and dicts that share them
 - [Functions](scripting/functions.md): arguments, defaults, `local`, `return`, giving back a value
 - [Errors and cleanup](scripting/errors.md): `set -e`, `trap`, `try`
 - [Complete examples](scripting/examples.md): rc files, startup files and funcs to copy

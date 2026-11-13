@@ -88,6 +88,7 @@ n=$((n + 1))                     # integer arithmetic: + - * / % ** comparisons,
 (( n++ )); (( n > 3 )) && echo big   # arithmetic as a command (status 0 when the result is not zero); also let
 echo $((i++)) $((m = 4)) $RANDOM $SECONDS   # ++ and = inside $(( )), a random number, seconds since start
 readonly PI=3; declare -i total=2+3   # a locked name; an integer that evaluates every value
+hosts=(web01 db01); echo ${hosts[0]} ${#hosts[@]}   # an array: one element, how many ("${hosts[@]}": all)
 LANG=C sort names.txt            # a variable for that one command only (IFS= read -r line)
 echo {a,b}{1,2} `date +%Y`       # brace expansion and backticks, on every line
 printf -v padded "%05d" 42       # printf into a variable

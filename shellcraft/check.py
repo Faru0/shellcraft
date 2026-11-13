@@ -14,13 +14,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from shellcraft import heredocs, script
+from shellcraft import arrays, heredocs, script
 from shellcraft.parser import ParseError, find_closing_paren
 
 MAX_INDENT_ERRORS = 50  # a file indented wrongly all the way down: stop reporting after this many
 _MISSING = re.compile(r"missing '([a-z]+|\})'")
 _ASSIGN_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
 _ALIAS = re.compile(r"alias\s+([A-Za-z0-9_.:+-]+)=")
+_METHOD_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)\(")
 
 
 @dataclass
@@ -292,6 +293,8 @@ class _Walker:
         from shellcraft.parser import parse
 
         self._substitutions(text, span, top)
+        if not leading_pipe and arrays.target(text) is not None:
+            return  # `a=(x y)`, `a[0]=x`, `port[web]=80`: an array is set, no command runs
         try:
             pipeline = parse(text, allow_leading_pipe=leading_pipe)  # no variables: `$x` stays as typed
         except ParseError:
@@ -362,6 +365,9 @@ class _Walker:
             return f"{name} is an OS program, and OS commands are off (settings system_commands on)"
         if ctx.registry.is_disabled(name):
             return f"module '{name}' is disabled (modules enable {name})"
+        if method := _METHOD_WORD.match(name):
+            return (f"'.{method.group(1)}()' is not a method that changes a list or dict "
+                    f"({', '.join(sorted(script.MUTATORS))}); to read a value: x = {name.partition('(')[0]}(…)")
         known = [*BUILTINS, *ctx.registry.names(), *self.defined, *ctx.functions]
         hint = difflib.get_close_matches(name, known, n=1)
         return f"unknown command '{name}'" + (f" (did you mean '{hint[0]}'?)" if hint else "")

@@ -92,8 +92,10 @@ You get Python's expressions, without imports or your own modules:
 
 - Comparisons, `and`, `or`, `not`, `in`, `not in`, and the `x if test else y` form.
 - Sums with `+`, `-`, `*`, `/`, `//` and `%`.
-- Lists, tuples, indexing and slices: `line.split()[0]`, `name[:3]`.
-- The functions `len`, `int`, `float`, `str`, `bool`, `abs`, `min` and `max`.
+- Lists, dicts, tuples, indexing and slices: `line.split()[0]`, `name[:3]`, `port["web"]`.
+- The functions `len`, `int`, `float`, `str`, `bool`, `abs`, `min` and `max`, and for lists
+  `sorted`, `reversed`, `sum`, `any`, `all`, `enumerate`, `zip`, `range`, `list`, `dict` and
+  `map(int, sizes)`. See [Arrays, lists and dicts](arrays-and-lists.md).
 - `match(REGEX, TEXT)`, true when the regular expression is found anywhere in the text.
 - `exists(PATH)`, `isfile(PATH)` and `isdir(PATH)` for files and folders.
 - Text methods: `.lower()`, `.upper()`, `.title()`, `.strip()`, `.split()`, `.replace()`,
@@ -165,7 +167,9 @@ bash sees the text 8080
 
 The same goes for `True` and `False`, and for numbers with a point like `2.5`: Python code gets
 the value, and `$ok` gives the text `True`. A value set the bash way again (`port=9000`) is text
-from then on. Anything else Python makes, like a list, is stored as its text.
+from then on. A list or a dict is kept as one as well, see
+[Arrays, lists and dicts](arrays-and-lists.md). Anything else Python makes, like a set, is stored
+as its text.
 
 And when the text isn't a number at all, `int()` says so:
 `ValueError: invalid literal for int() with base 10: 'abc'`.
@@ -591,7 +595,26 @@ I like banana
 I like cherry
 ```
 
-The list after `in` is shell words, not a Python list: no brackets and no commas.
+The list after `in` is shell words: no brackets and no commas. When the one word after `in` is
+the name of a list you made, the loop goes over its elements instead:
+
+<!-- run -->
+```
+fruits = ["apple", "banana"]
+fruits.append("cherry")
+for -py fruit in fruits:
+    print(f"I like {fruit}")
+```
+
+<!-- output -->
+```
+I like apple
+I like banana
+I like cherry
+```
+
+[Arrays, lists and dicts](arrays-and-lists.md) covers lists and dicts, also the ones you set the
+bash way.
 
 ## for: counting
 

@@ -23,6 +23,13 @@ KEYWORDS = frozenset({"for", "if", "elif", "else", "then", "do", "done", "fi", "
 _COLON_KEYWORDS = frozenset({"else", "try", "except", "finally"})  # a header word with its `:`
 _OPERATORS = ("&&", "||", "2>&1", "1>&2", ">&2", "2>>", "2>", "&>", ">>", ">", "|", ";", "<", "&")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# `a=(x`, `a+=(z)`, `a[0]=x`, `port[web]=80`: an array is set; the words up to its `)` are not commands
+_ARRAY_SET = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\+?=\(|\[[^\]]*\]\+?=)")
+# Python's spellings: `hosts = […]`, `hosts[0] = "x"`, `n += 1` (the text after the name), `hosts.append(`
+_PY_TARGET = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?$")
+_PY_SET = re.compile(r"[ \t]+(?://=|[-+*/%]?=)(?!=)(?:[ \t]|$)")
+_PY_METHOD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.(?:append|extend|insert|pop|remove|clear|sort|reverse|update"
+                        r"|setdefault)\(")
 # `$?`, `$name`, `${…}` (one level of nesting: `${a:-${b}}`), `$((` and `$(`.
 _VARIABLE = re.compile(r"\$(\?|\{(?:[^{}]|\{[^{}]*\})*\}|[A-Za-z_][A-Za-z0-9_]*|\(\(|\()")
 
@@ -85,11 +92,17 @@ def highlight(line: str, known: Callable[[str], bool]) -> StyleAndTextTuples:
             j = i
             while j < n and not line[j].isspace() and line[j] not in ("'", '"') and not _at_operator(line, j):
                 j += 1
-            out.extend(_plain_word(line[i:j], expect_command and not quoted and i == start, known))
+            first = expect_command and not quoted and i == start
+            if first and _PY_TARGET.match(line[i:j]) and _PY_SET.match(line, j) and not known(line[i:j]):
+                out.extend(_with_variables(line[i:j], "class:variable"))  # `hosts = […]`, `hosts[0] = "x"`
+            else:
+                out.extend(_plain_word(line[i:j], first, known))
             i = j
         word = line[start:i]
         previous = word
-        if expect_command and not quoted and word and _ASSIGNMENT.match(word):
+        if expect_command and not quoted and word and _ARRAY_SET.match(word):
+            expect_command = False  # `a=(x y z)`: its words are elements
+        elif expect_command and not quoted and word and _ASSIGNMENT.match(word):
             expect_command = True  # `x=1 cmd`: the command still comes
         elif expect_command and word and word not in KEYWORDS and not _colon_keyword(word):
             expect_command = False
@@ -118,8 +131,10 @@ def _plain_word(word: str, is_command: bool, known: Callable[[str], bool]) -> St
     if is_command:
         if word in KEYWORDS:
             return [("class:keyword", word)]
-        if _ASSIGNMENT.match(word):
+        if _ASSIGNMENT.match(word) or _ARRAY_SET.match(word):
             return _with_variables(word, "class:variable")
+        if _PY_METHOD.match(word):
+            return _with_variables(word, "class:variable")  # `hosts.append(`
         name = word[1:] if word.startswith("\\") else word
         return [("class:cmd.known" if known(name) else "class:cmd.unknown", word)]
     if word in KEYWORDS:

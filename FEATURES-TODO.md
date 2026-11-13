@@ -72,21 +72,21 @@ when the full test suite, `ruff check` and `mypy shellcraft` (199 or fewer) pass
 
 ## 5. Arrays, lists and dicts
 
-- [ ] **5.1 The values**: `ShArray` and `ShMap` (text that carries the elements), type-aware `set_variable`
+- [x] **5.1 The values**: `ShArray` and `ShMap` (text that carries the elements), type-aware `set_variable`
   - Done when: no behaviour changes yet and the suite is green; equality, caps and "no nesting" are tested
-  - Notes:
-- [ ] **5.2 Bash indexed arrays**: `a=(x y)`, `a+=(z)`, `a[i]=v`, `${a[i]}`, `${a[@]}`, `"${a[@]}"`, `${#a[@]}`, `${!a[@]}`, slices, `unset`, `for x in "${a[@]}"`
+  - Notes: `shellcraft/values.py`, a module with no ShellCraft imports so the parser can use it. `ShArray` is text that is its first element and `ShMap` text that is the value at key `0`, so every place that expects text gives bash's answer without a change. Values are never changed in place: each change stores a new one, which keeps `$( )`, `( )`, `local` and function frames correct. Two arrays are equal only when all their elements are. Caps: 100000 elements, the size of the text. `tests/test_values.py`
+- [x] **5.2 Bash indexed arrays**: `a=(x y)`, `a+=(z)`, `a[i]=v`, `${a[i]}`, `${a[@]}`, `"${a[@]}"`, `${#a[@]}`, `${!a[@]}`, slices, `unset`, `for x in "${a[@]}"`
   - Done when: each works as in bash, in and out of quotes, across lines; subshells and functions do not leak changes
-  - Notes:
-- [ ] **5.3 `declare -a` / `-A`, maps, `read -a`, `mapfile`**
+  - Notes: `shellcraft/arrays.py` (the assignments) and `parser.py` (the `${...}` reads, one word per element for `"${a[@]}"`). Changed from the plan: `$a` is the first element, as in bash, not all of them joined. Refused with one line: a gap (`a[7]=x` past the end), `unset 'a[1]'` in the middle (`del a[1]` moves the rest up), operators on a whole array, `(( a[i]++ ))`. `tests/test_arrays.py`, `tests/test_array_sharing.py`
+- [x] **5.3 `declare -a` / `-A`, maps, `read -a`, `mapfile`**
   - Done when: `declare -A m; m[k]=v; ${m[k]}; ${!m[@]}`, `declare -p`, `local`, `readonly`, `read -a` and `mapfile -t` work; exporting an array is refused with one line
-  - Notes:
-- [ ] **5.4 Python lists and dicts, reading**: literals, subscripts, slices, `len`, `in`, `sorted`, `join`, `for h in hosts`, `for k, v in d.items()`
+  - Notes: `declare -a/-A/-p`, `local a=(...)`, `readonly a=(...)`, `read -a`, new `mapfile` / `readarray` with `-t -n -s -d`. `export a` is refused (the plan said its text is passed; bash passes nothing, and half an array in the environment is worse than a clear line). `declare -ai` and `m[key]=v` without `declare -A` are refused. `tests/test_assoc.py`, `tests/test_read_array.py`
+- [x] **5.4 Python lists and dicts, reading**: literals, subscripts, slices, `len`, `in`, `sorted`, `join`, `for h in hosts`, `for k, v in d.items()`
   - Done when: a list set in bash reads in Python and the other way round; `print(hosts)` prints like Python
-  - Notes:
-- [ ] **5.5 Python lists and dicts, changing**: `hosts.append(x)`, `hosts[0] = x`, `d["k"] = v`, `del`, `pop`, `update`
+  - Notes: literals over one or more lines, subscripts, slices, `in`, f-strings, `sorted reversed sum any all enumerate zip range list dict`, `", ".join(...)`, and `map(int, sizes)` (added because elements set the bash way are text). `for -py h in hosts`, `for -py k, v in d.items()`. A list passed to a function is a copy: return it. At the top of a file a colon header needs `-py`. No nesting, no comprehensions, no `lambda`, no `key=`. `tests/test_py_lists.py`
+- [x] **5.5 Python lists and dicts, changing**: `hosts.append(x)`, `hosts[0] = x`, `d["k"] = v`, `del`, `pop`, `update`
   - Done when: each statement writes the new value back; a changing method inside a condition is refused with one line
-  - Notes:
-- [ ] **5.6 Checker, colours, docs**: `source -n`, highlighting, `docs/scripting/arrays-and-lists.md`, the "no arrays" lines, the AI scripting skill, `SCRIPTING-TODO.md` ticks, changelog
+  - Notes: `hosts.append(x)` and the other changing methods on a line of their own or in `x = hosts.pop()`, `hosts[0] = x`, `d["k"] = v`, `d["k"] += 1`, `del hosts[0]`, `del d["k"]`. Errors are one line (`there is no key 'x'`, `not set, give it a value first (hosts = [])`). `a[0]=x` without spaces stays bash, `a[0] = "x"` is Python. `tests/test_py_mutation.py`
+- [x] **5.6 Checker, colours, docs**: `source -n`, highlighting, `docs/scripting/arrays-and-lists.md`, the "no arrays" lines, the AI scripting skill, `SCRIPTING-TODO.md` ticks, changelog
   - Done when: `tests/test_docs.py` runs every new example
-  - Notes:
+  - Notes: `source -n` knows the new forms and names a method that does not exist; the prompt colours them; Tab after `hosts.` offers the methods; a value over several lines works inside a colon block. `docs/scripting/arrays-and-lists.md` (21 examples that the tests run), `man arrays` (a topic page, so `arrays` stays free as a variable name), the "no arrays" lines in five pages, the cheat sheet, the AI scripting skill, both `SCRIPTING-TODO.md` items. `tests/test_array_tools.py`

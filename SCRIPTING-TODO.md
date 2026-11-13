@@ -115,5 +115,5 @@ Found by running about 150 bash and Python-style snippets through the shell. Pla
 
 Not part of this round.
 
-- [ ] Bash arrays: `a=(x y)`, `${a[@]}`, `${#a[@]}`, `a+=(z)`, `declare -A`, `mapfile`
-- [ ] Python lists and dicts: `hosts = ["a", "b"]`, `.append()`, `len()`, `{"web": 80}`, sharing storage with bash arrays
+- [x] Bash arrays: `a=(x y)`, `${a[@]}`, `${#a[@]}`, `a+=(z)`, `declare -A`, `mapfile` (done as feature 5 of `FEATURES-TODO.md`)
+- [x] Python lists and dicts: `hosts = ["a", "b"]`, `.append()`, `len()`, `{"web": 80}`, sharing storage with bash arrays (done as feature 5 of `FEATURES-TODO.md`)

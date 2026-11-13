@@ -13,6 +13,8 @@ import operator
 import re
 from typing import Any, Callable, Mapping
 
+from shellcraft.values import ShArray, ShMap
+
 MAX_BITS = 4096  # a result (or an intermediate) bigger than this is refused: `2 ** 99999999` must not hang
 
 _BIN: dict[type, Callable[[int, int], int]] = {
@@ -47,6 +49,8 @@ def evaluate(text: str, variables: Mapping[str, str] | None = None) -> int:
 
 _ASSIGN_OP = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(\*\*=|<<=|>>=|[-+*/%&|^]?=)(?!=)(.*)$", re.S)
 _STEP = re.compile(r"^(?:(\+\+|--)\s*([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\s*(\+\+|--))$")
+_ELEMENT_SET = re.compile(r"^(?:\+\+|--)?\s*([A-Za-z_][A-Za-z0-9_]*)\[[^\]]*\]\s*"
+                          r"(\+\+|--|(?:\*\*|<<|>>|[-+*/%&|^])?=(?!=))")
 
 
 def split_commas(text: str) -> list[str]:
@@ -104,6 +108,9 @@ def _execute_one(text: str, variables: Mapping[str, str] | None, assign: Callabl
         old = evaluate(name, variables)
         store(name, old + sign)
         return old + sign if step.group(1) else old
+    if (element := _ELEMENT_SET.match(text)) or re.match(r"^(\+\+|--)\s*[A-Za-z_][A-Za-z0-9_]*\[", text):
+        name = element.group(1) if element else "a"
+        raise ArithError(f"an array element is read here, not set: use {name}[i]=$(( … )) on a line of its own")
     if (match := _ASSIGN_OP.match(text)):
         name, op, rest = match.group(1), match.group(2), match.group(3)
         rest = rest.strip()
@@ -140,11 +147,18 @@ def _eval(node: ast.AST, variables: Mapping[str, str]) -> int:
         name = node.id
         if positional := re.fullmatch(r"_P([0-9N])_", name):  # `$1` / `$#` (see _to_python)
             name = "#" if positional.group(1) == "N" else positional.group(1)
-        raw = variables.get(name, "0") if hasattr(variables, "get") else "0"
-        try:
-            return int(str(raw).strip() or "0", 0)
-        except ValueError:
-            return 0
+        return _whole(variables.get(name, "0") if hasattr(variables, "get") else "0")
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):  # a[i], port[web]
+        held = variables.get(node.value.id) if hasattr(variables, "get") else None
+        if isinstance(held, ShMap):
+            key = node.slice
+            if not isinstance(key, (ast.Name, ast.Constant)):
+                raise ArithError(f"{node.value.id}[…]: the key of a dict is a word here, as in {node.value.id}[web]")
+            return _whole(held.get(key.id if isinstance(key, ast.Name) else str(key.value)))
+        index = _eval(node.slice, variables)
+        if isinstance(held, ShArray):
+            return _whole(held.get(index))
+        return _whole(held if index in (0, -1) else None)  # plain text is an array of one
     if isinstance(node, ast.UnaryOp):
         value = _eval(node.operand, variables)
         if isinstance(node.op, ast.USub):
@@ -186,6 +200,14 @@ def _eval(node: ast.AST, variables: Mapping[str, str]) -> int:
     if isinstance(node, ast.IfExp):
         return _eval(node.body, variables) if _eval(node.test, variables) else _eval(node.orelse, variables)
     raise ArithError(f"'{type(node).__name__}' is not allowed in $(( ))")
+
+
+def _whole(raw: Any) -> int:
+    """A variable's text as a number: 0 when it is not set or not a number, as in bash."""
+    try:
+        return int(str(raw if raw is not None else "0").strip() or "0", 0)
+    except ValueError:
+        return 0
 
 
 def is_assignment(text: str) -> re.Match[str] | None:

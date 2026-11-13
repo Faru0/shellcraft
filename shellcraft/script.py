@@ -49,20 +49,19 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping, TypeGuard, Union
 
-from shellcraft import arith, getopts, traps
+from shellcraft import arith, arrays, getopts, traps
 from shellcraft import parser as shparser
 from shellcraft.braces import MAX_RANGE, brace_expand  # noqa: F401  (re-exported)
 from shellcraft.context import ShellContext, ShellExit, to_text
 from shellcraft.inputs import Input
 from shellcraft.parser import ParseError, _closing_double_paren, find_closing_paren
+from shellcraft.values import MAX_SEQUENCE, MAX_TEXT, PyValue, ShArray, ShMap, ValueProblem  # noqa: F401
 
 KEYWORDS = ("for", "if", "elif", "else", "break", "continue", "do", "done", "then", "fi", "while", "until",
             "case", "esac", "select", "def", "try", "except", "finally")
 SH_RESERVED = frozenset({"do", "done", "then", "fi", "elif", "else", "esac"})
 PY_FLAG = "-py"
 _MATCH_WORD = re.compile(r"""(?:"[^"]*"|'[^']*'|[^\s{;]+)[ \t]+\{(?:\s|$)""")
-MAX_SEQUENCE = 100_000  # longest string / list a condition may build with `*`
-MAX_TEXT = 10_000_000  # longest text or list a Python expression may build with `+` (`s += s` in a loop)
 MAX_FORMAT_NUMBER = 100_000  # largest width / precision in a format spec (`{x:>10}`, `{x:.2f}`)
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FUNCTION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
@@ -72,6 +71,11 @@ _EMPTY_PARENS = re.compile(r"[ \t]*\([ \t]*\)")
 _PY_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)([ \t]*)(//=|\+=|-=|\*=|/=|%=|=)(?!=)([ \t]*)")
 _PRINT_CALL = re.compile(r"print[ \t]*\(")  # `print(…)`
 _CALL = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(")  # `add(1, 2)`: a function call on a line of its own
+_MUTATOR_CALL = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(")  # `hosts.append(`
+# a `for -py` list that is one call: `sorted(hosts)`, `d.items()`, `"a b".split()`
+_ITEM_CALL = re.compile(r"(?:([A-Za-z_][A-Za-z0-9_]*)|(?:[A-Za-z_][A-Za-z0-9_]*|\"[^\"]*\"|'[^']*')"
+                        r"\.[A-Za-z_][A-Za-z0-9_]*)\(")
+_ITEM_ASSIGN = re.compile(r"[ \t]+(//=|\+=|-=|\*=|/=|%=|=)(?!=)[ \t]*")  # the ` = ` of `hosts[0] = "x"`
 MAX_FUNCTION_DEPTH = 100  # nested / recursive function calls
 _RANGE = re.compile(r"^(-?\d+)\.\.(-?\d+)(?:\.\.(\d+))?$")
 
@@ -140,9 +144,13 @@ class Chain:
 
 @dataclass
 class Item:
-    kind: str  # "word" or "cmd" (-py), "sh" (a bash word, expanded the bash way)
+    # "word" or "cmd" (-py), "sh" (a bash word, expanded the bash way), "py" (a Python value to
+    # loop over: `sorted(hosts)`), "name" (`hosts`, `hosts[1:]`: looped over when the variable
+    # holds a list or dict, else the word it is)
+    kind: str
     text: str
     pos: int
+    tree: ast.Expression | None = None  # "py" and "name": the expression
 
 
 @dataclass
@@ -152,6 +160,7 @@ class For:
     body: list[Stmt]
     pos: int
     mode: str = "sh"
+    more: tuple[str, ...] = ()  # `for k, v in d.items()`: the names after the first
 
 
 @dataclass
@@ -255,6 +264,45 @@ class Assign:
     pos: int
     tree: ast.Expression
     command: Simple | None = None  # outside -py: the line as a command, run instead when NAME names one
+    touched: tuple[str, ...] = ()  # `last = hosts.pop()`: the variables the value changes
+
+
+@dataclass
+class Mutate:
+    """`NAME.append(…)`, `NAME.pop()`, `NAME.update(…)` and the other methods that change a list or
+    a dict, on a line of their own: the changed value is stored back in NAME."""
+
+    name: str
+    text: str  # the call, as typed
+    pos: int
+    tree: ast.Expression
+    touched: tuple[str, ...]
+
+
+@dataclass
+class SetItem:
+    """`NAME[INDEX] = EXPR` (or `+=` and the other `op=` forms), with a space before the `=`:
+    one element of a list, one key of a dict. (`NAME[0]=x` with no space is the bash form.)"""
+
+    name: str
+    op: str
+    text: str  # the whole statement, as typed
+    pos: int
+    key: ast.Expression  # the index or key (a slice for `a[1:3] = …`)
+    tree: ast.Expression
+    touched: tuple[str, ...] = ()
+
+
+@dataclass
+class Del:
+    """`del NAME[INDEX]`: remove one element of a list (the rest moves up) or one key of a dict.
+    `del NAME` (in a -py block or a `def`) unsets the variable."""
+
+    name: str
+    text: str
+    pos: int
+    key: ast.Expression | None
+    command: Simple | None = None  # outside -py: the line as a command, run instead when `del` names one
 
 
 @dataclass
@@ -288,10 +336,11 @@ class Print:
     text: str  # the call, as typed
     pos: int
     tree: ast.Expression
+    touched: tuple[str, ...] = ()  # `print(queue.pop())`
 
 
 Stmt = Union[Simple, Arith, CFor, Group, Chain, For, If, Jump, While, Case, Piped, PipedInto, Function, Select, Assign,
-             Call, Try, Print]
+             Call, Try, Print, Mutate, SetItem, Del]
 
 
 @dataclass
@@ -513,6 +562,12 @@ class _Parser:
             raise self._error(f"'{word}' without a matching {owner}", start)
         if _PRINT_CALL.match(self.s, start):
             return self._print()
+        if arrays.is_open(self.s, start):
+            return self._chain()  # `a=(x y)`, `a+=(z)`: a bash array, set like `x=1`
+        if word == "del" and (deleted := self._del()) is not None:
+            return deleted
+        if (changed := self._set_item() or self._mutate()) is not None:
+            return changed
         if match := _PY_ASSIGN.match(self.s, start):
             # Python's `x = 5`: in a -py block always; elsewhere unless NAME is a builtin (`echo = hi`)
             # or the `=` has a space after it only (`IFS= read x`: a variable for one command)
@@ -549,13 +604,90 @@ class _Parser:
         self.i = close + 1
         return Call(match.group(1), text, start, tree)
 
+    def _statement_ends(self, i: int) -> bool:
+        """Whether nothing but the end of the statement follows at `i` (blanks aside)."""
+        while i < self.n and self.s[i] in " \t":
+            i += 1
+        return i >= self.n or self.s[i] in ";\n" or bool(self.depth and self._is_close(i))
+
+    def _mutate(self) -> Mutate | None:
+        """`hosts.append("c")` alone on its line; None for anything else."""
+        start = self.i
+        match = _MUTATOR_CALL.match(self.s, start)
+        if not match or match.group(2) not in MUTATORS:
+            return None
+        close = find_closing_paren(self.s, match.end())
+        if close is None:
+            raise self._incomplete(f"{match.group(1)}.{match.group(2)}(: missing ')'", " ")
+        if not self._statement_ends(close + 1):
+            return None
+        text = self.s[start:close + 1]
+        tree = compile_condition(text, start, f"{match.group(1)}.{match.group(2)}", "call", mutators=True)
+        self.i = close + 1
+        return Mutate(match.group(1), text, start, tree, touched(tree))
+
+    def _set_item(self) -> SetItem | None:
+        """`hosts[0] = "x"`, `port["web"] += 1`: a space before the `=` makes it Python's."""
+        start = self.i
+        name = _NAME.match(self.s, start)
+        if not name or not self.s.startswith("[", name.end()):
+            return None
+        close = shparser.closing_bracket(self.s, name.end())
+        if close is None or "\n" in self.s[start:close]:
+            return None
+        op = _ITEM_ASSIGN.match(self.s, close + 1)
+        if not op:
+            return None
+        target = self.s[start:close + 1]
+        self.i = op.end()
+        expr = self._tail_text(python=True)
+        if not expr:
+            raise self._error(f"{target} {op.group(1)}: missing a value after '{op.group(1)}'", start)
+        if "$(" in expr:
+            raise self._error(f"{target} {op.group(1)}: $( … ) is bash: write {target}=$(command), "
+                              "with no spaces", start)
+        subscript = compile_condition(target, start, target, "index").body
+        assert isinstance(subscript, ast.Subscript)
+        tree = compile_condition(expr, start, f"{target} {op.group(1)}", "value", mutators=True)
+        return SetItem(name.group(), op.group(1), self.s[start:self.i], start, ast.Expression(subscript.slice),
+                       tree, touched(tree))
+
+    def _del(self) -> Del | None:
+        """`del hosts[0]`, `del port["web"]`, and in a -py block `del NAME`. None when the line is
+        something else (a command called del)."""
+        start = at = self.i
+        py = self.mode == "py"
+        at += len("del")
+        if self.s[at:at + 1] not in (" ", "\t"):
+            return None
+        name = _NAME.match(self.s, at + len(self.s[at:]) - len(self.s[at:].lstrip(" \t")))
+        if not name:
+            return None
+        end, key = name.end(), None
+        if self.s.startswith("[", end):
+            close = shparser.closing_bracket(self.s, end)
+            if close is None:
+                return None
+            subscript = compile_condition(self.s[name.start():close + 1], start, "del", "index").body
+            assert isinstance(subscript, ast.Subscript)
+            end, key = close + 1, ast.Expression(subscript.slice)
+        elif not py:
+            return None  # `del notes` at the prompt stays a command: only -py code unsets this way
+        if not self._statement_ends(end):
+            if py:
+                raise self._error("del: one at a time: del NAME[INDEX] or del NAME", start)
+            return None
+        self.i = end
+        text = self.s[start:end]
+        return Del(name.group(), text, start, key, None if py else Simple(text, start, self.mode))
+
     def _assign(self, match: re.Match[str]) -> Stmt:
         """`NAME = EXPR` / `NAME += EXPR` in py mode. `NAME = input("…")` with a string prompt stays
         a command (run_input: `$who` in the prompt is filled in); any other input() is Python."""
         start = self.i
         name, op = match.group(1), match.group(3)
         self.i = match.end()
-        expr = self._tail_text()
+        expr = self._tail_text(python=True)
         if _ask_line(self.s[start:self.i]):
             self.i = start
             return self._chain()
@@ -564,24 +696,25 @@ class _Parser:
         if "$(" in expr:
             raise self._error(f"{name} {op}: $( … ) is bash: write {name}=$(command), with no spaces", start)
         command = None if self.mode == "py" else Simple(self.s[start:self.i], start, self.mode)
-        return Assign(name, op, expr, start, compile_condition(expr, start, f"{name} {op}", "value"), command)
+        tree = compile_condition(expr, start, f"{name} {op}", "value", mutators=True)
+        return Assign(name, op, expr, start, tree, command, touched(tree))
 
     def _print(self) -> Print:
         """`print(EXPR, …, sep=…, end=…)` in py mode: checked now, so `source -n` reports a bad one."""
         start = self.i
-        text = self._tail_text()
+        text = self._tail_text(python=True)
         close = find_closing_paren(self.s, self.s.index("(", start) + 1)
         if close is not None and close < self.i and self.s[close + 1:self.i].strip():
             raise self._error("print: nothing may follow print(…) on its line (to pipe the output, "
                               "pipe the whole block, or use echo)", start)
-        tree = compile_condition(text, start, "print", "arguments")
+        tree = compile_condition(text, start, "print", "arguments", mutators=True)
         call = tree.body
         if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "print"):
             raise self._error(f"print: write print(…) on a line of its own: {text}", start)
         for keyword in call.keywords:
             if keyword.arg not in ("sep", "end"):
                 raise self._error(f"print: unknown keyword '{keyword.arg}' (print takes sep= and end=)", start)
-        return Print(text, start, tree)
+        return Print(text, start, tree, touched(tree))
 
     def _jump(self, word: str) -> Jump:
         """`break`, `continue` or `return [N]`, alone or after `&&` / `||` (`[ -f x ] || return 1`)."""
@@ -599,7 +732,7 @@ class _Parser:
         if (not self._at_end() and self.s[self.i] not in ";\n" and not self._is_close(self.i)
                 and not self.s.startswith(("&&", "||"), self.i)):
             if self.mode == "py" and self.in_def:  # `return a + b`, `return True`
-                value = self._tail_text()
+                value = self._tail_text(python=True)
                 if "$(" in value:
                     raise self._error("return: $( … ) is bash: put the command's output in a "
                                       "variable first (x=$(command))", start)
@@ -623,9 +756,11 @@ class _Parser:
             raise ParseError(exc.message, None if exc.pos is None else start + exc.pos) from None
         return Piped(stmt, tail, start, self.mode)
 
-    def _tail_text(self) -> str:
-        """The text up to the end of the statement (`;`, a new line, `&&`, `||`, a closing `}`)."""
-        start, quote = self.i, None
+    def _tail_text(self, python: bool = False) -> str:
+        """The text up to the end of the statement (`;`, a new line, `&&`, `||`, a closing `}`).
+        `python`: an expression, which goes on while a `(`, `[` or `{` is open, over lines too
+        (`hosts = [` … `]`, `d = {"a": 1}` in a block)."""
+        start, quote, opened = self.i, None, 0
         while self.i < self.n:
             ch = self.s[self.i]
             if quote:
@@ -638,11 +773,17 @@ class _Parser:
                 continue
             if ch in ("'", '"'):
                 quote = ch
+            elif python and ch in "([{":
+                opened += 1
+            elif opened:
+                opened -= ch in ")]}"
             elif ch in ";\n" or self.s.startswith("&&", self.i) or self.s.startswith("||", self.i):
                 break
             elif self.depth and self._is_close(self.i):
                 break
             self.i += 1
+        if opened and not quote:
+            raise self._incomplete(f"missing a closing bracket in: {self.s[start:].strip()[:40]}", " ")
         return self.s[start:self.i].rstrip()
 
     # select
@@ -1088,6 +1229,12 @@ class _Parser:
             elif self.mode in ("sh", "top") and self.s.startswith("$(", self.i):
                 self._skip_substitution()
                 continue
+            elif self._word_start(self.i) and (opened := arrays.is_open(self.s, self.i)):
+                close = find_closing_paren(self.s, opened.end())  # `a=( … )`: its words may take several lines
+                if close is None:
+                    raise self._incomplete("missing ')'", " ")
+                self.i = close + 1
+                continue
             elif ch in ";\n" or (not brackets and (self.s.startswith("&&", self.i) or self.s.startswith("||", self.i))):
                 break
             elif ch == "|" and not brackets and self._pipes_into_block(self.i):
@@ -1197,6 +1344,16 @@ class _Parser:
         var = match.group()
         self.i = match.end()
         self._skip_blanks()
+        more: list[str] = []
+        while py and self.s.startswith(",", self.i):  # for k, v in d.items()
+            self.i += 1
+            self._skip_blanks()
+            match = _NAME.match(self.s, self.i)
+            if not match:
+                raise self._error(f"for: expected a variable name after '{var},'")
+            more.append(match.group())
+            self.i = match.end()
+            self._skip_blanks()
         if not py and (self._at_end() or self.s[self.i] in ";\n" or self._bare_word(self.i) == "do"):
             raise self._error(f"for: give the list to loop over: for {var} in WORD...; do …; done "
                               "(looping over the script's arguments isn't supported)")
@@ -1206,7 +1363,11 @@ class _Parser:
         if self._bare_word(self.i) != "in":
             raise self._error(f"for: expected 'in' after '{var}'")
         self.i += 2
-        return self._for_py(var, pos) if py else self._for_sh(var, pos)
+        if not py:
+            return self._for_sh(var, pos)
+        loop = self._for_py(var, pos)
+        loop.more = tuple(more)
+        return loop
 
     def _for_c(self, pos: int) -> CFor:
         """`for (( init; cond; step )); do LIST; done`."""
@@ -1269,8 +1430,61 @@ class _Parser:
             self.loops -= 1
         return For(var, items, body, pos, "sh")
 
+    def _py_item(self) -> Item | None:
+        """The list of a `for -py` when it is one Python value: `hosts`, `hosts[1:]`, `d.items()`,
+        `line.split(",")`, `sorted(hosts)`, `range(3)`, `["a", "b"]`. None for a list of words."""
+        self._skip_blanks()
+        start, quote, opened = self.i, None, 0
+        end = start
+        while end < self.n:
+            ch = self.s[end]
+            if quote:
+                quote = None if ch == quote else quote
+            elif ch in ("'", '"'):
+                quote = ch
+            elif ch in "([":
+                opened += 1
+            elif ch in ")]":
+                opened -= 1
+            elif not opened and (ch in ";\n" or self._is_open(end)):
+                break
+            end += 1
+        text = self.s[start:end].strip()
+        if not self._is_open(end) or not text:
+            return None
+        if _NAME.fullmatch(text):
+            kind = "name"
+        elif (name := _NAME.match(text)) and text[name.end():name.end() + 1] == "[":
+            if shparser.closing_bracket(text, name.end()) != len(text) - 1:
+                return None
+            kind = "name"  # `log[12]` is a file pattern when `log` holds no list
+        elif (call := _ITEM_CALL.match(text)):
+            if (call.group(1) is not None and call.group(1) not in FUNCTIONS) \
+                    or find_closing_paren(text, call.end()) != len(text) - 1:
+                return None
+            kind = "py"
+        elif text.startswith("[") and text.endswith("]"):
+            kind = "list"
+        else:
+            return None
+        try:
+            tree = compile_condition(text, start, "for", "list")
+        except ParseError:
+            if kind == "py":
+                raise
+            return None  # `log[!a]`, `[abc]*`: a file pattern
+        if kind == "list":
+            elements = tree.body.elts if isinstance(tree.body, ast.List) else None
+            if elements is None or (len(elements) == 1 and isinstance(elements[0], ast.Name)):
+                return None  # `[ab]`: a file pattern too
+            kind = "py"
+        self.i = end
+        return Item(kind, text, start, tree)
+
     def _for_py(self, var: str, pos: int, what: str = "for") -> For:
         items: list[Item] = []
+        if (value := self._py_item()) is not None:
+            items.append(value)
         while True:
             self._skip_space()
             if self._at_end():
@@ -1471,6 +1685,10 @@ def _check_pipeline(text: str, offset: int, mode: str = "top") -> None:
     """Syntax-check a pipeline before anything runs, with the error position in the whole line."""
     if mode in ("top", "sh") and shparser.arith.is_assignment(text) and "|" not in text and ">" not in text:
         return  # `x=1`: an assignment, not a command
+    if arrays.target(text) is not None:
+        return  # `a=(x y)`, `a[1]=v`: the same for an array
+    if (declared := arrays.declaration(text)) is not None:
+        text = declared[0]  # `declare -a a=(x y)`: the command is `declare -a a`
     try:
         shparser.parse(text, substitute=(lambda _: "") if mode in ("sh", "top") else None)
     except ParseError as exc:
@@ -1538,8 +1756,8 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
                 if word.startswith('\\"', i):
                     add('"', True)
                     i += 2
-                elif word[i] == "$" and (at := shparser.quoted_arguments(word, i, variables)) is not None:
-                    args, i = at  # "$@": one field per argument
+                elif word[i] == "$" and (at := shparser.list_expansion(word, i, variables, quoted=True)) is not None:
+                    args, i = at  # "$@", "${a[@]}": one field per item
                     if not args and not fields[-1][0]:
                         fields[-1] = (fields[-1][0], False)  # no arguments: no field, unless other text joins it
                     for k, arg in enumerate(args):
@@ -1554,6 +1772,12 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
                     add(word[i], True)
                     i += 1
             i += 1
+        elif ch == "$" and (at := shparser.list_expansion(word, i, variables)) is not None:
+            for k, element in enumerate(at[0]):  # ${a[@]}: every element, each split like an unquoted $x
+                if k and fields[-1][0]:
+                    new_field()
+                add_split(element)
+            i = at[1]
         elif ch == "$" and (var := expansion(i)) is not None:
             add_split(var[0])
             i = var[1]
@@ -1578,10 +1802,44 @@ def _expand_fields(word: str, variables: dict[str, str], substitute: Callable[[s
 
 # ── Python conditions ────────────────────────────────────────────────────────
 
+class ConditionError(Exception):
+    def __init__(self, message: str = "", status: int = 1):
+        super().__init__(message)
+        self.status = status  # 130 for an `input()` cancelled with Ctrl-C
+
+
+def _list(*values: Any) -> list[Any]:
+    """`list()`, `list(hosts)`, `list("abc")`: a new list, never one longer than MAX_SEQUENCE."""
+    if len(values) > 1:
+        raise ConditionError("list() takes one value: list(hosts)")
+    if values and isinstance(values[0], str) and len(values[0]) > MAX_SEQUENCE:
+        raise ConditionError(f"list() would build more than {MAX_SEQUENCE} items")
+    return list(*values)
+
+
+def _range(*values: Any) -> list[int]:
+    """`range(3)`, `range(1, 10, 2)` as a list. Text that is a whole number counts (`n=3` in bash)."""
+    numbers = []
+    for value in values:
+        if isinstance(value, str) and not re.fullmatch(r"\s*-?\d+\s*", value):
+            raise ConditionError(f"range: '{value}' is not a whole number")
+        numbers.append(int(value) if isinstance(value, str) else value)
+    found = range(*numbers)
+    if len(found) > MAX_RANGE:
+        raise ConditionError(f"range: more than {MAX_RANGE} items")
+    return list(found)
+
+
+# Every function gives back a plain value (a list, never an iterator), so nothing but text, numbers,
+# lists, tuples, sets and dicts is ever inside an expression.
 FUNCTIONS: dict[str, Any] = {
     "len": len, "int": int, "float": float, "str": str, "bool": bool, "abs": abs, "min": min, "max": max,
     "match": lambda pattern, text: re.search(pattern, text) is not None,
     "exists": os.path.exists, "isfile": os.path.isfile, "isdir": os.path.isdir,
+    "sorted": sorted, "reversed": lambda items: list(reversed(items)), "list": _list,
+    "dict": lambda *pairs: dict(*pairs), "enumerate": lambda items, start=0: list(enumerate(items, start)),
+    "zip": lambda *items: list(zip(*items)), "range": _range, "sum": sum, "any": any, "all": all,
+    "map": None,  # _eval's own (_map): its first argument is the name of a function
 }
 _BUILT_INS = ", ".join(sorted([*FUNCTIONS, "input"]))  # input() is _eval's own (it asks)
 STR_METHODS = frozenset({
@@ -1589,48 +1847,54 @@ STR_METHODS = frozenset({
     "split", "rsplit", "splitlines", "removeprefix", "removesuffix", "replace", "count", "find", "rfind",
     "isdigit", "isnumeric", "isdecimal", "isalpha", "isalnum", "isspace", "islower", "isupper",
     "format",  # our own formatter (_safe_format), never str.format
+    "join",  # our own too (_join): numbers are joined as their text, and the result is capped
 })
+LIST_METHODS = frozenset({"index", "count", "copy"})
+LIST_MUTATORS = frozenset({"append", "extend", "insert", "pop", "remove", "clear", "sort", "reverse"})
+DICT_METHODS = frozenset({"keys", "values", "items", "get", "copy"})
+DICT_MUTATORS = frozenset({"pop", "update", "setdefault", "clear"})
+MUTATORS = LIST_MUTATORS | DICT_MUTATORS  # they change the variable: only on a line of their own, or in `x = …`
+# The methods of each type, looked up by the exact type of the value: nothing else is ever called.
+_METHODS: dict[type, frozenset[str]] = {
+    str: STR_METHODS, list: LIST_METHODS | LIST_MUTATORS, tuple: frozenset({"index", "count"}),
+    dict: DICT_METHODS | DICT_MUTATORS,
+}
+_KINDS = {str: "text", list: "a list", tuple: "a tuple", dict: "a dict"}
+_ALL_METHODS = frozenset().union(*_METHODS.values())
 _BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
            ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod}
 _CMPOPS = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast.LtE: operator.le,
            ast.Gt: operator.gt, ast.GtE: operator.ge, ast.In: lambda a, b: a in b,
            ast.NotIn: lambda a, b: a not in b, ast.Is: operator.is_, ast.IsNot: operator.is_not}
 _PLAIN_NODES = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, ast.USub, ast.UAdd,
-                ast.BinOp, ast.Compare, ast.Name, ast.Load, ast.Tuple, ast.List, ast.Set, ast.Subscript,
+                ast.BinOp, ast.Compare, ast.Name, ast.Load, ast.Tuple, ast.List, ast.Set, ast.Dict, ast.Subscript,
                 ast.Slice, ast.IfExp, ast.JoinedStr, ast.FormattedValue, ast.keyword, *_BINOPS, *_CMPOPS)
 
 
 _AUGMENTED = {"+=": ast.Add, "-=": ast.Sub, "*=": ast.Mult, "/=": ast.Div, "//=": ast.FloorDiv, "%=": ast.Mod}
 
 
-class ConditionError(Exception):
-    def __init__(self, message: str = "", status: int = 1):
-        super().__init__(message)
-        self.status = status  # 130 for an `input()` cancelled with Ctrl-C
-
-
-class PyValue(str):
-    """A number or bool set from Python (`n = 5`, `n = int(input())`): bash reads it as text
-    (`$n` is `5`, `True`), Python code reads `.value`, the number itself (python_names)."""
-
-    value: Any
-
-    def __new__(cls, value: Any) -> PyValue:
-        self = super().__new__(cls, str(value))
-        self.value = value
-        return self
-
-
 def as_variable(value: Any) -> str:
     """What a variable set from Python stores: a PyValue for an int, float or bool (it keeps its
-    type for later Python code), else the value as plain text."""
+    type for later Python code), an array for a list or tuple, a dict for a dict, else the value
+    as plain text. Raises ConditionError for a list that can't be stored (a list in a list)."""
+    if isinstance(value, (ShArray, ShMap)):
+        return value
     if isinstance(value, (bool, int, float)):
         return PyValue(value)
+    try:
+        if isinstance(value, (list, tuple)):
+            return ShArray(value)
+        if isinstance(value, dict):
+            return ShMap(value)
+    except ValueProblem as exc:
+        raise ConditionError(str(exc)) from None
     return str(value)
 
 
 def python_names(variables: Mapping[str, str], status: int) -> dict[str, Any]:
-    """The names a Python expression sees: the variables (a PyValue as its number) and `status`."""
+    """The names a Python expression sees: the variables (a PyValue as its number) and `status`.
+    An array or dict stays as stored: _eval makes the list or dict of it when the name is read."""
     names: dict[str, Any] = {k: v.value if isinstance(v, PyValue) else v for k, v in variables.items()}
     names["status"] = status
     return names
@@ -1678,7 +1942,10 @@ def _dollars_to_names(text: str) -> str:
             i += 2
             continue
         elif ch == "$" and text.startswith("${", i) and (close := text.find("}", i)) != -1:
-            out.append(text[i + 2:close])
+            inner = text[i + 2:close]
+            if inner.endswith(("[@]", "[*]")):  # `${a[@]}` is the list a, `${#a[@]}` its length
+                inner = f"len({inner[1:-3]})" if inner.startswith("#") else inner[:-3]
+            out.append(inner)
             i = close + 1
             continue
         elif ch == "$" and (match := _NAME.match(text, i + 1)):
@@ -1691,9 +1958,11 @@ def _dollars_to_names(text: str) -> str:
     return "".join(out)
 
 
-def compile_condition(text: str, pos: int = 0, what: str = "if", noun: str = "condition") -> ast.Expression:
+def compile_condition(text: str, pos: int = 0, what: str = "if", noun: str = "condition",
+                      mutators: bool = False) -> ast.Expression:
     """Parse and vet a `( … )` condition (or an assignment's value, with `what` and `noun` for the
-    messages); raises ParseError naming what isn't allowed."""
+    messages); raises ParseError naming what isn't allowed. `mutators`: `hosts.pop()` and the
+    other methods that change a variable may be used (the caller stores the result: see touched)."""
     source = _dollars_to_names(text).strip()
     if not source:
         raise ParseError(f"{what}: empty {noun} '()'", pos)
@@ -1705,7 +1974,23 @@ def compile_condition(text: str, pos: int = 0, what: str = "if", noun: str = "co
         problem = _vet(node)
         if problem:
             raise ParseError(f"{what}: {problem} in {noun}: {source}", pos)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in MUTATORS:
+            owner, method = node.func.value, node.func.attr
+            if not isinstance(owner, ast.Name):
+                raise ParseError(f"{what}: '.{method}()' changes a variable, so it goes after a name "
+                                 f"(hosts.{method}(…)): {source}", pos)
+            if not mutators:
+                raise ParseError(f"{what}: '.{method}()' changes {owner.id}: use it on a line of its own "
+                                 f"({owner.id}.{method}(…)), not in a {noun}", pos)
     return tree
+
+
+def touched(tree: ast.AST) -> tuple[str, ...]:
+    """The variables an expression changes: the names its `.append(…)`, `.pop()`, … are called on."""
+    names = [node.func.value.id for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr in MUTATORS and isinstance(node.func.value, ast.Name)]
+    return tuple(dict.fromkeys(names))
 
 
 def _vet(node: ast.AST) -> str | None:
@@ -1715,17 +2000,24 @@ def _vet(node: ast.AST) -> str | None:
     if isinstance(node, ast.Call):
         if any(isinstance(a, ast.Starred) for a in node.args) or any(k.arg is None for k in node.keywords):
             return "* and ** arguments are not allowed"
-        if node.keywords and not (isinstance(node.func, ast.Attribute) and node.func.attr == "format"
-                                  or isinstance(node.func, ast.Name) and node.func.id == "print"):
-            return "keyword arguments are not allowed (only in .format(name=…) and print(sep=…, end=…))"
+        called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+        if node.keywords and called in ("sorted", "sort"):
+            if [k.arg for k in node.keywords] != ["reverse"]:
+                return f"{called} takes only reverse=True (no key=)"
+        elif node.keywords and not (isinstance(node.func, ast.Attribute) and called == "format"
+                                    or isinstance(node.func, ast.Name) and called == "print"):
+            return ("keyword arguments are not allowed (only in .format(name=…), print(sep=…, end=…) "
+                    "and sorted(…, reverse=True))")
         if isinstance(node.func, ast.Name):  # a built-in one, or a shell function (looked up when it runs)
             return None if not node.func.id.startswith("_") else (
                 f"function '{node.func.id}' is not available (use: {_BUILT_INS})")
         if isinstance(node.func, ast.Attribute):
-            return None if node.func.attr in STR_METHODS else f"method '.{node.func.attr}()' is not available"
-        return "only plain function and string-method calls are allowed"
+            return None if node.func.attr in _ALL_METHODS else f"method '.{node.func.attr}()' is not available"
+        return "only plain function and method calls are allowed"
     if isinstance(node, ast.Attribute):
-        return None if node.attr in STR_METHODS else f"attribute '.{node.attr}' is not available"
+        return None if node.attr in _ALL_METHODS else f"attribute '.{node.attr}' is not available"
+    if isinstance(node, ast.Dict) and any(key is None for key in node.keys):
+        return "** is not allowed in a dict"
     if isinstance(node, ast.Name) and node.id.startswith("_"):
         return f"name '{node.id}' is not allowed"
     if not isinstance(node, _PLAIN_NODES):
@@ -1749,8 +2041,12 @@ def evaluate(tree: ast.Expression, names: dict[str, Any],
             or "'int' and 'str'" in str(exc) else ""
         if "non-int of type 'str'" in str(exc) or 'str (not "int")' in str(exc):  # "2" * "2", "2" + 1
             hint = " (values set from bash are text: use int(name) for numbers, str(n) for text)"
+        if "can only concatenate list" in str(exc):
+            hint = ' (to add one element: hosts.append("x") or hosts += ["x"])'
         raise ConditionError(f"{exc}{hint}") from None
-    except (ValueError, ZeroDivisionError, IndexError, KeyError, re.error, OverflowError) as exc:
+    except KeyError as exc:
+        raise ConditionError(f"there is no key {exc} (.get({exc}) gives None for a missing key)") from None
+    except (ValueError, ZeroDivisionError, IndexError, re.error, OverflowError) as exc:
         raise ConditionError(f"{type(exc).__name__}: {exc}") from None
     finally:
         _CALL_FUNCTION.reset(token)
@@ -1775,11 +2071,27 @@ def _input(node: ast.Call, names: dict[str, Any], kind: str) -> Any:
     return ask(prompt, kind)
 
 
+def _map(node: ast.Call, names: dict[str, Any]) -> list[Any]:
+    """`map(int, sizes)`: a function, named by its bare name, over each element. Gives a list."""
+    first = node.args[0] if node.args else None
+    if len(node.args) != 2 or node.keywords or not isinstance(first, ast.Name) or first.id in ("map", "input"):
+        raise ConditionError("map takes the name of a function and one list: map(int, sizes)")
+    items = _list(_eval(node.args[1], names))
+    if FUNCTIONS.get(first.id) is not None:
+        return [FUNCTIONS[first.id](item) for item in items]
+    call = _CALL_FUNCTION.get()
+    if call is None:
+        raise ConditionError(f"{first.id} is not a function (built in: {_BUILT_INS})")
+    return [call(first.id, [item]) for item in items]
+
+
 def _weight(value: Any, limit: int) -> int:
-    """About how many characters `value` holds, counting into lists, tuples and sets, so `*` and
-    `+` can't build gigabytes (`["a" * 99999] * 99999`). Stops counting past `limit`."""
+    """About how many characters `value` holds, counting into lists, tuples, sets and dicts, so
+    `*` and `+` can't build gigabytes (`["a" * 99999] * 99999`). Stops counting past `limit`."""
     if isinstance(value, str):
         return len(value)
+    if isinstance(value, dict):
+        return _weight([*value, *value.values()], limit)
     if isinstance(value, (list, tuple, set)):
         total = len(value)
         for item in value:
@@ -1795,7 +2107,10 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         return node.value
     if isinstance(node, ast.Name):
         if node.id in names:
-            return names[node.id]
+            value = names[node.id]
+            if isinstance(value, (ShArray, ShMap)):  # made once: `hosts.append(x)` changes this one
+                value = names[node.id] = value.to_python()
+            return value
         known = ", ".join(sorted(names)) or "none"
         raise ConditionError(f"unknown name '{node.id}' (variables here: {known}; quote text: \"{node.id}\")")
     if isinstance(node, ast.BoolOp):
@@ -1838,6 +2153,9 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         return tuple(values) if isinstance(node, ast.Tuple) else values
     if isinstance(node, ast.Set):
         return {_eval(e, names) for e in node.elts}
+    if isinstance(node, ast.Dict):
+        return {_eval(key, names): _eval(value, names)
+                for key, value in zip(node.keys, node.values) if key is not None}
     if isinstance(node, ast.Subscript):
         return _eval(node.value, names)[_eval(node.slice, names)]
     if isinstance(node, ast.Slice):
@@ -1854,6 +2172,8 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
         inner = node.args[0] if len(node.args) == 1 else None
         if isinstance(node.func, ast.Name) and node.func.id in ("int", "float") and _is_input(inner):
             return _input(inner, names, node.func.id)
+        if isinstance(node.func, ast.Name) and node.func.id == "map":
+            return _map(node, names)
         args = [_eval(a, names) for a in node.args]
         kwargs = {k.arg: _eval(k.value, names) for k in node.keywords if k.arg}
         if isinstance(node.func, ast.Attribute) and node.func.attr == "format":
@@ -1861,7 +2181,9 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
             if not isinstance(target, str):
                 raise ConditionError(f"'.format()' works on text, not on {type(target).__name__}")
             return _safe_format(target, args, kwargs)
-        if kwargs:  # vetted: only print(…) gets here, and print is a statement, not a value
+        if isinstance(node.func, ast.Name) and node.func.id == "sorted":
+            return sorted(*args, reverse=bool(kwargs.get("reverse")))
+        if kwargs and not isinstance(node.func, ast.Attribute):  # vetted: only print(…) gets here
             raise ConditionError("print(…) is a statement of its own, not a value")
         if isinstance(node.func, ast.Name):
             if node.func.id in FUNCTIONS:
@@ -1871,11 +2193,51 @@ def _eval(node: ast.AST, names: dict[str, Any]) -> Any:
                 raise ConditionError(f"{node.func.id} is not a function "
                                      f"(built in: {_BUILT_INS})")
             return call(node.func.id, args)
-        target = _eval(node.func.value, names)
-        if not isinstance(target, str):
-            raise ConditionError(f"'.{node.func.attr}()' works on text, not on {type(target).__name__}")
-        return getattr(target, node.func.attr)(*args)
+        return _method(_eval(node.func.value, names), node.func.attr, args, kwargs)
     raise ConditionError(f"'{type(node).__name__}' is not allowed")  # vetted already; defensive
+
+
+def _held(names: dict[str, Any], name: str) -> Any:
+    """The list or dict the variable `name` holds, for a statement that changes it."""
+    if name not in names:
+        raise ConditionError(f"not set, give it a value first ({name} = [] or {name} = {{}})")
+    value = _eval(ast.Name(name), names)
+    if not isinstance(value, (list, dict)):
+        raise ConditionError("it holds text, not a list or a dict")
+    return value
+
+
+def _augmented(left: Any, op: str, right: Any) -> Any:
+    """`left op= right`, with the checks and the error messages of an expression."""
+    return evaluate(ast.Expression(ast.BinOp(ast.Constant(left), _AUGMENTED[op](), ast.Constant(right))), {})
+
+
+def _method(target: Any, name: str, args: list[Any], kwargs: dict[str, Any]) -> Any:
+    """`target.name(args)`: a method of text, a list, a tuple or a dict, and of nothing else."""
+    kind = str if isinstance(target, str) else type(target)
+    if name not in _METHODS.get(kind, ()):
+        owners = [text for owner, text in _KINDS.items() if name in _METHODS[owner]]
+        works_on = " or ".join(filter(None, [", ".join(owners[:-1]), owners[-1]]))
+        raise ConditionError(f"'.{name}()' works on {works_on}, not on {type(target).__name__}")
+    if name == "join":
+        return _join(target, args)
+    if name == "sort":
+        return target.sort(*args, reverse=bool(kwargs.get("reverse")))
+    if kind is dict and name in ("keys", "values", "items"):
+        return list(getattr(target, name)(*args))  # a list, not a view
+    if kind is str:
+        return getattr(str, name)(target, *args)
+    return getattr(target, name)(*args)
+
+
+def _join(separator: str, args: list[Any]) -> str:
+    """`", ".join(hosts)`: a number in the list is joined as its text."""
+    if len(args) != 1 or not isinstance(args[0], (list, tuple, set)):
+        raise ConditionError('join takes one list: ", ".join(hosts)')
+    parts = [part if isinstance(part, str) else str(part) for part in args[0]]
+    if sum(len(part) for part in parts) + len(separator) * len(parts) > MAX_TEXT:
+        raise ConditionError(f"join: the text would be longer than {MAX_TEXT} characters")
+    return separator.join(parts)
 
 
 # Format specs: `[[fill]align][sign][z][#][0][width][grouping][.precision][type]`. A spec with a
@@ -2329,6 +2691,15 @@ class _Runner:
             self.run_try(stmt)
         elif isinstance(stmt, Print):
             self.run_print(stmt)
+        elif isinstance(stmt, Mutate):
+            self.run_mutate(stmt)
+        elif isinstance(stmt, SetItem):
+            self.run_set_item(stmt)
+        elif isinstance(stmt, Del):
+            if stmt.command is not None and self.is_command("del"):
+                self.run_stmt(stmt.command)  # `del` is an alias or a function here
+            else:
+                self.run_del(stmt)
         elif stmt.kind == "break":
             raise _Break
         elif stmt.kind == "return":
@@ -2431,7 +2802,11 @@ class _Runner:
             self.report(PipelineError(1, 1, "local", "local: can only be used in a function"), stmt.text)
             self.ctx.last_status = 1
             return 1, None
+        literals: list[str] = []
+        kind: bool | None = None  # `local -A m`: a dict; `local -a a`: an array
         try:
+            if (declared := arrays.declaration(stmt.text.strip())) is not None:  # local a=(x y)
+                rest, literals = declared[0][len("local"):], declared[1]
             tokens = shparser.tokenize(rest, self.variables(), substitute=self.substitute)
         except shparser.UnboundVariable:
             raise  # `set -u`: run_list stops the script
@@ -2439,6 +2814,8 @@ class _Runner:
             self.report(exc, stmt.text)
             self.ctx.last_status = 2
             return 2, None
+        while tokens and tokens[0].value in ("-a", "-A"):
+            kind = tokens.pop(0).value == "-A"
         for token in tokens:
             name, sep, value = token.value.partition("=")
             if not _NAME.fullmatch(name):
@@ -2451,7 +2828,17 @@ class _Runner:
                 return 1, None
             if name not in self.frame:
                 self.frame[name] = self.ctx.variables.get(name)
-            self.ctx.variables[name] = value if sep else ""
+            self.ctx.variables[name] = arrays.declared_as(name, value if sep else None, kind) \
+                if kind is not None else value if sep else ""
+        try:
+            for literal in literals:
+                arrays.assign(literal, self.ctx, self.variables(), self.substitute, None, kind)
+        except (ParseError, PipelineError) as exc:
+            if isinstance(exc, shparser.UnboundVariable):
+                raise
+            self.report(exc, stmt.text)
+            self.ctx.last_status = 1
+            return 1, None
         self.ctx.last_status = 0
         return 0, None
 
@@ -2523,10 +2910,11 @@ class _Runner:
         return 0
 
     def run_assign(self, stmt: Assign) -> None:
-        """`NAME = EXPR`: an int, float or bool keeps its type (as_variable), anything else is
-        stored as text. `NAME += EXPR` and the other `op=` forms work on the current value: a
-        number set from Python as is; else text when EXPR is text (`s += "x"`), else the text read
-        as a number (int, or float when it isn't a whole number)."""
+        """`NAME = EXPR`: an int, float or bool keeps its type, a list or dict is stored as an
+        array or dict (as_variable), anything else is stored as text. `NAME += EXPR` and the other
+        `op=` forms work on the current value: a number set from Python or a list as is; else text
+        when EXPR is text (`s += "x"`), else the text read as a number (int, or float when it
+        isn't a whole number)."""
         from shellcraft.pipeline import PipelineError, set_variable
 
         text = f"{stmt.name} {stmt.op} {stmt.text}"
@@ -2539,16 +2927,116 @@ class _Runner:
                     raise ConditionError("not set, give it a value first")
                 if isinstance(current, PyValue):
                     left = current.value
+                elif isinstance(current, (ShArray, ShMap)):
+                    left = _held(names, stmt.name)
                 else:
                     left = current if isinstance(value, str) else _number(current)
-                op = _AUGMENTED[stmt.op]()
-                value = evaluate(ast.Expression(ast.BinOp(ast.Constant(left), op, ast.Constant(value))), {})
+                value = _augmented(left, stmt.op, value)
+            changed = [*self.changed(names, stmt.touched, stmt.name), (stmt.name, as_variable(value))]
         except ConditionError as exc:
             self.report(PipelineError(1, 1, stmt.name, f"{stmt.name}: {exc}", exc.status), text)
             self.ctx.last_status = exc.status
             self.check_errexit(exc.status, text)
             return
-        set_variable(self.ctx, stmt.name, as_variable(value), self.vars)
+        for name, new in changed:
+            set_variable(self.ctx, name, new, self.vars)
+        self.ctx.last_status = 0
+
+    def changed(self, names: dict[str, Any], touched: tuple[str, ...], but: str = "") -> list[tuple[str, str]]:
+        """What to store after an expression that called `.append(…)`, `.pop()`, …: (name, new
+        value) for each list or dict it changed. Raises ConditionError for one that can't be stored."""
+        found = []
+        for name in touched:
+            if name != but and isinstance(names.get(name), (list, dict)):
+                try:
+                    found.append((name, as_variable(names[name])))
+                except ConditionError as exc:
+                    raise ConditionError(f"{name}: {exc}") from None
+        return found
+
+    def python_fails(self, exc: ConditionError, name: str, text: str) -> None:
+        """Report a Python statement's error the way an assignment's is: `✗ name: message`, `$?` set."""
+        from shellcraft.pipeline import PipelineError
+
+        message = str(exc).removeprefix(f"{name}: ")
+        self.report(PipelineError(1, 1, name, f"{name}: {message}", exc.status), text)
+        self.ctx.last_status = exc.status
+        self.check_errexit(exc.status, text)
+
+    def run_mutate(self, stmt: Mutate) -> None:
+        """`hosts.append("c")`: run the method on the list or dict and store what it left."""
+        from shellcraft.pipeline import set_variable
+
+        names = python_names(self.vars, self.ctx.last_status)
+        try:
+            if stmt.name not in names:
+                raise ConditionError(f"not set, give it a value first ({stmt.name} = [])")
+            evaluate(stmt.tree, names, self.call_function, self.ask_input)
+            changed = self.changed(names, stmt.touched)
+        except ConditionError as exc:
+            self.python_fails(exc, stmt.name, stmt.text)
+            return
+        for name, new in changed:
+            set_variable(self.ctx, name, new, self.vars)
+        self.ctx.last_status = 0
+
+    def run_set_item(self, stmt: SetItem) -> None:
+        """`hosts[0] = "x"`, `port["web"] += 1`: one element of a list, one key of a dict."""
+        from shellcraft.pipeline import set_variable
+
+        names = python_names(self.vars, self.ctx.last_status)
+        try:
+            value = evaluate(stmt.tree, names, self.call_function, self.ask_input)
+            key = evaluate(stmt.key, names, self.call_function, self.ask_input)
+            held = _held(names, stmt.name)
+            try:
+                if stmt.op != "=":
+                    value = _augmented(held[key], stmt.op, value)
+                held[key] = value
+            except IndexError:
+                raise ConditionError(f"there is no element {key} (it has {len(held)}; "
+                                     f"{stmt.name}.append(…) adds one)") from None
+            except KeyError:
+                raise ConditionError(f"there is no key {key!r} for {stmt.op} to add to "
+                                     f"(set it first: {stmt.name}[{key!r}] = …)") from None
+            except (TypeError, ValueError) as exc:
+                raise ConditionError(f"{type(exc).__name__}: {exc}") from None
+            changed = self.changed(names, (*stmt.touched, stmt.name))
+        except ConditionError as exc:
+            self.python_fails(exc, stmt.name, stmt.text)
+            return
+        for name, new in changed:
+            set_variable(self.ctx, name, new, self.vars)
+        self.ctx.last_status = 0
+
+    def run_del(self, stmt: Del) -> None:
+        """`del hosts[0]`: the list without that element (the rest moves up), the dict without
+        that key. `del NAME`: the variable is unset."""
+        from shellcraft.pipeline import set_variable
+
+        if stmt.key is None:
+            status, output = self.run_simple(f"unset {stmt.name}")
+            if output is not None:
+                self.show(output)
+            self.check_errexit(status, stmt.text)
+            return
+        names = python_names(self.vars, self.ctx.last_status)
+        try:
+            key = evaluate(stmt.key, names, self.call_function, self.ask_input)
+            held = _held(names, stmt.name)
+            try:
+                del held[key]
+            except IndexError:
+                raise ConditionError(f"there is no element {key} (it has {len(held)})") from None
+            except KeyError:
+                raise ConditionError(f"there is no key {key!r}") from None
+            except TypeError as exc:
+                raise ConditionError(f"TypeError: {exc}") from None
+            new = as_variable(held)
+        except ConditionError as exc:
+            self.python_fails(exc, stmt.name, stmt.text)
+            return
+        set_variable(self.ctx, stmt.name, new, self.vars)
         self.ctx.last_status = 0
 
     def is_command(self, name: str) -> bool:
@@ -2582,7 +3070,7 @@ class _Runner:
     def run_print(self, stmt: Print) -> None:
         """`print(…)`: each value as text (`True` / `False` for a bool), joined with `sep` (a
         space) and ended with `end` (a new line). A bad value is reported like an assignment's."""
-        from shellcraft.pipeline import PipelineError, trace
+        from shellcraft.pipeline import PipelineError, set_variable, trace
 
         call = stmt.tree.body
         assert isinstance(call, ast.Call)
@@ -2599,11 +3087,14 @@ class _Runner:
             sep = " " if options.get("sep") is None else options["sep"]
             end = "\n" if options.get("end") is None else options["end"]
             text = _join_capped([sep.join(values), end])
+            changed = self.changed(names, stmt.touched)
         except ConditionError as exc:
             self.report(PipelineError(1, 1, "print", f"print: {exc}", exc.status), stmt.text)
             self.ctx.last_status = exc.status
             self.check_errexit(exc.status, stmt.text)
             return
+        for name, new in changed:  # print(queue.pop())
+            set_variable(self.ctx, name, new, self.vars)
         trace(self.ctx, ["print", *values])
         if text:
             self.show(text)
@@ -2781,11 +3272,21 @@ class _Runner:
                 value(stmt.step)
 
     def run_for(self, stmt: For) -> None:
+        from shellcraft.pipeline import PipelineError
+
         values = self.items(stmt)
         if not values:
             self.ctx.last_status = 0
+        names = (stmt.var, *stmt.more)
         for value in values:
-            self.vars[stmt.var] = value
+            if stmt.more:  # for k, v in d.items()
+                parts = value.items if isinstance(value, ShArray) else ()
+                if len(parts) != len(names):
+                    raise _Abort(PipelineError(1, 1, "for", f"for: {len(names)} names ({', '.join(names)}) "
+                                               f"but the item '{value}' is not {len(names)} values"), stmt.var)
+                self.vars.update(zip(names, parts))
+            else:
+                self.vars[stmt.var] = value
             try:
                 self.run_list(stmt.body)
             except _Break:
@@ -2798,6 +3299,17 @@ class _Runner:
 
         values: list[str] = []
         for item in stmt.items:
+            if item.tree is not None and (item.kind == "py" or isinstance(
+                    self.vars.get(item.text.partition("[")[0]), (ShArray, ShMap))):
+                try:  # a Python value: each of its elements (a dict gives its keys)
+                    found = evaluate(item.tree, python_names(self.vars, self.ctx.last_status),
+                                     self.call_function, self.ask_input)
+                    if not isinstance(found, (list, tuple, dict, set, str)):
+                        raise ConditionError(f"{item.text} is {found!r}, which is not a list")
+                    values += [as_variable(element) for element in found]
+                except ConditionError as exc:
+                    raise _Abort(PipelineError(1, 1, "for", f"for: {exc}", exc.status), item.text) from None
+                continue
             if item.kind == "sh":
                 try:
                     values += expand_sh_word(item.text, self.variables(), self.substitute)
@@ -3061,7 +3573,9 @@ def _subshell_state(ctx: ShellContext) -> Iterator[None]:
     try:
         yield
     finally:
-        for live, saved in ((ctx.variables, variables), (ctx.exported, exported), (ctx.functions, functions)):
+        ctx.variables.clear()  # always: an array that changed past its first element still reads as equal text
+        ctx.variables.update(variables)
+        for live, saved in ((ctx.exported, exported), (ctx.functions, functions)):
             if live != saved:
                 live.clear()
                 live.update(saved)

@@ -33,6 +33,10 @@ _DEF = re.compile(r"def\s+[A-Za-z_][A-Za-z0-9_-]*\s*\(.*\)$")
 _BASH_WORD = re.compile(r"(?:^|[\s;])(?:then|do)(?:[\s;]|$)")
 _FLAG = re.compile(r"^-py(?:\s+|$)")
 _MERGES = {"if": ("elif", "else"), "try": ("except", "finally")}  # parts that join a block above
+# a Python statement whose value may go on over lines while a bracket is open: `hosts = [`, `d["k"] = {`,
+# `print(`, `return [`, `hosts.extend([`
+_PY_START = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?[ \t]+(?://=|[-+*/%]?=)(?!=)[ \t]"
+                       r"|print\(|return[ \t]|[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\()")
 
 
 class IndentError(ParseError):
@@ -75,6 +79,26 @@ def split_header(text: str) -> tuple[str, str] | None:
             return text[:i].rstrip(), text[i + 1:].strip()
         i += 1
     return None
+
+
+def _brackets(text: str) -> int:
+    """How many more `(`, `[` and `{` than `)`, `]` and `}` a line has, quotes aside."""
+    quote, depth, i, n = None, 0, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        i += 1
+    return depth
 
 
 _TEST_WORDS = ("[", "[[", "test")
@@ -157,6 +181,7 @@ def to_braces(text: str) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     stack: list[_Level] = []
     last = 0
+    opened = 0  # brackets a Python value has open: its next lines are indented as you like
 
     def close(number: int) -> None:
         top = stack.pop()
@@ -168,6 +193,11 @@ def to_braces(text: str) -> list[tuple[int, str]]:
         stripped = strip_comments(raw).strip()
         if not stripped:
             out.append((number, raw))
+            continue
+        if opened:
+            opened = max(0, opened + _brackets(stripped))
+            out.append((number, raw))
+            last = number
             continue
         indent = raw[:len(raw) - len(raw.lstrip())]
         if stack and stack[-1].inline:
@@ -218,6 +248,8 @@ def to_braces(text: str) -> list[tuple[int, str]]:
             if first in ("except", "finally") and split_header(stripped) is not None:
                 raise IndentError(f"'{first}' without a matching try", number)
             out.append((number, f"{indent}true" if stripped == "pass" else raw))
+            if _PY_START.match(stripped):
+                opened = max(0, _brackets(stripped))
             continue
         word, after, rest = found
         if word in ("elif", "else") and not merged:

@@ -369,8 +369,9 @@ echo "$count colours: $names"
 A value set in Python keeps its type: a whole number, a fraction like `2.5`, or `True` and
 `False`. Bash only ever sees text: `$total` is `10`, `$big` is `True`. A value set the bash way
 (`count=0`, `read`, a loop word, an argument) is text, so Python code needs `int()` to use it as a
-number; `count += 1` does that for you. Anything else Python makes, like a list, is stored as its
-text. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
+number; `count += 1` does that for you. A list or a dict is kept as one too (see
+[Arrays, lists and dicts](arrays-and-lists.md)); anything else Python makes, like a set, is stored
+as its text. `/` always gives a fraction (`4 / 2` is `2.0`), so use `//` for a whole number. `count += 1`
 on a variable that isn't set yet stops with `count: not set, give it a value first`. Set it to 0
 before the loop, as the example does.
 
@@ -730,8 +731,8 @@ Under `set -u`, the forms with a fallback never count as using an unset variable
 Anything else in `${…}`, like bash's `${!name}` or `${name@Q}`, stops with
 `${name@Q}: bad substitution` rather than doing something you didn't mean.
 
-There are no arrays. A list is a variable with its items separated by spaces, and a `for` loop goes
-through them one by one. See [Loop over a list](loops.md#loop-over-a-list).
+A variable can also hold many values: `hosts=(web01 db01)` is an array, and `${hosts[0]}`,
+`"${hosts[@]}"` and `${#hosts[@]}` read it. See [Arrays, lists and dicts](arrays-and-lists.md).
 
 ## Environment variables
 

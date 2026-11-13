@@ -83,8 +83,10 @@ character counts once each, so `a::b` has an empty middle field.
 | `-p PROMPT`, `-s` | Only matter when `read` asks you. |
 | `-t SECONDS` | Accepted when there is input. It doesn't work when `read` asks you. |
 
-`read -a` (arrays) isn't supported, and neither is `read -u` (file descriptors). `man read` has the
-whole list.
+`read -a NAME` puts every word of the line in an array, and `mapfile -t NAME < FILE` puts every
+line of a file in one: see
+[Fill an array from a file or a command](arrays-and-lists.md#fill-an-array-from-a-file-or-a-command).
+`read -u` (file descriptors) isn't supported. `man read` has the whole list.
 
 ### A last line with no new line
 

@@ -115,6 +115,12 @@ while :; do read -p "q to quit: " a; [ "$a" = q ] && break; done   # : is always
 [[ $f == *.txt ]]                                # a pattern; [[ $f == "*.txt" ]] is the plain text
 select env in dev prod; do echo $env; break; done   # a numbered menu
 
+hosts=(web01 db01); hosts+=(cache01)             # an array; ${hosts[0]} ${hosts[-1]} ${#hosts[@]}
+for h in "${hosts[@]}"; do echo $h; done          # every element, one per turn
+declare -A port; port[web]=80; echo ${port[web]} ${!port[@]}   # a dict: a value by name; its keys
+mapfile -t lines < hosts.txt; read -a parts <<< "a b c"        # a file's lines; a line's words
+names = ["a", "b"]; names.append("c"); print(len(names), names[-1])   # the same list, the Python way
+
 greet() { local who=${1:-friend}; echo "hi $who"; }
 { echo a; echo b; } | wc -l                      # a group: one pipe or redirect for several commands
 ( cd /tmp; ls ) > listing.txt                    # a subshell: its cd and variables stay inside it

@@ -114,7 +114,7 @@ def test_outside_py_mode_it_assigns_too_unless_the_name_is_a_command(ctx):
 def test_a_bad_value_is_a_parse_error(ctx):
     with pytest.raises(ParseError, match=r"count \+=: invalid value \(invalid syntax\): 1 \+"):
         script.parse_script("for -py i in 1:\n    count += 1 +")
-    with pytest.raises(ParseError, match="only plain function and string-method calls"):
+    with pytest.raises(ParseError, match="only plain function and method calls"):
         script.parse_script("for -py i in 1 { x = (lambda: 1)() }")
     with pytest.raises(ParseError, match=r"x=\$\(command\)"):
         script.parse_script("for -py i in 1 { x = $(date) }")

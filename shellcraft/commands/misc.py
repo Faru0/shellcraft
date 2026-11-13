@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 
-from shellcraft import aliases, envvars
+from shellcraft import aliases, arrays, envvars, values
 from shellcraft.builtins import BUILTINS, builtin
 from shellcraft.commands._io import lines_out, user_path
 from shellcraft.context import CommandError, Styled, WithStatus, to_text
@@ -725,11 +725,15 @@ export NAME                # export an existing variable
 export                     # list the exported variables
 unset NAME...              # remove variables (from the environment too)
 unset -f NAME...           # remove shell functions (man function)
+unset 'NAME[-1]'           # the last element of an array, or 'NAME[KEY]' of a dict (man arrays)
 ```
 
 `$HOME`, `$PATH` and other environment variables expand in the interactive shell without an
 `export`. Over MCP, only variables set in the script itself expand, so a client can't read
 secrets with `$NAME`. Arithmetic: `$((n + 1))`, `(( n++ ))` and `let`, see `man let`.
+
+An array or a dict is not passed on to programs (bash does not pass one either), so
+`export hosts` is refused. Export its text: `export HOSTS="${hosts[*]}"`.
 
 ## Examples
 
@@ -753,6 +757,9 @@ def export(ctx: ShellContext, args: list[str], stdin: str) -> str:
             raise CommandError(f"export: '{name}': not a valid identifier")
         if sep and name in ctx.readonly:
             raise CommandError(f"export: {name}: readonly variable")
+        if not sep and values.is_container(ctx.variables.get(name)):
+            raise CommandError(f"export: {name}: an array or dict is not passed on to programs "
+                               f'(export its text: export {name}_TEXT="${{{name}[*]}}")')
         if sep:
             ctx.variables[name] = os.path.expanduser(value) if value.startswith("~") else value  # as bash does
         elif name not in ctx.variables:
@@ -777,15 +784,35 @@ def unset(ctx: ShellContext, args: list[str], stdin: str) -> str:
         args = args[1:]
     if not args:
         raise CommandError("unset: usage: unset NAME... | unset -f NAME...")
-    for name in args:
+    elements = {arg: ref for arg in args if (ref := arrays.REFERENCE.fullmatch(arg))}  # `unset 'a[1]'`
+    for arg in args:
+        name = elements[arg].group(1) if arg in elements else arg
         if name in ctx.readonly:
             raise CommandError(f"unset: {name}: cannot unset: readonly variable")
     for name in args:
+        if name in elements:
+            _unset_element(ctx, elements[name].group(1), elements[name].group(2))
+            continue
         ctx.variables.pop(name, None)
         if ctx.exported.pop(name, None) is not None or name in ctx.env_vars:
             os.environ.pop(name, None)  # bash: gone for the session (`env unset` restores a host value)
         envvars.forget(ctx, name)
     return ""
+
+
+def _unset_element(ctx: ShellContext, name: str, sub: str) -> None:
+    """`unset 'NAME[SUB]'`: a key of a dict, or the last element of an array."""
+    from shellcraft.parser import ParseError
+    from shellcraft.pipeline import Variables, assign_target, set_variable
+
+    target = assign_target.get()
+    variables = Variables(ctx, target)
+    if name not in variables:
+        return
+    try:
+        set_variable(ctx, name, arrays.without_element(name, variables[name], sub, variables), target)
+    except (values.ValueProblem, ParseError) as exc:
+        raise CommandError(f"unset: {exc}") from None
 
 
 DECLARE_DOC = """# declare
@@ -799,6 +826,8 @@ declare -i NAME[=VALUE]...   # an integer: every value is arithmetic (n=2+3 give
 declare -r NAME[=VALUE]...   # read-only: it can't be changed or unset (the same as readonly)
 declare -x NAME[=VALUE]...   # exported to the environment (the same as export)
 declare -ir NAME=5           # flags combine
+declare -a NAME[=(WORD...)]  # an array (a list): declare -a hosts=(web01 db01)
+declare -A NAME[=([KEY]=VALUE...)]   # a dict: declare -A port=([web]=80 [db]=5432)
 declare -p [NAME...]         # list variables with attributes, as declare commands
 declare -f NAME...           # these functions as defined (no names: every function)
 declare -F                   # just the function names
@@ -807,13 +836,19 @@ declare -F                   # just the function names
 An integer variable that gets a value that is not arithmetic is an error. A read-only variable
 refuses a new value and `unset` with `NAME: readonly variable`.
 
+`a=(x y)` makes an array without `declare`. A dict needs `declare -A` first (or the Python way,
+`port = {"web": 80}`), because `port[web]=80` on a name that is not a dict means element number
+`web` of an array. `declare -a NAME` and `declare -A NAME` on a name that is not set make an empty
+one; an array or dict that is there already is kept. An array can't be exported, and it can't be
+an integer variable (`-i`). See `man arrays`.
+
 Unlike bash, `declare NAME=VALUE` in a function does not make the variable local; use `local`.
-`-a`, `-A` (arrays), `-l`, `-u` and `+` flags are not supported.
+`-l`, `-u` and `+` flags are not supported.
 """
 
 
-@builtin("declare", "Give variables attributes (-i -r -x -p), or show functions (-f -F)",
-         "declare [-irx] NAME[=VALUE]... | declare -p [NAME...] | declare -f [NAME...] | declare -F",
+@builtin("declare", "Give variables attributes (-i -r -x -a -A -p), or show functions (-f -F)",
+         "declare [-irxaA] NAME[=VALUE]... | declare -p [NAME...] | declare -f [NAME...] | declare -F",
          category="shell", stateful=True, doc=DECLARE_DOC)
 def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft.pipeline import assign_target, set_variable
@@ -831,15 +866,19 @@ def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     for arg in args:
         if arg.startswith("-") and len(arg) > 1 and not words:
             for flag in arg[1:]:
-                if flag not in "irxp":
-                    raise CommandError(f"declare: -{flag}: not supported (supported: -i -r -x -p, -f -F)")
+                if flag not in "irxpaA":
+                    raise CommandError(f"declare: -{flag}: not supported (supported: -i -r -x -a -A -p, -f -F)")
                 flags.add(flag)
         else:
             words.append(arg)
     if "p" in flags:
         return _declare_list(ctx, words)
     if not words:
-        raise CommandError("declare: usage: declare [-irx] NAME[=VALUE]... | declare -p | declare -f | declare -F")
+        raise CommandError("declare: usage: declare [-irxaA] NAME[=VALUE]... | declare -p | declare -f | declare -F")
+    if "a" in flags and "A" in flags:
+        raise CommandError("declare: -a and -A: a variable is an array or a dict, not both")
+    if "i" in flags and flags & {"a", "A"}:
+        raise CommandError("declare: -i with -a or -A is not supported: arrays hold text")
     target = assign_target.get()
     for word in words:
         name, sep, value = word.partition("=")
@@ -847,7 +886,15 @@ def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
             raise CommandError(f"declare: '{name}': not a valid identifier")
         if "i" in flags:
             ctx.integers.add(name)
-        if sep:
+        if flags & {"a", "A"}:
+            store = ctx.variables if target is None else target
+            try:
+                held = arrays.declared_as(name, value if sep else store.get(name), "A" in flags)
+            except values.ValueProblem as exc:
+                raise CommandError(f"declare: {exc}") from None
+            if sep or held is not store.get(name):
+                set_variable(ctx, name, held, target)
+        elif sep:
             set_variable(ctx, name, value, target)
         elif "i" in flags and name in ctx.variables:
             set_variable(ctx, name, ctx.variables[name], target)  # an existing value becomes arithmetic
@@ -863,19 +910,25 @@ def declare(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 def _declare_list(ctx: ShellContext, names: list[str]) -> Any:
     """`declare -p`: each variable that has an attribute (all of `names`, if given) as a declare command."""
     attributed = ctx.readonly | ctx.integers | set(ctx.exported)
-    shown = names or sorted(attributed)
+    shown = names or sorted(attributed | {name for name, held in ctx.variables.items() if values.is_container(held)})
     lines, missing = [], []
     for name in shown:
         if name not in ctx.variables and name not in attributed:
             missing.append(name)
             continue
-        flags = "".join(f for f, on in (("i", name in ctx.integers), ("r", name in ctx.readonly),
-                                        ("x", name in ctx.exported)) if on)
-        value = ctx.variables.get(name, ctx.exported.get(name, ""))
-        lines.append(f'declare -{flags or "-"} {name}="{value}"')
+        lines.append(_declare_line(ctx, name))
     if missing:
         raise CommandError("declare: " + ", ".join(missing) + ": not found")
     return lines_out(lines)
+
+
+def _declare_line(ctx: ShellContext, name: str) -> str:
+    """One variable as the declare command that makes it: `declare -r n="5"`, `declare -a a=([0]="x")`."""
+    value = ctx.variables.get(name, ctx.exported.get(name, ""))
+    kind = "a" if isinstance(value, values.ShArray) else "A" if isinstance(value, values.ShMap) else ""
+    flags = kind + "".join(f for f, on in (("i", name in ctx.integers), ("r", name in ctx.readonly),
+                                           ("x", name in ctx.exported)) if on)
+    return f'declare -{flags or "-"} {name}={values.declared(value) if kind else chr(34) + value + chr(34)}'
 
 
 READONLY_DOC = """# readonly
@@ -900,7 +953,7 @@ def readonly(ctx: ShellContext, args: list[str], stdin: str) -> Any:
 
     names = [a for a in args if a != "-p"]
     if not names:
-        return lines_out([f'declare -r {n}="{ctx.variables.get(n, "")}"' for n in sorted(ctx.readonly)])
+        return lines_out([_declare_line(ctx, n) for n in sorted(ctx.readonly)])
     for arg in names:
         if arg.startswith("-"):
             raise CommandError(f"readonly: {arg}: not supported (usage: readonly [-p] [NAME[=VALUE]...])")
@@ -1229,7 +1282,8 @@ def set_options(ctx: ShellContext, args: list[str], stdin: str) -> str:
     if not args:
         from shellcraft.pipeline import _trace_word
 
-        return lines_out([f"{k}={_trace_word(v)}" for k, v in sorted(ctx.variables.items())])
+        return lines_out([f"{k}={values.literal(v) if values.is_container(v) else _trace_word(v)}"
+                          for k, v in sorted(ctx.variables.items())])
     changes: list[tuple[str, bool]] = []
     listing = ""
     positional: list[str] | None = None

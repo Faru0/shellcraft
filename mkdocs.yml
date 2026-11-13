@@ -72,6 +72,7 @@ nav:
       - Printing text: scripting/printing.md
       - Conditions and choices: scripting/conditions.md
       - Loops and menus: scripting/loops.md
+      - Arrays, lists and dicts: scripting/arrays-and-lists.md
       - Functions: scripting/functions.md
       - Errors and cleanup: scripting/errors.md
       - Bash style and Python style: scripting/python-style.md

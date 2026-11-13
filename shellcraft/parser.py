@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-from shellcraft import arith
+from shellcraft import arith, values
 from shellcraft.braces import brace_expand, skip_dollar
 
 # Longest first. The `2>` forms and a lone `&` only count at the start of a word, as in POSIX
@@ -126,6 +126,114 @@ def quoted_arguments(line: str, i: int, variables: Mapping[str, str] | None) -> 
     arguments = getattr(variables, "arguments", None)
     args = arguments() if callable(arguments) else None
     return None if args is None else (list(args), end)
+
+
+_ARRAY_REF = re.compile(r"(!?)([A-Za-z_][A-Za-z0-9_]*)\[([@*])\](.*)", re.S)
+_ELEMENT_REF = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\[(.*)\]", re.S)
+
+
+def list_expansion(line: str, i: int, variables: Mapping[str, str] | None,
+                   quoted: bool = False) -> tuple[list[str], int] | None:
+    """At an expansion that stands for a list of words: (the words, index after it). That is "$@"
+    in a shell function (inside double quotes), and `${name[@]}` (every element), `${!name[@]}`
+    (every index or key) and `${name[@]:offset:length}` (some of them) anywhere. Each element is a
+    word of its own, as in bash. None elsewhere, also for "${name[*]}", which is one word."""
+    if quoted and (at := quoted_arguments(line, i, variables)) is not None:
+        return at
+    if variables is None or not line.startswith("${", i):
+        return None
+    close = _closing_brace(line, i + 2)
+    if close is None:
+        return None
+    body = line[i + 2:close]
+    match = _ARRAY_REF.fullmatch(body)
+    if not match or (quoted and match.group(3) == "*"):
+        return None
+    name, rest = match.group(2), match.group(4)
+    held = variables.get(name)
+    if match.group(1):
+        if rest:
+            return None  # _parameter says what is wrong with it
+        return ([] if held is None else values.keys(held)), close + 1
+    words = [] if held is None else [str(item) for item in values.elements(held)]
+    if rest:
+        if not rest.startswith(":") or rest[1:2] in ("-", "+", "=", "?"):
+            return None
+        words = _slice_list(words, rest[1:], variables, body, i)
+    return words, close + 1
+
+
+def _slice_list(words: list[str], spec: str, variables: Mapping[str, str], body: str, pos: int) -> list[str]:
+    """`${a[@]:offset}` / `${a[@]:offset:length}`: some of the elements (a negative offset counts from the end)."""
+    offset_text, colon, length_text = spec.partition(":")
+    if not offset_text.strip() or (colon and not length_text.strip()):
+        raise ParseError(f"${{{body}}}: bad substitution", pos)
+    try:
+        offset = arith.evaluate(offset_text, variables)
+        length = arith.evaluate(length_text, variables) if colon else None
+    except arith.ArithError as exc:
+        raise ParseError(f"${{{body}}}: {exc}", pos) from None
+    if offset < 0:
+        offset += len(words)
+        if offset < 0:
+            return []
+    if length is None:
+        return words[offset:]
+    if length < 0:
+        raise ParseError(f"${{{body}}}: {length}: substring expression < 0", pos)
+    return words[offset:offset + length]
+
+
+def closing_bracket(text: str, i: int = 0) -> int | None:
+    """With text[i] a `[`: the index of the `]` that closes it, skipping quoted text and inner brackets."""
+    level, quote = 0, None
+    for at in range(i, len(text)):
+        ch = text[at]
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "[":
+            level += 1
+        elif ch == "]":
+            level -= 1
+            if level == 0:
+                return at
+    return None
+
+
+def subscript_number(name: str, sub: str, variables: Mapping[str, str] | None, pos: int | None = None) -> int:
+    """The index in `name[sub]`: arithmetic, so `a[i+1]`, `a[$i]` and `a[$((i + 1))]` all work."""
+    try:
+        return arith.evaluate(sub.replace("$((", "((").replace("$[", "["), variables)
+    except arith.ArithError as exc:
+        raise ParseError(f"{name}[{sub}]: {exc}", pos) from None
+
+
+def _element(name: str, sub: str, variables: Mapping[str, str], substitute: Callable[[str], str] | None,
+             quoted: bool, pos: int) -> str | None:
+    """The value of `name[sub]`: an element of an array (by number, a negative one from the end) or
+    of a dict (by key). None when there is none. Plain text is an array of one element."""
+    held = variables.get(name)
+    if isinstance(held, values.ShMap):
+        found = held.get(_expand_word(sub, variables, substitute, quoted, False, pos))
+        return None if found is None else str(found)
+    index = subscript_number(name, sub, variables, pos)
+    if held is None:
+        return None
+    if isinstance(held, values.ShArray):
+        found = held.get(index)
+        return None if found is None else str(found)
+    return str(held) if index in (0, -1) else None
+
+
+def _joined(items: list[str], sub: str, variables: Mapping[str, str]) -> str:
+    """`${a[@]}` where one word is wanted: the elements with a space between them; `${a[*]}`: with
+    the first character of IFS."""
+    separator = " "
+    if sub == "*" and "IFS" in variables:
+        separator = str(variables["IFS"])[:1]
+    return separator.join(str(item) for item in items)
 
 
 class ParameterError(UnboundVariable):
@@ -225,35 +333,69 @@ def _parameter(body: str, variables: Mapping[str, str], substitute: Callable[[st
         name = body[1:]
         if name in ("@", "*"):
             return str(variables.get("#", "0"))
+        if ref := _ELEMENT_REF.fullmatch(name):  # ${#a[@]}: how many elements; ${#a[1]}: the length of one
+            if ref.group(2) in ("@", "*"):
+                return str(len(values.elements(variables[ref.group(1)])) if ref.group(1) in variables else 0)
+            return str(len(_element(ref.group(1), ref.group(2), variables, substitute, quoted, pos) or ""))
         if not _PARAM_NAME.fullmatch(name):
             raise bad()
         return str(len(_value(name, variables, pos)))
+    if body.startswith("!") and (ref := _ELEMENT_REF.fullmatch(body[1:])) and ref.group(2) in ("@", "*"):
+        held = variables.get(ref.group(1))  # ${!a[@]}: the indexes or keys
+        return _joined([] if held is None else values.keys(held), ref.group(2), variables)
     match = _PARAM_NAME.match(body)
     if not match:
         raise bad()
     name, rest = match.group(), body[match.end():]
     if not rest:
         return _value(name, variables, pos)
-    is_set = _is_set(name, variables)
+    label, whole = name, None  # `whole`: the elements of `${name[@]…}`
+    if rest.startswith("[") and _VAR_NAME.fullmatch(name):
+        close = closing_bracket(rest)
+        if close is None:
+            raise bad()
+        sub, rest = rest[1:close], rest[close + 1:]
+        label = f"{name}[{sub}]"
+        if sub in ("@", "*"):
+            whole = [str(item) for item in values.elements(variables[name])] if name in variables else []
+            current = _joined(whole, sub, variables) if whole else None
+            if rest.startswith(":") and rest[1:2] not in ("-", "+", "=", "?"):
+                return _joined(_slice_list(whole, rest[1:], variables, body, pos), sub, variables)
+        else:
+            current = _element(name, sub, variables, substitute, quoted, pos)
+    else:
+        current = str(variables[name]) if _is_set(name, variables) else None
     for op in (":-", ":=", ":+", ":?", "-", "=", "+", "?"):
         if rest.startswith(op):
             text = rest[len(op):]
-            present = is_set and not (op.startswith(":") and str(variables[name]) == "")
+            present = current is not None and not (op.startswith(":") and current == "")
             kind = op[-1]
             if kind == "+":
                 return word(text) if present else ""
             if present:
-                return str(variables[name])
+                return current or ""
             if kind == "-":
                 return word(text)
             if kind == "=":
-                if not _VAR_NAME.fullmatch(name):
-                    raise ParseError(f"${{{body}}}: ${name}: cannot assign in this way", pos)
+                if label != name or not _VAR_NAME.fullmatch(name):
+                    raise ParseError(f"${{{body}}}: ${label}: cannot assign in this way", pos)
                 value = word(text)
                 _assign(variables, name, value)
                 return value
-            raise ParameterError(name, word(text) if text else "parameter null or not set", pos)
-    value = _value(name, variables, pos)
+            raise ParameterError(label, word(text) if text else "parameter null or not set", pos)
+    if whole is not None and rest:
+        raise ParseError(f"${{{body}}}: bad substitution (operators on a whole array are not supported: "
+                         "loop over it)", pos)
+    if label == name:
+        value = _value(name, variables, pos)
+    elif current is None:
+        if getattr(variables, "nounset", False) and whole is None:
+            raise UnboundVariable(label, pos)  # `set -u`
+        value = ""
+    else:
+        value = current
+    if not rest:
+        return value
     if rest.startswith(":"):  # ${v:offset} / ${v:offset:length}
         spec = rest[1:]
         offset_text, colon, length_text = spec.partition(":")
@@ -781,6 +923,19 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                 quoted = True
                 add(text, False)
                 continue
+            if ch == "$" and (at := list_expansion(line, i, variables)) is not None:
+                words, i = at  # ${a[@]}: one word per element (in `[[ … ]]` one word in all)
+                expanded = True
+                if in_test:
+                    words = [" ".join(words)] if words else []
+                first = True
+                for element in words:
+                    for piece in (element.split() if split and not in_test else [element]):
+                        if not first and (buf or quoted):
+                            flush()
+                        first = False
+                        add(piece, False, quoted_text=False)
+                continue
             if ch == "$" and (var := expansion(i)) is not None:
                 value, i = var
                 expanded = True
@@ -810,8 +965,11 @@ def tokenize(line: str, variables: Mapping[str, str] | None = None, split: bool 
                         continue
                     if line[end] == ch:
                         break
-                    if ch == '"' and line[end] == "$" and (at := quoted_arguments(line, end, variables)) is not None:
-                        args, end = at  # "$@": one word per argument; prefix / suffix join the first / last
+                    if ch == '"' and line[end] == "$" and (
+                            at := list_expansion(line, end, variables, quoted=True)) is not None:
+                        args, end = at  # "$@", "${a[@]}": one word per item; prefix / suffix join the first / last
+                        if in_test:
+                            args = [" ".join(args)]
                         no_arguments = no_arguments or not args
                         for k, arg in enumerate(args):
                             if k:

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
-from shellcraft import aliases, arith, streams, traps
+from shellcraft import aliases, arith, arrays, envvars, streams, traps, values
 from shellcraft.builtins import BUILTINS, SPINNER_TEXT
 from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
 from shellcraft.inputs import Input
@@ -254,7 +254,16 @@ def run_simple(line: str, ctx: ShellContext) -> PipelineResult | None:
 def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
            substitute: Callable[[str], str] | None, target: dict[str, str] | None = None) -> bool:
     """`NAME=VALUE` on a line of its own: set the variable (in `target`, default the shell's) and
-    return True. Anything else returns False. Raises ParseError for `x=a b` (quote the value)."""
+    return True. Anything else returns False. Raises ParseError for `x=a b` (quote the value).
+    An array or dict is set the same way: `a=(x y)`, `a+=(z)`, `a[1]=v`, `declare -A m=([k]=v)`."""
+    if arrays.assign(line, ctx, variables, substitute, target):
+        return True
+    if (declared := arrays.declaration(line)) is not None and not declared[0].lstrip().startswith("local"):
+        head, assignments, as_map = declared  # `declare -A m=([web]=80)`: the value, then the attributes
+        for each in assignments:
+            arrays.assign(each, ctx, variables, substitute, target, as_map)
+        _run_parsed(head, ctx, variables, substitute=substitute)
+        return True
     match = arith.is_assignment(line)
     if not match:
         return False
@@ -285,7 +294,7 @@ def assign(line: str, ctx: ShellContext, variables: Mapping[str, str],
         tokens = tokenize(raw, variables, substitute=substitute)
     except ParseError:
         return False
-    set_variable(ctx, name, tokens[0].value if tokens else "", target)
+    set_variable(ctx, name, " ".join(t.value for t in tokens), target)  # several: `x=${a[@]}`, joined as in bash
     return True
 
 
@@ -301,6 +310,9 @@ def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str
     clock and `RANDOM=n` seeds the generator."""
     if name in ctx.readonly:
         raise PipelineError(1, 1, name, f"{name}: readonly variable")
+    holds_many = values.is_container(value)
+    if holds_many and name in ctx.integers:
+        raise PipelineError(1, 1, name, f"{name}: an integer variable (declare -i) cannot hold an array")
     if name in ctx.integers:
         try:
             value = str(arith.execute(value, Variables(ctx, target), None)) if value.strip() else "0"
@@ -314,10 +326,14 @@ def set_variable(ctx: ShellContext, name: str, value: str, target: dict[str, str
             random.seed(number)
         return
     if "xtrace" in ctx.options:  # `set -x`
-        write_stderr(ctx, f"+ {name}={_trace_word(value)}")
+        write_stderr(ctx, f"+ {name}={values.literal(value) if holds_many else _trace_word(value)}")
     store = ctx.variables if target is None else target
     store[name] = value
-    if name in ctx.exported:
+    if holds_many and name in ctx.exported:
+        del ctx.exported[name]  # an array is not passed on to programs, as in bash
+        os.environ.pop(name, None)
+        envvars.forget(ctx, name)
+    elif name in ctx.exported:
         ctx.exported[name] = value
         os.environ[name] = value
 

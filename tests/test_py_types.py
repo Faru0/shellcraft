@@ -13,6 +13,7 @@ from shellcraft.loader import ModuleRegistry
 from shellcraft.pipeline import PipelineError, run_line
 from shellcraft.script import PyValue
 from shellcraft.themes import UI, all_themes
+from shellcraft.values import ShArray
 
 
 def out(ctx, text):
@@ -133,10 +134,11 @@ while n < 3:
     assert out(ctx, text) == "n is 1\nn is 2\nn is 3\n"
 
 
-def test_other_values_are_stored_as_text(ctx):
-    out(ctx, block('items = [1, 2]\nnothing = None'))
-    assert ctx.variables["items"] == "[1, 2]" and not isinstance(ctx.variables["items"], PyValue)
-    assert ctx.variables["nothing"] == "None"
+def test_a_list_is_kept_as_a_list_and_other_values_as_text(ctx):
+    out(ctx, block('items = [1, 2]\nnothing = None\nsome = {1}'))
+    assert isinstance(ctx.variables["items"], ShArray) and ctx.variables["items"].to_python() == [1, 2]
+    assert ctx.variables["nothing"] == "None" and not isinstance(ctx.variables["nothing"], PyValue)
+    assert ctx.variables["some"] == "{1}"  # a set is not a value ShellCraft keeps
 
 
 def test_def_return_and_arguments_keep_their_type(ctx):

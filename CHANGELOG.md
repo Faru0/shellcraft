@@ -7,6 +7,28 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Arrays, lists and dicts in scripts.** One variable can hold many values now, written the bash way or
+  the Python way. Both spellings make the same thing, so a list you set in one style reads in the other.
+  See [Arrays, lists and dicts](docs/scripting/arrays-and-lists.md) and `man arrays`.
+  - Bash: `hosts=(web01 db01 "mail server")`, `hosts+=(x)`, `hosts[1]=y`, `${hosts[0]}`, `${hosts[-1]}`,
+    `"${hosts[@]}"`, `"${hosts[*]}"`, `${#hosts[@]}`, `${!hosts[@]}`, slices (`${hosts[@]:1:2}`),
+    `unset 'hosts[-1]'`, a literal over several lines, and `$(( sizes[0] + 1 ))`.
+  - Dicts: `declare -A port`, `port[web]=80`, `${port[web]}`, `${!port[@]}`, and `declare -p` to print one in a
+    form you can run again. `declare -a`, `local a=(...)` and `readonly a=(...)` work too.
+  - `read -a NAME` puts the words of a line in an array. The new `mapfile` (also `readarray`) puts the lines
+    of a file in one: `mapfile -t lines < hosts.txt`.
+  - Python: `hosts = ["web01", "db01"]`, `port = {"web": 80}`, `hosts.append("x")`, `hosts[0] = "y"`,
+    `del hosts[0]`, `last = hosts.pop()`, `hosts.sort()`, `port.update(...)`, `for -py h in hosts:`,
+    `for -py name, number in port.items():`, `"db01" in hosts`, `", ".join(hosts)`, and the functions `sorted`,
+    `reversed`, `sum`, `any`, `all`, `enumerate`, `zip`, `range`, `list`, `dict` and `map(int, sizes)`.
+    `print(hosts)` prints like Python, and `"a b".split()` stays a list.
+  - `source -n` checks the new forms, the prompt colours them, and Tab after `hosts.` offers the methods of a
+    list or a dict.
+  - Left out on purpose, each with a one-line error: an array with gaps, a list inside a list,
+    comprehensions, `lambda` and `key=`, operators on a whole array (`${a[@]/x/y}`), `(( a[i]++ ))`.
+  - Good to know: `$hosts` is the first element, as in bash. Elements set the bash way are text, so add them up
+    with `sum(map(int, sizes))`. `b = a` makes a copy, and so does passing a list to a function. An array is
+    not passed on to programs, and `export hosts` says so.
 - **`fleet`: every machine you watch on one screen.** One row per host and device: what the last round said
   (`ok`, `warn`, `crit`), how long ago that was, how much changed, the open findings about it and one line of
   summary. The ones that need you come first. A machine whose last round is more than two intervals old is
@@ -85,15 +107,6 @@ and the project uses [semantic versioning](https://semver.org/).
 - **Aggregator file names and devices can be passed as arguments.** `--setup-analyst --aggregator ALIAS --root PATH`
   takes `--file KIND=GLOB`, `--device NAME=FOLDER` and `--stale-minutes N`, and the `aggregator` tool takes
   `--glob KIND=GLOB` for one call when the EDR renames its files.
-
-### Fixed
-
-- **The MCP server no longer answers `sshrun`, `aggregator`, `baseline` and `watchplan` from its five-minute memory.**
-  A second `watchplan done` or `baseline diff` inside five minutes did nothing, and a repeated `sshrun` check
-  returned the old answer. Found by watching a plan with a one-minute interval.
-
-### Added
-
 - **Host analysis reads your aggregator's files too, and has a one-command setup.**
   - `aggregator` reads, over ssh, the files an EDR keeps for each device on an aggregator box (one folder per
     device, a timestamped file per run: process list, `netstat`, `ss`, `lsof`, eBPF, memory). It lists
@@ -147,15 +160,6 @@ and the project uses [semantic versioning](https://semver.org/).
   `remote-triage`, `ebpf-audit`, `baseline-and-novelty`, `watch-rounds` and `untrusted-data`; the
   orchestrator knows the watching loop; `--install-ai --team` installs them. A new page,
   [Host analysis with an AI](docs/ai-host-analysis.md), sets it all up.
-
-### Fixed
-
-- **A command substitution is no longer "read-only" for the AI co-pilot.** `echo $(rm x)` ran the `rm`
-  without asking, because only the outer `echo` was checked. A line with `$( )` or backticks now needs
-  a session grant or a review like any other write.
-
-### Added
-
 - **Brace expansion on every line.** `echo {a,b}{1,2}`, `mkdir -p proj/{src,tests}`, `{1..5}`,
   `{01..10}`, `{a..e..2}` expand on plain command lines (and in blocks), not just in `for` lists.
   Quoted braces, `${x}`, `$( )`, a lone `{}` and `jq`'s arguments are left alone.
@@ -311,40 +315,6 @@ and the project uses [semantic versioning](https://semver.org/).
   number wherever they're written.
 - **[Bash style and Python style](docs/scripting/python-style.md):** a page that writes every kind
   of block both ways, side by side, and each page of the scripting guide now shows both.
-
-### Changed
-
-- **No CI on GitHub.** `.github/workflows/ci.yml` is gone; CI runs on GitLab only
-  (`.gitlab-ci.yml`). The GitHub mirror keeps `.github/workflows/docs.yml` for the docs website.
-- **Python values keep their type.** In a `-py` block or a `def`, `n = 5`, `ok = n > 3` and
-  `n = int(input(…))` store the number or `True` / `False`, so `print(n + 1)` and `if -py ok:` work
-  without `int()`. Bash still reads them as text (`$n` is `5`), and values set the bash way
-  (`n=5`, `read`, loop words, arguments) stay text. A number passed to a `def` from Python stays a
-  number, and the "use int(name)" hint now says values set from bash are text.
-- **A variable that was never set is empty, as in bash.** `$nmae` used to stay as the text
-  `$nmae`; now it's empty, so `[ -z "$x" ]` is true for an unset `x` and pasted bash scripts behave
-  the same. `$#` is 0 outside a function. Use `set -u` to make a missing variable an error.
-- **Quoted text in a `[[ … == … ]]` pattern is plain text, as in bash.** `[[ $f == *.csv ]]` is
-  still a pattern, but `[[ $f == "*.csv" ]]` and `[[ $f == "$typed" ]]` compare the text exactly.
-  `=` in `[[ ]]` matches patterns too, the same as `==`.
-- **AI access is on by default.** An AI client connected over MCP now runs any command in your
-  shell at once, as a `✦ AI:` job with its trace above your prompt, instead of asking for
-  `review approve` on everything that wasn't read-only. It is the new saved setting
-  `ai_access` (`ai_run` still works as its name). `✦ run` shows in the prompt while it is on, and
-  `settings ai_access off` or `ai off` goes back to asking. `request_session_grant` answers at
-  once when access is already on.
-
-- **Faster where it was felt.** Plain output no longer goes through Rich line by line: 20,000
-  lines print in 2 ms instead of 211, and `ls -l` of a thousand entries in 26 ms instead of 196.
-  Pipelines move lines between segments in chunks instead of one queue operation per line:
-  `seq 1 100000 | grep 1` takes 245 ms instead of 499, and a four-stage pipeline 220 instead of
-  734. A subshell's output reaches the terminal before the terminal emulator parses it, so a
-  build or `find /` in a `sub` no longer falls seconds behind. `find` reads each directory once
-  with `os.scandir` instead of stat-ing every entry again for `-type` and the walk: five times
-  faster on a big tree. Nothing looks or behaves differently.
-
-### Added
-
 - **A policy for what an AI may run.** `~/.shellcraft/ai-policy.toml` (a commented
   `ai-policy.toml.sample` is in your folder) holds rules that deny, ask about or allow a command by
   pattern, for one role, in one folder, until a date; roles with their own limits; a budget of module
@@ -393,66 +363,6 @@ and the project uses [semantic versioning](https://semver.org/).
   conhost.exe, Code.exe); a **signal handlers** section says how Ctrl-C and Ctrl-Break are
   handled. `diag --save [FILE]` writes the report to a file (default `~/.shellcraft/diag.txt`).
   `--timing` ends its table with the same host line.
-
-### Fixed
-
-- **Questions use the shell's own prompt.** `input()`, `read -p`, `select` and the other
-  questions a script asks (also in `~/.shellcraft/startup/*.sc`) used to start a second
-  prompt_toolkit app, which garbled the output on Windows. They now ask on the shell's own prompt,
-  with Tab completion, suggestions and the history turned off while you answer.
-- **`r=$( a; b )` at the prompt.** A `;` inside `$( )` used to end the line there, so the
-  assignment failed with "missing ')'". Lines typed at the prompt now skip over `$( )` as scripts do.
-- **`curl --cert FILE:PASSWORD` uses the password.** The password for an encrypted client key
-  was dropped, so the request failed with a confusing TLS error. Now `-E client.pem:secret` and
-  `--pass secret` unlock the key (in the cert file or in `--key`), and `.p12` / `.pfx` files work
-  too (`--cert-type P12`). The unlocked key goes to a temporary file that you alone can read,
-  deleted when the request ends. A wrong or missing password stops with status 58. This needs the
-  `cryptography` package.
-- **A bash test after `if -py`.** `if -py [ -f notes.txt ]:` and `while -py [ … ]:` ran the test
-  as a Python list, which is always true. A condition that starts with `[`, `[[` or `test` (or `!`
-  and one of them) is now a command.
-- **`source -n` after a bad line inside a block.** The error now points at the bad line, also when
-  it's the last line of a body, and the rest of the block no longer shows up as unknown commands.
-- **A function shows its output as it runs.** Called on a line of its own, a function used to print
-  everything only when it returned, so a menu function asked its question before showing the
-  choices. Each command's output now shows as soon as it's done. In a pipe, a redirect or `$( )`
-  the output is still collected.
-- **`return`, `break` and `continue` after `&&` / `||`.** `[ -n "$1" ] || return 1` failed with
-  "command not found: return".
-- **A function line ending in `${1:-default}`.** In a function written over several lines, a line
-  like `local name=${1:-friend}` was taken for the function's closing brace.
-- **Dividing by a variable.** `$((a / b))` failed with "division by zero" even when `b` was set.
-- **Octal and hex escapes.** `echo -e "\033[32m"` printed a NUL byte and `33` instead of the escape
-  character, so colors copied from bash scripts didn't work. `echo -e` now reads `\0NNN` and
-  `\xHH`, and `printf` reads `\NNN` and `\xHH`, as bash does.
-- **The close button is a plain `×`.** Alerts and finished subshells in the footer used `✖`, which
-  Cascadia and Consolas don't have, so Windows 11 drew it from an emoji font: a box, or a wide glyph
-  that pushed the line out of place and moved its click target. It is now `×`, which every console
-  font has, and the space on either side of it takes the click too.
-- **A bad option is one line.** `shellcraft --testingoption` (or `sub shellcraft --testingoption`)
-  prints `shellcraft: unrecognized arguments: ...` on stderr and exits with 2, instead of argparse's
-  usage block and its own exit.
-- **The early banner on Windows.** It is drawn with the shell's own console setup
-  (`build_console`) at the terminal's width, instead of a separate Rich console.
-- **Ctrl-C in the first moments of a start** (while prompt_toolkit loads) printed a Python
-  traceback and exited with status 2. It now ends the start quietly with status 130.
-- **Mouse and cursor reports delivered while a command runs** reached the next prompt as text,
-  minus their escape prefix: `<64;10;5M`, `12;34R`. Before each prompt, what the terminal
-  delivered meanwhile is parsed the way the prompt would, the reports are dropped, and typed
-  text, Enter and pastes are kept as typeahead, as in bash.
-- **A Ctrl-C between commands** left its `^C` echo on the line and the prompt started right
-  after it. The prompt now starts on the next line.
-- **An interrupted print** could leave the terminal inside a colored span, mid-line. Colors are
-  reset and the line ended before `^C interrupted`.
-- **Ctrl-Z** inserted a `^Z` character into the line. It does nothing now.
-- The terminal's `NOFLSH` flag is set for the session on Linux and macOS, so a Ctrl-C no longer
-  makes the tty driver discard queued output, which could cut an escape sequence in half and
-  show its tail as text.
-- A stress harness (`tools/stress/`) drives the shell through a pseudo-terminal with Ctrl-C,
-  mouse reports, bad bytes and resizes at random moments; `STRESS-TEST.md` has the findings.
-
-### Added
-
 - **Every new profile comes with an empty `startup/` folder**, whether it's made by `profile new`,
   a starter, `profile save`, `profile copy` or `profile import`. No need to create the folder by
   hand before adding `.sc` files.
@@ -502,6 +412,110 @@ and the project uses [semantic versioning](https://semver.org/).
 
 - **`command NAME`**, as in bash: runs the OS program even when a builtin or module has its name
   (`command curl …`); `command -v NAME` prints its path.
+
+### Changed
+
+- **No CI on GitHub.** `.github/workflows/ci.yml` is gone; CI runs on GitLab only
+  (`.gitlab-ci.yml`). The GitHub mirror keeps `.github/workflows/docs.yml` for the docs website.
+- **Python values keep their type.** In a `-py` block or a `def`, `n = 5`, `ok = n > 3` and
+  `n = int(input(…))` store the number or `True` / `False`, so `print(n + 1)` and `if -py ok:` work
+  without `int()`. Bash still reads them as text (`$n` is `5`), and values set the bash way
+  (`n=5`, `read`, loop words, arguments) stay text. A number passed to a `def` from Python stays a
+  number, and the "use int(name)" hint now says values set from bash are text.
+- **A variable that was never set is empty, as in bash.** `$nmae` used to stay as the text
+  `$nmae`; now it's empty, so `[ -z "$x" ]` is true for an unset `x` and pasted bash scripts behave
+  the same. `$#` is 0 outside a function. Use `set -u` to make a missing variable an error.
+- **Quoted text in a `[[ … == … ]]` pattern is plain text, as in bash.** `[[ $f == *.csv ]]` is
+  still a pattern, but `[[ $f == "*.csv" ]]` and `[[ $f == "$typed" ]]` compare the text exactly.
+  `=` in `[[ ]]` matches patterns too, the same as `==`.
+- **AI access is on by default.** An AI client connected over MCP now runs any command in your
+  shell at once, as a `✦ AI:` job with its trace above your prompt, instead of asking for
+  `review approve` on everything that wasn't read-only. It is the new saved setting
+  `ai_access` (`ai_run` still works as its name). `✦ run` shows in the prompt while it is on, and
+  `settings ai_access off` or `ai off` goes back to asking. `request_session_grant` answers at
+  once when access is already on.
+
+- **Faster where it was felt.** Plain output no longer goes through Rich line by line: 20,000
+  lines print in 2 ms instead of 211, and `ls -l` of a thousand entries in 26 ms instead of 196.
+  Pipelines move lines between segments in chunks instead of one queue operation per line:
+  `seq 1 100000 | grep 1` takes 245 ms instead of 499, and a four-stage pipeline 220 instead of
+  734. A subshell's output reaches the terminal before the terminal emulator parses it, so a
+  build or `find /` in a `sub` no longer falls seconds behind. `find` reads each directory once
+  with `os.scandir` instead of stat-ing every entry again for `-type` and the walk: five times
+  faster on a big tree. Nothing looks or behaves differently.
+- **`~/.shellcraft/startup/` is now ShellCraft's `~/.bashrc.d`**: a folder of `.sc` files, each
+  written like the rc file (ShellCraft commands, one per line) and doing one job. They run right
+  after `~/.shellcraft/rc`, in name order, inside your shell, so what one sets (`env set`, `cd`,
+  an `input()` answer) the next one and your prompt see. `_name.sc` files are helpers you `source`.
+  A profile can have its own `profiles/NAME/startup/`, run after its rc at start and on
+  `profile use`, and carried by `profile export / import / copy / save`. `startup` lists the files
+  with their last result; `startup run [NAME]` runs them again.
+
+- **The footer's close button is on the right, and bigger.** An alert's row no longer starts with
+  an icon (its color says how serious it is); like a finished subshell's row, it ends with a heavy
+  `✖` that closes it. The finished subshell's `×` is now the same, more visible `✖`.
+
+- **Every way of running ingest puts new modules in `~/.shellcraft/modules`**: the `ingest` command,
+  `shellcraft ingest` and `python -m tools.ingest`. `shellcraft ingest` used to write into the bundled
+  folder (inside the installed package for an installed copy) and `python -m tools.ingest` into the
+  checkout. `--modules DIR` still picks another folder. `ingest check --all` checks every module the
+  shell loads, the bundled ones and yours; `--modules DIR` narrows it to one folder.
+
+- **ingest's AI code is one file**, `tools/ingest/ingest_AI.py`: the providers and models, the HTTP
+  calls, both prompts (they were `prompts/*.md`) and the wizard's AI steps (choosing the provider and
+  key, asking before sending, converting, finishing the docs). Upgrading the AI side means editing
+  that file only. A typed-in key is now asked on the wizard's own console (hidden).
+
+- `modkit.error_stream()` text, from a module or a builtin, follows the command's own `2> FILE` and
+  `2>&1`.
+- The module checker accepts a module that shadows an OS program on purpose (its page names
+  `command NAME`).
+
+- **A faster start.** The banner is printed before the prompt library loads, so it appears in about
+  60 ms instead of 160 ms, and the prompt follows sooner (145 ms instead of 167 ms on Linux; `sub
+  shellcraft` 141 ms instead of 161 ms). About 90 fewer modules load before the prompt (the Markdown
+  renderer now loads on the first `man`), the module registry no longer resolves the path of every
+  loaded Python module (15 ms → 2 ms, much more on Windows), and API keys kept in the OS keyring are
+  read in the background (the first command waits for them only if it must). `python main.py
+  --timing` prints how long each startup phase took, starting from when the process was created;
+  `diag` keeps the last one.
+
+- **`env` alone lists only the variables set in this session** (`env set`, `export`, the rc
+  file), with their full values and where they came from. `env -a` (`--all`) prints the whole
+  environment, as `env` did: `env -a | grep -i proxy`.
+
+- **A new demo recording** (`docs/demo.gif`, `docs/demo.cast`) of the shell as it is now: the
+  usage-guided completion, a subshell in the footer, an alert whose data Alt-v pastes, the man viewer.
+  `python tools/demo.py` records it again from a script, in a throwaway home with sample files.
+
+- **The README is an overview now** (features, install, quick start, a short tour, the command
+  and module lists); the full guide moved, unchanged in substance, to `docs/`: scripting, subshells,
+  keyboard and mouse, settings and themes, MCP and the AI co-pilot. The command list names every
+  builtin again, and the count is 80+.
+
+- **`diag` is hidden** from `help`, Tab completion and the command line until the
+  `diagnostics` setting is on. `shellcraft --diag` (`python main.py --diag`) turns the setting on,
+  saves it and prints the report at startup; `settings diagnostics off` hides `diag` again. The
+  setting no longer prints the report at every start.
+
+- CI lints and type-checks `shellcraft` (it was still pointed at the old `core` folder), and
+  DEVELOPMENT.md lists every module and test file again.
+
+- **`theme NAME` in a subshell changes that subshell only:** it used to save the theme, so the
+  main shell opened with it next time. The message says so and points at `theme --sub NAME`.
+  `theme reset` in a subshell is not saved either. In the main shell nothing changes.
+
+- **`alert` is quicker to type:** the levels are `info`, `warn` and `crit` (the long `warning`
+  and `critical` still work, from scripts, older spool files and AI clients), the data switch is
+  `-d DATA` / `--data DATA` instead of `-C`, which was easy to mix up with `-c` (clear), and the
+  usage line the toolbar shows while you type names the levels:
+  `alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE... | --list | -c [N]`.
+  Alert rows end with `crit` and `warn · 57s`; `alert --list` shows `[warn]` and `[crit]`. The
+  `send_tui_alert` MCP tool takes `warn` and `crit` too.
+
+- **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
+  lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
+  is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
 
 ### Removed
 
@@ -644,85 +658,89 @@ and the project uses [semantic versioning](https://semver.org/).
   as `sub_theme`. A subshell starts with it; without one it starts with the main theme, as
   before. `theme --sub` shows it and `theme --sub --clear` (or `off`) removes it. It works from
   the main shell and from a subshell.
+- **The OS keyring** (the optional `keyring` package, the `keyring` setting, `settings
+  migrate-keys`, `env unset -k`, the `[keyring]` extra). API keys you set with `settings NAME VALUE`
+  and the `mcp start` token are kept in `~/.shellcraft/config.json` (mode 600); a variable exported
+  in your own shell is never stored and always wins. `env set -s` still masks a secret and keeps it
+  out of the history; in an rc file it asks at each start. The keyring cost startup time and could
+  stall when the Linux Secret Service was locked or absent, and whether it was used depended on
+  which Python ran ShellCraft. A key an older version kept there shows as "set it again".
 
-### Changed
+- **The `core` compatibility shim** (the package's name before 0.3.0, promised to go in 0.4):
+  write `from shellcraft.modkit import …`; `python -m core.cli` is `python -m shellcraft.cli`.
 
-- **`~/.shellcraft/startup/` is now ShellCraft's `~/.bashrc.d`**: a folder of `.sc` files, each
-  written like the rc file (ShellCraft commands, one per line) and doing one job. They run right
-  after `~/.shellcraft/rc`, in name order, inside your shell, so what one sets (`env set`, `cd`,
-  an `input()` answer) the next one and your prompt see. `_name.sc` files are helpers you `source`.
-  A profile can have its own `profiles/NAME/startup/`, run after its rc at start and on
-  `profile use`, and carried by `profile export / import / copy / save`. `startup` lists the files
-  with their last result; `startup run [NAME]` runs them again.
+- `tools/winconsole_probe.py`, the Windows console probe: `diag keys` and `diag keys --raw` cover
+  it, and Windows 11 support is verified end to end.
 
-- **The footer's close button is on the right, and bigger.** An alert's row no longer starts with
-  an icon (its color says how serious it is); like a finished subshell's row, it ends with a heavy
-  `✖` that closes it. The finished subshell's `×` is now the same, more visible `✖`.
+- Two functions nothing called (`arith.assignment_value`, `ask.parse_input_line`).
 
-- **Every way of running ingest puts new modules in `~/.shellcraft/modules`**: the `ingest` command,
-  `shellcraft ingest` and `python -m tools.ingest`. `shellcraft ingest` used to write into the bundled
-  folder (inside the installed package for an installed copy) and `python -m tools.ingest` into the
-  checkout. `--modules DIR` still picks another folder. `ingest check --all` checks every module the
-  shell loads, the bundled ones and yours; `--modules DIR` narrows it to one folder.
-
-- **ingest's AI code is one file**, `tools/ingest/ingest_AI.py`: the providers and models, the HTTP
-  calls, both prompts (they were `prompts/*.md`) and the wizard's AI steps (choosing the provider and
-  key, asking before sending, converting, finishing the docs). Upgrading the AI side means editing
-  that file only. A typed-in key is now asked on the wizard's own console (hidden).
-
-- `modkit.error_stream()` text, from a module or a builtin, follows the command's own `2> FILE` and
-  `2>&1`.
-- The module checker accepts a module that shadows an OS program on purpose (its page names
-  `command NAME`).
-
-- **A faster start.** The banner is printed before the prompt library loads, so it appears in about
-  60 ms instead of 160 ms, and the prompt follows sooner (145 ms instead of 167 ms on Linux; `sub
-  shellcraft` 141 ms instead of 161 ms). About 90 fewer modules load before the prompt (the Markdown
-  renderer now loads on the first `man`), the module registry no longer resolves the path of every
-  loaded Python module (15 ms → 2 ms, much more on Windows), and API keys kept in the OS keyring are
-  read in the background (the first command waits for them only if it must). `python main.py
-  --timing` prints how long each startup phase took, starting from when the process was created;
-  `diag` keeps the last one.
-
-- **`env` alone lists only the variables set in this session** (`env set`, `export`, the rc
-  file), with their full values and where they came from. `env -a` (`--all`) prints the whole
-  environment, as `env` did: `env -a | grep -i proxy`.
-
-- **A new demo recording** (`docs/demo.gif`, `docs/demo.cast`) of the shell as it is now: the
-  usage-guided completion, a subshell in the footer, an alert whose data Alt-v pastes, the man viewer.
-  `python tools/demo.py` records it again from a script, in a throwaway home with sample files.
-
-- **The README is an overview now** (features, install, quick start, a short tour, the command
-  and module lists); the full guide moved, unchanged in substance, to `docs/`: scripting, subshells,
-  keyboard and mouse, settings and themes, MCP and the AI co-pilot. The command list names every
-  builtin again, and the count is 80+.
-
-- **`diag` is hidden** from `help`, Tab completion and the command line until the
-  `diagnostics` setting is on. `shellcraft --diag` (`python main.py --diag`) turns the setting on,
-  saves it and prints the report at startup; `settings diagnostics off` hides `diag` again. The
-  setting no longer prints the report at every start.
-
-- CI lints and type-checks `shellcraft` (it was still pointed at the old `core` folder), and
-  DEVELOPMENT.md lists every module and test file again.
-
-- **`theme NAME` in a subshell changes that subshell only:** it used to save the theme, so the
-  main shell opened with it next time. The message says so and points at `theme --sub NAME`.
-  `theme reset` in a subshell is not saved either. In the main shell nothing changes.
-
-- **`alert` is quicker to type:** the levels are `info`, `warn` and `crit` (the long `warning`
-  and `critical` still work, from scripts, older spool files and AI clients), the data switch is
-  `-d DATA` / `--data DATA` instead of `-C`, which was easy to mix up with `-c` (clear), and the
-  usage line the toolbar shows while you type names the levels:
-  `alert [-l LEVEL (info,warn,crit)] [-t SECONDS | -s] [-d DATA] MESSAGE... | --list | -c [N]`.
-  Alert rows end with `crit` and `warn · 57s`; `alert --list` shows `[warn]` and `[crit]`. The
-  `send_tui_alert` MCP tool takes `warn` and `crit` too.
-
-- **The footer is clickable at the prompt again by default** (`footer_mouse` now on): while it
-  lists a subshell or an alert, its lines, an alert's ✖ and the badge answer the mouse, and text
-  is selected with Shift and a drag. `settings footer_mouse off` leaves the mouse to the terminal.
+- The copy additions of 2.0.0: the drag highlight and right-click copy of text inside a subshell,
+  copying to the host's clipboard (OSC 52 and the Win32 clipboard, `clip -H`), and Ctrl-] v at the
+  prompt. Select text with Shift and use the terminal's copy; Alt-v pastes the clip (Ctrl-] v
+  still types it into another program inside a subshell), and `clip -i` stays.
 
 ### Fixed
 
+- **The MCP server no longer answers `sshrun`, `aggregator`, `baseline` and `watchplan` from its five-minute memory.**
+  A second `watchplan done` or `baseline diff` inside five minutes did nothing, and a repeated `sshrun` check
+  returned the old answer. Found by watching a plan with a one-minute interval.
+- **A command substitution is no longer "read-only" for the AI co-pilot.** `echo $(rm x)` ran the `rm`
+  without asking, because only the outer `echo` was checked. A line with `$( )` or backticks now needs
+  a session grant or a review like any other write.
+- **Questions use the shell's own prompt.** `input()`, `read -p`, `select` and the other
+  questions a script asks (also in `~/.shellcraft/startup/*.sc`) used to start a second
+  prompt_toolkit app, which garbled the output on Windows. They now ask on the shell's own prompt,
+  with Tab completion, suggestions and the history turned off while you answer.
+- **`r=$( a; b )` at the prompt.** A `;` inside `$( )` used to end the line there, so the
+  assignment failed with "missing ')'". Lines typed at the prompt now skip over `$( )` as scripts do.
+- **`curl --cert FILE:PASSWORD` uses the password.** The password for an encrypted client key
+  was dropped, so the request failed with a confusing TLS error. Now `-E client.pem:secret` and
+  `--pass secret` unlock the key (in the cert file or in `--key`), and `.p12` / `.pfx` files work
+  too (`--cert-type P12`). The unlocked key goes to a temporary file that you alone can read,
+  deleted when the request ends. A wrong or missing password stops with status 58. This needs the
+  `cryptography` package.
+- **A bash test after `if -py`.** `if -py [ -f notes.txt ]:` and `while -py [ … ]:` ran the test
+  as a Python list, which is always true. A condition that starts with `[`, `[[` or `test` (or `!`
+  and one of them) is now a command.
+- **`source -n` after a bad line inside a block.** The error now points at the bad line, also when
+  it's the last line of a body, and the rest of the block no longer shows up as unknown commands.
+- **A function shows its output as it runs.** Called on a line of its own, a function used to print
+  everything only when it returned, so a menu function asked its question before showing the
+  choices. Each command's output now shows as soon as it's done. In a pipe, a redirect or `$( )`
+  the output is still collected.
+- **`return`, `break` and `continue` after `&&` / `||`.** `[ -n "$1" ] || return 1` failed with
+  "command not found: return".
+- **A function line ending in `${1:-default}`.** In a function written over several lines, a line
+  like `local name=${1:-friend}` was taken for the function's closing brace.
+- **Dividing by a variable.** `$((a / b))` failed with "division by zero" even when `b` was set.
+- **Octal and hex escapes.** `echo -e "\033[32m"` printed a NUL byte and `33` instead of the escape
+  character, so colors copied from bash scripts didn't work. `echo -e` now reads `\0NNN` and
+  `\xHH`, and `printf` reads `\NNN` and `\xHH`, as bash does.
+- **The close button is a plain `×`.** Alerts and finished subshells in the footer used `✖`, which
+  Cascadia and Consolas don't have, so Windows 11 drew it from an emoji font: a box, or a wide glyph
+  that pushed the line out of place and moved its click target. It is now `×`, which every console
+  font has, and the space on either side of it takes the click too.
+- **A bad option is one line.** `shellcraft --testingoption` (or `sub shellcraft --testingoption`)
+  prints `shellcraft: unrecognized arguments: ...` on stderr and exits with 2, instead of argparse's
+  usage block and its own exit.
+- **The early banner on Windows.** It is drawn with the shell's own console setup
+  (`build_console`) at the terminal's width, instead of a separate Rich console.
+- **Ctrl-C in the first moments of a start** (while prompt_toolkit loads) printed a Python
+  traceback and exited with status 2. It now ends the start quietly with status 130.
+- **Mouse and cursor reports delivered while a command runs** reached the next prompt as text,
+  minus their escape prefix: `<64;10;5M`, `12;34R`. Before each prompt, what the terminal
+  delivered meanwhile is parsed the way the prompt would, the reports are dropped, and typed
+  text, Enter and pastes are kept as typeahead, as in bash.
+- **A Ctrl-C between commands** left its `^C` echo on the line and the prompt started right
+  after it. The prompt now starts on the next line.
+- **An interrupted print** could leave the terminal inside a colored span, mid-line. Colors are
+  reset and the line ended before `^C interrupted`.
+- **Ctrl-Z** inserted a `^Z` character into the line. It does nothing now.
+- The terminal's `NOFLSH` flag is set for the session on Linux and macOS, so a Ctrl-C no longer
+  makes the tty driver discard queued output, which could cut an escape sequence in half and
+  show its tail as text.
+- A stress harness (`tools/stress/`) drives the shell through a pseudo-terminal with Ctrl-C,
+  mouse reports, bad bytes and resizes at random moments; `STRESS-TEST.md` has the findings.
 - `env set NAME=~/path` and `export NAME=~/path` store your home folder's path, as bash does, instead
   of a literal `~`.
 
@@ -817,29 +835,6 @@ and the project uses [semantic versioning](https://semver.org/).
   right Alt and AltGr with a letter or a digit as Alt, unless AltGr types a real character of the
   keyboard layout (`@`, `€`), which still types. Esc then Ctrl-V (Ctrl+Alt+v, how AltGr+v arrives
   through the VT key reader and Linux terminals) pastes too.
-
-### Removed
-
-- **The OS keyring** (the optional `keyring` package, the `keyring` setting, `settings
-  migrate-keys`, `env unset -k`, the `[keyring]` extra). API keys you set with `settings NAME VALUE`
-  and the `mcp start` token are kept in `~/.shellcraft/config.json` (mode 600); a variable exported
-  in your own shell is never stored and always wins. `env set -s` still masks a secret and keeps it
-  out of the history; in an rc file it asks at each start. The keyring cost startup time and could
-  stall when the Linux Secret Service was locked or absent, and whether it was used depended on
-  which Python ran ShellCraft. A key an older version kept there shows as "set it again".
-
-- **The `core` compatibility shim** (the package's name before 0.3.0, promised to go in 0.4):
-  write `from shellcraft.modkit import …`; `python -m core.cli` is `python -m shellcraft.cli`.
-
-- `tools/winconsole_probe.py`, the Windows console probe: `diag keys` and `diag keys --raw` cover
-  it, and Windows 11 support is verified end to end.
-
-- Two functions nothing called (`arith.assignment_value`, `ask.parse_input_line`).
-
-- The copy additions of 2.0.0: the drag highlight and right-click copy of text inside a subshell,
-  copying to the host's clipboard (OSC 52 and the Win32 clipboard, `clip -H`), and Ctrl-] v at the
-  prompt. Select text with Shift and use the terminal's copy; Alt-v pastes the clip (Ctrl-] v
-  still types it into another program inside a subshell), and `clip -i` stays.
 
 ## [2.0.0] — 2026-10-16
 

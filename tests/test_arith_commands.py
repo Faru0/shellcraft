@@ -206,7 +206,7 @@ def test_declare_readonly_export_and_print(ctx):
     with pytest.raises(Exception, match="not found"):
         run_line("declare -p nonesuch", ctx)
     with pytest.raises(Exception, match="not supported"):
-        run_line("declare -a arr", ctx)
+        run_line("declare -u arr", ctx)
 
 
 def test_declare_functions_still_work(ctx):

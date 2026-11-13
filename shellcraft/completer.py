@@ -14,7 +14,7 @@ from prompt_toolkit.completion import CompleteEvent, Completer, Completion, Path
 from prompt_toolkit.document import Document
 
 from shellcraft import aliases, envvars, funcs
-from shellcraft.builtins import BUILTINS, available
+from shellcraft.builtins import BUILTINS, MAN_TOPICS, available
 from shellcraft.context import ShellContext
 from shellcraft.options import OptionSpec, builtin_options, positional_values
 from shellcraft.parser import Command
@@ -23,6 +23,20 @@ from shellcraft.themes import all_themes
 from shellcraft.usage import Expect, expect
 
 _BREAK_CHARS = " \t|>"
+_METHOD_TAIL = re.compile(r"(?:^|[^A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_]*)$")
+LIST_METHODS = {
+    "append(": "add one element at the end", "extend(": "add the elements of another list",
+    "insert(": "put an element at an index: insert(0, x)", "pop(": "take the last element out (or pop(0), the first)",
+    "remove(": "take out the first element equal to a value", "clear()": "empty the list",
+    "sort()": "sort it in place (sort(reverse=True))", "reverse()": "turn the order around",
+    "index(": "where a value is", "count(": "how many times a value is in it", "copy()": "a copy",
+}
+DICT_METHODS = {
+    "keys()": "its keys, as a list", "values()": "its values, as a list", "items()": "its (key, value) pairs",
+    "get(": "the value of a key, or None (get(key, default))", "pop(": "take a key out and give its value",
+    "update(": "set the keys of another dict", "setdefault(": "set a key only when it is missing",
+    "clear()": "empty the dict", "copy()": "a copy",
+}
 
 
 def _current_segment(before: str) -> list[str]:
@@ -72,6 +86,9 @@ class ShellCompleter(Completer):
             before = before[:-1].rstrip()  # drop the opening quote
         segment = _current_segment(before)
         after_redirect = before.endswith(">")
+        if quote is None and (found := list(self._methods(word))):
+            yield from found
+            return
 
         if quote is None and not after_redirect and not segment:
             yield from self._commands(word)
@@ -291,7 +308,8 @@ class ShellCompleter(Completer):
 
             options = dict(SEGMENTS) | {"reset": "back to the default", "-r": "set the right prompt"}
         else:
-            options = {n: "module" for n in self.ctx.registry.names()} | {n: "builtin" for n in BUILTINS}
+            options = {n: "topic" for n in MAN_TOPICS} | {n: "module" for n in self.ctx.registry.names()}
+            options |= {n: "builtin" for n in BUILTINS}
         yield from self._complete(word, options)
 
     def _modules(self, segment: list[str], word: str) -> Iterable[Completion]:
@@ -426,6 +444,19 @@ class ShellCompleter(Completer):
         return ({k: s.label for k, s in SETTINGS.items()}
                 | {CONFIG_KEY: PREFIX_LABEL, loading.CONFIG_KEY: LOADER_LABEL}
                 | {k: t.label for k, t in TEXT_SETTINGS.items()} | keys)
+
+    def _methods(self, word: str) -> Iterable[Completion]:
+        """`hosts.ap` → `hosts.append(`: the methods of the list or dict a variable holds."""
+        from shellcraft.values import ShArray, ShMap
+
+        tail = _METHOD_TAIL.search(word)
+        held = self.ctx.variables.get(tail.group(1)) if tail else None
+        if tail is None or not isinstance(held, (ShArray, ShMap)):
+            return
+        methods = LIST_METHODS if isinstance(held, ShArray) else DICT_METHODS
+        for name in sorted(methods):
+            if name.startswith(tail.group(2)):
+                yield Completion(name, start_position=-len(tail.group(2)), display_meta=methods[name])
 
     def _complete(self, word: str, options: dict[str, str]) -> Iterable[Completion]:
         for name in sorted(options):

@@ -98,8 +98,8 @@ def test_n_and_d(ctx):
 
 
 def test_options_are_checked(ctx):
-    with pytest.raises(PipelineError, match="arrays are not supported yet"):
-        run_line("read -a arr <<< 'x y'", ctx)
+    with pytest.raises(PipelineError, match="line editing is not supported"):
+        run_line("read -e x <<< a", ctx)
     with pytest.raises(PipelineError, match="invalid option"):
         run_line("read -z x <<< a", ctx)
     with pytest.raises(PipelineError, match="invalid variable name"):

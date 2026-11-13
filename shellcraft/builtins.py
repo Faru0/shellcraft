@@ -488,6 +488,8 @@ def _help_one(ctx: ShellContext, name: str) -> Any:
         summary = func.description or f"func {name}"
         usage = func.usage or f"{name} [ARG...]"
         kind = f"func ({func.where})"
+    elif name in MAN_TOPICS:
+        return f"{name}: a help topic, not a command (see: man {name})\n"
     else:
         known = list(BUILTINS) + ctx.registry.names()
         if ctx.allow_aliases:
@@ -504,10 +506,116 @@ def _help_one(ctx: ShellContext, name: str) -> Any:
     return Styled(styled, plain)
 
 
+ARRAYS_DOC = r"""# arrays
+
+Arrays, lists and dicts: one variable that holds many values. You can write them the bash way
+or the Python way. Both make the same thing, so a list you set in one style can be read in the
+other. The guide with longer examples is `docs/scripting/arrays-and-lists.md`.
+
+## Bash style
+
+```
+hosts=(web01 db01 "mail server")     # set it; quotes keep a value with spaces together
+hosts+=(cache01)                     # add at the end
+hosts[1]=db02                        # change one element (the first is 0)
+echo "${hosts[0]} ${hosts[-1]}"      # one element; -1 is the last
+echo "${#hosts[@]}"                  # how many
+echo "${hosts[@]:1:2}"               # 2 elements, from element 1
+for h in "${hosts[@]}"; do echo "$h"; done
+unset 'hosts[-1]'                    # drop the last one
+```
+
+| Form | Gives |
+| --- | --- |
+| `${a[N]}` | Element N. `${a[-1]}` is the last one. |
+| `"${a[@]}"` | Every element, each as its own word. Keep the quotes. |
+| `"${a[*]}"` | Every element as one text, joined by a space. |
+| `${#a[@]}` | How many elements. `${#a[N]}` is the length of element N. |
+| `${!a[@]}` | The indexes (`0 1 2`), or the keys of a dict. |
+| `${a[@]:START:COUNT}` | COUNT elements from START. |
+| `$a` | The first element only, as in bash. |
+
+## Dicts, bash style
+
+A dict looks a value up by a name instead of a number. Declare it first:
+
+```
+declare -A port
+port[web]=80
+port[db]=5432
+echo "${port[web]}"                  # 80
+for name in "${!port[@]}"; do echo "$name ${port[$name]}"; done
+unset 'port[db]'
+```
+
+`declare -A port=([web]=80 [db]=5432)` sets it in one line. `declare -p NAME` prints an array or a
+dict in a form you can run again.
+
+## Python style
+
+```
+hosts = ["web01", "db01"]
+hosts.append("cache01")
+hosts[0] = "web02"
+del hosts[1]
+print(len(hosts), hosts[0], hosts[-1])
+for -py h in hosts { print(h) }
+
+port = {"web": 80, "db": 5432}
+port["cache"] = 6379
+for -py name, number in port.items() { print(f"{name} listens on {number}") }
+```
+
+| Kind | Reads | Changes the variable |
+| --- | --- | --- |
+| List | `index` `count` `copy` | `append` `extend` `insert` `pop` `remove` `clear` `sort` `reverse` |
+| Dict | `keys` `values` `items` `get` `copy` | `pop` `update` `setdefault` `clear` |
+
+Functions that take a list: `len` `sorted` `reversed` `sum` `min` `max` `any` `all` `enumerate` `zip`
+`range` `list` `dict`, `map(int, sizes)`, and `", ".join(hosts)`. Slices (`hosts[1:]`) and
+`"web01" in hosts` work too.
+
+A method that changes the variable goes on a line of its own (`hosts.sort()`) or on the right of
+an assignment (`last = hosts.pop()`), not inside a condition.
+
+## Filling one from a command or a file
+
+```
+mapfile -t lines < hosts.txt         # every line of a file, one element each
+read -a parts <<< "a b c"            # the words of one line
+files=(*.log)                        # the files that match
+users=($(cut -d: -f1 /etc/passwd))   # the words a command prints
+words = "a b c".split()              # the Python way
+```
+
+## What is different from bash and Python
+
+- Values set the bash way are text. To add them up: `sum(map(int, sizes))`. Numbers in a Python
+  literal (`[1, 2, 3]`) stay numbers.
+- An array has no gaps: `a[7]=x` on an array of three is an error, and so is `unset 'a[0]'` in
+  the middle. `del a[0]` removes an element and moves the rest up.
+- A list holds text and numbers, not another list or dict.
+- No comprehensions, no `lambda`, no `key=`. Use a loop.
+- `b = a` makes a copy. A function gets a copy too: return the list and store it
+  (`hosts = add(hosts, "db02")`).
+- An array is not passed on to programs you start, so `export hosts` is refused. Export its text:
+  `export HOSTS="${hosts[*]}"`.
+- `a[0]=x` (no spaces) is the bash form and `a[0] = "x"` (spaces) the Python one.
+- Not supported: `${a[@]/x/y}` and other operators on a whole array, `(( a[i]++ ))`, `declare -ai`,
+  `${!name}`.
+
+See also `man declare`, `man read`, `man mapfile`, `man for`.
+"""
+
+# Pages of `man` that are not a command: `man arrays`.
+MAN_TOPICS: dict[str, str] = {"arrays": ARRAYS_DOC}
+
+
 MAN_DOC = """# man
 
-Show the manual page of a builtin or module. It opens in the scrollable viewer (`/` searches,
-`q` closes it), however short the page is; `-p` prints it on the screen instead.
+Show the manual page of a builtin, a module or a topic (`man arrays`). It opens in the scrollable
+viewer (`/` searches, `q` closes it), however short the page is; `-p` prints it on the screen
+instead.
 
 ## Usage
 
@@ -584,6 +692,8 @@ def manual_text(registry: Any, name: str) -> str:
                     body = body.replace(" (`man function`)", "")
                     doc = doc.rstrip("\n") + f"\n\n## {helper}\n" + body
         return doc + "\n*ShellCraft built-in command.*\n"
+    if name in MAN_TOPICS:
+        return MAN_TOPICS[name] + "\n*ShellCraft help topic.*\n"
     raise CommandError(f"man: no manual entry for {name}")
 
 
@@ -1411,13 +1521,14 @@ Inside a Python-style block, `input()` also works within any expression:
 ## Usage
 
 ```
-read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SECONDS] [NAME...]
+read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SECONDS] [-a ARRAY] [NAME...]
 read NAME                       # read a line into $NAME
 read -p "Your name? " NAME      # with a prompt
 read -s -p "Token: " TOKEN      # without echoing what is typed
 read first rest                 # split on $IFS: the last name gets all that is left
 read                            # no name: the whole line goes in $REPLY
 read a b <<< "x y"              # from a here-string
+read -a parts <<< "x y z"       # every word, as the array parts: ${parts[0]} is x
 while read -r a b; do echo "$b $a"; done < pairs.txt
 echo "one two" | read a b       # piped input
 name = input("Your name? ")     # the same, Python style (also inside blocks)
@@ -1434,11 +1545,13 @@ ratio = float(input("Ratio? "))    # ... or any number
 | `-s`, `--silent` | Don't echo the answer (passwords, tokens). |
 | `-n N` | Read at most N characters (piped or redirected input only). |
 | `-d DELIM` | End the line at DELIM instead of a new line (piped or redirected input only). |
+| `-a ARRAY` | Put every word of the line in the array ARRAY, one element each (`man arrays`). |
 | `-t SECONDS` | Accepted and ignored for piped input (it is already there); not supported when asking you. |
 
 A line is split where `$IFS` says (blanks, tabs and new lines until you set it). The status is 1
 at the end of the input, so `while read line; do ...; done` stops there; a last line with no new
-line at its end is still stored, then the status is 1. `read -a` (arrays) is not supported.
+line at its end is still stored, then the status is 1. For every line of a file as one array,
+see `man mapfile`.
 In bash, `echo x | read v` loses `v` (the pipe runs in a subshell); here it stays set. In a loop
 that is piped into, such as `cat f | while read a; do ...; done`, variables set inside do not
 last after the loop, as in bash.
@@ -1461,7 +1574,8 @@ read -s -p "API token: " token
 def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
     """`read`'s options (bash style: combined flags, a value joined or in the next word) and
     its names."""
-    opts: dict[str, Any] = {"raw": False, "prompt": "", "silent": False, "n": None, "delim": "\n", "timeout": None}
+    opts: dict[str, Any] = {"raw": False, "prompt": "", "silent": False, "n": None, "delim": "\n", "timeout": None,
+                            "array": None}
     long = {"--prompt": "p", "--silent": "s"}
     i = 0
     while i < len(args) and args[i].startswith("-") and args[i] != "-":
@@ -1475,7 +1589,7 @@ def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
             for k, c in enumerate(word[1:], 1):
                 if c in "rs":
                     flags.append((c, None))
-                elif c in "pndtu":
+                elif c in "pndtua":
                     given = word[k + 1:]
                     if not given:
                         if i >= len(args):
@@ -1483,8 +1597,6 @@ def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
                         given, i = args[i], i + 1
                     flags.append((c, given))
                     break
-                elif c == "a":
-                    raise CommandError("read: -a: arrays are not supported yet", 2)
                 elif c == "e":
                     raise CommandError("read: -e: line editing is not supported (the prompt already has it)", 2)
                 else:
@@ -1502,6 +1614,8 @@ def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
                 raise CommandError("read: -u: file descriptors are not supported (use < FILE)", 2)
             elif c == "d":
                 opts["delim"] = value[:1] if value else "\0"
+            elif c == "a":
+                opts["array"] = value
             else:  # n, t: a number
                 try:
                     number = float(value or "")
@@ -1515,14 +1629,15 @@ def _read_options(args: list[str]) -> tuple[dict[str, Any], list[str]]:
 
 
 @builtin("read", "Read a line into shell variables (asks you, or takes piped input)",
-         "read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SEC] [NAME...]",
+         "read [-r] [-p PROMPT] [-s] [-n N] [-d DELIM] [-t SEC] [-a ARRAY] [NAME...]",
          stateful=True, direct=True, doc=READ_DOC)
 def _read(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     from shellcraft import ask, inputs
     from shellcraft.pipeline import assign_target, set_variable
+    from shellcraft.values import ShArray, ValueProblem
 
     opts, names = _read_options(args)
-    for name in names:
+    for name in [*names, *([opts["array"]] if opts["array"] is not None else [])]:
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
             raise CommandError(f"read: invalid variable name '{name}'")
     source = inputs.attached(stdin)
@@ -1539,6 +1654,13 @@ def _read(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         chars = inputs.text_chars(typed, opts["raw"])
     else:
         chars, ended = inputs.read_record(source, opts["delim"], opts["n"], opts["raw"])
+    if opts["array"] is not None:  # read -a parts: every word, the names after it are not used
+        try:
+            words = ShArray(inputs.split_all(chars, ctx.variables.get("IFS", inputs.BLANKS)))
+        except ValueProblem as exc:
+            raise CommandError(f"read: {exc}") from None
+        set_variable(ctx, opts["array"], words, assign_target.get())
+        return "" if ended else WithStatus("", 1)
     if names:
         ifs = ctx.variables.get("IFS", inputs.BLANKS)
         values = inputs.split_fields(chars, ifs, len(names))
@@ -1548,6 +1670,104 @@ def _read(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     for name, value in zip(names, values):
         set_variable(ctx, name, value, target)
     return "" if ended else WithStatus("", 1)
+
+
+MAPFILE_DOC = """# mapfile
+
+Read lines into an array, one element per line, as in bash. `readarray` is the same command.
+
+## Usage
+
+```
+mapfile [-t] [-n COUNT] [-s SKIP] [-d DELIM] [NAME]
+mapfile -t lines < hosts.txt        # every line of the file, without its new line
+cat hosts.txt | mapfile -t lines    # the same from a pipe
+mapfile -t -n 10 first < big.log    # the first 10 lines only
+mapfile -t -s 1 rows < data.csv     # skip the header line
+```
+
+## Options
+
+| Option | Meaning |
+| --- | --- |
+| `-t` | Drop the new line at the end of each line. You nearly always want this. |
+| `-n COUNT` | Read at most COUNT lines (0: all of them). |
+| `-s SKIP` | Leave out the first SKIP lines. |
+| `-d DELIM` | A line ends at DELIM instead of a new line. |
+
+NAME is `MAPFILE` when you give none. The array is replaced, not added to. It needs piped or
+redirected input: it does not ask at the prompt. `-O`, `-u`, `-C` and `-c` are not supported.
+
+Then use it like any array (`man arrays`):
+
+```
+mapfile -t hosts < hosts.txt
+echo "${#hosts[@]} hosts, the first is ${hosts[0]}"
+for h in "${hosts[@]}"; do echo "checking $h"; done
+```
+
+In bash, `cat f | mapfile -t lines` loses `lines` (the pipe runs in a subshell); here it stays set.
+"""
+
+
+def _mapfile(ctx: ShellContext, args: list[str], stdin: str) -> Any:
+    from shellcraft import inputs
+    from shellcraft.pipeline import assign_target, set_variable
+    from shellcraft.values import ShArray, ValueProblem
+
+    opts: dict[str, Any] = {"t": False, "n": 0, "s": 0, "d": "\n"}
+    i = 0
+    while i < len(args) and args[i].startswith("-") and len(args[i]) > 1:
+        word = args[i]
+        i += 1
+        if word == "--":
+            break
+        for k, flag in enumerate(word[1:], 1):
+            if flag == "t":
+                opts["t"] = True
+                continue
+            if flag not in "nsd":
+                raise CommandError(f"mapfile: -{flag}: not supported (the options: -t, -n COUNT, -s SKIP, -d DELIM)", 2)
+            given = word[k + 1:]
+            if not given:
+                if i >= len(args):
+                    raise CommandError(f"mapfile: -{flag}: option requires an argument", 2)
+                given, i = args[i], i + 1
+            if flag == "d":
+                opts["d"] = given[:1] or "\0"
+            elif not given.isdigit():
+                raise CommandError(f"mapfile: {given}: invalid number", 2)
+            else:
+                opts[flag] = int(given)
+            break
+    names = args[i:] or ["MAPFILE"]
+    if len(names) > 1:
+        raise CommandError("mapfile: usage: mapfile [-t] [-n COUNT] [-s SKIP] [-d DELIM] [NAME]", 2)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", names[0]):
+        raise CommandError(f"mapfile: invalid variable name '{names[0]}'")
+    source = inputs.attached(stdin)
+    lines: list[str] = []
+    seen = 0
+    while source is not None and not source.at_end() and (not opts["n"] or len(lines) < opts["n"]):
+        cut = source.find(opts["d"], source.pos)
+        stop = len(source) if cut < 0 else cut + 1
+        piece = source[source.pos:cut] if opts["t"] and cut >= 0 else source[source.pos:stop]
+        source.pos = stop
+        seen += 1
+        if seen > opts["s"]:
+            lines.append(piece)
+    try:
+        value = ShArray(lines)
+    except ValueProblem as exc:
+        raise CommandError(f"mapfile: {exc}") from None
+    set_variable(ctx, names[0], value, assign_target.get())
+    return ""
+
+
+for _name in ("mapfile", "readarray"):
+    builtin(_name, "Read lines into an array, one element per line",
+            f"{_name} [-t] [-n COUNT] [-s SKIP] [-d DELIM] [NAME]", stateful=True, direct=True,
+            doc=MAPFILE_DOC)(_mapfile)
 
 
 SOURCE_DOC = r"""# source
@@ -2446,6 +2666,7 @@ for NAME in WORD...; do COMMANDS; done
 | `*.log`, `src/*.py` | Matching file names, sorted (the word itself when nothing matches). |
 | `$(COMMAND)` | The command's output, split into words at whitespace (`"$(COMMAND)"`: one item). |
 | `$x` | An outer loop variable, split at whitespace unless quoted (`"$x"`). |
+| `"${a[@]}"` | Every element of an array, one item each (`man arrays`). |
 
 In the body, an unquoted `$x` or `$(…)` is split into words at whitespace, as in bash: write
 `"$x"` to keep it one argument. `$?` is the last exit status. Conditions use `if …; then …; fi`
@@ -2459,7 +2680,10 @@ for -py NAME in ITEM... { COMMANDS }
 
 Parsed by ShellCraft: `$NAME` is always **one** argument, whatever it holds (spaces, quotes,
 `;`), so nothing needs quoting or escaping. Items: words, `1..5` / `5..1` / `0..100..10`
-ranges, globs, and `(COMMAND)` (one item per non-empty output line). Conditions inside are
+ranges, globs, and `(COMMAND)` (one item per non-empty output line). One item that is the name
+of a list or dict, or a Python value that gives one, loops over its elements:
+`for -py h in hosts`, `for -py h in sorted(hosts)`, and with two names
+`for -py name, number in port.items()` (`man arrays`). Conditions inside are
 `if (python-expression) { … }` or `if COMMAND { … }` (see `man if`). Inside a `-py` block,
 nested `for` and `if` use this syntax too. Braces must be words of their own: `{ echo $x }`.
 
@@ -2549,8 +2773,10 @@ Expressions are checked before anything runs and evaluated without `eval`: compa
 `and` / `or` / `not`, `in`, arithmetic (`+ - * / // %`), indexing and slicing, `x if c else y`,
 these string methods: `startswith endswith lower upper casefold title strip lstrip rstrip split
 rsplit splitlines removeprefix removesuffix replace count find rfind isdigit isnumeric isdecimal
-isalpha isalnum isspace islower isupper format`, f-strings (`f"{a}-{b}"`, see `man print`), and
-these functions: `len int float str bool abs min max`, `match(PATTERN, TEXT)` (a regex search),
+isalpha isalnum isspace islower isupper format join`, f-strings (`f"{a}-{b}"`, see `man print`),
+lists and dicts with their reading methods (`index count copy`, `keys values items get`; see
+`man arrays`), and these functions: `len int float str bool abs min max sorted reversed sum any
+all enumerate zip range list dict`, `map(int, LIST)`, `match(PATTERN, TEXT)` (a regex search),
 `exists(PATH)`, `isfile(PATH)`, `isdir(PATH)`, and `input(PROMPT)`, which asks
 (`while -py input("Again? ") == "y":`; `int(input(…))` / `float(input(…))` ask again until the
 answer is a number).

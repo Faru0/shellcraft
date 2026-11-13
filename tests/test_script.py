@@ -195,7 +195,7 @@ def test_big_repetition_is_refused(ctx):
 
 
 def test_string_methods_only_on_text(ctx):
-    assert "works on text" in out(ctx, 'if -py ((1, 2).count(1)) { echo x }')
+    assert "'.upper()' works on text, not on tuple" in out(ctx, 'if -py ((1, 2).upper()) { echo x }')
 
 
 # ── syntax ───────────────────────────────────────────────────────────────────

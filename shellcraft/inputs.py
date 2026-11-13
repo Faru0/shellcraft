@@ -115,3 +115,36 @@ def split_fields(chars: Chars, ifs: str, count: int) -> list[str]:
     fields.append("".join(c for c, _ in chars[pos:end]))
     return fields
 
+
+def split_all(chars: Chars, ifs: str) -> list[str]:
+    """Every field of the line, for `read -a NAME`: split as split_fields does, with no last value
+    that takes the rest."""
+    if not ifs:
+        return ["".join(c for c, _ in chars)] if chars else []
+    white = {c for c in ifs if c in BLANKS}
+    marks = set(ifs) - white
+    n = len(chars)
+
+    def is_white(k: int) -> bool:
+        return chars[k][0] in white and not chars[k][1]
+
+    def is_mark(k: int) -> bool:
+        return chars[k][0] in marks and not chars[k][1]
+
+    pos = 0
+    while pos < n and is_white(pos):
+        pos += 1
+    fields: list[str] = []
+    while pos < n:
+        start = pos
+        while pos < n and not is_white(pos) and not is_mark(pos):
+            pos += 1
+        fields.append("".join(c for c, _ in chars[start:pos]))
+        while pos < n and is_white(pos):
+            pos += 1
+        if pos < n and is_mark(pos):
+            pos += 1
+            while pos < n and is_white(pos):
+                pos += 1
+    return fields
+

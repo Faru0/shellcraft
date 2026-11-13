@@ -1,6 +1,6 @@
 ---
 name: shellcraft-scripting
-description: How to write, check and run ShellCraft scripts - rc and startup files, funcs, bash-style and Python-style (-py) blocks - and the mistakes an AI makes most (text vs numbers, elif, top-level assignment, arrays). Load it when asked to write, fix or review a ShellCraft script, func, rc file or startup file.
+description: How to write, check and run ShellCraft scripts - rc and startup files, funcs, bash-style and Python-style (-py) blocks - and the mistakes an AI makes most (text vs numbers, elif, top-level assignment, lists). Load it when asked to write, fix or review a ShellCraft script, func, rc file or startup file.
 ---
 
 # Writing ShellCraft scripts
@@ -9,7 +9,8 @@ ShellCraft scripts mix two styles in one file: **bash style** (`if …; then`, `
 and **Python style** (`if -py cond:` with an indented body, `print(f"…")`, `def`, `try:`,
 `match`). Both are real, tested features. This skill covers what you get wrong if you write them
 from memory. The full guide is `docs/scripting/README.md` in the ShellCraft folder, and
-`man if`, `man def`, `man print`, `man set`, `man trap`, `man try`, `man getopts` inside the shell.
+`man if`, `man def`, `man print`, `man set`, `man trap`, `man try`, `man getopts`, `man arrays` inside
+the shell.
 
 ## Where a script lives
 
@@ -32,7 +33,8 @@ file (`while IFS= read -r line; do …; done < file`, `cmd | while read …`), a
 lines, brace expansion (`{a,b}{1,2}`, `{1..5}`) and backticks on any line, `VAR=x cmd`, arithmetic
 (`(( n++ ))`, `if (( a > b ))`, `for ((i=0; i<3; i++))`, `let`, `$((n++))`, `$RANDOM`, `$SECONDS`),
 `readonly`, `declare -i -r -x`, `printf -v VAR`, `[ -t 1 ]`, groups (`{ a; b; } | cmd`,
-`( cd dir; cmd )`), `eval` and `exec`. Still missing: arrays, `declare -a` and `read -a`. A plain command line does not split words at
+`( cd dir; cmd )`), `eval` and `exec`, arrays and dicts (`a=(x y)`, `a+=(z)`, `"${a[@]}"`,
+`${#a[@]}`, `declare -A m`, `read -a`, `mapfile -t`). A plain command line does not split words at
 spaces (a loop's `for x in $list` does).
 
 ## The loop: write, check, run
@@ -41,7 +43,8 @@ spaces (a loop's `for x in $list` does).
 2. **Check** it before it runs: `run_in_shell("source -n FILE")`, or `func check NAME` for a func.
    Nothing executes. You get `FILE:LINE: message` lines and `N problem(s)`, or
    `ok: N lines, no problems`. It finds syntax, indentation and unknown commands. It does
-   **not** find everything: a bash array passes it and fails later. Say what you did not test.
+   **not** find everything: a wrong value or a missing file shows only when it runs. Say what you
+   did not test.
 3. **Run** it only when the user wants it run, and say what it does first (files written,
    things deleted, hosts contacted). Put the risk in `run_in_shell`'s `reason`; use
    `request_human_review` for anything destructive.
@@ -71,9 +74,18 @@ alert, or write the script so it takes its values as arguments.
 - **`print(...)` and `add(1, 2)` work anywhere** on a line of their own (a bare call shows what the
   `def` returned or printed). `print hello` without parentheses is not a command: use `echo`. A call
   with empty parentheses (`hi()`) works when `hi` is already defined; it must be alone on its line.
-- **No arrays, lists or dicts yet.** `a=(x y)` fails with `command not found: y)`
-  and `${a[0]}` with `bad substitution`. Use a text of words and a `for` loop, or one item per line
-  in a file read with `for -py line in (cat FILE):`.
+- **Lists and dicts work in both styles and share one storage** (`man arrays`). Bash:
+  `hosts=(web01 db01)`, `hosts+=(x)`, `"${hosts[@]}"`, `declare -A port; port[web]=80`. Python:
+  `hosts = ["web01"]`, `hosts.append("x")`, `port = {"web": 80}`, `for -py h in hosts:`,
+  `for -py k, v in port.items():`. What differs from what you know:
+  - Elements set the bash way are text: `sum(map(int, sizes))`, not `sum(sizes)`.
+  - No list in a list, no comprehension, no `lambda`, no `key=`. Write a loop with `.append()`.
+  - No gaps: `a[9]=x` past the end and `unset 'a[0]'` in the middle are errors; `del a[0]` removes
+    an element and moves the rest up.
+  - `b = a` copies, and a function gets a copy: `hosts = add(hosts, "x")` with `return items`.
+  - A method that changes the list (`.append`, `.pop`, `.sort`) goes on a line of its own or in
+    `x = hosts.pop()`, never inside a condition.
+  - `export hosts` is refused: `export HOSTS="${hosts[*]}"`. `$hosts` is the first element only.
 - **An unset variable is empty,** as in bash. Use `${v:-default}`, `: ${v:=default}` to set it
   once, `${v:?message}` to stop when it is missing, `set -u` to make any unset name an error.
 - **Stopping on errors.** `set -e` stops the script (never the shell) at the first failing

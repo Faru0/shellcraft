@@ -297,7 +297,7 @@ Each one has a manual: `man ls`, `man grep`.
 | Files | `ls` `find` `tree` `du` `touch` `mkdir` `cp` `mv` `rm` `basename` `dirname` `realpath` `stat` |
 | System | `date` `which` `type` `command` `env` `whoami` `hostname` `uname` `curl` |
 | Shell | `cd` `pwd` `exit` `clear` `help` `man` `hotkeys` `theme` `prompt` `settings` `alias` `history` `modules` `reload` `startup` `profile` `func` `source` `:` `export` `read` `sleep` `time` `xargs` `test` |
-| Scripting | `for` `while` `until` `if` `case` `select` `function` `set` `trap` `getopts` |
+| Scripting | `for` `while` `until` `if` `case` `select` `function` `set` `trap` `getopts` `mapfile` |
 | Subshells and alerts | `sub` `jobs` `alert` `clip` `record` `script` |
 | AI and MCP | `ask` `mcp` `ai` `watch` `tasks` `findings` `fleet` `mark` `tell` `review` `ingest` |
 

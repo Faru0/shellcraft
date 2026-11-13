@@ -71,8 +71,8 @@ If you forget `done`, the prompt keeps waiting for more lines. In a file, you ge
 ## Loop over a list
 
 Often the list lives in a variable: the servers you check every morning, the folders you back up.
-ShellCraft has no arrays. Keep the list in a plain variable, with spaces between the items, and
-leave the variable *unquoted* after `in` so it splits into words:
+The simplest list is a plain variable, with spaces between the items. Leave the variable
+*unquoted* after `in` so it splits into words:
 
 <!-- run -->
 ```
@@ -130,6 +130,29 @@ for task in $todo; do echo "- $task"; done
 
 The extra space at the front of `todo` doesn't matter, because the loop splits at spaces and skips
 empty pieces.
+
+A plain variable works as long as no item has a space in it. When one does, or when you want to
+count the items, change one or pick one by its number, use an array:
+
+<!-- run -->
+```
+servers=(web1 db1 "mail server")
+for server in "${servers[@]}"; do
+  echo "checking $server"
+done
+echo "${#servers[@]} servers, the last is ${servers[-1]}"
+```
+
+<!-- output -->
+```
+checking web1
+checking db1
+checking mail server
+3 servers, the last is mail server
+```
+
+[Arrays, lists and dicts](arrays-and-lists.md) has the whole story, with dicts and the Python way
+of writing a list.
 
 ## Count with a range
 
