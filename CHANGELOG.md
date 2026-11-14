@@ -8,10 +8,10 @@ and the project uses [semantic versioning](https://semver.org/).
 ### Added
 
 - **A second demo recording** (`docs/demo3.gif`, `docs/demo3.cast`), next to the first one. It shows what is
-  ShellCraft's own: your `~/.shellcraft` folder with the rc file, a function, a func and a module of your
-  own, a request pasted from a browser's "Copy as cURL", pipes and redirection, a list and a loop,
-  environment variables and a setting, `mcp start`, and `ask`, where the AI reads the screen, runs a command
-  in your shell, raises an alert and leaves the next command for Alt-v.
+  ShellCraft's own. It starts with `mcp start` and `ask`, where the AI reads the screen, runs a command in
+  your shell, raises an alert and leaves the next command for Alt-v. Then come your `~/.shellcraft` folder
+  with the rc file, a function, a func and a module of your own, a request pasted from a browser's "Copy as
+  cURL", pipes and redirection, a list and a loop, environment variables and a setting.
   - `python tools/demo3.py` records it again, in a throwaway home. Nothing leaves the machine: the API is a
     small server on 127.0.0.1, and the AI is `tools/demo3_ai.py`, a stand-in for the Claude Code client. Its
     sentences are scripted. Its tool calls are real, so the job, the alert, the clip register and `ai log`

@@ -6,11 +6,11 @@
     python tools/cast2gif.py docs/demo3.cast the GIF, docs/demo3.gif (needs Pillow; `agg` does it too)
 
 It is recorded the way tools/demo.py records the first one (same pty, same size, same theme), in a
-throwaway home folder, so your config, history, keys and files never appear. This one shows the
-`~/.shellcraft` folder (the rc file, a func, a module of your own), a request pasted from a browser's
-"Copy as cURL", pipes and redirection, environment variables and settings, the MCP server, and `ask`:
-the AI reads the screen, runs a command in the shell, raises an alert and leaves the next command
-for Alt-v.
+throwaway home folder, so your config, history, keys and files never appear. This one starts with the
+MCP server and `ask`: the AI reads the screen, runs a command in the shell, raises an alert and leaves
+the next command for Alt-v. Then it shows the `~/.shellcraft` folder (the rc file, a func, a module of
+your own), a request pasted from a browser's "Copy as cURL", pipes and redirection, environment
+variables and settings.
 
 Nothing leaves the machine. The API is a small server this script starts on 127.0.0.1, and the AI
 is tools/demo3_ai.py, a stand-in for the Claude Code client whose sentences are scripted and whose
@@ -94,7 +94,15 @@ COPIED = (f"curl '{API}/api/users' \\\n"
 # is sent at once (control keys); ("paste", TEXT) arrives as a paste.
 SCENES: list[tuple[object, float]] = [
     (None, 2.2),  # the banner
+    # MCP and the AI come first.
+    ("mcp start", 0.25), (("keys", ENTER), 3.2),
+    ("ask what is filling app.log with errors?", 0.4), (("keys", ENTER), 12.5),
+    (("keys", ESC + "v"), 1.8),  # Alt-v: what the AI left in the clip register
+    (("keys", ENTER), 2.6),
+    ("ai log", 0.25), (("keys", ENTER), 3.6),
+    ("alert -c", 0.25), (("keys", ENTER), 1.4),  # the alert has been read
     # Your folder, and the rc file with a function in it.
+    ("clear", 0.2), (("keys", ENTER), 0.5),
     ("ls ~/.shellcraft", 0.25), (("keys", ENTER), 1.8),
     ("cat ~/.shellcraft/rc", 0.25), (("keys", ENTER), 2.6),
     ("errors app.log", 0.25), (("keys", ENTER), 2.0),  # the function the rc file defined
@@ -121,14 +129,7 @@ SCENES: list[tuple[object, float]] = [
     ("env set REGION=eu-west-1", 0.25), (("keys", ENTER), 1.0),
     ("env", 0.25), (("keys", ENTER), 2.2),
     ("settings system_commands on", 0.25), (("keys", ENTER), 1.4),  # now programs on PATH run too
-    ("uname -s", 0.25), (("keys", ENTER), 1.4),
-    # MCP and the AI.
-    ("clear", 0.2), (("keys", ENTER), 0.5),
-    ("mcp start", 0.25), (("keys", ENTER), 3.2),
-    ("ask what is filling app.log with errors?", 0.4), (("keys", ENTER), 12.5),
-    (("keys", ESC + "v"), 1.8),  # Alt-v: what the AI left in the clip register
-    (("keys", ENTER), 2.6),
-    ("ai log", 0.25), (("keys", ENTER), 4.0),
+    ("uname -s", 0.25), (("keys", ENTER), 2.0),
 ]
 
 
