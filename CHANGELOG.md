@@ -7,6 +7,20 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **`history` removes the entries you choose.** Until now `history -c` could only clear everything. Now you
+  give the numbers `history` prints:
+  - `history 5 -c` removes one entry, `history 3,7,12 -c` a list, `history 3-9 -c` a range, and they mix:
+    `history 3,7-9,12 -c`.
+  - Spaces work in place of commas (`history 3 7 12 -c`), `-c` may come first (`history -c 5`), and `-d` is
+    bash's spelling (`history -d 5`, `history -d 3-9`).
+  - It prints each removed line with its number, then how many it removed. The entries leave the history file
+    and this session, so ↑, Ctrl-R and `!N` no longer find them. The other entries keep their saved times.
+  - A number that is not in the list is an error, and then nothing is removed.
+  - The line that removes them stays in the history, as in bash.
+  - It works in a profile with its own history, with `shellcraft -c`, and when a second shell is writing to
+    the same file: that shell's lines are kept.
+  - `history -c` alone still clears everything. AI clients still can't use `history` over MCP.
+
 - **A second demo recording** (`docs/demo3.gif`, `docs/demo3.cast`), next to the first one. It shows what is
   ShellCraft's own. It starts with `mcp start` and `ask`, where the AI reads the screen, runs a command in
   your shell, raises an alert and leaves the next command for Alt-v. Then come your `~/.shellcraft` folder

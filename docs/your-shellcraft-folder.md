@@ -108,7 +108,7 @@ it doesn't.
 | `config.json` | Settings, the theme, API keys, custom themes, disabled modules | `settings`, `theme`, `modules`, or any editor | at once from a command; at the next start from an editor |
 | `rc` | ShellCraft commands, run at every start | any editor | at the next start, or now with `source ~/.shellcraft/rc` |
 | `aliases` | `alias name='command'` lines | `alias` and `unalias`, or any editor | at the next command |
-| `history` | Everything you typed | `history -c` clears it | at once |
+| `history` | Everything you typed | `history -c` clears it, `history 5 -c` removes one entry | at once |
 | `startup/*.sc` | More files like rc, one per job, run after it | any editor | at the next start, or now with `startup run` |
 | `funcs/*.func` | Funcs that work in every profile | `func new`, `func edit`, or any editor | at once |
 | `modules/*.py` | Your own commands | any editor, or `ingest` | at once (hot reload) |

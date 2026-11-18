@@ -15,7 +15,7 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
-from shellcraft import aliases, envvars, loading, prefix, profiles, settings
+from shellcraft import aliases, envvars, histfile, loading, prefix, profiles, settings
 from shellcraft import editor as editormod
 from shellcraft.config import save_config
 from shellcraft.context import CommandError, Paged, ShellExit, Styled, WithStatus, to_text
@@ -3390,10 +3390,21 @@ history that ↑ and the ghost-text suggestions use, kept in `~/.shellcraft/hist
 ## Usage
 
 ```
-history          # every saved command
-history N        # the last N commands
-history -c       # clear the history (the file and this session's ↑ list)
+history              # every saved command
+history N            # the last N commands
+history -c           # clear the history (the file and this session's ↑ list)
+history 5 -c         # remove entry 5 only
+history 3,7,12 -c    # remove a list of entries
+history 3-9 -c       # remove entries 3 to 9
 ```
+
+The numbers are the ones `history` prints. Lists and ranges mix (`history 3,7-9,12 -c`), spaces work
+in place of commas (`history 3 7 12 -c`), and `-c` may come first (`history -c 5`). `-d` is bash's
+spelling of the same thing: `history -d 5`, `history -d 3-9`.
+
+It prints what it removed. A number that is not in the list is an error, and then nothing is removed.
+After a removal the later entries move up, so look at `history` again before you remove more. The
+removing line itself stays in the history, as in bash.
 
 Piped output is plain `  N  command` lines, so `history | grep ssh` finds old commands. Lines you
 typed with a leading space were never saved, and API keys typed as `settings NAME VALUE` are
@@ -3407,11 +3418,16 @@ Because history can contain secrets, AI clients can't use `history` over MCP.
 history 20
 history | grep -i docker
 history | tail -5
+history | grep -n password    # find it, then remove it by its number
+history 41 -c
 ```
 """
 
+HISTORY_USAGE = "history [N] | history [ENTRIES] -c [ENTRIES] | history -d ENTRIES"
+HISTORY_SHOWN = 20  # removed entries printed in full; the rest is a count
 
-@builtin("history", "Show or clear the command history", "history [N] | history -c", stateful=True,
+
+@builtin("history", "Show the command history, clear it or remove entries", HISTORY_USAGE, stateful=True,
          sensitive=True, doc=HISTORY_DOC)
 def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
     if args == ["-c"]:
@@ -3425,8 +3441,10 @@ def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         except OSError as exc:
             raise CommandError(f"history: cannot clear {path}: {exc.strerror or exc}") from None
         return Text.assemble(("✓ ", "sc.success"), "history cleared")
+    if "-c" in args or "-d" in args:
+        return _history_remove(ctx, [arg for arg in args if arg not in ("-c", "-d")])
     if len(args) > 1 or (args and not args[0].isdigit()):
-        raise CommandError("history: usage: history [N] | history -c")
+        raise CommandError(f"history: usage: {HISTORY_USAGE}")
     entries = _history_entries(ctx)
     start = 0
     if args:
@@ -3440,6 +3458,61 @@ def _history(ctx: ShellContext, args: list[str], stdin: str) -> Any:
         styled.append(command + "\n")
     styled.rstrip()
     return Styled(styled, "".join(f"{line}\n" for line in plain))
+
+
+def _history_remove(ctx: ShellContext, words: list[str]) -> Any:
+    """`history 5 -c`, `history 3,7-9 -c`, `history -d 5`: remove the entries with these numbers."""
+    if not words:
+        raise CommandError(f"history: usage: {HISTORY_USAGE}")
+    entries = _history_entries(ctx)
+    numbers = _history_numbers(words, len(entries))
+    path = profiles.history_file(ctx.config)
+    try:
+        histfile.remove(path, entries, numbers)
+    except OSError as exc:
+        raise CommandError(f"history: cannot write {path}: {exc.strerror or exc}") from None
+    loaded = getattr(ctx.history, "_loaded_strings", None)  # newest first: what ↑ and Ctrl-R read
+    if isinstance(loaded, list) and len(loaded) == len(entries):
+        for number in numbers:
+            del loaded[len(entries) - number]
+    stored = getattr(ctx.history, "_storage", None)  # a history without a file keeps a second list
+    if isinstance(stored, list) and len(stored) == len(entries):
+        for number in reversed(numbers):
+            del stored[number - 1]
+    width = len(str(len(entries)))
+    plain, styled = [], Text()
+    for number in numbers[:HISTORY_SHOWN]:
+        command = entries[number - 1].replace("\n", " ")
+        plain.append(f"{number:>{width + 2}}  {command}")
+        styled.append(f"{number:>{width + 2}}  ", style="sc.muted")
+        styled.append(command + "\n")
+    if len(numbers) > HISTORY_SHOWN:
+        plain.append(f"… and {len(numbers) - HISTORY_SHOWN} more")
+        styled.append(plain[-1] + "\n", style="sc.muted")
+    count = "1 entry" if len(numbers) == 1 else f"{len(numbers)} entries"
+    plain.append(f"✓ {count} removed")
+    styled.append("✓ ", style="sc.success")
+    styled.append(f"{count} removed")
+    return Styled(styled, "".join(f"{line}\n" for line in plain))
+
+
+def _history_numbers(words: list[str], count: int) -> list[int]:
+    """The entry numbers in `5`, `3,7,12`, `3-9` and mixes of them, sorted, each once."""
+    numbers: set[int] = set()
+    pieces = [piece for piece in ",".join(words).split(",") if piece]  # `3, 7` is `3,7`
+    if not pieces:
+        raise CommandError(f"history: usage: {HISTORY_USAGE}")
+    for piece in pieces:
+        first, dash, last = piece.partition("-")
+        if not (first.isascii() and first.isdigit()) or (dash and not (last.isascii() and last.isdigit())):
+            raise CommandError(f"history: {piece}: not an entry number (use 5, 3,7,12 or 3-9)")
+        low, high = sorted((int(first), int(last or first)))
+        for number in (low, high):
+            if not 1 <= number <= count:
+                has = f"the history has {count}" if count else "the history is empty"
+                raise CommandError(f"history: {number}: no such entry ({has})")
+        numbers.update(range(low, high + 1))
+    return sorted(numbers)
 
 
 def _history_entries(ctx: ShellContext) -> list[str]:

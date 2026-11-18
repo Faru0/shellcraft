@@ -147,7 +147,10 @@ cat !$      # !$ is the last word of the previous command
 | `!42` | Run command 42 from `history` |
 | `!git` | Run the last command that started with `git` |
 | `!$` | The last word of the previous command: `cat !$` |
-| `history -c` | Clear it |
+| `history 5 -c` | Remove entry 5 only |
+| `history 3,7,12 -c` | Remove a list of entries |
+| `history 3-9 -c` | Remove entries 3 to 9 |
+| `history -c` | Clear all of it |
 
 ### Keep something out of history
 
@@ -157,6 +160,43 @@ that's a problem. There are two ways around it:
 - Start the line with a space. It runs normally but is never saved.
 - `settings NAME VALUE` and `env set -s NAME VALUE` are saved with the value replaced by `••••`.
   Better still, type `settings NAME` and enter the value when it asks: it's never shown or saved.
+
+### Remove what is already there
+
+If a password or a typo is already in your history, you don't have to clear everything. Find its
+number with `history`, then remove that entry:
+
+```
+history | grep TOKEN
+   41  export TOKEN=abc123
+history 41 -c
+   41  export TOKEN=abc123
+✓ 1 entry removed
+```
+
+The numbers are the ones `history` prints. You can give more than one at a time:
+
+```
+history 5 -c            # one entry
+history 3,7,12 -c       # a list
+history 3-9 -c          # from 3 to 9, both included
+history 3,7-9,12 -c     # a mix of the two
+history 3 7 12 -c       # spaces work in place of commas
+history -c 5            # -c may come first
+history -d 5            # -d is how bash spells it
+```
+
+It prints what it removed. The entries are gone from the file and from this session, so ↑ and
+Ctrl-R no longer find them.
+
+Three things to know:
+
+- If one of the numbers isn't in the list, you get an error and nothing is removed.
+- After a removal the later entries move up and get new numbers. Look at `history` again before
+  you remove more.
+- The line you typed to remove them stays in your history, as in bash. It only holds numbers.
+
+`history -c` with no number still clears all of it.
 
 ### The history file
 

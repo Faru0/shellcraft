@@ -188,9 +188,182 @@ def test_history_reads_the_file_in_c_mode_and_clears(ctx, tmp_path):
     assert out("history", ctx) == ""
 
 
+def typed(ctx, *lines):
+    """A session's history that holds these lines, oldest first."""
+    ctx.history = InMemoryHistory()
+    for line in lines:
+        ctx.history.append_string(line)
+
+
+@pytest.mark.parametrize("line, left", [
+    ("history 2 -c", "acdef"),
+    ("history 2,4,6 -c", "ace"),
+    ("history 2-4 -c", "aef"),
+    ("history 4-2 -c", "aef"),
+    ("history 1,3-4,6 -c", "be"),
+    ("history 1 3 6 -c", "bde"),
+    ("history 1, 3 -c", "bdef"),
+    ("history 2,2,1-2 -c", "cdef"),
+    ("history -c 5", "abcdf"),
+    ("history -c 2-3 6", "ade"),
+    ("history -d 5", "abcdf"),
+    ("history -d 1-2,6", "cde"),
+    ("history 1-6 -c", ""),
+])
+def test_history_removes_the_entries_you_number(ctx, line, left):
+    typed(ctx, *"abcdef")
+    run_line(line, ctx)
+    assert "".join(ctx.history.get_strings()) == left
+    assert out("history", ctx) == "".join(f"  {n}  {c}\n" for n, c in enumerate(left, start=1))
+
+
+def test_history_shows_what_it_removed(ctx):
+    typed(ctx, "ls", "export TOKEN=abc", "for x in 1 2\ndo echo $x\ndone", "pwd")
+    assert out("history 2-3 -c", ctx) == (
+        "  2  export TOKEN=abc\n  3  for x in 1 2 do echo $x done\n✓ 2 entries removed\n")
+    assert out("history 1 -c", ctx) == "  1  ls\n✓ 1 entry removed\n"
+    assert out("history", ctx) == "  1  pwd\n"
+    typed(ctx, *(f"echo {n}" for n in range(1, 31)))
+    shown = out("history 3-27 -c", ctx).splitlines()
+    assert len(shown) == 22 and shown[0] == "   3  echo 3" and shown[19] == "  22  echo 22"
+    assert shown[20:] == ["… and 5 more", "✓ 25 entries removed"]
+
+
+@pytest.mark.parametrize("line, message", [
+    ("history 7 -c", "7: no such entry \\(the history has 6\\)"),
+    ("history 0 -c", "0: no such entry"),
+    ("history 2,9 -c", "9: no such entry"),
+    ("history 5-8 -c", "8: no such entry"),
+    ("history abc -c", "abc: not an entry number"),
+    ("history 2- -c", "2-: not an entry number"),
+    ("history -3 -c", "-3: not an entry number"),
+    ("history 1-2-3 -c", "1-2-3: not an entry number"),
+    ("history , -c", "usage"),
+    ("history ² -c", "not an entry number"),
+    ("history -d", "usage"),
+    ("history 2 3", "usage"),
+    ("history 2-3", "usage"),
+])
+def test_history_removes_nothing_when_a_number_is_wrong(ctx, tmp_path, line, message):
+    home = tmp_path / ".home"
+    home.mkdir()
+    text = "".join(f"\n# t{n}\n+{c}\n" for n, c in enumerate("abcdef"))
+    (home / "history").write_text(text)
+    typed(ctx, *"abcdef")
+    with pytest.raises(PipelineError, match=message):
+        run_line(line, ctx)
+    assert "".join(ctx.history.get_strings()) == "abcdef"
+    assert (home / "history").read_text() == text
+
+
+def test_history_on_an_empty_history(ctx):
+    typed(ctx)
+    with pytest.raises(PipelineError, match="1: no such entry \\(the history is empty\\)"):
+        run_line("history 1 -c", ctx)
+
+
+def live(ctx, path):
+    """The history a shell holds on this file, read as the prompt reads it."""
+    import asyncio
+
+    from shellcraft.shell import RedactingFileHistory
+
+    async def load(history):
+        async for _ in history.load():
+            pass
+
+    ctx.history = RedactingFileHistory(str(path))
+    asyncio.run(load(ctx.history))
+    return ctx.history
+
+
+def test_history_rewrites_the_file_and_keeps_the_rest_as_it_was(ctx, tmp_path):
+    home = tmp_path / ".home"
+    home.mkdir()
+    path = home / "history"
+    path.write_text("\n# day 1\n+ls\n\n# day 2\n+for x in 1 2\n+do echo $x\n+done\n\n# day 3\n+pwd\n"
+                    "\n# day 4\n+ls\n")
+    path.chmod(0o640)
+    history = live(ctx, path)
+    assert out("history", ctx) == "  1  ls\n  2  for x in 1 2 do echo $x done\n  3  pwd\n  4  ls\n"
+    run_line("history 2,4 -c", ctx)  # the second `ls`, not the first
+    assert path.read_text() == "\n# day 1\n+ls\n\n# day 3\n+pwd\n"
+    assert history.get_strings() == ["ls", "pwd"]
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o640
+    assert [p.name for p in home.iterdir()] == ["history"]  # no temporary file left
+    history.append_string("date")  # the shell goes on adding to the new file
+    assert list(live(ctx, path).get_strings()) == ["ls", "pwd", "date"]
+
+
+def test_history_keeps_what_another_shell_added(ctx, tmp_path):
+    home = tmp_path / ".home"
+    home.mkdir()
+    path = home / "history"
+    path.write_text("\n# t\n+one\n\n# t\n+two\n")
+    history = live(ctx, path)
+    with open(path, "a") as other:  # a second shell on the same file
+        other.write("\n# t\n+theirs\n\n# t\n+two\n")
+    history.append_string("three")
+    assert out("history", ctx) == "  1  one\n  2  two\n  3  three\n"
+    run_line("history 2-3 -c", ctx)
+    assert path.read_text() == "\n# t\n+one\n\n# t\n+theirs\n\n# t\n+two\n"
+    assert history.get_strings() == ["one"]
+
+
+def test_history_removes_from_the_file_without_a_session(ctx, tmp_path):
+    home = tmp_path / ".home"
+    home.mkdir()
+    (home / "history").write_text("\n# t\n+first\n\n# t\n+second\n\n# t\n+third\n")
+    assert out("history -d 2", ctx) == "  2  second\n✓ 1 entry removed\n"
+    assert out("history", ctx) == "  1  first\n  2  third\n"
+    (home / "history").unlink()
+    with pytest.raises(PipelineError, match="the history is empty"):
+        run_line("history 1 -c", ctx)
+
+
+def test_history_removes_from_the_session_when_there_is_no_file(ctx, tmp_path):
+    typed(ctx, "one", "two")
+    run_line("history 1 -c", ctx)
+    assert ctx.history.get_strings() == ["two"]
+    assert list(ctx.history.load_history_strings()) == ["two"]
+    assert not (tmp_path / ".home" / "history").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs a symbolic link")
+def test_history_that_is_a_link_stays_a_link(ctx, tmp_path):
+    home = tmp_path / ".home"
+    home.mkdir()
+    real = tmp_path / "dotfiles-history"
+    real.write_text("\n# t\n+one\n\n# t\n+two\n")
+    (home / "history").symlink_to(real)
+    run_line("history 1 -c", ctx)
+    assert (home / "history").is_symlink() and real.read_text() == "\n# t\n+two\n"
+
+
+def test_history_removes_from_the_profiles_own_file(ctx, tmp_path):
+    from shellcraft import profiles
+    from shellcraft.config import load_config
+
+    home = tmp_path / ".home"
+    home.mkdir(exist_ok=True)
+    (home / "history").write_text("\n# t\n+base\n")
+    profiles.create("work")
+    ctx.config = load_config()
+    ctx.config.profile = "work"
+    own = profiles.folder("work") / "history"
+    own.write_text("\n# t\n+mine\n\n# t\n+also mine\n")
+    run_line("history 1 -c", ctx)
+    assert own.read_text() == "\n# t\n+also mine\n"
+    assert (home / "history").read_text() == "\n# t\n+base\n"
+
+
 def test_history_usage_and_mcp(ctx):
     with pytest.raises(PipelineError, match="usage"):
         run_line("history abc", ctx)
+    mcp = ShellContext(registry=ctx.registry, allow_stateful=False, allow_sensitive=False)
+    with pytest.raises(PipelineError, match="not available"):
+        run_line("history 1 -c", mcp)
     mcp = ShellContext(registry=ctx.registry, allow_stateful=False, allow_sensitive=False)
     with pytest.raises(PipelineError, match="not available"):
         run_line("history", mcp)

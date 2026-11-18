@@ -220,7 +220,7 @@ def grammar(name: str, usage: str) -> Grammar | None:
             return None
     except (ValueError, IndexError):
         return None
-    # each alternative may repeat the command's name (`history [N] | history -c`): drop it
+    # each alternative may repeat the command's name (`history [N] | history -d ENTRIES`): drop it
     branches = root.items if isinstance(root, Node) and root.kind == "alt" else (root,)
     trimmed = []
     for branch in branches:
