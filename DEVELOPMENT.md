@@ -84,6 +84,7 @@ shellcraft/
 │   ├── config.py           # ~/.shellcraft/config.json (mode 600 once it holds keys) and history paths
 │   ├── banner.py           # startup banner
 │   ├── modkit.py           # helpers for module authors: ArgParser, ModuleError, EnvSetting, @script
+│   ├── pretty.py           # `table` and `listing` for module authors (`from shellcraft import table, listing`): a pretty table or list on screen, plain text elsewhere
 │   ├── mcp_server.py       # MCP server (stdio or HTTP): tools, man-page resources, list_changed on reload
 │   ├── mcp_child.py        # `mcp start/stop`: the HTTP server as a child process of the shell
 │   ├── mainlink.py         # the main shell's private link (published in ~/.shellcraft/mainlink.json): clip, co-pilot requests
@@ -166,6 +167,14 @@ shellcraft/
 A command can return `Styled(renderable, text)`: Rich output for the screen, and plain text for
 pipes, files and MCP. `ls`, `tree` and `grep` use this. `to_text()` flattens any value (a `str`,
 a `Styled` or a Rich renderable) into plain text.
+
+A module returns one through `shellcraft.pretty`: `table(data)` and `listing(data)` build the Rich table or
+list and its plain text (tab-separated by default) and return a `Pretty`, a `Styled` that joins with `+`.
+`pipeline._collect` passes a `Styled` on as it is, so the last command shows the pretty face and everything
+that reads text (`|`, `>`, `$( … )`, MCP, a watch round) gets the plain one through `to_text()`. Both names
+are loaded on first use (`__getattr__` in `shellcraft/__init__.py` and `modkit.py`), so `import shellcraft`
+stays light. A style in a colour map is a plain theme name: Rich can't resolve `"bold sc.error"` and prints
+such text with no colour. Use `sc.error` (bold) or `sc.danger` (the same colour, not bold).
 
 ## Adding a builtin
 
@@ -299,6 +308,7 @@ Never commit the same change by hand in both copies; a commit made only in the G
 | `test_curl.py` | `curl` against a real server on 127.0.0.1 (the `web` fixture): methods, headers, every body option, forms, auth, cookies, redirects, `-I` / `-i` / `-v` / `-w` / `-o`, exit statuses, retries, proxies, pasted Chrome commands (bash and cmd), `$'…'` and `\` continuations, `command`, no file writes for AI clients |
 | `test_myip.py`, `test_ip2geo.py`, `test_querydns.py`, `test_querycert.py`, `test_querycensys.py` | the network modules, with the APIs stubbed (offline): the `http` fixture fakes `urlopen`, and `queryCensys` gets a fake SDK client |
 | `test_intel.py`, `test_ioc.py`, `test_enrich.py`, `test_queryrdap.py`, `test_queryshodan.py`, `test_queryvirustotal.py`, `test_queryabuseipdb.py`, `test_querygreynoise.py` | the enrichment pack, offline: indicator kinds, defang and refang, the 24 hour answer store, rate-limit waits (`_intel.Patience`), each service's verdict rules, `enrich`'s plan (who is asked what), the summed-up verdict, skipped and failing sources |
+| `test_pretty.py` | `table` and `listing`: every shape of data, the three table looks, the three plain forms, automatic and own colours on a themed console, `+`, every error, the lazy names, and a module that returns them (last command, pipe, redirect, `$( … )`, MCP, a watch round, the checker); the colour maps of `fleet` and `findings` resolve in every theme |
 | `test_ingest.py` | the ingest wizard: analysis, conversion, docs drafts, checker, AI (mocked), `@script`, `shellcraft ingest` and the `ingest` builtin |
 | `test_background.py` | `cmd &` background jobs and `jobs -f N` |
 | `test_functions.py` | shell functions: definitions, `$1`/`$#`/`$@`, `local`, `return`, recursion, precedence, `declare` / `type` / `unset -f` |

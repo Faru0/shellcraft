@@ -38,11 +38,12 @@ pipe, a file or an AI client rather than your screen.
 2. **Entry point:** `def run(args: list[str], stdin: str) -> str`. (A converted script uses `@script` instead of rules 3–5.)
    - `args` are the words after the command name, already split and unquoted.
    - `stdin` is the previous pipeline stage's output (`""` if none).
+   - It returns text, or what `table` / `listing` give you (rule 7).
 3. **Return your output; never `print()` it.** Printing bypasses pipes and redirects, and it corrupts the MCP stdio transport. To stream, make `run()` a generator that `yield`s lines: they flow to the next command (and to the screen, if it keeps coming) as you yield them, and your generator is closed when the reader has had enough (`mymod | head -1`).
 4. **Never call `sys.exit()`.** Parse arguments with `shellcraft.modkit.ArgParser`, which is argparse but raises `ModuleError` instead of exiting.
 5. **Fail with `ModuleError("prog: clear one-line message")`.** Other exceptions still work, but they show up as `TypeError: …` noise.
 6. **Accept stdin and FILE arguments,** like Unix tools. Relative paths resolve against the shell's current directory.
-7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` work on it.
+7. **Output plain text,** one record per line, ending in `\n`, with a deterministic order. Then `| head`, `| grep` and `> file` work on it. For a pretty table or a colour-coded list, return `table(rows)` or `listing(items)` (`from shellcraft import table, listing`): your screen gets the pretty one, and a pipe, a file or an AI client gets plain text with tabs between the fields. See [Tables and lists from your module](pretty-output.md).
 8. **Optional metadata:**
    - `SUMMARY = "..."`: one line for `help` and Tab completion, used when the `.skill` has no `summary`.
    - `SPINNER_TEXT = "..."`: shown while slow calls run.

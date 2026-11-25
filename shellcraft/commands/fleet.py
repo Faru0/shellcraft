@@ -62,9 +62,9 @@ when it is a `host` finding with that name.
 `~/.shellcraft/reports/`.
 """
 
-STATUS_STYLES = {"ok": "sc.success", "warn": "sc.warning", "crit": "bold sc.error", "": "sc.muted"}
-SEVERITY_STYLES = {"info": "sc.muted", "low": "sc.accent", "medium": "sc.warning", "high": "sc.error",
-                   "critical": "bold sc.error"}
+STATUS_STYLES = {"ok": "sc.success", "warn": "sc.warning", "crit": "sc.error", "": "sc.muted"}
+SEVERITY_STYLES = {"info": "sc.muted", "low": "sc.accent", "medium": "sc.warning", "high": "sc.danger",
+                   "critical": "sc.error"}
 EMPTY = ("no machines yet: give a host `ai = true` in ~/.shellcraft/ssh-hosts.toml (man sshrun), "
          "or let a watch round run (man watchplan)")
 

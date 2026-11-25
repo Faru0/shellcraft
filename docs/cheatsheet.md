@@ -298,6 +298,38 @@ def run(args, stdin):
 
 [More](modules/first-module.md) · [Every rule](modules/reference.md)
 
+## A module that shows a table or a coloured list
+
+When your command has rows or records. Your screen gets the pretty one; a pipe, a file or an AI client gets
+plain text with tabs between the fields:
+
+```python
+from shellcraft import listing, table
+
+
+def run(args, stdin):
+    rows = [{"host": "web01", "status": "ok", "load": 0.4},
+            {"host": "db01", "status": "down", "load": 9.1}]
+    if args == ["-l"]:
+        return listing(rows, title="Hosts")     # ● ok  web01  0.4
+    return table(rows, title="Hosts")           # a boxed table; ok is green, down is red
+```
+
+```text
+table(rows, columns=["host", "status"])               pick and order the columns
+table(rows, columns={"host": "Host"})                 and rename them
+table(rows, style="lines")                            lighter looks: "lines", "bare"
+table(rows, colors={"state": {"running": "green"}})   your own words
+table(rows, colors={"load": lambda v: "red" if v > 8 else None})
+table(rows, plain="json")                             what a pipe gets: "tsv", "columns", "json"
+listing(record)                                      one dict: a line for each field
+listing(items, tag="severity")                       a list of dicts: a coloured dot and tag
+listing(["a", "b"])                                  plain values: bullets
+table(rows) + "\n" + listing(items)                  join two results
+```
+
+[More](modules/pretty-output.md)
+
 ## Ingest a script
 
 To turn a Python script you already have into a ShellCraft command:

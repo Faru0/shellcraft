@@ -7,6 +7,28 @@ and the project uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Tables and lists from your own module: `from shellcraft import table, listing`.** A module could only
+  return text, so you lined up columns by hand and had no colour. Now you hand your data to one of two
+  functions and return what it gives you:
+  - `table(rows, title="Hosts")` draws a boxed table, the look of `fleet`, `env` and `settings`. It takes a
+    list of dicts, a list of lists with `columns=[...]`, one dict, or JSON text. `columns` picks, orders and
+    renames the columns, and `style="lines"` or `style="bare"` gives a lighter look.
+  - `listing(data)` picks its look by the data: one dict is a record with a line for each field, a list of
+    dicts is one line for each item with a coloured dot and tag (`● critical  db01  disk full on /var`), a
+    list of plain values is bullets. `tag` names the field of the tag; left out, it is the first of
+    `severity`, `status`, `state`, `level`, `result` and `verdict` the items have.
+  - Known words colour themselves in the colours of your theme: `ok`, `up`, `yes` green, `warn`, `degraded`
+    yellow, `fail`, `down`, `no`, `high` red, `critical` red and bold, `info`, `low` and empty values grey.
+    For your own words pass `colors={"state": {"running": "green"}}`, for numbers a function:
+    `colors={"load": lambda v: "red" if v > 8 else None}`. `colors=False` turns them off.
+  - Your screen gets the pretty one. A pipe, a file, `$( … )` and an AI client get plain text with tabs
+    between the fields, so `mymod | cut -f 1` and `mymod | grep down` work. `plain="columns"` lines the
+    fields up with spaces and `plain="json"` gives the data itself, for `mymod | jq`.
+  - Two results join with `+`, also with text. Wrong data raises `ModuleError` with one clear line.
+  - The same names are in `shellcraft.modkit`. The module checker accepts such a result ("returns a table or
+    a list"). There is no new command at the prompt, this is for your code.
+  - New page: [Tables and lists from your module](docs/modules/pretty-output.md).
+
 - **`history` removes the entries you choose.** Until now `history -c` could only clear everything. Now you
   give the numbers `history` prints:
   - `history 5 -c` removes one entry, `history 3,7,12 -c` a list, `history 3-9 -c` a range, and they mix:
@@ -705,6 +727,10 @@ and the project uses [semantic versioning](https://semver.org/).
   still types it into another program inside a subshell), and `clip -i` stays.
 
 ### Fixed
+
+- **`critical` has its colour again in `findings` and `fleet`.** A critical finding, and a unit with the
+  status `crit`, were printed with no colour at all, so the worst line was the plainest one. They are now
+  red and bold, and `high` is the same red without the weight.
 
 - **The hint under the prompt and Tab no longer lose their place after a quoted `:`, `;` or `|`.** With
   `curl URL -H 'authorization: Bearer x'` on the line, the footer said `Bearer: command not found` and Tab

@@ -235,3 +235,13 @@ def redact_secrets(text: str) -> str:
     for pattern, repl in REDACTIONS:
         text = pattern.sub(repl, text)
     return text
+
+
+def __getattr__(name: str) -> Any:
+    """`table` and `listing` (shellcraft.pretty): a pretty table or list for a module to return.
+    Loaded on first use; shellcraft.pretty itself imports this file."""
+    if name in ("table", "listing"):
+        from shellcraft import pretty
+
+        return getattr(pretty, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

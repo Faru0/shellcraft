@@ -31,7 +31,7 @@ from rich.text import Text
 import shellcraft.pipeline  # noqa: F401 — registers every builtin, so name clashes are detected
 from shellcraft import params as params_mod
 from shellcraft.builtins import BUILTINS
-from shellcraft.context import to_text
+from shellcraft.context import Styled, to_text
 from shellcraft.loader import RESERVED_NAMES, VALID_NAME, ModuleRegistry, ModuleSpec, SkillInfo
 from shellcraft.modkit import ModuleError
 from shellcraft.settings import SETTINGS
@@ -210,8 +210,11 @@ def _judge(report: Report, label: str, outcome: Outcome, timeout: float, bad_fla
     elif outcome.error is not None:
         report.add(WARN, label, f"raised {type(outcome.error).__name__}: {outcome.error}. Raise ModuleError "
                                 "with a clear message instead")
+    elif isinstance(outcome.value, Styled):
+        report.add(PASS, label, "returns a table or a list")
     elif outcome.value is not None and not isinstance(outcome.value, str):
-        report.add(FAIL, label, f"returned {type(outcome.value).__name__}; run() must return str")
+        report.add(FAIL, label, f"returned {type(outcome.value).__name__}; run() must return str, or a table / "
+                                "listing from shellcraft")
     elif bad_flag:
         report.add(WARN, label, "unknown options are silently accepted (typos go unnoticed)")
     else:

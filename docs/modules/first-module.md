@@ -398,7 +398,7 @@ every other command.
 | Do | Don't |
 | --- | --- |
 | Name the function `run(args, stdin)` | Read `sys.argv` or `sys.stdin` |
-| Return your output as text | `print()` it |
+| Return your output as text, or as a [`table` or `listing`](pretty-output.md) | `print()` it |
 | Raise `ModuleError("name: message")` | Call `sys.exit()` or `exit()` |
 | Use `ArgParser` for switches | Use plain `argparse`, which exits Python on a bad switch |
 | Give network calls a `timeout` | Ask questions with `input()` |
@@ -408,5 +408,7 @@ The [module reference](reference.md) has every rule and option.
 
 ## Next steps
 
+- Rows or records to show? [Tables and lists from your module](pretty-output.md) gives you a pretty table or a
+  colour-coded list from one function call.
 - Already have a script that works on its own? [Ingest it](ingest.md) instead of rewriting it.
 - Have module files from someone else? See [Add modules you already have](adding-modules.md).

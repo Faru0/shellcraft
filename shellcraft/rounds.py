@@ -31,6 +31,7 @@ from typing import Any, Callable, Iterator
 
 from shellcraft import ai_install, alerts, analyst_setup, claude_run
 from shellcraft.config import config_dir
+from shellcraft.context import to_text
 from shellcraft.modkit import ModuleError
 
 LOG = "rounds.log"
@@ -78,7 +79,7 @@ def _watchplan(registry: Any, *args: str) -> str:
     if spec is None:
         raise RoundError("the watchplan module is not there (or it is turned off: modules enable watchplan)")
     try:
-        return str(spec.run(list(args), ""))
+        return to_text(spec.run(list(args), ""))
     except ModuleError as exc:
         raise RoundError(str(exc).removeprefix("watchplan: ")) from None
 

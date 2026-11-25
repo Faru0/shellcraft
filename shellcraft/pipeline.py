@@ -19,7 +19,16 @@ from typing import Any, Callable, Iterator, Mapping
 import shellcraft.commands  # noqa: F401 — registers the ported commands (ls, cat, grep, …)
 from shellcraft import aliases, arith, arrays, envvars, streams, traps, values
 from shellcraft.builtins import BUILTINS, SPINNER_TEXT
-from shellcraft.context import CommandError, ShellContext, ShellExit, WithStatus, to_text
+from shellcraft.context import (
+    CommandError,
+    Paged,
+    ShellContext,
+    ShellExit,
+    SoftWrapped,
+    Styled,
+    WithStatus,
+    to_text,
+)
 from shellcraft.inputs import Input
 from shellcraft.modkit import ModuleError
 from shellcraft.parser import _ENV_WORD, Command, ParseError, Pipeline, UnboundVariable, parse, tokenize
@@ -984,10 +993,11 @@ def _resolve(cmd: Command, stdin: Any, ctx: ShellContext) -> Any:
 
 
 def _collect(result: Any) -> Any:
-    """A module's result as text: a `run()` may return a str, a Rich renderable, or an iterator /
-    generator of lines (a streaming module), which is drained here."""
+    """A module's result as text: a `run()` may return a str, a Rich renderable, output with two
+    faces (what `table` and `listing` of shellcraft.pretty give), or an iterator / generator of
+    lines (a streaming module), which is drained here."""
     if isinstance(result, (str, bytes)) or result is None or hasattr(result, "__rich_console__") \
-            or hasattr(result, "__rich__") or isinstance(result, WithStatus):
+            or hasattr(result, "__rich__") or isinstance(result, (WithStatus, Styled, Paged, SoftWrapped)):
         return result.decode("utf-8", errors="replace") if isinstance(result, bytes) else result
     if hasattr(result, "__iter__"):
         parts = []

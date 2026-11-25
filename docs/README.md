@@ -21,6 +21,7 @@ Pick the line that sounds most like what you're trying to do.
 | Write an rc file, a startup file or a func with loops, menus and questions | [Scripting guide](scripting/README.md) |
 | Make your own command out of a Python script | [Your first module](modules/first-module.md) |
 | Turn a script you already have into a command | [Ingest a script](modules/ingest.md) |
+| Show a table or a coloured list from your own command | [Tables and lists from your module](modules/pretty-output.md) |
 | Copy and paste the common setups without reading much | [Cheat sheet](cheatsheet.md) |
 | Fix something that isn't working | [Troubleshooting](troubleshooting.md) |
 
@@ -51,6 +52,7 @@ insides to write one.
 - [Your first module](modules/first-module.md): from a three-line file to a small web API client, step by step. Start here.
 - [Ingest a script](modules/ingest.md): a wizard that converts a script you already have.
 - [Add modules you already have](modules/adding-modules.md): drop the files in, several at once.
+- [Tables and lists from your module](modules/pretty-output.md): hand `table` or `listing` your data and get a pretty table or a colour-coded list on screen, and plain text in a pipe.
 - [Module reference](modules/reference.md): every rule, file and option in one place, for when you know what you're looking for.
 
 ## If you use it every day

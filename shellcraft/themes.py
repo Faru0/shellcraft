@@ -74,6 +74,7 @@ class ThemeDef:
                 "sc.accent": self.accent,
                 "sc.muted": self.muted,
                 "sc.error": f"bold {self.error}",
+                "sc.danger": self.error,  # the error colour without the weight: a bad value in a table
                 "sc.success": self.success,
                 "sc.warning": self.warning,
                 "sc.border": self.accent,

@@ -41,8 +41,9 @@ be the end of the full one. The AI reads and writes the same case with `add_find
 The case files are in `~/.shellcraft/findings/CASE/`.
 """
 
-SEVERITY_STYLES = {"info": "sc.muted", "low": "sc.accent", "medium": "sc.warning", "high": "sc.error",
-                   "critical": "bold sc.error"}
+# `sc.error` is bold, `sc.danger` is the same colour without the weight, so critical stands out.
+SEVERITY_STYLES = {"info": "sc.muted", "low": "sc.accent", "medium": "sc.warning", "high": "sc.danger",
+                   "critical": "sc.error"}
 
 
 def _short(item: dict[str, Any]) -> str:
